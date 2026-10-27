@@ -5,8 +5,10 @@
   private process lifecycle/session-revocation proof and ends at unreviewed drift
   HOLD; it has no public promotion command. Stage1 evidence stays immutable;
   each pristine candidate qualification has a separate exclusive attempt journal
-  and the v5 work root uses FD-validated exact directory permissions under umask077.
+  and the v6 work root uses FD-validated exact directory permissions under umask077.
   Startup/proof fixed refusal diagnostics have explicit AST reachability coverage.
+  The same strict exact-IP parser handles listener and JDBC mapped-loopback forms;
+  accepted proof endpoints retain canonical IPv4 text and all ownership guards.
 - `pilot_acceptance.py`: pinned narrow Admin API retention/MSAD/audience/basic
   operations reused against the verified private process before pilot user APIs.
 - `backup.sh`: canonical full `keycloak` database/configuration backup. Recovery

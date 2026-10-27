@@ -34,7 +34,7 @@ switch command. Production application SSO activation is a separate gate.
 ## Private execution closure
 
 After independent source review, install the exact reviewed buffers exclusively
-under `/root/keycloak-identity-recovery-20261027-executor-v5` (root, mode 0700), with
+under `/root/keycloak-identity-recovery-20261027-executor-v6` (root, mode 0700), with
 `recover_pilot_identity.py` and the pinned `pilot_acceptance.py` root, mode 0600. Verify
 the complete physical ancestor chain and hashes before execution; never execute
 root source from an ordinary-user/PostgreSQL-writable staging directory. Preserve
@@ -48,17 +48,17 @@ and systemd exec time are different events and have no tolerance comparison.
 The server command has no secrets in argv:
 
 ```sh
-/usr/bin/python3 -I -u /root/keycloak-identity-recovery-20261027-executor-v5/recover_pilot_identity.py \
+/usr/bin/python3 -I -u /root/keycloak-identity-recovery-20261027-executor-v6/recover_pilot_identity.py \
   --qualify-private-candidate keycloak_recovery_20261027_55f72537 \
-  --pilot-helper /root/keycloak-identity-recovery-20261027-executor-v5/pilot_acceptance.py \
+  --pilot-helper /root/keycloak-identity-recovery-20261027-executor-v6/pilot_acceptance.py \
   --pilot-helper-sha256 7df5688f2c4de83cec4047c1788e56a8ccf1b84bd7297102545bea7bfa0a1cd8
 ```
 
 The candidate has its own physical data/home/temp directories and local cache
-under the new `/var/lib/keycloak-recovery-v5` root. The previous
-`/var/lib/keycloak-recovery` directory, retained v4 tree and all prior journals
+under the new `/var/lib/keycloak-recovery-v6` root. The previous
+`/var/lib/keycloak-recovery` directory, retained v4/v5 trees and all prior journals
 remain unchanged. Existing private processes in any of these roots refuse a
-new attempt; retained inactive v4 files are not repaired or resumed.
+new attempt; retained inactive files are not repaired or resumed.
 All three group-traversable directories (common root, candidate and TLS) use one
 exclusive creation primitive: create 0700 relative to a protected parent FD,
 open without following links, validate root ownership/inode, then set group and
@@ -80,8 +80,8 @@ Its distribution is freshly extracted from the retained official archive at
 The optimized build runs only in this private tree, in a network namespace with
 an empty environment and a 1024 MiB heap. Runtime heap is 768 MiB with explicit
 private Java home/temp properties. Live `/opt/keycloak` is not copied or built.
-The candidate-specific v5 build recipe SHA256 is
-`d6d4a6b64ed958e887e8fb84706d030c6ec76fadd19ba63234e806d7671a8082`.
+The candidate-specific v6 build recipe SHA256 is
+`62b4541c4052fdfc90a60e5087bbb20a40e8fa1fc55868b61a3955995f107fa1`.
 All outgoing provider/client/listener configuration is checked before session
 APIs; only the fixed read-only LDAPS pilot scope is permitted.
 
@@ -91,6 +91,20 @@ normal corporate-CA/hostname verification for `sso.sosnadmin.local`. The browser
 uses the fixed trusted 18449 authority, intercepts all three registered callbacks
 before application requests, and denies other HTTP/WebSocket egress. No TLS
 validation bypass, public proxy change or application binding is required.
+
+Native `ss` may render Java sockets as `[::ffff:127.0.0.1]:<port>`, including
+both sides of local PostgreSQL connections. One strict numeric endpoint parser
+accepts only literal 127.0.0.1 or IPv4-mapped IPv6 whose embedded address is
+exactly 127.0.0.1. It checks the exact listener/peer port (and bounded numeric
+source port), rejecting ::1, wildcard, other 127 addresses/IPs, names, zones,
+ambiguous syntax and duplicate listeners. Accepted listeners are normalized to
+the existing canonical 127.0.0.1 fields in the 35-field proof. PID/UID/group/exe,
+all three owned sockets, exact PostgreSQL client-port/OID sets, TLS, no-UDP and
+Nginx exposure guards remain required. The mapped grammar was observed on the
+canonical service; stopped prior candidate sockets were not reconstructed, so
+their exact formatting is not retrospectively asserted. A source-pinned pure
+parser check against existing canonical sockets is a separate native preflight,
+with no bind, JVM launch or configuration change.
 
 ## Memory-only RPC and cleanup
 

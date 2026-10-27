@@ -256,11 +256,11 @@ def test_isolated_launch_recipe_has_separate_tree_environment_ports_and_no_secre
     assert command[:5] == ["runuser", "-u", "keycloak", "--", "env"]
     assert "-i" in command
     assert command[-2:] == ["start", "--optimized"]
-    assert command[-3].startswith("--config-file=/var/lib/keycloak-recovery-v5/")
-    assert command[-4].startswith("/var/lib/keycloak-recovery-v5/")
+    assert command[-3].startswith("--config-file=/var/lib/keycloak-recovery-v6/")
+    assert command[-4].startswith("/var/lib/keycloak-recovery-v6/")
     assert not any("/opt/keycloak" in arg for arg in command)
     assert any("JAVA_OPTS_KC_HEAP=-Xms128m -Xmx768m" == arg for arg in command)
-    assert any('-Duser.home=/var/lib/keycloak-recovery-v5/keycloak_recovery_20261027_abcdef12/work' in arg for arg in command)
+    assert any('-Duser.home=/var/lib/keycloak-recovery-v6/keycloak_recovery_20261027_abcdef12/work' in arg for arg in command)
     assert recipe["http"] == "127.0.0.1:8089" and recipe["management"] == "127.0.0.1:9009"
     assert recipe["shared_mutable_paths"] == [] and recipe["cache"] == "local"
 
@@ -292,8 +292,8 @@ def test_browser_tls_profile_is_fixed_private_and_never_uses_a_validation_bypass
     values = dict(line.split("=", 1) for line in result.splitlines() if line)
     assert values["hostname"] == "https://sso.sosnadmin.local:18449"
     assert values["https-port"] == "8449" and values["http-management-scheme"] == "http"
-    assert values["https-certificate-key-file"] == "/var/lib/keycloak-recovery-v5/" + candidate + "/tls/key.pem"
-    assert values["https-certificate-file"] == "/var/lib/keycloak-recovery-v5/" + candidate + "/tls/fullchain.pem"
+    assert values["https-certificate-key-file"] == "/var/lib/keycloak-recovery-v6/" + candidate + "/tls/key.pem"
+    assert values["https-certificate-file"] == "/var/lib/keycloak-recovery-v6/" + candidate + "/tls/fullchain.pem"
     assert values["http-host"] == "127.0.0.1"
     recipe = m.runtime_recipe(candidate, browser_tls=True)
     assert recipe["https"] == "127.0.0.1:8449"
@@ -600,7 +600,7 @@ def test_actual_runtime_stop_guard_rejects_signal_for_uncertain_process(failure,
     runtime.process = SimpleNamespace(pid=40, poll=lambda:None)
     runtime.process_start = 123
     runtime.canonical_pid = 40 if failure == "canonical-pid" else 90
-    runtime.private = Path('/var/lib/keycloak-recovery-v5/keycloak_recovery_20261027_abcdef12')
+    runtime.private = Path('/var/lib/keycloak-recovery-v6/keycloak_recovery_20261027_abcdef12')
     runtime.keycloak = SimpleNamespace(pw_uid=1000)
     runtime.output = None
     monkeypatch.setattr(m, '_pid_start', lambda pid:999 if failure == 'pid-reuse' else 123)
@@ -674,7 +674,7 @@ def test_private_build_has_no_network_shared_home_or_inherited_environment():
     assert recipe['argv'][:5]==['unshare','--net','--','env','-i']
     assert recipe['argv'][-5:]==['build','--db=postgres','--health-enabled=true','--metrics-enabled=false','--cache=local']
     assert all('/opt/keycloak' not in arg for arg in recipe['argv'])
-    assert any(arg.startswith('HOME=/var/lib/keycloak-recovery-v5/') for arg in recipe['argv'])
+    assert any(arg.startswith('HOME=/var/lib/keycloak-recovery-v6/') for arg in recipe['argv'])
     assert any(arg.startswith('JAVA_OPTS_KC_HEAP=-Xms128m -Xmx1024m') for arg in recipe['argv'])
 
 
@@ -772,7 +772,7 @@ def test_private_build_cleanup_owns_group_even_when_shell_has_exited(scenario,mo
     def signal_group(group,number):signals.append((group,number));state['members']=False
     monkeypatch.setattr(m.os,'killpg',signal_group,raising=False)
     invoke=lambda:m._run_owned_private_group(['private-build'],input_bytes=None,output=io.BytesIO(),timeout=1,
-        cwd=None,environment={},prefix='/var/lib/keycloak-recovery-v5/keycloak_recovery_20261027_abcdef12',forbidden={90,91})
+        cwd=None,environment={},prefix='/var/lib/keycloak-recovery-v6/keycloak_recovery_20261027_abcdef12',forbidden={90,91})
     if scenario=='timeout':
         with pytest.raises(m.subprocess.TimeoutExpired):invoke()
     else:invoke()
@@ -1136,7 +1136,7 @@ def test_actual_owned_build_cleanup_failure_preserves_original_timeout_metadata(
     monkeypatch.setattr(m,'_stop_owned_build_group',lambda *args:(_ for _ in ()).throw(ValueError('raw-cleanup-secret')))
     with pytest.raises(m.RecoveryRefused) as caught:
         m._run_owned_private_group(['build'],input_bytes=None,output=io.BytesIO(),timeout=1,cwd=None,environment={},
-            prefix='/var/lib/keycloak-recovery-v5/keycloak_recovery_20261027_abcdef12',forbidden={90})
+            prefix='/var/lib/keycloak-recovery-v6/keycloak_recovery_20261027_abcdef12',forbidden={90})
     assert caught.value.primary_metadata=={'exception_class':'TimeoutExpired','refusal_code':None}
     assert caught.value.cleanup_metadata=={'exception_class':'ValueError','refusal_code':None}
     assert caught.value.args==('PrivateBuildCleanupHold',)
@@ -1180,9 +1180,113 @@ def test_every_fixed_reachable_startup_refusal_preserves_exact_safe_diagnostic()
     import re
     m=module();codes,visited=reachable_startup_refusal_codes()
     assert {'PrivateCandidateRuntime.proof','_capture_canonical_reference','_canonical_java_reference',
-            '_pid_start','_owned_build_members','distribution_inventory','validate_outbound_metadata'}<=visited
+            '_pid_start','_owned_build_members','distribution_inventory','validate_outbound_metadata','_exact_loopback_port'}<=visited
     assert 'ProcessIdentityUnavailable' in codes
     assert all(re.fullmatch('[A-Z][A-Za-z0-9]{1,99}',code) for code in codes)
     assert codes<=m.SAFE_REFUSAL_CODES, 'Missing fixed safe diagnostic codes: '+','.join(sorted(codes-m.SAFE_REFUSAL_CODES))
     for code in sorted(codes):
         assert m._safe_error_metadata(m.RecoveryRefused(code))=={'exception_class':'RecoveryRefused','refusal_code':code}
+
+
+@pytest.mark.parametrize('endpoint',['127.0.0.1:8089','[::ffff:127.0.0.1]:8089','[::ffff:7f00:1]:8089',
+                                    '[0:0:0:0:0:ffff:7f00:1]:8089'])
+def test_exact_fixed_loopback_endpoint_accepts_only_same_ip_semantics(endpoint):
+    m=module();assert m._exact_loopback_port(endpoint,8089)==8089
+
+
+@pytest.mark.parametrize('endpoint',['[::1]:8089','0.0.0.0:8089','*:8089','[::]:8089','127.0.0.2:8089',
+    '[::ffff:127.0.0.2]:8089','[::ffff:0.0.0.0]:8089','192.0.2.1:8089','localhost:8089',
+    '[::ffff:127.0.0.1%lo]:8089','::ffff:127.0.0.1:8089','[127.0.0.1]:8089','127.0.0.1:http',
+    '127.0.0.1:0','127.0.0.1:65536','127.0.0.1:08089','127.0.0.1:8090','[::ffff:127.0.0.1]:8090',
+    ' 127.0.0.1:8089','127.0.0.1:8089\n','[::ffff:127.0.0.1]:8089extra','127.000.0.1:8089'])
+def test_exact_fixed_loopback_endpoint_refuses_other_addresses_or_ambiguous_grammar(endpoint):
+    assert module()._exact_loopback_port(endpoint,8089) is None
+
+
+def native_mapped_runtime_fixture(m,monkeypatch,tmp_path):
+    import stat
+    from types import SimpleNamespace
+    runtime=m.PrivateCandidateRuntime.__new__(m.PrivateCandidateRuntime)
+    runtime.candidate='keycloak_recovery_20261027_abcdef12';runtime.candidate_oid=20856
+    runtime.process=SimpleNamespace(pid=40,poll=lambda:None);runtime.process_start=100;runtime.canonical_pid=90
+    runtime.keycloak=SimpleNamespace(pw_uid=999);runtime.canonical_exe='/usr/lib/jvm/java-21-openjdk-amd64/bin/java'
+    runtime.java_pid=None;runtime.java_start_ticks=None;runtime._owned_group=lambda:state['group_members']
+    runtime.private=tmp_path;runtime.receipts=tmp_path/'receipts';runtime.distribution=tmp_path/'distribution'
+    (tmp_path/'candidate.conf').write_bytes(b'configuration')
+    runtime.config_sha256=hashlib.sha256(b'configuration').hexdigest();runtime.tls_verified=True
+    for name in ('data','work','tmp'):setattr(runtime,name,SimpleNamespace(lstat=lambda:SimpleNamespace(st_mode=stat.S_IFDIR|state['mutable_mode'],st_uid=999)))
+    runtime.expected_tree={'sha256':digest('tree'),'binary_files':505,'custom_provider_artifact_count':0}
+    runtime.outbound={'safe':True};runtime.build_recipe_sha256=digest('recipe')
+    # Exact safe host token was observed on canonical Java listeners and BOTH
+    # JDBC sides. Private ports/PIDs and source ephemeral ports are fixtures.
+    listeners=[f'LISTEN 0 4096 [::ffff:127.0.0.1]:{port} *:* users:(("java",pid=41,fd=10))' for port in (8089,9009,8449)]
+    connections=[f'ESTAB 0 0 [::ffff:127.0.0.1]:{port} [::ffff:127.0.0.1]:5544 users:(("java",pid=41,fd=11))' for port in (50001,50002)]
+    state={'listeners':listeners,'connections':connections,'db_ports':[50001,50002],'udp':b'',
+           'java_uid':999,'group_members':[40,41],'exe':runtime.canonical_exe,'mutable_mode':0o700,
+           'nginx':b'http { server { listen 443; } }','tree':runtime.expected_tree,'outbound':runtime.outbound}
+    def runner(argv,**kwargs):
+        if argv==['ss','-Hltnp']:return '\n'.join(state['listeners']).encode()
+        if argv==['ss','-Hlunp']:return state['udp']
+        if argv==['ss','-Hntp']:return '\n'.join(state['connections']).encode()
+        if argv==['nginx','-T']:return state['nginx']
+        assert '--dbname' in argv
+        return json.dumps({'oid':20856,'owner':'keycloak','ports':state['db_ports']}).encode()
+    runtime.runner=runner
+    actual_path=m.Path
+    monkeypatch.setattr(m,'Path',lambda value:SimpleNamespace(stat=lambda:SimpleNamespace(st_uid=state['java_uid']))
+                        if str(value).startswith('/proc/') else actual_path(value))
+    monkeypatch.setattr(m,'_physical_root_path',lambda *args,**kwargs:None)
+    monkeypatch.setattr(m,'_pid_start',lambda pid:100 if pid==40 else 200)
+    monkeypatch.setattr(m.os,'readlink',lambda path:state['exe'])
+    monkeypatch.setattr(m.os,'getpgid',lambda pid:40,raising=False)
+    monkeypatch.setattr(m,'distribution_inventory',lambda *args,**kwargs:state['tree'])
+    monkeypatch.setattr(m,'collect_outbound_safety',lambda *args,**kwargs:state['outbound'])
+    return runtime,state
+
+
+@pytest.mark.parametrize('format',['mapped','plain','mapped-hex'])
+def test_full_runtime_proof_accepts_observed_native_mapped_grammar_and_keeps_canonical35fields(format,monkeypatch,tmp_path):
+    m=module();runtime,state=native_mapped_runtime_fixture(m,monkeypatch,tmp_path)
+    if format!='mapped':
+        token='127.0.0.1' if format=='plain' else '[::ffff:7f00:1]'
+        for key in ('listeners','connections'):state[key]=[line.replace('[::ffff:127.0.0.1]',token) for line in state[key]]
+    proof=runtime.proof()
+    assert len(proof)==35 and proof['http_listener']=='127.0.0.1:8089'
+    assert proof['management_listener']=='127.0.0.1:9009' and proof['https_listener']=='127.0.0.1:8449'
+    assert proof['jdbc_client_ports']==[50001,50002] and proof['socket_pids']==[41]
+
+
+@pytest.mark.parametrize('change,code',[('duplicate','PrivateRuntimeListenerNotLoopback'),('wildcard','PrivateRuntimeListenerNotLoopback'),
+    ('other-loopback','PrivateRuntimeListenerNotLoopback'),('foreign-pid','PrivateRuntimeSocketPidMismatch'),
+    ('foreign-uid','PrivateRuntimeJavaIdentityMismatch'),('foreign-group','PrivateRuntimeJavaIdentityMismatch'),
+    ('foreign-exe','PrivateRuntimeJavaIdentityMismatch'),('jdbc-source','PrivateRuntimeJdbcSourceNotLoopback'),
+    ('jdbc-peer','PrivateRuntimeJdbcDatabaseMismatch'),('jdbc-set','PrivateRuntimeJdbcDatabaseMismatch'),
+    ('udp','PrivateRuntimeUnexpectedClusterSocket'),('mutable','PrivateMutableDirectoryMismatch'),
+    ('distribution','PrivateRuntimeDistributionChanged'),('outbound','PrivateRuntimeOutboundMetadataChanged'),
+    ('nginx','PrivateRuntimeProxyExposurePossible'),('tls','PrivateRuntimeTlsProofMissing')])
+def test_full_mapped_runtime_proof_preserves_other_isolation_and_jdbc_guards(change,code,monkeypatch,tmp_path):
+    m=module();runtime,state=native_mapped_runtime_fixture(m,monkeypatch,tmp_path)
+    if change=='duplicate':state['listeners'].append(state['listeners'][0])
+    elif change=='wildcard':state['listeners'][0]=state['listeners'][0].replace('[::ffff:127.0.0.1]','[::]')
+    elif change=='other-loopback':state['listeners'][0]=state['listeners'][0].replace('127.0.0.1','127.0.0.2')
+    elif change=='foreign-pid':state['listeners'][0]=state['listeners'][0].replace('pid=41','pid=52')
+    elif change=='foreign-uid':state['java_uid']=998
+    elif change=='foreign-group':state['group_members']=[40]
+    elif change=='foreign-exe':state['exe']='/usr/bin/foreign-java'
+    elif change=='jdbc-source':state['connections'][0]=state['connections'][0].replace('[::ffff:127.0.0.1]:50001','[::1]:50001')
+    elif change=='jdbc-peer':state['connections'][0]=state['connections'][0].replace('[::ffff:127.0.0.1]:5544','[::1]:5544')
+    elif change=='jdbc-set':state['db_ports']=[50001]
+    elif change=='udp':state['udp']=b'UNCONN 0 0 127.0.0.1:12345 *:* users:(("java",pid=41,fd=12))'
+    elif change=='mutable':state['mutable_mode']=0o755
+    elif change=='distribution':state['tree']=dict(runtime.expected_tree,sha256=digest('changed'))
+    elif change=='outbound':state['outbound']={'safe':False}
+    elif change=='nginx':state['nginx']=b'proxy_pass http://127.0.0.1:8089;'
+    else:runtime.tls_verified=False
+    with pytest.raises(m.RecoveryRefused,match='^'+code+'$'):runtime.proof()
+
+
+@pytest.mark.parametrize('port',[1,50001,65535])
+def test_jdbc_source_port_parser_remains_numeric_bounded_and_exact_loopback(port):
+    m=module()
+    assert m._exact_loopback_port('[::ffff:127.0.0.1]:'+str(port))==port
+    assert m._exact_loopback_port('127.0.0.1:'+str(port))==port

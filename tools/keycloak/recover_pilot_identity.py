@@ -19,6 +19,7 @@ from collections import Counter
 import hashlib
 import io
 import importlib.util
+import ipaddress
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -301,7 +302,7 @@ def candidate_configuration(source, candidate, *, browser_tls=False):
     del values["proxy-trusted-addresses"]
     require(type(browser_tls) is bool, "InvalidBrowserTlsProfile")
     if browser_tls:
-        private = "/var/lib/keycloak-recovery-v5/" + candidate
+        private = "/var/lib/keycloak-recovery-v6/" + candidate
         values.update({"hostname": "https://sso.sosnadmin.local:18449", "https-port": "8449",
                        "https-certificate-file": private + "/tls/fullchain.pem",
                        "https-certificate-key-file": private + "/tls/key.pem",
@@ -312,7 +313,7 @@ def candidate_configuration(source, candidate, *, browser_tls=False):
 def runtime_recipe(candidate, *, browser_tls=False):
     """No shared mutable live tree or inherited KC/JAVA/secret environment."""
     _names(candidate)
-    private = "/var/lib/keycloak-recovery-v5/" + candidate
+    private = "/var/lib/keycloak-recovery-v6/" + candidate
     distribution = private + "/keycloak-26.8.1"
     result = {"directory": private, "distribution": distribution,
             "cache": "local", "http": "127.0.0.1:8089", "management": "127.0.0.1:9009",
@@ -426,7 +427,7 @@ def _stop_owned_build_group(process, prefix, forbidden, start):
 
 
 def _run_owned_private_group(argv, *, input_bytes, output, timeout, cwd, environment, prefix, forbidden, process_receipt=None):
-    require(re.fullmatch(r'/var/lib/keycloak-recovery-v5/keycloak_recovery_20261027_[0-9a-f]{8}', prefix),
+    require(re.fullmatch(r'/var/lib/keycloak-recovery-v6/keycloak_recovery_20261027_[0-9a-f]{8}', prefix),
             'PrivateBuildPrefixInvalid')
     process = subprocess.Popen(argv, stdin=subprocess.PIPE if input_bytes is not None else subprocess.DEVNULL,
                                stdout=output, stderr=subprocess.DEVNULL, cwd=cwd, env=environment,
@@ -670,7 +671,7 @@ def validate_archive_members(members):
 
 def private_build_recipe(candidate):
     _names(candidate)
-    private = '/var/lib/keycloak-recovery-v5/' + candidate
+    private = '/var/lib/keycloak-recovery-v6/' + candidate
     return {'archive_sha256': DISTRIBUTION_ARCHIVE_SHA256, 'network_namespace': True,
             'cwd': private + '/build-home',
             'argv': ['unshare', '--net', '--', 'env', '-i', 'PATH=/usr/bin:/bin', 'LANG=C.UTF-8',
@@ -687,6 +688,31 @@ def _pid_start(pid):
         return int(fields[19])
     except (OSError, ValueError, IndexError):
         raise RecoveryRefused("ProcessIdentityUnavailable") from None
+
+
+def _exact_loopback_port(endpoint, expected_port=None):
+    """Strict ss numeric endpoint; mapped IPv6 may denote ONLY 127.0.0.1.
+
+    No broad is_loopback test: ::1/other127/wildcards/names/zones are rejected.
+    https://docs.python.org/3.12/library/ipaddress.html#ipaddress.IPv6Address.ipv4_mapped
+    """
+    if type(endpoint) is not str or len(endpoint) > 128 or \
+       expected_port is not None and (type(expected_port) is not int or not 1 <= expected_port <= 65535):
+        return None
+    mapped = re.fullmatch(r'\[([0-9A-Fa-f:.]+)\]:([1-9][0-9]{0,4})', endpoint)
+    if mapped:
+        try:
+            if ipaddress.IPv6Address(mapped[1]).ipv4_mapped != ipaddress.IPv4Address('127.0.0.1'):
+                return None
+        except ValueError:
+            return None
+        port = int(mapped[2])
+    else:
+        plain = re.fullmatch(r'127\.0\.0\.1:([1-9][0-9]{0,4})', endpoint)
+        if plain is None:
+            return None
+        port = int(plain[1])
+    return port if 1 <= port <= 65535 and (expected_port is None or port == expected_port) else None
 
 
 def canonical_java_from_metadata(main_pid, uid, approved_exe, records):
@@ -834,7 +860,7 @@ def _create_qualification_journal(evidence_root, candidate):
 def _private_candidate_processes(candidate):
     _names(candidate)
     prefixes = [('/var/lib/' + name + '/' + candidate).encode()
-                for name in ('keycloak-recovery', 'keycloak-recovery-v4', 'keycloak-recovery-v5')]
+                for name in ('keycloak-recovery', 'keycloak-recovery-v4', 'keycloak-recovery-v5', 'keycloak-recovery-v6')]
     found = []
     for entry in Path('/proc').iterdir():
         if not entry.name.isdigit() or int(entry.name) == os.getpid():
@@ -1104,12 +1130,12 @@ class PrivateCandidateRuntime:
         listeners, pids = {}, set()
         for port in (8089, 9009, 8449):
             matching = [line for line in lines if len(line.split()) >= 5 and line.split()[3].endswith(':' + str(port))]
-            require(len(matching) == 1 and matching[0].split()[3] == '127.0.0.1:' + str(port),
+            require(len(matching) == 1 and _exact_loopback_port(matching[0].split()[3], port) == port,
                     'PrivateRuntimeListenerNotLoopback')
             found = re.findall(r'pid=(\d+)', matching[0])
             require(len(set(found)) == 1, 'PrivateRuntimeSocketOwnerAmbiguous')
             pids.update(int(pid) for pid in found)
-            listeners[port] = matching[0].split()[3]
+            listeners[port] = '127.0.0.1:' + str(port)
         require(len(pids) == 1, 'PrivateRuntimeSocketPidMismatch')
         java_pid = next(iter(pids))
         require(java_pid in self._owned_group() and java_pid != self.canonical_pid and
@@ -1124,8 +1150,14 @@ class PrivateCandidateRuntime:
                 java_marker not in self.runner(['ss', '-Hlunp'], maximum_output=1024 * 1024).decode(),
                 'PrivateRuntimeUnexpectedClusterSocket')
         connections = self.runner(['ss', '-Hntp'], maximum_output=1024 * 1024).decode().splitlines()
-        java_pg_ports = {int(line.split()[3].rsplit(':', 1)[1]) for line in connections
-                         if java_marker in line and len(line.split()) >= 5 and line.split()[4] == '127.0.0.1:5544'}
+        java_pg_ports = set()
+        for line in connections:
+            fields = line.split()
+            if java_marker not in line or len(fields) < 5 or _exact_loopback_port(fields[4], 5544) != 5544:
+                continue
+            local_port = _exact_loopback_port(fields[3])
+            require(local_port is not None, 'PrivateRuntimeJdbcSourceNotLoopback')
+            java_pg_ports.add(local_port)
         sql = "SELECT jsonb_build_object('oid',(SELECT oid::bigint FROM pg_database WHERE datname='" + self.candidate + "'),'owner',(SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='" + self.candidate + "'),'ports',(SELECT COALESCE(jsonb_agg(client_port),'[]'::jsonb) FROM pg_stat_activity WHERE datname='" + self.candidate + "' AND usename='keycloak' AND client_addr='127.0.0.1'));"
         database = json.loads(self.runner(_psql_argv('postgres'), input_bytes=sql.encode(), maximum_output=65536))
         database_ports = database.get('ports') if isinstance(database, dict) else None
@@ -1476,6 +1508,7 @@ SAFE_REFUSAL_CODES = frozenset({
     'PrivateMutableDirectoryMismatch', 'PrivateProcessGroupUnexpectedMember', 'PrivateProcessPidReused',
     'PrivateReceiptWriteFailed', 'PrivateRuntimeDistributionChanged', 'PrivateRuntimeJavaIdentityMismatch',
     'PrivateRuntimeJavaPidChanged', 'PrivateRuntimeListenerNotLoopback', 'PrivateRuntimeNotPrepared',
+    'PrivateRuntimeJdbcSourceNotLoopback',
     'PrivateRuntimeOutboundMetadataChanged', 'PrivateRuntimeProcessMissing', 'PrivateRuntimeProxyExposurePossible',
     'PrivateRuntimeSocketOwnerAmbiguous', 'PrivateRuntimeSocketPidMismatch', 'PrivateRuntimeTlsProofMissing',
     'PrivateRuntimeUnexpectedClusterSocket', 'ProcessIdentityUnavailable', 'RowDigestInvalid',
@@ -1500,7 +1533,7 @@ def _safe_error_metadata(error):
             'refusal_code': refusal}
 
 
-EXECUTOR_ROOT = Path('/root/keycloak-identity-recovery-20261027-executor-v5')
+EXECUTOR_ROOT = Path('/root/keycloak-identity-recovery-20261027-executor-v6')
 PILOT_HELPER_SHA256 = '7df5688f2c4de83cec4047c1788e56a8ccf1b84bd7297102545bea7bfa0a1cd8'
 
 
