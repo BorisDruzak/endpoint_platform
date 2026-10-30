@@ -442,3 +442,32 @@ Before signing, the build verifies the compiled MSI through the full runtime
 inventory reader, including every File/Component/Feature/keypath binding.
 Zero-byte shared metadata files retain complete presence, ACL, hash and Native
 ownership checks; zero-byte executable images remain rejected.
+# Interactive progress and installer-only revisions
+
+Normal Setup opens a native progress window before preflight. It shows the
+current stage, elapsed time, manual approval/review reasons, connection waits and
+an actionable final result. Its indeterminate bar means work is in progress;
+it does not report invented MSI percentages. Installation stays on the original
+main thread. Closing a running transaction is disabled. After completion, Close,
+Enter and Escape dismiss the result. `--quiet`, `--preflight` and authenticated
+recovery retain headless behavior. Approval timeout is31/WAITING_APPROVAL rather
+than an unexplained REDACTED result. State changes are also written to Installer
+diagnostics; polling does not flood the log.
+
+An installer-only change can reuse a previously qualified, signed MSI/Core:
+
+```powershell
+./packaging/windows/build-setup.ps1 -PayloadVersion 3.2.156 -SetupRevision 1 `
+  -ExistingMsi <immutable156.msi> -ExistingMsiReleaseManifest <immutable156.release.json> `
+  -InitialRuntimeStageRoot <exact156-runtime-tree> -WixBuildRoot <new-build-directory> `
+  -EndpointOrigin https://endpoint.sosnadmin.local -EndpointCaFile <operator-CA> `
+  -CodeSigningCertificateThumbprint <organizational-signer> -TimestampServer <timestamp-service>
+```
+
+This emits `EndpointAgentSetup-3.2.156+setup.1-x64.exe`, payload/agent version156,
+and release ID `3.2.156+setup.1`. Its PE file revision is1. The source revision
+still identifies the actual reviewed Setup source, independently from the exact
+MSI source revision in its retained sidecar. Do not replace an existing156 or158
+release, re-sign an existing MSI, or infer new-enrollment authorization from an
+existing-device rollout. Register the distinct artifact and explicitly allow its
+exact release ID in one non-overlapping campaign after qualification.

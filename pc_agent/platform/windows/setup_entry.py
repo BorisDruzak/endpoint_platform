@@ -13,6 +13,7 @@ import stat
 import subprocess
 import sys
 import time
+from contextvars import ContextVar
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -39,8 +40,27 @@ from pc_agent.windows_setup import (
     SetupClaimError,
     SetupConfig,
     SetupProvisionError,
+    SetupTransportError,
     UniversalWindowsSetup,
 )
+from pc_agent.setup_progress import SetupProgress, emit_progress
+
+_progress_observer: ContextVar[Callable[[SetupProgress], None] | None] = ContextVar('setup_progress_observer',default=None)
+
+
+def _report_progress(stage, status, detail='STARTED', code=None):
+    emit_progress(_progress_observer.get(),stage,status,detail,code)
+
+
+def _on_enrollment_progress(event: SetupProgress) -> None:
+    _report_progress(event.stage,event.status,event.detail,event.code)
+    status = event.detail if event.status == 'waiting' else 'IN_PROGRESS'
+    try:
+        _write_install_result(status=status,code=0,stage=event.stage,detail=event.detail)
+        _write_install_log(_prepare_diagnostics_root()/'install.log',step=event.stage,
+                           status=status,code=0,detail=event.detail)
+    except OSError:
+        pass
 
 
 EXIT_SUCCESS = 0
@@ -873,6 +893,8 @@ def _finish(
     stage: str = "SETUP",
     detail: str | None = None,
 ) -> int:
+    progress_status = 'running' if status in {'STARTED','IN_PROGRESS'} else 'success' if status in {'COMPLETED','REPAIRED','UPDATED','ALREADY_INSTALLED','UNINSTALLED'} else 'error'
+    _report_progress(stage,progress_status,detail or 'UNKNOWN_ERROR',code)
     try:
         _write_install_result(status=status, code=code, stage=stage, detail=detail)
     except OSError:
@@ -940,7 +962,7 @@ def _complete(
     result = _finish(
         data_root, status=status, code=code, stage=stage, detail=safe_detail
     )
-    if not args.quiet:
+    if not args.quiet and _progress_observer.get() is None:
         _show_result_dialog(status, code, safe_detail)
     return result
 
@@ -1048,6 +1070,36 @@ def _emit_preflight(value: dict[str, object]) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.quiet or args.preflight or args.recover_staged_update:
+        return _run_setup(args)
+    return _run_interactive_setup(args)
+
+
+def _run_interactive_setup(args: argparse.Namespace) -> int:
+    from pc_agent.platform.windows.setup_progress_ui import SetupProgressWindow
+    window = SetupProgressWindow(_result_path())
+    try:
+        window.start()
+    except OSError:
+        code = _finish(_data_root(),status='PREFLIGHT_FAILED',code=EXIT_PREFLIGHT_FAILED,stage='PREFLIGHT',detail='UI_UNAVAILABLE')
+        _show_result_dialog('PREFLIGHT_FAILED',code,'UI_UNAVAILABLE')
+        return code
+    token = _progress_observer.set(window.update)
+    try:
+        result = _run_setup(args)
+    except Exception:
+        result = _finish(_data_root(),status='INSTALL_FAILED',code=EXIT_INSTALL_FAILED,detail='UNKNOWN_ERROR')
+    finally:
+        _progress_observer.reset(token)
+    window.finish(result)
+    try:
+        window.wait_closed()
+    except OSError:
+        _show_result_dialog('INSTALL_FAILED' if result else 'COMPLETED',result,'UNKNOWN_ERROR' if result else 'SERVICE_RUNNING')
+    return result
+
+
+def _run_setup(args: argparse.Namespace) -> int:
     if args.recover_staged_update:
         return _run_staged_recovery(args.recover_staged_update)
     if args.preflight:
@@ -1068,6 +1120,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 pass
             return EXIT_PREFLIGHT_FAILED
     data_root = _data_root()
+    _report_progress('PREFLIGHT','running','STARTED')
     _record_in_progress()
     interrupted_setup = False
     try:
@@ -1284,6 +1337,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
         inventory_probe=_inventory,
         clock=lambda: datetime.now(UTC),
+        progress=_on_enrollment_progress,
     )
     original_installation_factory = setup.installation_id_factory
 
@@ -1313,6 +1367,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             stage="PROVISIONING",
             detail=error.detail,
         )
+    except SetupTransportError:
+        return _complete(args,data_root,status='PROVISIONING_FAILED',code=EXIT_PROVISIONING_FAILED,
+                         stage='ENROLLMENT',detail='TRANSPORT_FAILED')
     except Exception:
         return _complete(
             args,

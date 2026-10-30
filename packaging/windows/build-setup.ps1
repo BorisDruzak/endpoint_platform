@@ -5,6 +5,8 @@ param(
     [ValidateSet("x64")]
     [string]$Platform = "x64",
     [string]$Version,
+    [string]$PayloadVersion,
+    [ValidateRange(0, 65535)][int]$SetupRevision = 0,
     [Parameter(Mandatory)][string]$EndpointOrigin,
     [Parameter(Mandatory)][string]$EndpointCaFile,
     [string]$InitialRuntimeManifest,
@@ -53,13 +55,14 @@ function Resolve-SetupSourceVersion {
 }
 
 function Write-SetupVersionResource {
-    param([Parameter(Mandatory)][string]$Version, [Parameter(Mandatory)][string]$Path)
+    param([Parameter(Mandatory)][string]$Version, [Parameter(Mandatory)][string]$Path, [int]$Revision = 0)
     $parts = @($Version.Split('.') | ForEach-Object { [int]$_ })
+    $displayVersion = if ($Revision -gt 0) { "$Version+setup.$Revision" } else { $Version }
     # PE fixed fields have four 16-bit components; display strings use source triplet.
     $content = @"
 VSVersionInfo(
     ffi=FixedFileInfo(
-        filevers=($($parts[0]), $($parts[1]), $($parts[2]), 0),
+        filevers=($($parts[0]), $($parts[1]), $($parts[2]), $Revision),
         prodvers=($($parts[0]), $($parts[1]), $($parts[2]), 0),
         mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1,
         subtype=0x0, date=(0, 0),
@@ -69,11 +72,11 @@ VSVersionInfo(
             StringTable('040904B0', [
                 StringStruct('CompanyName', 'Endpoint Platform'),
                 StringStruct('FileDescription', 'Endpoint Agent Setup'),
-                StringStruct('FileVersion', '$Version'),
+                StringStruct('FileVersion', '$displayVersion'),
                 StringStruct('InternalName', 'EndpointAgentSetup'),
                 StringStruct('OriginalFilename', 'EndpointAgentSetup.exe'),
                 StringStruct('ProductName', 'Endpoint Agent'),
-                StringStruct('ProductVersion', '$Version'),
+                StringStruct('ProductVersion', '$displayVersion'),
             ]),
         ]),
         VarFileInfo([VarStruct('Translation', [1033, 1200])]),
@@ -81,6 +84,26 @@ VSVersionInfo(
 )
 "@
     [IO.File]::WriteAllText($Path, $content, [Text.UTF8Encoding]::new($false))
+}
+
+function Resolve-SetupArtifactIdentity {
+    param([string]$SourceVersion, [string]$PayloadVersion, [int]$SetupRevision, [bool]$HasExistingMsi)
+    Assert-SemVerTriplet $SourceVersion
+    if (-not $PayloadVersion) { $PayloadVersion = $SourceVersion }
+    Assert-SemVerTriplet $PayloadVersion
+    if ($SetupRevision -lt 0 -or $SetupRevision -gt 65535) { throw 'Invalid Setup revision.' }
+    if ($SetupRevision -gt 0 -and -not $HasExistingMsi) {
+        throw 'Every installer-only revision requires an existing verified MSI.'
+    }
+    foreach ($part in $PayloadVersion.Split('.')) {
+        $number = 0
+        if (-not [int]::TryParse($part,[ref]$number) -or $number -gt 65535) { throw 'Payload version must fit PE fields.' }
+    }
+    if ($PayloadVersion -ne $SourceVersion -and ($SetupRevision -eq 0 -or -not $HasExistingMsi)) {
+        throw 'Payload override requires an explicit installer-only revision and existing verified MSI.'
+    }
+    $releaseVersion = if ($SetupRevision -gt 0) { "$PayloadVersion+setup.$SetupRevision" } else { $PayloadVersion }
+    return [pscustomobject]@{ PayloadVersion=$PayloadVersion; ReleaseVersion=$releaseVersion; Revision=$SetupRevision }
 }
 
 function Assert-SetupSigningInputs {
@@ -215,6 +238,10 @@ if ($LASTEXITCODE -ne 0 -or $sourceCommit -notmatch '^[0-9a-f]{40}$') {
 $Version = Resolve-SetupSourceVersion `
     -SourcePath (Join-Path $repositoryRoot 'pc_agent\version.py') `
     -ExplicitVersion $Version
+$setupIdentity = Resolve-SetupArtifactIdentity -SourceVersion $Version -PayloadVersion $PayloadVersion `
+    -SetupRevision $SetupRevision -HasExistingMsi (-not [string]::IsNullOrWhiteSpace($ExistingMsi))
+$Version = $setupIdentity.PayloadVersion
+$setupReleaseVersion = $setupIdentity.ReleaseVersion
 if (-not (Test-Path -LiteralPath $EndpointCaFile -PathType Leaf)) {
     throw "Endpoint CA file is missing."
 }
@@ -247,6 +274,9 @@ $effectiveWixBuildRoot = if ($WixBuildRoot) {
 $msiPath = Join-Path $effectiveWixBuildRoot "output\EndpointAgent-$Version-x64.msi"
 $releaseRoot = Join-Path $effectiveWixBuildRoot 'releases'
 New-Item -ItemType Directory -Path $releaseRoot -Force | Out-Null
+if (Test-Path -LiteralPath (Join-Path $releaseRoot "EndpointAgentSetup-$setupReleaseVersion-x64.exe")) {
+    throw 'Setup release output already exists; immutable artifact must not be replaced.'
+}
 $hasExistingMsi = -not [string]::IsNullOrWhiteSpace($ExistingMsi)
 $hasExistingMsiManifest = -not [string]::IsNullOrWhiteSpace($ExistingMsiReleaseManifest)
 if ($hasExistingMsi -ne $hasExistingMsiManifest) {
@@ -271,7 +301,15 @@ else {
     if ($LASTEXITCODE -ne 0) { throw "MSI build failed." }
 }
 if (-not (Test-Path -LiteralPath $msiPath -PathType Leaf)) { throw "MSI output is missing." }
-Set-SetupAuthenticodeSignature -Path $msiPath -Thumbprint $CodeSigningCertificateThumbprint -Timestamp $TimestampServer
+if ($hasExistingMsi) {
+    $existingSignature = Get-AuthenticodeSignature -LiteralPath $msiPath
+    if ($existingSignature.Status -ne 'Valid' -or -not $existingSignature.TimeStamperCertificate) {
+        throw 'Existing MSI must retain its valid timestamped signature.'
+    }
+    # Re-signing changes immutable package bytes and breaks retained source pins.
+} else {
+    Set-SetupAuthenticodeSignature -Path $msiPath -Thumbprint $CodeSigningCertificateThumbprint -Timestamp $TimestampServer
+}
 $releaseMsi = Join-Path $releaseRoot "EndpointAgent-$Version-x64.msi"
 Copy-Item -LiteralPath $msiPath -Destination $releaseMsi -Force
 $releaseMsiSha256 = (Get-FileHash -LiteralPath $releaseMsi -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -301,7 +339,14 @@ Write-Utf8NoBom $releaseMsiManifestPath ($releaseMsiManifest | ConvertTo-Json -C
 $msiSourceCommit = [string]$releaseMsiManifest.source_revision
 
 $setupRoot = Join-Path $effectiveWixBuildRoot 'setup'
-if (Test-Path -LiteralPath $setupRoot) { Remove-Item -LiteralPath $setupRoot -Recurse -Force }
+if (Test-Path -LiteralPath $setupRoot) {
+    $resolvedSetupRoot = [IO.Path]::GetFullPath($setupRoot)
+    if ([IO.Path]::GetDirectoryName($resolvedSetupRoot) -ne [IO.Path]::GetFullPath($effectiveWixBuildRoot) -or
+        ((Get-Item -LiteralPath $resolvedSetupRoot).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw 'Setup scratch path is outside the explicit build root.'
+    }
+    Remove-Item -LiteralPath $resolvedSetupRoot -Recurse -Force
+}
 $payloadRoot = Join-Path $setupRoot 'payload'
 $distRoot = Join-Path $setupRoot 'dist'
 $workRoot = Join-Path $setupRoot 'work'
@@ -320,7 +365,7 @@ $setupCa = Join-Path $payloadRoot 'endpoint-ca.crt'
 $setupConfig = Join-Path $payloadRoot 'setup-config.json'
 $setupMsiReleaseManifest = Join-Path $payloadRoot 'EndpointAgent.release.json'
 $setupVersionFile = Join-Path $setupRoot 'setup-version-info.txt'
-Write-SetupVersionResource -Version $Version -Path $setupVersionFile
+Write-SetupVersionResource -Version $Version -Revision $SetupRevision -Path $setupVersionFile
 Copy-Item -LiteralPath $msiPath -Destination $setupMsi -Force
 Copy-Item -LiteralPath $EndpointCaFile -Destination $setupCa -Force
 Copy-Item -LiteralPath $releaseMsiManifestPath -Destination $setupMsiReleaseManifest -Force
@@ -328,7 +373,7 @@ Write-Utf8NoBom $setupConfig (@{
     schema_version = 'endpoint_windows_setup_config_v1'
     endpoint_origin = $EndpointOrigin.TrimEnd('/')
     installer_version = $Version
-    installer_release_id = $Version
+    installer_release_id = $setupReleaseVersion
 } | ConvertTo-Json -Compress)
 
 $previousMsi = $env:ENDPOINT_SETUP_MSI
@@ -359,7 +404,7 @@ $setupExe = Join-Path $distRoot 'EndpointAgentSetup.exe'
 if (-not (Test-Path -LiteralPath $setupExe -PathType Leaf)) { throw "Windows Setup executable is missing." }
 & $python (Join-Path $repositoryRoot 'tools\canary\privileged_bootstrap_contract.py') $setupExe --output (Join-Path $releaseRoot 'setup-bootstrap-inspection.json')
 if ($LASTEXITCODE -ne 0) { throw "Windows Setup bootstrap inspection failed." }
-$releaseSetup = Join-Path $releaseRoot "EndpointAgentSetup-$Version-x64.exe"
+$releaseSetup = Join-Path $releaseRoot "EndpointAgentSetup-$setupReleaseVersion-x64.exe"
 Copy-Item -LiteralPath $setupExe -Destination $releaseSetup -Force
 Assert-SecretFreeSetupArtifact -Path $releaseSetup
 Set-SetupAuthenticodeSignature -Path $releaseSetup -Thumbprint $CodeSigningCertificateThumbprint -Timestamp $TimestampServer
@@ -387,9 +432,9 @@ $msiAuthenticodePublisher = if ($msiSignature.SignerCertificate) {
 }
 $setupSha256 = (Get-FileHash -LiteralPath $releaseSetup -Algorithm SHA256).Hash.ToLowerInvariant()
 $msiSha256 = (Get-FileHash -LiteralPath $releaseMsi -Algorithm SHA256).Hash.ToLowerInvariant()
-Write-Utf8NoBom (Join-Path $releaseRoot "EndpointAgentSetup-$Version-x64.release.json") (@{
+Write-Utf8NoBom (Join-Path $releaseRoot "EndpointAgentSetup-$setupReleaseVersion-x64.release.json") (@{
     schema_version = 'endpoint_windows_setup_release_v1'
-    version = $Version
+    version = $setupReleaseVersion
     agent_version = $Version
     source_commit = $sourceCommit
     msi_source_commit = $msiSourceCommit

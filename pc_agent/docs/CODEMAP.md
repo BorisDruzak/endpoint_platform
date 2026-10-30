@@ -2,6 +2,24 @@
 
 ## Runtime boundary
 
+`setup_progress.py` owns bounded installer events and Russian explanations. Unknown
+server reasons are replaced with UNKNOWN_ERROR before they enter the view.
+`platform/windows/setup_progress_ui.py` owns the native progress window on a
+dedicated Windows message-loop thread. Installer transactions remain on the
+original calling thread. Close is enabled only after the terminal result;
+quiet/preflight/authenticated-recovery paths do not create a window.
+`windows_setup.UniversalWindowsSetup` reports enrollment state changes once per
+transition, including manual approval and connection verification. Approval
+timeout retains WAITING_APPROVAL. `setup_entry` persists these events in the
+protected Installer directory even in quiet mode and shows the result in the
+same progress window for interactive runs.
+
+Installer-only revisions use a separate release ID such as `3.2.156+setup.1`
+while retaining the verified156 MSI/Core payload and original agent version.
+The build rejects a payload-version override without both an explicit Setup
+revision and an existing verified MSI. Existing timestamped MSI bytes are copied
+without re-signing. This does not change Gateway, agent runtime or HTTP contracts.
+
 `platform/windows/acl.preserve_state_file_permissions` preserves selector owner
 and DACL using an already-held restore privilege on the effective thread/process
 token. It restores the prior privilege attributes even on failure and never

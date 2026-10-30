@@ -74,5 +74,6 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     uac_admin=True,
+    manifest=str(pc_agent_root / 'windows_setup.manifest'),
     version=str(setup_version_file),
 )
