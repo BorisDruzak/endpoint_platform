@@ -4,7 +4,7 @@ PlanOnly without --run. Credential-bearing data stays in root memory/private
 backup; no user-password request, AD write, role grant, sync or service restart.
 """
 from __future__ import annotations
-import copy, hashlib, importlib.util, ipaddress, json, os, pathlib, re, shutil, stat, subprocess, sys, time
+import copy, hashlib, ipaddress, json, os, pathlib, re, shutil, stat, subprocess, sys, time, types
 import urllib.error, urllib.parse, urllib.request
 from tools.keycloak import business_ad_login as policy
 
@@ -84,7 +84,8 @@ class Native:
         for name,digest in {'_promotion_io':'8d74e021c08df2c5f4e9630c3087841a7827016dacb6b419a8262670097b2ee0',
             'promotion_guards':'8b798f06c4bbe1bc1426007a07aad4ca8215a00e889d00cb0468b29aeaf7319e'}.items():
             path=P('/root/keycloak-owner-prepare-v4')/(name+'.py');raw=private(path);need(sha(raw)==digest,'CanonicalGuardSourcePin')
-            spec=importlib.util.spec_from_file_location('business_binding_'+name,path);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);modules[name]=module
+            module=types.ModuleType('business_binding_'+name);module.__file__=str(path)
+            exec(compile(raw,str(path),'exec'),module.__dict__);modules[name]=module
         io=modules['_promotion_io'];io.host_guard();bound=io.NativeIO(modules['promotion_guards'])
         pg_unit=bound.unit('postgresql@16-keycloak.service');need(pg_unit['ActiveState']=='active' and pg_unit['SubState']=='running','CanonicalPostgresInactive')
         bound.canonical={'units':{'postgresql@16-keycloak.service':{'process':io.proc(int(pg_unit['MainPID']))}}}
