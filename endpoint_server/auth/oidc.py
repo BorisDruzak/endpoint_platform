@@ -126,10 +126,11 @@ class OIDCProvider:
             client_kwargs={'scope':'openid','code_challenge_method':'S256', 'timeout':5,'verify':self.tls_context,'follow_redirects':False,'trust_env':False,'transport':BoundedTransport(self.transport,verify=self.tls_context)}, **metadata)
         return remote
 
-    async def authorize(self, realm, redirect_uri, state, nonce, verifier):
+    async def authorize(self, realm, redirect_uri, state, nonce, verifier, *, step_up=False):
         remote = await self.remote(realm)
         args = {'state':state,'nonce':nonce,'code_verifier':verifier}
-        args['acr_values'] = self.settings.admin_required_acr
+        if realm == 'admin' or step_up:
+            args['acr_values'] = self.settings.admin_required_acr
         client_id, client_secret = self.client_credentials(realm)
         # The public OAuth2 client API performs S256. The integration wrapper's
         # authorization helper logs the verifier at DEBUG, so do not use it here.
@@ -251,22 +252,27 @@ async def revalidate_upstream(request: Request, session, identity, record, realm
 
 @router.get('/employee/step-up')
 async def employee_step_up(request:Request):
-    return await login(request,'employee')
+    return await _login(request,'employee',step_up=True)
 
 
 @router.get('/{realm}/login')
 async def login(request: Request, realm: str):
+    return await _login(request,realm,step_up=False)
+
+
+async def _login(request: Request, realm: str, *, step_up: bool):
     settings = request.app.state.settings.oidc
     if not settings.enabled or realm not in FLOW_COOKIES:
         raise HTTPException(404,'SSO unavailable')
     state, browser, nonce, verifier = (secrets.token_urlsafe(32) for _ in range(4))
     redirect_uri = request.app.state.settings.public_base_url+'/auth/'+realm+'/callback'
     try:
-        url = await request.app.state.oidc_provider.authorize(realm,redirect_uri,state,nonce,verifier)
+        url = await request.app.state.oidc_provider.authorize(realm,redirect_uri,state,nonce,verifier,step_up=step_up)
     except Exception:
         raise HTTPException(503,'Identity provider unavailable') from None
     now = datetime.now(UTC)
     material = {'nonce': nonce, 'verifier': verifier}
+    if step_up: material['require_mfa'] = True
     if realm == 'employee' and all(len(request.query_params.getlist(key)) == 1 for key in ('day', 'request_id')):
         day, request_id = request.query_params['day'], request.query_params['request_id']
         if _employee_return_path(day, request_id) != '/employee':
@@ -312,6 +318,8 @@ async def callback(request: Request, realm: str):
     try:
         token, claims, expires_at = await request.app.state.oidc_provider.exchange(realm,
             request.app.state.settings.public_base_url+'/auth/'+realm+'/callback',code,material['nonce'],material['verifier'])
+        if material.get('require_mfa') is True and claims.get('acr') != settings.admin_required_acr:
+            raise ValueError('MFA step-up not achieved')
         issuer,subject,guid = validate_claim_identity(claims,settings.issuer)
         resolved = await request.app.state.helpdesk_identity_client.resolve(issuer,subject,guid)
     except Exception:
@@ -338,7 +346,17 @@ async def callback(request: Request, realm: str):
             from endpoint_server.db.models.identity import ScopedRoleGrant
             grants=(await session.scalars(select(ScopedRoleGrant).where(ScopedRoleGrant.identity_id==identity.id,ScopedRoleGrant.revoked_at.is_(None)))).all()
             if any(grant.role in {'manager','hr','worktime_admin','dlp_officer'} for grant in grants) and claims.get('acr')!=settings.admin_required_acr:
-                raise _denied()
+                # No employee session is issued at insufficient assurance. Start
+                # the fixed step-up entry; its encrypted requirement prevents a
+                # repeated low-assurance response from becoming a redirect loop.
+                if material.get('require_mfa') is True:
+                    raise _denied()
+                target=_employee_return_path(material.get('return_day'),material.get('return_request_id'))
+                query=target.partition('?')[2]
+                response=RedirectResponse('/auth/employee/step-up'+('?' + query if query else ''),303,
+                    headers={'Cache-Control':'no-store','Referrer-Policy':'no-referrer'})
+                response.delete_cookie(FLOW_COOKIES[realm],path='/auth/'+realm,secure=True,httponly=True,samesite='lax')
+                return response
         target = '/admin' if realm == 'admin' else _employee_return_path(material.get('return_day'), material.get('return_request_id'))
         response = RedirectResponse(target,303,headers={'Cache-Control':'no-store','Referrer-Policy':'no-referrer'})
         if realm == 'admin':

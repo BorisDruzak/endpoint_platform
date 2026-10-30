@@ -126,6 +126,12 @@ OIDC flow (five-minute expiry); the callback constructs a fixed `/employee` URL.
 Arbitrary return URLs and callback-supplied targets are ignored. The employee API
 continues to enforce identity ownership and CSRF independently of the link.
 
+Ordinary employee login uses the WorkTime client's default assurance level and
+does not force the administrative MFA ACR. Explicit employee step-up requests
+that ACR and records its requirement inside the encrypted flow; its callback
+rejects insufficient assurance before resolving or creating an employee session.
+Administrative login and personnel/DLP assurance guards retain their MFA checks.
+
 There is no join on OIDC preferred username, email or a similar-looking OS login.
 Without an explicit verified `(person, device, user_key, valid_from, valid_until)`
 mapping, the employee sees UNKNOWN. Mappings require an authorized WorkTime
