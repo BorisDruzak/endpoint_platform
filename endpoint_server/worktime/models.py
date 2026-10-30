@@ -129,13 +129,12 @@ class RetentionPolicy(OwnershipRecord, Base):
 
 
 class Timesheet(OwnershipRecord, Base):
-    """Immutable approved monthly version, independent of live source retention."""
+    """Immutable finalized monthly version, independent of live source retention."""
     __tablename__ = 'worktime_timesheets'
     __table_args__ = (
         UniqueConstraint('person_id','month','version',name='uq_worktime_timesheet_version'),
         UniqueConstraint('person_id','idempotency_key',name='uq_worktime_timesheet_key'),
         CheckConstraint('version >= 1',name='ck_worktime_timesheet_version'),
-        CheckConstraint('finalized_by != person_id',name='ck_worktime_timesheet_independent'),
     )
     person_id: Mapped[UUID] = mapped_column(ForeignKey('worktime_state.person_id',ondelete='RESTRICT'),index=True)
     month: Mapped[date] = mapped_column(Date)

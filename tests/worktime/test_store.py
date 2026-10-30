@@ -44,7 +44,7 @@ async def test_idempotency_invalid_transition_two_device_no_double_count(db):
     assert len((await db.scalars(select(WorkEvent))).all()) == 1
 
 
-async def test_correction_approval_preserves_original_and_history(db):
+async def test_recorded_correction_preserves_original_and_history(db):
     target, reviewer = await person(db), uuid4()
     start = datetime(2026, 10, 26, 4, tzinfo=UTC)
     await transition(db, target, target, 'start', uuid4(), start)
@@ -52,10 +52,11 @@ async def test_correction_approval_preserves_original_and_history(db):
     correction = await request_correction(db, target, target, start, start + timedelta(hours=1), 'BREAK', 'Wrong start', uuid4(), start + timedelta(hours=9))
     with pytest.raises(ValueError):
         await decide_correction(db, correction, target, 'approved', '', uuid4(), start + timedelta(hours=9))
-    await decide_correction(db, correction, reviewer, 'approved', 'Verified', uuid4(), start + timedelta(hours=9))
+    with pytest.raises(ValueError,match='retired'):
+        await decide_correction(db, correction, reviewer, 'approved', 'Verified', uuid4(), start + timedelta(hours=9))
     assert len((await db.scalars(select(WorkEvent))).all()) == 2
     assert len((await db.scalars(select(Correction))).all()) == 1
-    assert len((await db.scalars(select(Approval))).all()) == 1
+    assert len((await db.scalars(select(Approval))).all()) == 0
     report = await day_report(db, target, date(2026, 10, 26), start + timedelta(hours=10), include_activity=False)
     assert report['totals']['work_seconds'] == 7 * 3600
     assert report['totals']['break_seconds'] == 3600

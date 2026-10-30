@@ -7,12 +7,12 @@ from sqlalchemy import select
 
 from endpoint_server.worktime.models import Timesheet, TimesheetDay, RetentionPolicy
 from endpoint_server.worktime.service import (finalize_timesheet, timesheet_document, transition,
-    request_correction, decide_correction, explain, retain_worktime, day_report, PersonnelHistoryExpired)
+    request_correction, explain, retain_worktime, day_report, PersonnelHistoryExpired)
 from tests.worktime.test_store import db, person
 
 
 async def test_finalized_month_versions_are_immutable_after_corrections_and_retention(db):
-    target, hr, reviewer = await person(db),uuid4(),uuid4()
+    target, hr = await person(db),uuid4()
     start = datetime(2026,10,5,4,tzinfo=UTC)
     now = datetime(2026,11,1,tzinfo=UTC)
     await transition(db,target,target,'start',uuid4(),start)
@@ -26,15 +26,12 @@ async def test_finalized_month_versions_are_immutable_after_corrections_and_rete
     assert original['totals']['work_seconds'] == 8*3600
     assert len(original['days']) == 31
     assert original['days'][4]['explanations'][0]['comment'] == 'Verified meeting'
-    proposal = await request_correction(db,target,hr,start,start+timedelta(hours=1),'BREAK','HR verified correction',uuid4(),now)
-    with pytest.raises(ValueError):
-        await decide_correction(db,proposal,hr,'approved','',uuid4(),now)
-    with pytest.raises(ValueError,match='pending'):
-        await finalize_timesheet(db,target,reviewer,'2026-10','Premature approval',uuid4(),now)
-    await decide_correction(db,proposal,reviewer,'approved','Independent check',uuid4(),now+timedelta(minutes=1))
+    await request_correction(db,target,hr,start,start+timedelta(hours=1),'BREAK','HR recorded correction',uuid4(),now)
     second = await finalize_timesheet(db,target,hr,'2026-10','Revised after correction',uuid4(),now+timedelta(minutes=2))
     assert second.version == 2 and second.source_digest != first.source_digest
     assert (await timesheet_document(db,second))['totals']['work_seconds'] == 7*3600
+    correction=(await timesheet_document(db,second))['days'][4]['corrections'][0]
+    assert correction['decision']=='recorded' and correction['approval'] is None
     assert await timesheet_document(db,first) == original
     db.add(RetentionPolicy(actor_id=hr,retention_days=5,inactivity_threshold_seconds=1200,rationale='Approved source retention',created_at=now))
     await db.flush()
@@ -45,13 +42,15 @@ async def test_finalized_month_versions_are_immutable_after_corrections_and_rete
         await day_report(db,target,date(2026,10,5),now+timedelta(days=60),include_activity=False)
 
 
-async def test_finalize_requires_closed_month_independent_actor_and_nonexpired_sources(db):
+async def test_finalize_requires_closed_month_reason_and_nonexpired_sources(db):
     target,hr = await person(db),uuid4()
     now = datetime(2026,10,27,tzinfo=UTC)
     with pytest.raises(ValueError,match='closed'):
         await finalize_timesheet(db,target,hr,'2026-10','Current month',uuid4(),now)
-    with pytest.raises(ValueError,match='independent'):
-        await finalize_timesheet(db,target,target,'2026-09','Self approval',uuid4(),now)
+    with pytest.raises(ValueError,match='reason'):
+        await finalize_timesheet(db,target,target,'2026-09','',uuid4(),now)
+    own=await finalize_timesheet(db,target,target,'2026-09','Own closed-month snapshot',uuid4(),now)
+    assert own.finalized_by==target
     from endpoint_server.worktime.models import WorkState
     state = await db.get(WorkState,target)
     state.records_expired_before = datetime(2026,10,1,tzinfo=UTC)

@@ -79,7 +79,9 @@ require `identities:manage`, CSRF and immutable audit. New authority requires
 fresh Helpdesk confirmation. Manager requires a non-null exact department;
 global HR, WorkTime Admin or DLP Officer authority must be granted explicitly.
 Technical Endpoint administrator rights do not imply personnel/DLP access.
-An actor cannot approve their own corrections. Authorization resolves the
+Employees record their own explanations and corrections directly, without a
+reviewer. New correction decisions and approval queues are disabled; historical
+decisions remain read-only. Authorization resolves the
 target's department from fresh Helpdesk confirmation on each protected target
 operation, updating the local snapshot; failures deny access even if that target
 has not logged in. Browser department parameters are never authority. Manager,

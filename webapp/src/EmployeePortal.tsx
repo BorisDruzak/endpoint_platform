@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { Link, NavLink, Navigate, Route, Routes, useNavigate, useSearchParams } from 'react-router'
-import { EmployeeApiError, employeeClient, getEmployeeSession, worktimePath, type Category, type Correction, type EmployeeRequest, type EmployeeSession, type WorkDay, type WorkHistory, type WorkMonth } from './employeeApi'
+import { EmployeeApiError, employeeClient, getEmployeeSession, worktimePath, type Category, type EmployeeRequest, type EmployeeSession, type WorkDay, type WorkHistory, type WorkMonth } from './employeeApi'
 import { WorkTimeRing, durationText, intervalLabel, selectableIntervals, statusColors, statusLabels, timeText, type SelectedInterval } from './WorkTimeRing'
 import './employee.css'
 import { DlpPortal } from './DlpPortal'
@@ -12,7 +12,6 @@ const canDlp = (session: EmployeeSession) => session.grants.some(grant => grant.
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Yekaterinburg', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
 const dateLabel = (day: string) => new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', weekday: 'long', timeZone: 'UTC' }).format(new Date(`${day}T12:00:00Z`))
 const shiftDate = (day: string, delta: number) => new Date(Date.parse(`${day}T12:00:00Z`) + delta * 86400000).toISOString().slice(0, 10)
-const localValue = (instant: string) => new Date(Date.parse(instant) + 5 * 3600000).toISOString().slice(0, 16)
 const instantValue = (local: string) => new Date(`${local}:00+05:00`).toISOString()
 
 export function EmployeeLogin() {
@@ -78,14 +77,12 @@ function EmployeeRealm({ session, unauthorized, dlp }: { session: EmployeeSessio
   }
   const manager = hasRole(session, 'manager', 'worktime_admin')
   const hr = hasRole(session, 'hr', 'worktime_admin')
-  const approver = hasRole(session, 'manager', 'hr', 'worktime_admin')
   return <div className="app-shell employee-shell"><aside className="sidebar">
     <div className="brand">WorkTime</div><p className="wt-sidebar-note">Кабинет сотрудника</p>
     <nav aria-label="Навигация сотрудника">
       <NavLink className="nav-link" to="/employee" end>Мой день</NavLink>
       <NavLink className="nav-link" to="/employee/history">История и корректировки</NavLink>
       {manager && <NavLink className="nav-link" to="/employee/manager">Подразделение</NavLink>}
-      {approver && <NavLink className="nav-link" to="/employee/approvals">Согласования</NavLink>}
       {hr && <NavLink className="nav-link" to="/employee/reports">Табели и отчёты</NavLink>}
       {canDlp(session) && <NavLink className="nav-link" to="/dlp">DLP</NavLink>}
     </nav><p className="wt-sidebar-note">Часовой пояс отчётов<br />Екатеринбург · UTC+5</p>
@@ -95,7 +92,7 @@ function EmployeeRealm({ session, unauthorized, dlp }: { session: EmployeeSessio
       <Route index element={<WorkTimePage request={request} session={session} />} />
       <Route path="history" element={<WorkTimePage request={request} session={session} historyMode />} />
       <Route path="manager" element={manager ? <ManagerPage request={request} session={session} /> : <AccessDenied />} />
-      <Route path="approvals" element={approver ? <ManagerPage request={request} session={session} approvalsOnly /> : <AccessDenied />} />
+      <Route path="approvals" element={<Navigate to="/employee" replace />} />
       <Route path="reports" element={hr ? <ReportsPage request={request} /> : <AccessDenied />} />
       <Route path="*" element={<Navigate to="/employee" replace />} />
       </>}
@@ -203,20 +200,20 @@ function ExplanationForm({ selection, categories, busy, submit }: { selection: S
 function CorrectionForm({ day, busy, submit }: { day: string; busy: boolean; submit: (body: object) => Promise<void> }) {
   const [start, setStart] = useState(`${day}T08:00`), [end, setEnd] = useState(`${day}T09:00`), [status, setStatus] = useState('WORKING'), [reason, setReason] = useState('')
   const valid = !!start && !!end && start < end && !!reason.trim()
-  return <section className="panel wt-corrections"><h2>Запросить корректировку</h2><p className="muted wt-small">Изменение сохраняется в истории и применяется после согласования.</p><form className="wt-form" onSubmit={event => { event.preventDefault(); if (valid) void submit({ started_at: instantValue(start), ended_at: instantValue(end), status, reason: reason.trim() }) }}>
+  return <section className="panel wt-corrections"><h2>Сохранить корректировку</h2><p className="muted wt-small">Опишите, что произошло. Корректировка сразу учитывается во времени и сохраняется в истории.</p><form className="wt-form" onSubmit={event => { event.preventDefault(); if (valid) void submit({ started_at: instantValue(start), ended_at: instantValue(end), status, reason: reason.trim() }) }}>
     <div className="wt-form-row"><label>Начало корректировки<input type="datetime-local" value={start} onChange={event => setStart(event.target.value)} required /></label><label>Конец корректировки<input type="datetime-local" value={end} onChange={event => setEnd(event.target.value)} min={start} required /></label><label>Рабочая отметка<select value={status} onChange={event => setStatus(event.target.value)}>{['WORKING', 'BREAK', 'OFF_PC', 'ENDED'].map(item => <option key={item} value={item}>{statusLabels[item]}</option>)}</select></label></div>
-    <label>Обоснование корректировки<textarea value={reason} onChange={event => setReason(event.target.value)} required maxLength={2000} rows={2} /></label>{start && end && start >= end && <p className="error">Окончание должно быть позже начала.</p>}<button type="submit" disabled={busy || !valid}>Отправить на согласование</button>
+    <label>Обоснование корректировки<textarea value={reason} onChange={event => setReason(event.target.value)} required maxLength={2000} rows={2} /></label>{start && end && start >= end && <p className="error">Окончание должно быть позже начала.</p>}<button type="submit" disabled={busy || !valid}>Сохранить корректировку</button>
   </form></section>
 }
 
-const correctionState: Record<string, string> = { pending: 'Ожидает согласования', approved: 'Согласовано', rejected: 'Отклонено' }
+const correctionState: Record<string, string> = { recorded: 'Учтено', pending: 'Не применено', approved: 'Учтено (архив)', rejected: 'Отклонено ранее' }
 function HistoryPanel({ history }: { history: WorkHistory }) {
   const empty = !history.events.length && !history.explanations.length && !history.corrections.length && !history.approvals.length
   return <section className="panel wt-history"><h2>История изменений</h2>{empty && <p className="muted">За выбранный день изменений нет.</p>}
     <ul className="wt-list">{history.events.map(item => <li key={`event-${item.id}`}>{timeText(item.occurred_at)} · {({ start: 'Начало дня', end: 'Конец дня', break: 'Перерыв', resume: 'Продолжение работы', off_pc: 'Работа вне ПК' } as Record<string, string>)[item.action] ?? item.action}</li>)}
       {history.explanations.map(item => <li key={`explanation-${item.id}`}>Объяснение · {timeText(item.started_at)}–{timeText(item.ended_at)} · {item.comment || item.category_code}</li>)}
       {history.corrections.map(item => <li key={`correction-${item.id}`}>Корректировка · {timeText(item.started_at)}–{timeText(item.ended_at)} · {statusLabels[item.status] ?? item.status} · {correctionState[item.decision] ?? item.decision} · {item.reason}</li>)}
-      {history.approvals.map(item => <li key={`approval-${item.id}`}>Решение · {correctionState[item.decision] ?? item.decision} · {item.comment || 'Без комментария'}</li>)}
+      {history.approvals.map(item => <li key={`approval-${item.id}`}>Архивное решение · {correctionState[item.decision] ?? item.decision} · {item.comment || 'Без комментария'}</li>)}
     </ul></section>
 }
 
@@ -233,35 +230,20 @@ function PeriodCalendar({ request, day, personId, view, revision, onSelect, cate
 }
 
 type Person = { person_id: string; department_id: string | null; status: string }
-function ManagerPage({ request, session, approvalsOnly = false }: { request: EmployeeRequest; session: EmployeeSession; approvalsOnly?: boolean }) {
+function ManagerPage({ request, session }: { request: EmployeeRequest; session: EmployeeSession }) {
   const [revision, setRevision] = useState(0), [person, setPerson] = useState('')
-  const data = useResource(async () => { const [people, approvals] = await Promise.all([approvalsOnly ? Promise.resolve({ people: [] as Person[] }) : request<{ people: Person[] }>(`${worktimePath}/people`), request<{ corrections: Correction[] }>(`${worktimePath}/approvals`)]); return { people: people.people, approvals: approvals.corrections } }, `manager:${approvalsOnly}:${revision}`)
-  return <><div className="page-heading"><div><p className="eyebrow">{approvalsOnly ? 'СОГЛАСОВАНИЯ' : 'РУКОВОДИТЕЛЬ'}</p><h1>{approvalsOnly ? 'Согласования корректировок' : 'Подразделение и согласования'}</h1><p className="muted">Доступ ограничен подразделениями, указанными в ваших полномочиях.</p></div><button onClick={() => setRevision(value => value + 1)}>Обновить список</button></div>
-    {data.error ? <p role="alert">{data.error}</p> : !data.value ? <p aria-live="polite">Загрузка согласований…</p> : <>{!approvalsOnly && <section className="panel"><h2>Сотрудники подразделения</h2>{data.value.people.length ? <ul className="wt-list">{data.value.people.map(item => <li key={item.person_id}><button aria-pressed={person === item.person_id} onClick={() => setPerson(item.person_id)}>Сотрудник {item.person_id} · {statusLabels[item.status] ?? item.status}</button></li>)}</ul> : <p className="muted">Доступных сотрудников нет.</p>}</section>}<section className="panel wt-approvals"><h2>Ожидают согласования</h2>{data.value.approvals.length ? data.value.approvals.map(item => <ApprovalCard key={item.id} correction={item} request={request} onDecision={() => setRevision(value => value + 1)} />) : <p className="muted">Ожидающих корректировок нет.</p>}</section></>}
-    {!approvalsOnly && person && data.value?.people.some(item => item.person_id === person) && <WorkTimePage key={person} request={request} session={session} personId={person} />}
+  const data = useResource(() => request<{ people: Person[] }>(`${worktimePath}/people`), `manager:${revision}`)
+  return <><div className="page-heading"><div><p className="eyebrow">РУКОВОДИТЕЛЬ</p><h1>Подразделение</h1><p className="muted">Доступ ограничен подразделениями, указанными в ваших полномочиях.</p></div><button onClick={() => setRevision(value => value + 1)}>Обновить список</button></div>
+    {data.error ? <p role="alert">{data.error}</p> : !data.value ? <p aria-live="polite">Загрузка сотрудников…</p> : <section className="panel"><h2>Сотрудники подразделения</h2>{data.value.people.length ? <ul className="wt-list">{data.value.people.map(item => <li key={item.person_id}><button aria-pressed={person === item.person_id} onClick={() => setPerson(item.person_id)}>Сотрудник {item.person_id} · {statusLabels[item.status] ?? item.status}</button></li>)}</ul> : <p className="muted">Доступных сотрудников нет.</p>}</section>}
+    {person && data.value?.people.some(item => item.person_id === person) && <WorkTimePage key={person} request={request} session={session} personId={person} />}
   </>
-}
-
-function ApprovalCard({ correction, request, onDecision }: { correction: Correction; request: EmployeeRequest; onDecision: () => void }) {
-  const [comment, setComment] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState('')
-  const retry = useRef<{ signature: string; id: string } | null>(null)
-  const writing = useRef(false)
-  async function decide(decision: string) {
-    if (writing.current) return
-    writing.current = true
-    const payload = { decision, comment: comment.trim() }, signature = JSON.stringify(payload)
-    if (retry.current?.signature !== signature) retry.current = { signature, id: crypto.randomUUID() }
-    setBusy(true); setError('')
-    try { await request(`${worktimePath}/corrections/${encodeURIComponent(correction.id)}/decision`, { method: 'POST', body: JSON.stringify({ ...payload, idempotency_key: retry.current.id }) }); retry.current = null; onDecision() }
-    catch (reason) { if (!(reason instanceof Error && reason.name === 'AbortError')) setError(messageOf(reason)) } finally { writing.current = false; setBusy(false) }
-  }
-  return <article className="wt-approval"><h3>Сотрудник {correction.person_id}</h3><p>{localValue(correction.started_at).replace('T', ' ')}–{timeText(correction.ended_at)} · {statusLabels[correction.status] ?? correction.status}</p><p>{correction.reason}</p><label>Комментарий к решению<textarea value={comment} onChange={event => setComment(event.target.value)} maxLength={2000} /></label><div className="wt-status-actions"><button disabled={busy} onClick={() => void decide('approved')}>Согласовать</button><button disabled={busy || !comment.trim()} onClick={() => void decide('rejected')}>Отклонить</button></div>{error && <p role="alert" className="error">{error}</p>}</article>
 }
 
 function ReportsPage({ request }: { request: EmployeeRequest }) {
   const [month, setMonth] = useState(today().slice(0, 7)), [personId, setPersonId] = useState('')
+  const [revision, setRevision] = useState(0)
   const people = useResource(() => request<{ people: Person[] }>(`${worktimePath}/people`), 'report-people')
-  const report = useResource(() => personId ? request<WorkMonth>(`${worktimePath}/report?month=${month}&person_id=${encodeURIComponent(personId)}`) : Promise.resolve(null), `${month}:${personId}`)
+  const report = useResource(() => personId ? request<WorkMonth>(`${worktimePath}/report?month=${month}&person_id=${encodeURIComponent(personId)}`) : Promise.resolve(null), `${month}:${personId}:${revision}`)
   function exportCsv() {
     if (!report.value) return
     const rows = [['Дата', 'Работа, секунд', 'Перерыв, секунд', 'Вне ПК, секунд', 'По графику, секунд', 'UNKNOWN, секунд'], ...report.value.days.map(item => [item.day, item.totals.work_seconds, item.totals.break_seconds, item.totals.off_pc_seconds, item.totals.scheduled_seconds, item.coverage.unknown_seconds])]
@@ -270,12 +252,12 @@ function ReportsPage({ request }: { request: EmployeeRequest }) {
   }
   return <><div className="page-heading"><div><p className="eyebrow">КАДРОВАЯ СЛУЖБА</p><h1>Табели и отчёты</h1><p className="muted">Подтверждённое время, график и полнота технических данных.</p></div></div><section className="panel wt-toolbar"><label>Месяц табеля<input type="month" value={month} onChange={event => { if (event.target.value) setMonth(event.target.value) }} /></label><label>Сотрудник табеля<select value={personId} onChange={event => setPersonId(event.target.value)}><option value="">Выберите сотрудника</option>{people.value?.people.map(person => <option key={person.person_id} value={person.person_id}>{person.person_id}</option>)}</select></label></section>
     {people.error && <p role="alert">{people.error}</p>}{report.error && <p role="alert">{report.error}</p>}{personId && !report.value && !report.error && <p aria-live="polite">Загрузка табеля…</p>}
-    {personId && <><ScheduleEditor key={personId} personId={personId} request={request} /><HrCorrection key={`correction:${personId}:${month}`} personId={personId} month={month} request={request} /><HrTimesheets key={`timesheets:${personId}:${month}`} request={request} personId={personId} month={month} /></>}
-    {report.value && <section className="panel"><div className="wt-card-heading"><h2>Табель за {month}</h2><button onClick={exportCsv}>Экспорт CSV</button></div><p>Подтверждено за месяц: {durationText(report.value.totals.work_seconds)}</p><div className="table-scroll"><table className="wt-report"><thead><tr><th>Дата</th><th>Работа</th><th>Перерыв</th><th>Вне ПК</th><th>График</th><th>UNKNOWN</th><th>Согласования</th></tr></thead><tbody>{report.value.days.map(item => <tr key={item.day}><td>{item.day}</td><td>{durationText(item.totals.work_seconds)}</td><td>{durationText(item.totals.break_seconds)}</td><td>{durationText(item.totals.off_pc_seconds)}</td><td>{durationText(item.totals.scheduled_seconds)}</td><td>{durationText(item.coverage.unknown_seconds)}</td><td>{item.corrections.map(correction => correctionState[correction.decision] ?? correction.decision).join(', ') || 'Нет корректировок'}</td></tr>)}</tbody></table></div></section>}
+    {personId && <><ScheduleEditor key={personId} personId={personId} request={request} /><HrCorrection key={`correction:${personId}:${month}`} personId={personId} month={month} request={request} onRecorded={() => setRevision(value => value + 1)} /><HrTimesheets key={`timesheets:${personId}:${month}`} request={request} personId={personId} month={month} /></>}
+    {report.value && <section className="panel"><div className="wt-card-heading"><h2>Табель за {month}</h2><button onClick={exportCsv}>Экспорт CSV</button></div><p>Подтверждено за месяц: {durationText(report.value.totals.work_seconds)}</p><div className="table-scroll"><table className="wt-report"><thead><tr><th>Дата</th><th>Работа</th><th>Перерыв</th><th>Вне ПК</th><th>График</th><th>UNKNOWN</th><th>Корректировки</th></tr></thead><tbody>{report.value.days.map(item => <tr key={item.day}><td>{item.day}</td><td>{durationText(item.totals.work_seconds)}</td><td>{durationText(item.totals.break_seconds)}</td><td>{durationText(item.totals.off_pc_seconds)}</td><td>{durationText(item.totals.scheduled_seconds)}</td><td>{durationText(item.coverage.unknown_seconds)}</td><td>{item.corrections.map(correction => correctionState[correction.decision] ?? correction.decision).join(', ') || 'Нет корректировок'}</td></tr>)}</tbody></table></div></section>}
   </>
 }
 
-function HrCorrection({ request, personId, month }: { request: EmployeeRequest; personId: string; month: string }) {
+function HrCorrection({ request, personId, month, onRecorded }: { request: EmployeeRequest; personId: string; month: string; onRecorded: () => void }) {
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState('')
   const retry = useRef<{ signature: string; id: string } | null>(null), writing = useRef(false)
   async function submit(body: object) {
@@ -283,10 +265,10 @@ function HrCorrection({ request, personId, month }: { request: EmployeeRequest; 
     const signature = JSON.stringify(body)
     if (retry.current?.signature !== signature) retry.current = { signature, id: crypto.randomUUID() }
     writing.current = true; setBusy(true); setError(''); setNotice('')
-    try { await request(`${worktimePath}/people/${encodeURIComponent(personId)}/corrections`, { method: 'POST', body: JSON.stringify({ ...body, idempotency_key: retry.current.id }) }); retry.current = null; setNotice('Кадровая корректировка отправлена на независимое согласование.') }
+    try { await request(`${worktimePath}/people/${encodeURIComponent(personId)}/corrections`, { method: 'POST', body: JSON.stringify({ ...body, idempotency_key: retry.current.id }) }); retry.current = null; setNotice('Кадровая корректировка сохранена и учтена.'); onRecorded() }
     catch (reason) { if (!(reason instanceof Error && reason.name === 'AbortError')) setError(messageOf(reason)) } finally { writing.current = false; setBusy(false) }
   }
-  return <section className="wt-hr-correction" aria-label="Кадровая корректировка"><h2>Кадровая корректировка сотрудника</h2><p className="muted wt-small">Для выбранного сотрудника. Автор корректировки не может согласовать собственное изменение.</p><CorrectionForm day={`${month}-01`} busy={busy} submit={submit} />{notice && <p role="status" className="wt-notice">{notice}</p>}{error && <p role="alert" className="error">{error}</p>}</section>
+  return <section className="wt-hr-correction" aria-label="Кадровая корректировка"><h2>Кадровая корректировка сотрудника</h2><p className="muted wt-small">Для выбранного сотрудника. Изменение сразу учитывается и сохраняется в истории.</p><CorrectionForm day={`${month}-01`} busy={busy} submit={submit} />{notice && <p role="status" className="wt-notice">{notice}</p>}{error && <p role="alert" className="error">{error}</p>}</section>
 }
 
 type ScheduleDefinition = { weekdays: number[]; start: string; end: string; overrides: Record<string, { start: string; end: string } | null> }

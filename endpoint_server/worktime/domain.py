@@ -45,12 +45,12 @@ def schedule_windows(schedule, day: date, *, shift_days=None):
 
 
 def project_work(events, corrections, start, end, now):
-    """Replay original events and overlay approved corrections without rewriting history."""
+    """Replay events and overlay corrections in their actual application order."""
     end = min(end, now)
     if start >= end:
         return [], dict(work_seconds=0, off_pc_seconds=0, break_seconds=0)
     events = sorted(events, key=lambda e: utc(e.occurred_at))
-    corrections = sorted(corrections, key=lambda c: utc(c.approved_at))
+    corrections = sorted(corrections, key=lambda c: (utc(c.applied_at), str(c.id)))
     points = {start, end}
     points.update(utc(e.occurred_at) for e in events if start < utc(e.occurred_at) < end)
     for correction in corrections:
@@ -62,7 +62,7 @@ def project_work(events, corrections, start, end, now):
         status, source, record_id = (prior[-1].status, 'employee', str(prior[-1].id)) if prior else ('ENDED', 'unrecorded', None)
         for correction in corrections:
             if utc(correction.started_at) <= left < utc(correction.ended_at):
-                status, source, record_id = correction.status, 'approved_correction', str(correction.id)
+                status, source, record_id = correction.status, correction.source, str(correction.id)
         seconds = int((right - left).total_seconds())
         if status in ('WORKING', 'OFF_PC'):
             totals['work_seconds'] += seconds

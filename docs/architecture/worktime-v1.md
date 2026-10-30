@@ -16,10 +16,11 @@ CSRF on mutations. Responses use `Cache-Control: no-store`.
 Self-write APIs derive the person from the authenticated server session and reject
 unknown JSON properties, including injected `person_id`. Read selectors and HR
 schedule selectors pass through `authorize_person`, which loads the target's
-persisted department. Managers can read/approve within their explicitly granted
+persisted department. Managers can read within their explicitly granted
 department; HR and WorkTime administrators have their explicit department or
 organization scope. An Endpoint administrator has no implicit personnel rights.
-Approval requires a different person from the correction requester.
+Corrections are recorded immediately; no correction approval or independent
+reviewer is required. Existing privileged assurance and department checks remain.
 
 ## Durable records and serialized events
 
@@ -30,15 +31,15 @@ Migration `0041_worktime`, after `0040_identity_sso`, adds thirteen tables:
 - `worktime_schedules`: immutable effective-dated schedule versions.
 - `worktime_categories`: configurable explanation directory.
 - `worktime_explanations`: immutable interval explanations.
-- `worktime_corrections`: immutable proposed interval/status corrections.
-- `worktime_approvals`: one immutable approval or rejection per correction.
+- `worktime_corrections`: immutable recorded interval/status corrections.
+- `worktime_approvals`: retained historical approval/rejection records; no new decisions.
 - `worktime_explanation_requests`: stable durable measured-return requests.
 - `worktime_activity_bindings`: explicit verified temporal account mappings.
 - `worktime_audit`: append-only personnel mutation audit references.
 - `worktime_retention_policies`: append-only policy decisions.
-- `worktime_timesheets`: immutable approved monthly versions and source digest.
+- `worktime_timesheets`: immutable finalized monthly versions and source digest.
 - `worktime_timesheet_days`: persisted daily totals and personnel annotations for
-  each approved monthly version.
+  each finalized monthly version.
 
 Every person mutation first locks `confirmed_identities` and then
 `worktime_state` with PostgreSQL `FOR UPDATE`. The confirmed-identity lock also
@@ -55,11 +56,12 @@ The finite-state machine accepts:
 | OFF_PC | resume / break / end | WORKING / BREAK / ENDED |
 
 An event's instant is the server's UTC time; retrospective edits use correction
-requests. Event timestamps must strictly increase. UUID idempotency keys and
+records. Event timestamps must strictly increase. UUID idempotency keys and
 request fingerprints distinguish a retry from conflicting key reuse. Reusing a
 key returns the original result; incompatible reuse or invalid transitions returns
-409. Original events, explanations, proposals and decisions have no edit/delete
-API. A subsequent correction produces another proposal and decision.
+409. Original events, explanations, corrections and historical decisions have no
+edit/delete API. A subsequent correction appends another immediately effective record
+and `correction_recorded` audit; it does not create an Approval row.
 
 ## Calendar, totals and corrections
 
@@ -70,23 +72,33 @@ means non-working holiday/weekend; `{start,end}` supplies an exceptional shift.
 Both the prior day's effective schedule and today's schedule are evaluated so
 changing an assignment does not invent an overnight shift from yesterday.
 
-Live day and month totals are projections of durable events and approved corrections.
-Finalizing a closed calendar month persists a separate immutable approved version,
-including its daily totals, work intervals, original event references, explanations,
-correction proposals/decisions and schedule bounds. Finalized records do not depend
-on live technical or personnel source retention. A later approved correction changes
-the live projection and requires a new explicit monthly version; it never rewrites
-the prior approved version. PostgreSQL triggers reject updates and deletes of both
-monthly versions and their daily records. Each approval records an audit reference,
-independent finalizer, time, reason and SHA-256 source digest.
+Live day and month totals are projections of durable events and recorded corrections.
+New corrections and all existing corrections without a historical decision apply
+immediately at their persisted creation time. Their DTO has `decision:recorded`
+and `approval:null`, with work-interval source `recorded_correction`. Historical
+approvals still apply at the actual approval time with `approved_correction` source;
+historically rejected corrections never apply. Overlaps use actual application
+time, then correction UUID as a deterministic tie-break. No approval timestamp or
+decision is fabricated. Existing unreviewed records therefore change the live
+projection under this policy without rewriting any rows or saved snapshots.
 
-Finalization requires HR authority and independent approval authority, a completed
-calendar month, no unresolved correction proposals, and unexpired source history.
-The same person lock serializes finalization with correction decisions and assigns
+Finalizing a closed calendar month persists a separate immutable finalized version,
+including its daily totals, work intervals, original event references, explanations,
+corrections/historical decisions and schedule bounds. Finalized records do not depend
+on live technical or personnel source retention. A later recorded correction changes
+the live projection and requires a new explicit monthly version; it never rewrites
+the prior finalized version. PostgreSQL triggers reject updates and deletes of both
+monthly versions and their daily records. Each finalization records an audit reference,
+finalizer, time, reason and SHA-256 source digest.
+
+Finalization requires the existing HR authority, a reason, a completed calendar
+month and unexpired source history. No pending-correction or independent-reviewer
+gate remains. The same person lock serializes finalization with correction writes and assigns
 unique increasing versions. Retried idempotency keys return the original version.
-Employee self-approval is forbidden. HR may propose a correction for another person
-only through the explicit HR-scoped endpoint; its actor remains the HR author, who
-cannot approve their own proposal. MFA and current target-department authority are
+An authorized HR actor may finalize their own closed month; an ordinary employee
+still has no HR finalization privilege. HR may record a correction for another person
+only through the explicit HR-scoped endpoint; its actor remains the HR author.
+MFA and current target-department authority are
 revalidated by the shared authorization boundary.
 
 `work_seconds` includes WORKING and OFF_PC; `off_pc_seconds` is the OFF_PC subset;
@@ -94,8 +106,14 @@ revalidated by the shared authorization boundary.
 explanation category selection never add work seconds. An explanation is a
 statement requiring the organization's personnel rules, not an automatic legal,
 disciplinary or payroll classification. Corrections overlay the original interval
-only after independent approval; a later approved correction takes precedence
-on its overlapping portion. No original event is overwritten.
+immediately when recorded; a later applied correction takes precedence on its
+overlapping portion, retaining historical decisions as described above. No original
+event is overwritten.
+
+Deployment requires PostgreSQL migration `0043_worktime_recorded`, which drops only
+`ck_worktime_timesheet_independent`; it rewrites no rows and preserves immutable
+snapshot triggers. Downgrade locks the ledger and refuses if any self-finalized
+snapshot exists; it never deletes or changes such history to restore the old check.
 
 ## Technical attribution and measured-return requests
 
@@ -150,11 +168,11 @@ unknown fields. All event/explanation/correction/schedule commands require
 | GET `/people` | Scoped `{people:[{person_id,department_id,status}]}` |
 | POST `/transitions` | `{action,idempotency_key}`; stored event with status |
 | POST `/explanations` | `{started_at,ended_at,category_code,comment,request_id?,idempotency_key}` |
-| POST `/corrections` | `{started_at,ended_at,status,reason,idempotency_key}` |
+| POST `/corrections` | `{started_at,ended_at,status,reason,idempotency_key}`; immediate recorded DTO |
 | POST `/people/{person_id}/corrections` | Explicit HR-scoped correction; same input, authenticated HR author |
 | GET `/history?day=&person_id=` | `{events,explanations,corrections,approvals}` |
-| GET `/approvals` | Scoped pending corrections, excluding self-approval |
-| POST `/corrections/{id}/decision` | `{decision:approved\|rejected,comment,idempotency_key}` |
+| GET `/approvals` | Retired; authenticated HTTP 410, no queue returned |
+| POST `/corrections/{id}/decision` | Retired; authenticated/CSRF-checked legacy request returns 410, no decision written |
 | GET `/pending` | `{requests:[{id,person_id,started_at,ended_at,source,created_at,state:pending}]}` |
 | POST `/pending/refresh?day=` | Server-side generation and pending response |
 | GET `/schedules?person_id=` | HR schedule-version history |
@@ -163,7 +181,7 @@ unknown fields. All event/explanation/correction/schedule commands require
 | POST `/policy` | Organization WorkTime admin retention/threshold decision |
 | POST `/activity-bindings` | Scoped WorkTime admin verified temporal mapping |
 | GET `/timesheets?month=&person_id=` | Scoped finalized version metadata, newest first |
-| POST `/people/{person_id}/timesheets/finalize` | `{month,reason,idempotency_key}`; independent HR approval of closed month |
+| POST `/people/{person_id}/timesheets/finalize` | `{month,reason,idempotency_key}`; HR-scoped immutable closed-month snapshot |
 | GET `/timesheets/{id}` | Immutable finalized version with persisted daily records |
 | GET `/timesheets/{id}/export` | HR-scoped CSV of finalized daily/month totals, version, finalizer and digest |
 
@@ -186,7 +204,7 @@ retention explicitly enables `retain_worktime(session, now=None, batch_size=100)
 the server worker invokes it in an independent transaction. It locks each person,
 expires records in foreign-key-safe bounded batches, retains the event and schedule
 predecessors needed at the boundary, and preserves audit/policy decision references.
-Recently submitted explanations and recently decided corrections are retained even
+Recently submitted explanations/recorded corrections and recently decided historical corrections are retained even
 when their described interval is older. No Activity table is deleted by this job.
 Finalized monthly versions and their daily payloads, including their saved
 explanations and approval history, are retained independently and are never purged
@@ -198,12 +216,12 @@ A day or history intersecting that boundary returns HTTP 410; a month containing
 such a day also returns 410. Deleted records can never silently become zero-hour
 historical reports. Disabling deletion later does not erase this marker or invent
 the missing history. Finalized-version list/read/export remains available after
-source expiry, so approved historical totals never disappear into zero reports.
+source expiry, so finalized historical totals never disappear into zero reports.
 Finalize or export required historical reports before enabling a shorter source
 retention window. Activity retention independently deletes its own technical tables
 and cannot delete explanations, requests, approvals or personnel events.
 
-The basic API bounds personnel lists to 2000, pending/approval/history schedule
+The basic API bounds personnel lists to 2000, pending/history schedule
 lists to 500, per-binding daily Activity evidence to 20000, and interval mutations
 to 31 days. Month APIs return one calendar month. This implementation is a pilot
 foundation; role grants, verified account mappings and schedules must be provisioned

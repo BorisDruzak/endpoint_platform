@@ -135,14 +135,24 @@ it('does not resolve or display a foreign request from a deep link', async () =>
   expect(fetch.mock.calls.every(([path]) => !path.includes('00000000-0000-4000-8000-000000000003'))).toBe(true)
 })
 
-it('gives a pure HR account its approval entry without loading a department roster', async () => {
+it('redirects the retired approval route without fetching an approval queue', async () => {
   const fetch = setup('/employee/approvals', [{ role: 'hr', department_id: 'department-a' }])
-  fetch.mockImplementation(async (path: string) => ({ ok: true, status: 200, json: async () => path === '/api/employee/session' ? { ...session, grants: [{ role: 'hr', department_id: 'department-a' }] } : { corrections: [{ id: 'review-1', person_id: 'person-b', started_at: '2026-10-27T03:00:00Z', ended_at: '2026-10-27T04:00:00Z', status: 'OFF_PC', reason: 'Подтверждённая служебная работа', decision: 'pending' }] } }))
-  expect(await screen.findByRole('heading', { name: 'Согласования корректировок' })).toBeTruthy()
-  fireEvent.click(await screen.findByRole('button', { name: 'Согласовать' }))
-  await waitFor(() => expect(fetch.mock.calls.some(([path]) => path.endsWith('/review-1/decision'))).toBe(true))
-  expect(screen.getByRole('link', { name: 'Согласования' })).toBeTruthy()
-  expect(fetch.mock.calls.every(([path]) => !path.endsWith('/people'))).toBe(true)
+  expect(await screen.findByRole('heading', { name: 'Мой рабочий день' })).toBeTruthy()
+  expect(screen.queryByRole('link', { name: 'Согласования' })).toBeNull()
+  expect(fetch.mock.calls.every(([path]) => !path.includes('/approvals') && !path.endsWith('/decision'))).toBe(true)
+})
+
+it('saves a self correction directly with CSRF and no approval request', async () => {
+  const fetch = setup()
+  const submit = await screen.findByRole('button', { name: 'Сохранить корректировку' })
+  fireEvent.change(screen.getByLabelText('Обоснование корректировки'), { target: { value: 'Работал с документами' } })
+  fireEvent.click(submit)
+  await waitFor(() => expect(fetch.mock.calls.filter(([path]) => path.endsWith('/corrections'))).toHaveLength(1))
+  const write = fetch.mock.calls.find(([path]) => path.endsWith('/corrections'))!
+  expect(JSON.parse(write[1]!.body as string)).toMatchObject({ reason: 'Работал с документами', status: 'WORKING' })
+  expect(JSON.parse(write[1]!.body as string)).not.toHaveProperty('person_id')
+  expect(new Headers(write[1]!.headers).get('x-csrf-token')).toBe('employee-csrf')
+  expect(fetch.mock.calls.every(([path]) => !path.includes('/approvals') && !path.endsWith('/decision'))).toBe(true)
 })
 
 it('fails closed on a revoked session and clears personnel content', async () => {
