@@ -9,7 +9,8 @@ import urllib.error, urllib.parse, urllib.request
 from tools.keycloak import business_ad_login as policy
 
 P=pathlib.Path
-ROOT=P('/root/keycloak-business-ad-login-admin2-20261030-v1')
+ROOT=P('/root/keycloak-business-ad-login-admin2-20261030-v2')
+PREVIOUS=P('/root/keycloak-business-ad-login-admin2-20261030-v1')
 PREFIX='/admin/realms/sosnadmin'; MASTER='/admin/realms/master'
 TOKEN='/realms/master/protocol/openid-connect/token'; LOGOUT='/realms/master/protocol/openid-connect/logout'
 COMPONENTS=PREFIX+'/components'; TYPE=policy.STORAGE; MAPPERS=policy.MAPPERS
@@ -55,6 +56,20 @@ class Native:
         freeze=json.loads(private(ROOT/'freeze.json'));need(set(freeze)=={'business_ad_login.py','business_ad_login_native.py','proof.json'},'SourceClosure')
         need(all(sha(private(ROOT/name))==value for name,value in freeze.items()),'SourceClosure')
         self.proof=json.loads(private(ROOT/'proof.json'));policy.validate_identity(self.proof,int(time.time()*1000))
+        prior_freeze=json.loads(private(PREVIOUS/'freeze.json'))
+        ps=PREVIOUS.lstat();need(stat.S_ISDIR(ps.st_mode) and ps.st_uid==0 and stat.S_IMODE(ps.st_mode)==0o700,'PreviousPrivateRoot')
+        need(set(prior_freeze)=={'business_ad_login.py','business_ad_login_native.py','proof.json'} and
+            prior_freeze.get('business_ad_login.py')=='13f2cae4f2cc51de6782578ef4ee2859d543e0d80a1b23f6051c6546380fa339' and
+            prior_freeze.get('business_ad_login_native.py')=='4c2ee6fcb8d07df474c44335fe2a59a33c1acb11ec19bcbc9d8eda1f616fb207' and
+            all(sha(private(PREVIOUS/name))==digest for name,digest in prior_freeze.items()),'PreviousSourceClosure')
+        previous_proof=json.loads(private(PREVIOUS/'proof.json'))
+        need(all(previous_proof[key]==self.proof[key] for key in ('object_guid','object_sid','distinguished_name','login')),'ResumeIdentityMismatch')
+        previous_request=json.loads(private(PREVIOUS/'apply/consumed.json'))
+        need(previous_request['mode']=='apply' and previous_request['source_sha256']==prior_freeze['business_ad_login_native.py'] and
+            not os.path.lexists(PREVIOUS/'apply/enable-intent.json') and json.loads(private(PREVIOUS/'apply/logout.json'))['verified'] is True,'PreviousOwnedDisabledPhase')
+        owned=json.loads(private(PREVIOUS/'apply/owned-provider.json'))
+        need(owned['name']==policy.PROVIDER_NAME,'PreviousProviderName');self.resume_id=opaque(owned['id']);self.provider_id=self.resume_id;self.owned_ids={self.resume_id}
+        self.prior_intent=json.loads(private(PREVIOUS/'apply/create-intent.json'))['payload_sha256']
         addresses=json.loads(subprocess.run(['/usr/sbin/ip','-j','address','show'],check=True,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=10).stdout)
         need('192.168.100.19' in {a.get('local') for row in addresses for a in row.get('addr_info',[])},'HostMismatch')
         self.attempt=ROOT/self.phase;need(not os.path.lexists(self.attempt),'ConsumedAttempt')
@@ -167,9 +182,13 @@ class Native:
         allowed_get={PREFIX,PREFIX+'/events/config',COMPONENTS+'?type='+TYPE,MASTER+'/components?type='+TYPE,
             COMPONENTS+'?parent='+PILOT_ID+'&type='+MAPPERS}
         if self.provider_id:allowed_get|={COMPONENTS+'/'+self.provider_id,COMPONENTS+'?parent='+self.provider_id+'&type='+MAPPERS}
+        allowed_get|={COMPONENTS+'/'+value for value in self.owned_ids}
         allowed=(method=='GET' and path in allowed_get) or (method=='POST' and path in (TOKEN,LOGOUT))
         allowed=allowed or (self.phase=='apply' and method=='POST' and path==COMPONENTS and self.provider_id is None)
+        allowed=allowed or (self.phase=='apply' and method=='POST' and path==COMPONENTS and self.provider_id is not None and
+            type(payload) is dict and payload.get('parentId')==self.provider_id and payload.get('providerType')==MAPPERS and payload.get('name') in self.pilot_mapper_names)
         allowed=allowed or (self.phase=='apply' and method=='PUT' and self.provider_id is not None and path.rsplit('/',1)[-1] in self.owned_ids and path.startswith(COMPONENTS+'/'))
+        allowed=allowed or (self.phase=='apply' and method=='DELETE' and path.startswith(COMPONENTS+'/') and path.rsplit('/',1)[-1] in self.owned_ids-{self.provider_id})
         need(allowed,'AdminRequestProhibited');self.requests+=1;need(self.requests<=80,'RequestBudget')
         if authenticated and self.token is not None and time.monotonic()>=self.token_until-5:
             self.renew(allow_expired_proof=recovery)
@@ -206,8 +225,12 @@ class Native:
     def preflight(self,proof):
         self.fresh();realm=self.get(PREFIX);need(type(realm) is dict and realm.get('realm')=='sosnadmin' and realm.get('registrationAllowed') is False,'RealmBinding')
         events=self.get(PREFIX+'/events/config');need(events.get('adminEventsDetailsEnabled') is False,'SecretAuditDetailsProhibited')
-        providers=self.get(COMPONENTS+'?type='+TYPE);need(type(providers) is list and len(providers)==1 and providers[0].get('id')==PILOT_ID,'InitialPilotScope')
-        pilot=providers[0];need(pilot['parentId']==realm['id'],'PilotRealm')
+        providers=self.get(COMPONENTS+'?type='+TYPE);need(type(providers) is list and len(providers)==2 and {value.get('id') for value in providers}=={PILOT_ID,self.resume_id},'OwnedResumeProviderScope')
+        pilot=next(value for value in providers if value['id']==PILOT_ID);need(pilot['parentId']==realm['id'],'PilotRealm')
+        existing=self.read(self.resume_id)
+        payload=policy.provider_payload(pilot,proof,self.environment['SSO_LDAP_BIND_PASSWORD'],now_ms=int(time.time()*1000))
+        policy.verify_owned_resume(existing,payload,self.prior_intent);generated=self.mappers(self.resume_id)
+        self.generated_sha=sha(encoded(sorted(generated,key=lambda value:value['id'])))
         owner=[value for value in self.get(MASTER+'/components?type='+TYPE) if value.get('name')=='permanent-owner-ad-readonly']
         need(len(owner)==1,'MasterOwnerBinding');cfg=owner[0]['config'];guid=''.join('\\'+format(v,'02x') for v in policy.validate_identity(proof,int(time.time()*1000)).bytes_le)
         need(cfg.get('usersDn')==[proof['distinguished_name']] and cfg.get('customUserSearchFilter')==['(&(objectCategory=person)(objectGUID='+guid+'))'] and cfg.get('enabled')==['true'],'MasterOwnerIdentityMismatch')
@@ -217,10 +240,13 @@ class Native:
         need(identity['existing_business']==0 and identity['owner_guid']==proof['object_guid'],'ImportedIdentityCollision')
         need(identity['bind']==self.environment['SSO_LDAP_BIND_PASSWORD'],'BindChannelMismatch')
         mappers=self.get(COMPONENTS+'?parent='+PILOT_ID+'&type='+MAPPERS)
+        self.pilot_mapper_names={value['name'] for value in mappers}
         need(any(v.get('providerId')=='msad-user-account-control-mapper' and v.get('config',{}).get('always.read.enabled.value.from.ldap')==['true'] for v in mappers),'MsadEnabledReadRequired')
-        self.before=self.snapshot();self.profile_sha=sha(encoded({'providers':providers,'owner':owner,'rows':self.before}))
+        self.before=self.snapshot();self.profile_sha=sha(encoded({'providers':[pilot],'owner':owner,'rows':self.before}))
+        need(self.profile_sha==json.loads(private(PREVIOUS/'plan/result.json'))['profile_sha256'],'PriorOriginalStateDrift')
         if self.phase=='apply':
             planned=json.loads(private(ROOT/'plan/result.json'));need(planned['status']=='BusinessAdLoginPlanOnly' and planned['profile_sha256']==self.profile_sha,'PlanProfileDrift')
+            need(planned['candidate_mappers_sha256']==self.generated_sha,'OwnedMapperPlanDrift')
             need(json.loads(private(ROOT/'plan/logout.json'))['verified'] is True,'PlanOperatorLogoutRequired')
         return pilot,mappers
     def backup(self):
@@ -236,6 +262,10 @@ class Native:
     def create(self,payload):
         self.assert_binding()
         need(payload==policy.provider_payload(self.pilot,self.proof,self.environment['SSO_LDAP_BIND_PASSWORD'],now_ms=int(time.time()*1000)),'ProviderPayloadMismatch')
+        if getattr(self,'resume_id',None) is not None:
+            policy.verify_owned_resume(self.read(self.resume_id),payload,self.prior_intent)
+            self.save('resumed-disabled-provider.json',{'id':self.resume_id,'prior_capsule':str(PREVIOUS),'new_provider_created':False})
+            return self.resume_id
         status,headers,_=self.http('POST',COMPONENTS,payload=payload);need(status==201,'ProviderCreateStatus')
         location=urllib.parse.urlsplit(headers.get('Location',headers.get('location','')))
         need(location.path.startswith(COMPONENTS+'/') and not location.query and not location.fragment and
@@ -252,6 +282,20 @@ class Native:
         self.assert_binding()
         need(mid in self.owned_ids and mid!=self.provider_id and payload.get('parentId')==self.provider_id,'OwnedMapperRequired')
         self.http('PUT',COMPONENTS+'/'+mid,payload=payload)
+    def create_mapper(self,payload):
+        self.assert_binding()
+        need(payload.get('parentId')==self.provider_id and payload.get('name') in self.pilot_mapper_names and 'id' not in payload,'NewMapperPayload')
+        status,headers,_=self.http('POST',COMPONENTS,payload=payload);need(status==201,'MapperCreateStatus')
+        location=urllib.parse.urlsplit(headers.get('Location',headers.get('location','')))
+        need(location.path.startswith(COMPONENTS+'/') and not location.query and not location.fragment and
+            (location.netloc,location.scheme) in (('',''),('127.0.0.1:8088','http'),('sso.sosnadmin.local','https')),'MapperLocation')
+        self.owned_ids.add(opaque(location.path[len(COMPONENTS)+1:]))
+    def remove_mapper(self,mid,expected):
+        self.assert_binding();need(mid in self.owned_ids and mid!=self.provider_id,'OwnedGeneratedMapper')
+        need(self.read(self.provider_id)['config'].get('enabled')==['false'],'DisabledProviderRequired')
+        actual=self.get(COMPONENTS+'/'+mid)
+        need(actual==expected and actual.get('parentId')==self.provider_id and policy.GENERATED_MAPPERS.get(actual.get('name'))==actual.get('providerId'),'GeneratedMapperChanged')
+        self.http('DELETE',COMPONENTS+'/'+mid)
     def update(self,pid,payload):
         self.assert_binding()
         need(pid==self.provider_id and payload==self.desired,'EnablePayloadMismatch');self.http('PUT',COMPONENTS+'/'+pid,payload=payload)
@@ -284,7 +328,7 @@ def run(request):
         ops.desired=policy.provider_payload(ops.pilot,ops.proof,ops.environment['SSO_LDAP_BIND_PASSWORD'],now_ms=int(time.time()*1000));ops.desired['config']['enabled']=['true']
         ops.preflight=lambda proof:(ops.pilot,old_mappers)
         result=policy.enable_exact_user(ops,ops.proof,ops.environment['SSO_LDAP_BIND_PASSWORD'],now_ms=int(time.time()*1000),apply=ops.phase=='apply')
-        if ops.phase=='plan':result.update(profile_sha256=ops.profile_sha);ops.save('result.json',result)
+        if ops.phase=='plan':result.update(profile_sha256=ops.profile_sha,candidate_mappers_sha256=ops.generated_sha);ops.save('result.json',result)
         result['request_count']=ops.requests;return result
     finally:
         try:

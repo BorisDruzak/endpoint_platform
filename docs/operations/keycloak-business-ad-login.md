@@ -38,5 +38,19 @@ Successful directory authentication is separate from WorkTime access. Helpdesk
 must still confirm the immutable employee/person binding, and personnel/technical
 roles remain separate. The helper grants neither HR nor Endpoint administration.
 
+The initial live attempt retained an owned **disabled** provider when Keycloak
+added its AD `krbPrincipalAttribute=userPrincipalName` default. Its immutable v1
+capsule, backup and failure evidence remain. The v2 continuation accepts only
+that created ID, the original create-intent fingerprint, unchanged immutable
+identity and the original full profile seal. It does not repeat provider POST.
+The default is now explicit while Kerberos authentication remains disabled.
+
+Fresh v2 backup and saved JSON precede reconciliation of this unused provider's
+generated mappers. Only known generated children may be removed/recreated to
+match the original pilot mapper semantics exactly; imported users and the pilot
+mapper IDs remain untouched. Component PUT merges configuration keys, so a
+different generated mapper is replaced rather than retaining unrequested keys.
+Unknown names/types, enabled provider state or metadata changes stop the operation.
+
 Provider operations use the Keycloak26.8.1 Component Admin REST API:
 https://www.keycloak.org/docs-api/26.8.1/rest-api/index.html#_component

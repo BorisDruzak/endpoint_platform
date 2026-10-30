@@ -3,7 +3,7 @@ from uuid import UUID
 
 import pytest
 
-from tools.keycloak.business_ad_login import Refused, provider_payload, mapper_updates, enable_exact_user
+from tools.keycloak.business_ad_login import Refused, provider_payload, mapper_updates, enable_exact_user, reconcile_mappers, verify_owned_resume
 
 GUID='00000000-0000-4000-8000-000000000002'
 DN='CN=admin-2,CN=Users,DC=sosnadmin,DC=local'
@@ -13,6 +13,7 @@ PILOT=dict(id='pilot-provider',parentId='business-realm',providerId='ldap',provi
     name='existing-pilot',config={k:[v] for k,v in dict(enabled='true',vendor='ad',editMode='READ_ONLY',usersDn='CN=ssopilot-20261027,OU=TEST,DC=sosnadmin,DC=local',
         searchScope='0',connectionUrl='ldaps://AD-MAIN.sosnadmin.local:636',uuidLDAPAttribute='objectGUID',usernameLDAPAttribute='sAMAccountName',
         bindDn='CN=svc-keycloak-ldap,CN=Users,DC=sosnadmin,DC=local',removeInvalidUsersEnabled='false',customUserSearchFilter='(objectCategory=person)',bindCredential='**********').items()})
+PILOT['config'].update(allowKerberosAuthentication=['false'],useKerberosForPasswordAuthentication=['false'])
 
 def test_exact_user_provider_preserves_pilot_and_is_disabled_until_checked():
     original=deepcopy(PILOT)
@@ -23,6 +24,11 @@ def test_exact_user_provider_preserves_pilot_and_is_disabled_until_checked():
     assert payload['config']['customUserSearchFilter']==['(&(objectCategory=person)(objectGUID='+expected_guid+'))']
     for key,value in dict(usersDn=DN,searchScope='0',enabled='false',editMode='READ_ONLY',syncRegistrations='false',fullSyncPeriod='-1',changedSyncPeriod='-1').items():
         assert payload['config'][key]==[value]
+
+def test_provider_explicitly_matches_keycloak_ad_principal_default():
+    payload=provider_payload(PILOT,PROOF,'fixture',now_ms=1100)
+    assert payload['config']['krbPrincipalAttribute']==['userPrincipalName']
+    assert payload['config']['allowKerberosAuthentication']==['false']
 
 @pytest.mark.parametrize('change',[dict(login='other'),dict(enabled=False),dict(locked=True),dict(password_expired=True),dict(windows_sid_matches=False),dict(strict_ldaps=False),dict(observed_at_ms=0),dict(object_guid='invalid')])
 def test_unqualified_or_stale_identity_is_refused(change):
@@ -121,14 +127,14 @@ def test_native_cleanup_read_disable_read_survives_expired_proof(monkeypatch):
     with pytest.raises(Refused,match='CleanupScope'):
         native.http('GET',n.COMPONENTS+'/pilot-provider',recovery=True)
 
-@pytest.mark.parametrize('operation',['login','backup','create','update_mapper','update','unchanged'])
+@pytest.mark.parametrize('operation',['login','backup','create','create_mapper','remove_mapper','update_mapper','update','unchanged'])
 def test_native_binding_failure_blocks_auth_backup_and_provider_writes(operation):
     from tools.keycloak.business_ad_login_native import Native
     native=object.__new__(Native);native.fresh=lambda:None
     def wrong_database():raise Refused('DatabaseOidChanged')
     native.assert_binding=wrong_database
     native.http=lambda *args,**kwargs:pytest.fail('unbound target must not receive a request')
-    arguments={'create':({},),'update_mapper':('mapper',{}),'update':('provider',{})}.get(operation,())
+    arguments={'create':({},),'create_mapper':({},),'remove_mapper':('mapper',{}),'update_mapper':('mapper',{}),'update':('provider',{})}.get(operation,())
     with pytest.raises(Refused,match='DatabaseOidChanged'):getattr(native,operation)(*arguments)
 
 @pytest.mark.parametrize('origin',['https://sso.sosnadmin.local','http://127.0.0.1:8088','https://foreign.example'])
@@ -143,3 +149,67 @@ def test_created_location_is_parsed_only_for_canonical_origins(monkeypatch,origi
         with pytest.raises(Refused,match='ProviderLocation'):native.create(payload)
         assert not native.owned_ids
     else:assert native.create(payload)=='new-provider'
+
+def test_resume_requires_exact_disabled_payload_and_original_create_fingerprint():
+    import hashlib,json
+    payload=provider_payload(PILOT,PROOF,'fixture',now_ms=1100)
+    legacy=deepcopy(payload);legacy['config'].pop('krbPrincipalAttribute')
+    fingerprint=hashlib.sha256(json.dumps(legacy,sort_keys=True).encode()).hexdigest()
+    verify_owned_resume(dict(payload,id='new-provider'),payload,fingerprint)
+    with pytest.raises(Refused,match='OwnedCreateIntentMismatch'):
+        verify_owned_resume(dict(payload,id='new-provider'),payload,'f'*64)
+    changed=deepcopy(payload);changed['config']['enabled']=['true']
+    with pytest.raises(Refused,match='ProviderReadbackMismatch'):verify_owned_resume(changed,payload,fingerprint)
+
+def test_native_resume_returns_owned_id_without_second_provider_post(monkeypatch):
+    import hashlib,json
+    from tools.keycloak import business_ad_login_native as n
+    native=object.__new__(n.Native);native.assert_binding=lambda:None;native.pilot=PILOT;native.proof=PROOF
+    native.environment={'SSO_LDAP_BIND_PASSWORD':'fixture'};native.provider_id=native.resume_id='new-provider';native.owned_ids={'new-provider'}
+    payload=provider_payload(PILOT,PROOF,'fixture',now_ms=1100);legacy=deepcopy(payload);legacy['config'].pop('krbPrincipalAttribute')
+    native.prior_intent=hashlib.sha256(json.dumps(legacy,sort_keys=True).encode()).hexdigest()
+    native.read=lambda pid:dict(payload,id=pid);native.save=lambda *args:None
+    native.http=lambda *a,**kw:pytest.fail('resume must never create a second provider')
+    monkeypatch.setattr(n.time,'time',lambda:1.1)
+    assert native.create(payload)=='new-provider'
+
+def test_generated_mapper_reconciliation_preserves_matching_ids_and_only_replaces_owned_defaults():
+    from types import SimpleNamespace
+    mapper_type='org.keycloak.storage.ldap.mappers.LDAPStorageMapper'
+    def row(name,pid,mid,kind='user-attribute-ldap-mapper'):
+        return dict(name=name,parentId=pid,id=mid,providerType=mapper_type,providerId=kind,config={'read.only':['true']})
+    old=[row('username','pilot','old-u'),row('firstName','pilot','old-f'),row('msad-account-state','pilot','old-m','msad-user-account-control-mapper')]
+    current=[row('username','new','new-u'),row('full name','new','new-auto','full-name-ldap-mapper'),row('MSAD account controls','new','new-msad','msad-user-account-control-mapper')]
+    actions=[]
+    def update(mid,payload):
+        actions.append(('update',mid));current[:]=[deepcopy(payload) if value['id']==mid else value for value in current]
+    def create(payload):
+        actions.append(('create',payload['name']));current.append(dict(deepcopy(payload),id='created-'+payload['name']))
+    def remove(mid,expected):
+        actions.append(('remove',mid));assert expected['parentId']=='new';current[:]=[value for value in current if value['id']!=mid]
+    ops=SimpleNamespace(mappers=lambda pid:deepcopy(current),update_mapper=update,create_mapper=create,remove_mapper=remove,save=lambda *args:None)
+    reconcile_mappers(ops,old,'pilot','new')
+    assert {value['name'] for value in current}=={value['name'] for value in old}
+    assert next(value['id'] for value in current if value['name']=='username')=='new-u'
+    assert {value[1] for value in actions if value[0]=='remove'}=={'new-auto','new-msad'}
+    assert all(not value[1].startswith('old-') for value in actions)
+
+def test_unknown_generated_mapper_is_refused_before_any_mutation():
+    from types import SimpleNamespace
+    current=[dict(id='new-role',parentId='new',name='foreign-role-map',providerType='org.keycloak.storage.ldap.mappers.LDAPStorageMapper',providerId='role-ldap-mapper',config={})]
+    def mutation(*args):pytest.fail('unknown mapper must not be modified')
+    ops=SimpleNamespace(mappers=lambda pid:current,save=mutation,update_mapper=mutation,create_mapper=mutation,remove_mapper=mutation)
+    with pytest.raises(Refused,match='UnexpectedGeneratedMapper'):reconcile_mappers(ops,[],'pilot','new')
+
+def test_different_owned_default_mapper_is_recreated_without_merged_extra_keys():
+    from types import SimpleNamespace
+    kind='org.keycloak.storage.ldap.mappers.LDAPStorageMapper'
+    old=dict(id='original',name='username',parentId='pilot',providerType=kind,providerId='user-attribute-ldap-mapper',config={'read.only':['true']})
+    current=[dict(old,id='generated',parentId='new',config={'read.only':['false'],'extra-default':['true']})]
+    removed=[]
+    def remove(mid,expected):removed.append(mid);current.clear()
+    def create(value):current.append(dict(value,id='cloned'))
+    ops=SimpleNamespace(mappers=lambda pid:deepcopy(current),remove_mapper=remove,create_mapper=create,save=lambda *args:None,
+        update_mapper=lambda *args:pytest.fail('PUT would retain default config keys'))
+    reconcile_mappers(ops,[old],'pilot','new')
+    assert removed==['generated'] and current[0]['config']==old['config']

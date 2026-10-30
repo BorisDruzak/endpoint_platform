@@ -42,14 +42,15 @@ def provider_payload(pilot,proof,bind_password,*,now_ms):
     config=pilot.get('config'); need(type(config) is dict,'PilotConfig')
     for key,value in dict(enabled='true',vendor='ad',editMode='READ_ONLY',usersDn=PILOT_DN,searchScope='0',
         connectionUrl='ldaps://AD-MAIN.sosnadmin.local:636',uuidLDAPAttribute='objectGUID',usernameLDAPAttribute='sAMAccountName',
-        removeInvalidUsersEnabled='false',bindDn='CN=svc-keycloak-ldap,CN=Users,DC=sosnadmin,DC=local').items():
+        removeInvalidUsersEnabled='false',allowKerberosAuthentication='false',useKerberosForPasswordAuthentication='false',
+        bindDn='CN=svc-keycloak-ldap,CN=Users,DC=sosnadmin,DC=local').items():
         need(config.get(key)==[value],'PilotScopeMismatch')
     need(type(bind_password) is str and 1<=len(bind_password)<=1024,'BindCredentialRequired')
     config=copy.deepcopy(config)
     binary=''.join('\\'+format(value,'02x') for value in guid.bytes_le)
     changes=dict(enabled='false',priority='1',usersDn=proof['distinguished_name'],searchScope='0',
         customUserSearchFilter='(&(objectCategory=person)(objectGUID='+binary+'))',bindCredential=bind_password,
-        syncRegistrations='false',fullSyncPeriod='-1',changedSyncPeriod='-1',cachePolicy='NO_CACHE',importEnabled='true')
+        syncRegistrations='false',fullSyncPeriod='-1',changedSyncPeriod='-1',cachePolicy='NO_CACHE',importEnabled='true',krbPrincipalAttribute='userPrincipalName')
     config.update({key:[value] for key,value in changes.items()})
     return dict(name=PROVIDER_NAME,parentId=pilot['parentId'],providerId='ldap',providerType=STORAGE,config=config)
 
@@ -62,6 +63,14 @@ def readback_matches(actual,expected):
     # Admin REST masks credentials. They must never be fetched back into evidence.
     for value in (actual,expected): value.get('config',{}).pop('bindCredential',None)
     need(actual==expected,'ProviderReadbackMismatch')
+
+def verify_owned_resume(actual,payload,intent_sha):
+    """Reconcile only the exact server-added AD default from the owned create."""
+    readback_matches(actual,payload)
+    need(payload['config'].get('enabled')==['false'] and payload['config'].get('krbPrincipalAttribute')==['userPrincipalName'] and
+        all(payload['config'].get(key)==['false'] for key in ('allowKerberosAuthentication','useKerberosForPasswordAuthentication')),'OwnedResumeProfile')
+    prior=copy.deepcopy(payload);prior['config'].pop('krbPrincipalAttribute')
+    need(hashlib.sha256(json.dumps(prior,sort_keys=True).encode()).hexdigest()==intent_sha,'OwnedCreateIntentMismatch')
 
 def mapper_updates(pilot_rows,new_rows,pilot_id,new_id):
     need(pilot_id!=new_id and type(pilot_rows) is list and type(new_rows) is list and len(pilot_rows)<=12,'MapperScope')
@@ -77,10 +86,41 @@ def mapper_updates(pilot_rows,new_rows,pilot_id,new_id):
         if canonical(target)!=canonical(desired): changes.append((target['id'],desired))
     return changes
 
+GENERATED_MAPPERS={'username':'user-attribute-ldap-mapper','email':'user-attribute-ldap-mapper',
+    'full name':'full-name-ldap-mapper','last name':'user-attribute-ldap-mapper',
+    'creation date':'user-attribute-ldap-mapper','modify date':'user-attribute-ldap-mapper',
+    'MSAD account controls':'msad-user-account-control-mapper','Kerberos principal attribute mapper':'kerberos-principal-attribute-mapper'}
+
+def reconcile_mappers(ops,pilot_rows,pilot_id,new_id):
+    current=ops.mappers(new_id);old={row.get('name'):row for row in pilot_rows};new={row.get('name'):row for row in current}
+    need(len(old)==len(pilot_rows) and len(new)==len(current) and len(current)<=12,'MapperNames')
+    for row in pilot_rows:
+        need(row.get('parentId')==pilot_id and row.get('providerType')==MAPPERS and row.get('providerId') in
+            ('user-attribute-ldap-mapper','full-name-ldap-mapper','msad-user-account-control-mapper'),'PilotMapperScope')
+    for row in current:
+        need(row.get('parentId')==new_id and row.get('providerType')==MAPPERS and row.get('id')!=pilot_id,'OwnedMapperScope')
+        if row['name'] not in old:need(GENERATED_MAPPERS.get(row['name'])==row.get('providerId'),'UnexpectedGeneratedMapper')
+        else:need(row.get('providerId')==old[row['name']].get('providerId'),'MapperType')
+    ops.save('generated-mappers-before.json',current)
+    for name,row in old.items():
+        desired=canonical(row);desired['parentId']=new_id
+        if name in new:
+            target=new[name];desired['id']=target['id']
+            if canonical(target)!=canonical(desired):
+                # Component PUT merges config keys. Replace only this still-unused
+                # generated mapper so no extra default keys survive the clone.
+                need(GENERATED_MAPPERS.get(name)==target.get('providerId'),'GeneratedMapperReplacement')
+                ops.remove_mapper(target['id'],target);desired.pop('id');ops.create_mapper(desired)
+        else:ops.create_mapper(desired)
+    for name,row in new.items():
+        if name not in old:ops.remove_mapper(row['id'],row)
+    need(not mapper_updates(pilot_rows,ops.mappers(new_id),pilot_id,new_id),'MapperReadbackMismatch')
+
 def enable_exact_user(ops,proof,bind_password,*,now_ms,apply=False):
     pilot,pilot_mappers=ops.preflight(proof)
     payload=provider_payload(pilot,proof,bind_password,now_ms=now_ms)
-    result=dict(status='BusinessAdLoginPlanOnly',selected_account_count=1,pilot_provider_changed=False,app_roles_changed=False)
+    result=dict(status='BusinessAdLoginPlanOnly',selected_account_count=1,pilot_provider_changed=False,app_roles_changed=False,
+        reused_owned_disabled_provider=getattr(ops,'resume_id',None) is not None)
     if not apply: return result
     backup=ops.backup();need(backup.get('toc_verified') is True and re.fullmatch('[0-9a-f]{64}',backup.get('sha256','')),'VerifiedBackupRequired')
     ops.save('create-intent.json',dict(payload_sha256=hashlib.sha256(json.dumps(payload,sort_keys=True).encode()).hexdigest(),initially_enabled=False))
@@ -89,8 +129,7 @@ def enable_exact_user(ops,proof,bind_password,*,now_ms,apply=False):
         created=ops.create(payload);need(type(created) is str and re.fullmatch('[A-Za-z0-9_-]{1,128}',created),'CreatedProviderIdentity')
         ops.save('owned-provider.json',dict(id=created,name=PROVIDER_NAME,parentId=payload['parentId']))
         readback_matches(ops.read(created),payload)
-        for mapper_id,desired in mapper_updates(pilot_mappers,ops.mappers(created),pilot['id'],created):ops.update_mapper(mapper_id,desired)
-        need(not mapper_updates(pilot_mappers,ops.mappers(created),pilot['id'],created),'MapperReadbackMismatch')
+        reconcile_mappers(ops,pilot_mappers,pilot['id'],created)
         ops.unchanged()
         desired=copy.deepcopy(payload);desired['config']['enabled']=['true']
         ops.save('enable-intent.json',dict(id=created,enabled=True));enable_attempted=True
