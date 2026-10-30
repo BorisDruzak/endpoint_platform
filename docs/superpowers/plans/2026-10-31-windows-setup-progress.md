@@ -18,18 +18,18 @@ window consumes it on its own thread. Installation remains on the main thread.
 
 - [x] Validate and apply one audited AUTO mode correction using the deployed
   selector for all254 source addresses, preserving other campaigns.
-- [ ] RED/GREEN bounded progress/state-change and timeout tests in
+- [x] RED/GREEN bounded progress/state-change and timeout tests in
   pc_agent/tests/windows/test_setup_progress.py; implement pc_agent/setup_progress.py
   and observer integration in pc_agent/windows_setup.py.
-- [ ] RED/GREEN window lifecycle and headless tests; implement
+- [x] RED/GREEN window lifecycle and headless tests; implement
   pc_agent/platform/windows/setup_progress_ui.py and setup_entry.py integration.
-- [ ] Add explicit installer-only revision support to packaging/windows/build-setup.ps1;
+- [x] Add explicit installer-only revision support to packaging/windows/build-setup.ps1;
   exercise release/payload identity and immutable MSI rules in packaging tests.
-- [ ] Update CODEMAP and packaging documentation; run focused agent/packaging
+- [x] Update CODEMAP and packaging documentation; run focused agent/packaging
   suites and inspect native UI. Commit reviewed task files to bind build source.
-- [ ] Build and sign the distinct156+setup.1 artifact from exact156 payloads.
+- [x] Build and sign the distinct156+setup.1 artifact from exact156 payloads.
   Verify signatures, hashes, embedded identities and bootstrap closure.
-- [ ] Qualify the artifact on domain Windows; publish immutable release and add
+- [x] Qualify the artifact on domain Windows; publish immutable release and add
   its exact release ID to the same campaign only after qualification; verify
   unique AUTO selection again and preserve rollback evidence.
 
@@ -38,3 +38,5 @@ window consumes it on its own thread. Installation remains on the main thread.
 Ruling: use an installer-only revision, preserving runtime versions, because the
 requested change concerns Setup and the user explicitly needs156 enrollment.
 Ruling: execute inline; request one independent whole-change review at completion.
+
+Qualification ruling: signed domain existing-device and native UI lifecycle checks passed; B2 fresh enrollment and pixel visual acceptance remain explicitly unverified in the report.
