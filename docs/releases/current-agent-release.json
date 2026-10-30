@@ -23,16 +23,18 @@
     },
     "runtime_source_binding": "packaging/windows/initial-runtime-3.2.158.json",
     "public_enrollment_default": {
-      "filename": "EndpointAgentSetup-3.2.156-x64.exe",
-      "sha256": "92c17fddab6d1c4a32b322bb5a39855bc876c688f743684129fc4cfc412e4665",
-      "size": 145896304,
+      "filename": "EndpointAgentSetup-3.2.156+setup.1-x64.exe",
+      "sha256": "c98851e539004384d5b216d075b7b16a33888990840c8f218514dcb843590cbf",
+      "size": 145912568,
       "authenticode": "Valid with timestamp",
-      "operator_path": "C:\\endpoint-platform-wix-build\\staged-3.2.156-6ed41cd\\native-setup-build\\releases\\EndpointAgentSetup-3.2.156-x64.exe",
-      "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgentSetup-3.2.156-x64.exe",
+      "operator_path": "C:\\endpoint-platform-wix-build\\setup-progress-3.2.156-r1-b115712\\releases\\EndpointAgentSetup-3.2.156+setup.1-x64.exe",
+      "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgentSetup-3.2.156+setup.1-x64.exe",
       "console_url": "https://endpoint.sosnadmin.local/admin/enrollment",
-      "download_url": "https://endpoint.sosnadmin.local/api/admin/console/installer/releases/f1f81b7a-7f99-4050-86b6-4fe65fd95365/download",
-      "version": "3.2.156",
-      "reason": "Existing active campaign allowlists do not permit158; leave new-enrollment defaults unchanged while upgrading the existing authenticated cohort."
+      "download_url": "https://endpoint.sosnadmin.local/api/admin/console/installer/releases/26fa3bb2-f9f5-424f-a885-2ce6cb489d15/download",
+      "version": "3.2.156+setup.1",
+      "reason": "Installer-only progress revision retaining exact signed156 MSI/Core. Same test campaign admits156 and156+setup.1 automatically for192.168.101.0/24 with unchanged quota and expiry; unique selection verified for508 address/release pairs.",
+      "agent_version": "3.2.156",
+      "source_commit": "b115712c43e8ca7ae46418489edc24ab61d82e3a"
     },
     "update": null,
     "core_ota_status": "No158 Windows Core ZIP is published. A Core ZIP cannot upgrade an older Foundation. Current158 delivery uses signed full Setup.",
@@ -85,7 +87,28 @@
       "fresh_sensor_health_and_power": "READY / loss0",
       "root_independent_live_native_and_server_acceptance": true
     },
-    "retained_legacy_compatibility": "Only the exact historically pinned79 MSI/tree is additionally admitted by Foundation158. Legacy81 and unrecognized histories remain rejected; never remove protected history to make preflight pass."
+    "retained_legacy_compatibility": "Only the exact historically pinned79 MSI/tree is additionally admitted by Foundation158. Legacy81 and unrecognized histories remain rejected; never remove protected history to make preflight pass.",
+    "previous_public_enrollment_default": {
+      "filename": "EndpointAgentSetup-3.2.156-x64.exe",
+      "sha256": "92c17fddab6d1c4a32b322bb5a39855bc876c688f743684129fc4cfc412e4665",
+      "size": 145896304,
+      "authenticode": "Valid with timestamp",
+      "operator_path": "C:\\endpoint-platform-wix-build\\staged-3.2.156-6ed41cd\\native-setup-build\\releases\\EndpointAgentSetup-3.2.156-x64.exe",
+      "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgentSetup-3.2.156-x64.exe",
+      "console_url": "https://endpoint.sosnadmin.local/admin/enrollment",
+      "download_url": "https://endpoint.sosnadmin.local/api/admin/console/installer/releases/f1f81b7a-7f99-4050-86b6-4fe65fd95365/download",
+      "version": "3.2.156",
+      "reason": "Existing active campaign allowlists do not permit158; leave new-enrollment defaults unchanged while upgrading the existing authenticated cohort."
+    },
+    "installer_progress_qualification": {
+      "report": "docs/superpowers/reports/2026-10-31-windows-setup-progress.md",
+      "domain_existing_device_preflight_exit": 0,
+      "domain_existing_device_setup_exit": 10,
+      "private_state_and_service_pid_preserved": true,
+      "fresh_enrollment_verified": false,
+      "pixel_visual_acceptance_verified": false,
+      "main_qualified_runtime_unchanged": "3.2.158"
+    }
   },
   "linux": {
     "distribution": "ALT11 x86_64",

@@ -16,6 +16,40 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 WINDOWS_PACKAGING = PROJECT_ROOT / "packaging" / "windows"
 
 
+def test_installer_only_revision_has_distinct_release_and_pinned_payload():
+    result = _run_setup_functions(['Assert-SemVerTriplet','Resolve-SetupArtifactIdentity'], """
+Resolve-SetupArtifactIdentity -SourceVersion '3.2.158' -PayloadVersion '3.2.156' -SetupRevision 1 -HasExistingMsi $true | ConvertTo-Json -Compress
+""")
+    assert result == {'PayloadVersion':'3.2.156','ReleaseVersion':'3.2.156+setup.1','Revision':1}
+
+
+@pytest.mark.parametrize('revision,existing',[(0,True),(1,False)])
+def test_payload_override_requires_explicit_revision_and_existing_msi(revision,existing):
+    result = _run_setup_functions(['Assert-SemVerTriplet','Resolve-SetupArtifactIdentity'], f"""
+try {{ Resolve-SetupArtifactIdentity -SourceVersion '3.2.158' -PayloadVersion '3.2.156' -SetupRevision {revision} -HasExistingMsi ${str(existing).lower()} | Out-Null; $rejected=$false }} catch {{$rejected=$true}}
+@{{rejected=$rejected}} | ConvertTo-Json -Compress
+""")
+    assert result['rejected'] is True
+
+
+def test_every_installer_only_revision_requires_a_retained_msi():
+    result = _run_setup_functions(['Assert-SemVerTriplet','Resolve-SetupArtifactIdentity'], """
+try { Resolve-SetupArtifactIdentity -SourceVersion '3.2.158' -SetupRevision 1 -HasExistingMsi $false | Out-Null; $rejected=$false } catch {$rejected=$true}
+@{rejected=$rejected} | ConvertTo-Json -Compress
+""")
+    assert result['rejected'] is True
+
+
+def test_setup_revision_is_visible_in_pe_version_resource():
+    result = _run_setup_functions(['Write-SetupVersionResource'], """
+$p=Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid().ToString()+'.txt')
+try { Write-SetupVersionResource -Version '3.2.156' -Revision 1 -Path $p; @{resource=[IO.File]::ReadAllText($p)} | ConvertTo-Json -Compress }
+finally { [IO.File]::Delete($p) }
+""")
+    assert 'filevers=(3, 2, 156, 1)' in result['resource']
+    assert "StringStruct('ProductVersion', '3.2.156+setup.1')" in result['resource']
+
+
 def _run_setup_functions(names: list[str], body: str) -> dict[str, object]:
     """Run only named real builder functions; replace external signing operations."""
     pwsh = shutil.which("pwsh")

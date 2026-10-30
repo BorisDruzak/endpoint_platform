@@ -17,6 +17,7 @@ from urllib.request import Request, urlopen
 from uuid import UUID, uuid4
 
 from endpoint_contracts.identity import normalize_hardware_fingerprint
+from pc_agent.setup_progress import SetupProgress, emit_progress
 
 
 _POLL_INTERVAL_SECONDS = 5
@@ -165,6 +166,17 @@ class UniversalWindowsSetup:
     )
     clock: Callable[[], datetime] = field(default=lambda: datetime.now(UTC), repr=False)
     sleep: Callable[[float], None] = field(default=time.sleep, repr=False)
+    progress: Callable[[SetupProgress], None] | None = field(default=None, repr=False)
+
+    def _report_state(self, state: str, response: dict[str, object]) -> None:
+        if state in _AWAITING_STATUSES:
+            detail = 'WAITING_APPROVAL' if state == 'waiting_approval' else (_reason(response) or 'REVIEW_REQUIRED')
+            emit_progress(self.progress, 'ENROLLMENT', 'waiting', detail)
+        elif state in _APPROVED_STATUSES:
+            emit_progress(self.progress, 'ENROLLMENT', 'running', 'CLAIM_REQUEST')
+        elif state in _TERMINAL_DENIAL_STATUSES:
+            detail = _reason(response) or ('REQUEST_EXPIRED' if state == 'expired' else 'UNKNOWN_ERROR')
+            emit_progress(self.progress, 'ENROLLMENT', 'error', detail)
 
     def run(self) -> SetupOutcome:
         """Request, poll if needed, obtain one claim, and hand it to stdin provision."""
@@ -187,17 +199,23 @@ class UniversalWindowsSetup:
             "requested_at": self.clock().astimezone(UTC).isoformat(),
             **_bounded_inventory(self.inventory_probe()),
         }
+        emit_progress(self.progress, 'ENROLLMENT', 'running', 'REQUESTING_ENROLLMENT')
         response = self.transport.create_request(body)
         request_id = _request_id(response)
         state = _state(response)
+        self._report_state(state, response)
         deadline = self.clock().astimezone(UTC) + _MAX_POLL_DURATION
         while state in _AWAITING_STATUSES:
             if self.clock().astimezone(UTC) >= deadline:
-                return SetupOutcome("timed_out", request_id=request_id)
+                return SetupOutcome("timed_out", request_id=request_id,
+                    reason='WAITING_APPROVAL' if state == 'waiting_approval' else 'REVIEW_REQUIRED')
             self.sleep(_POLL_INTERVAL_SECONDS)
             state_response = self.transport.request_status(request_id, capability)
             response = state_response
+            previous_state = state
             state = _state(response)
+            if state != previous_state:
+                self._report_state(state, response)
         if state in _TERMINAL_DENIAL_STATUSES:
             if state == "expired":
                 return SetupOutcome("expired", request_id=request_id, reason=_reason(response))
@@ -219,10 +237,17 @@ class UniversalWindowsSetup:
         except (SetupTransportError, TypeError, ValueError) as error:
             raise SetupClaimError("Windows Setup claim handoff failed") from error
         try:
+            emit_progress(self.progress, 'PROVISIONING', 'running', 'PROVISIONING')
             self.provision_claim(claim)
+            previous_completion_state = None
             while True:
                 completion_response = self.transport.request_verification(request_id, capability)
                 completion_state = _state(completion_response)
+                completion_reason = 'WAITING_CONTEXT' if _reason(completion_response) in {'WAITING_BASELINE','WAITING_CONTEXT'} else 'WAITING_WSS'
+                completion_progress = (completion_state,completion_reason)
+                if completion_progress != previous_completion_state and completion_state in _COMPLETION_AWAITING_STATUSES:
+                    emit_progress(self.progress, 'CONNECTION', 'waiting', completion_reason)
+                previous_completion_state = completion_progress
                 if completion_state == "completed":
                     return SetupOutcome("provisioned", request_id=request_id)
                 if completion_state in _TERMINAL_DENIAL_STATUSES:
@@ -232,7 +257,7 @@ class UniversalWindowsSetup:
                 if completion_state not in _COMPLETION_AWAITING_STATUSES:
                     raise ValueError("setup received an invalid completion status")
                 if self.clock().astimezone(UTC) >= deadline:
-                    return SetupOutcome("timed_out", request_id=request_id, reason="WAITING_WSS")
+                    return SetupOutcome("timed_out", request_id=request_id, reason=completion_reason)
                 self.sleep(_POLL_INTERVAL_SECONDS)
         except SetupProvisionError:
             raise

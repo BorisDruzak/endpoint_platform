@@ -20,6 +20,13 @@ from pc_agent.windows_setup import (
 )
 
 
+@pytest.fixture(autouse=True)
+def keep_entry_contract_tests_headless(monkeypatch):
+    # Window lifecycle has separate tests. Keep existing native boundary fixtures
+    # focused on installation, preserving their result-dialog assertions.
+    monkeypatch.setattr(setup_entry,'_run_interactive_setup',lambda args:setup_entry._run_setup(args))
+
+
 @pytest.mark.parametrize('defect', [None, 'not-frozen', 'foreign-executable', 'owner-alive', 'changed-wrapper'])
 def test_frozen_staged_watchdog_uses_package_imports_and_preserves_admission(tmp_path, monkeypatch, defect):
     """Exercise the real file entry, not its package-imported function."""
