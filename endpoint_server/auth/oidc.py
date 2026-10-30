@@ -4,7 +4,7 @@ from __future__ import annotations
 import hmac
 import json
 import secrets
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
@@ -266,14 +266,32 @@ async def login(request: Request, realm: str):
     except Exception:
         raise HTTPException(503,'Identity provider unavailable') from None
     now = datetime.now(UTC)
+    material = {'nonce': nonce, 'verifier': verifier}
+    if realm == 'employee' and all(len(request.query_params.getlist(key)) == 1 for key in ('day', 'request_id')):
+        day, request_id = request.query_params['day'], request.query_params['request_id']
+        if _employee_return_path(day, request_id) != '/employee':
+            material.update(return_day=day, return_request_id=request_id)
     async with request.app.state.session_provider() as session:
         session.add(OIDCFlow(id=uuid4(),state_digest=session_digest(state,request.app.state.settings.session_secret),
             browser_digest=session_digest(browser,request.app.state.settings.session_secret),realm=realm,
-            encrypted_material=seal(settings,{'nonce':nonce,'verifier':verifier}),expires_at=now+timedelta(minutes=5),consumed_at=None))
+            encrypted_material=seal(settings,material),expires_at=now+timedelta(minutes=5),consumed_at=None))
         await session.commit()
     response = RedirectResponse(url,303,headers={'Cache-Control':'no-store','Referrer-Policy':'no-referrer'})
     response.set_cookie(FLOW_COOKIES[realm],browser,max_age=300,path='/auth/'+realm,secure=True,httponly=True,samesite='lax')
     return response
+
+
+def _employee_return_path(day, request_id):
+    # A navigation hint only: the employee API still resolves ownership. Never
+    # accept an arbitrary path/origin or use callback query parameters as a target.
+    if not isinstance(day, str) or not isinstance(request_id, str) or len(day) != 10 or len(request_id) != 36:
+        return '/employee'
+    try:
+        if date.fromisoformat(day).isoformat() == day and str(UUID(request_id)) == request_id.lower():
+            return f'/employee?day={day}&request_id={request_id.lower()}'
+    except ValueError:
+        pass
+    return '/employee'
 
 
 @router.get('/{realm}/callback')
@@ -321,7 +339,8 @@ async def callback(request: Request, realm: str):
             grants=(await session.scalars(select(ScopedRoleGrant).where(ScopedRoleGrant.identity_id==identity.id,ScopedRoleGrant.revoked_at.is_(None)))).all()
             if any(grant.role in {'manager','hr','worktime_admin','dlp_officer'} for grant in grants) and claims.get('acr')!=settings.admin_required_acr:
                 raise _denied()
-        response = RedirectResponse('/admin' if realm=='admin' else '/employee',303,headers={'Cache-Control':'no-store','Referrer-Policy':'no-referrer'})
+        target = '/admin' if realm == 'admin' else _employee_return_path(material.get('return_day'), material.get('return_request_id'))
+        response = RedirectResponse(target,303,headers={'Cache-Control':'no-store','Referrer-Policy':'no-referrer'})
         if realm == 'admin':
             user = await session.scalar(select(AdminUser).where(AdminUser.id==identity.admin_user_id)) if identity.admin_user_id else None
             if user is None or user.disabled_at is not None or claims.get('acr') != settings.admin_required_acr:

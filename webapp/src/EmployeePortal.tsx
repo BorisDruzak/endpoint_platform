@@ -14,12 +14,20 @@ const dateLabel = (day: string) => new Intl.DateTimeFormat('ru-RU', { day: 'nume
 const shiftDate = (day: string, delta: number) => new Date(Date.parse(`${day}T12:00:00Z`) + delta * 86400000).toISOString().slice(0, 10)
 const instantValue = (local: string) => new Date(`${local}:00+05:00`).toISOString()
 
+function companionQuery(params: URLSearchParams) {
+  const day = params.get('day') ?? '', requestId = params.get('request_id') ?? ''
+  if (params.getAll('day').length !== 1 || params.getAll('request_id').length !== 1
+      || !/^\d{4}-\d{2}-\d{2}$/.test(day) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestId)) return ''
+  return `?${new URLSearchParams({ day, request_id: requestId.toLowerCase() })}`
+}
+
 export function EmployeeLogin() {
+  const [params] = useSearchParams()
   useEffect(() => { const previous = document.title; document.title = 'WorkTime — Вход сотрудника'; return () => { document.title = previous } }, [])
   return <main className="login-page employee-login"><section className="login-panel">
     <p className="product-name">WorkTime · Кабинет сотрудника</p><h1>Вход сотрудника</h1>
     <p className="muted">Рабочий день, объяснения и корректировки — с вашей доменной учётной записью.</p>
-    <a className="primary-button wt-login-link" href="/auth/employee/login">Войти с доменной учётной записью</a>
+    <a className="primary-button wt-login-link" href={`/auth/employee/login${companionQuery(params)}`}>Войти с доменной учётной записью</a>
     <p className="muted">Доступ открывается после подтверждения связи с реестром сотрудников.</p>
   </section></main>
 }
@@ -27,11 +35,13 @@ export function EmployeeLogin() {
 export function EmployeePortal({ dlp = false }: { dlp?: boolean }) {
   useEffect(() => { const previous = document.title; document.title = dlp ? 'DLP — Endpoint Platform' : 'WorkTime — Кабинет сотрудника'; return () => { document.title = previous } }, [dlp])
   const navigate = useNavigate()
+  const [params] = useSearchParams()
+  const loginQuery = companionQuery(params)
   const [session, setSession] = useState<EmployeeSession | null>(null)
   const [checking, setChecking] = useState(true)
   const [error, setError] = useState('')
   const [revision, setRevision] = useState(0)
-  const unauthorized = useCallback(() => { setSession(null); navigate('/employee/login', { replace: true }) }, [navigate])
+  const unauthorized = useCallback(() => { setSession(null); navigate(`/employee/login${loginQuery}`, { replace: true }) }, [navigate, loginQuery])
   useEffect(() => {
     let active = true
     let pending: AbortController | null = null

@@ -33,6 +33,23 @@ it('uses an employee SSO entry without an admin session or password form', () =>
   expect(fetch).not.toHaveBeenCalled()
 })
 
+it('preserves a companion target through an expired session and the SSO entry', async () => {
+  const query = '?day=2026-10-27&request_id=00000000-0000-4000-8000-000000000002'
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 401, json: async () => ({ detail: 'Session expired' }) })))
+  render(<MemoryRouter initialEntries={[`/employee${query}`]}><App /></MemoryRouter>)
+  expect(await screen.findByRole('heading', { name: 'Вход сотрудника' })).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Войти с доменной учётной записью' }).getAttribute('href')).toBe(`/auth/employee/login${query}`)
+})
+
+it.each([
+  '?day=2026-10-27&request_id=https://foreign.example',
+  '?day=2026-10-27&day=2026-10-28&request_id=00000000-0000-4000-8000-000000000002',
+  '?return_to=https://foreign.example',
+])('drops unsafe or ambiguous companion login context: %s', query => {
+  setup(`/employee/login${query}`)
+  expect(screen.getByRole('link', { name: 'Войти с доменной учётной записью' }).getAttribute('href')).toBe('/auth/employee/login')
+})
+
 it('keeps work and UNKNOWN evidence independent, selects a keyboard interval and sends scoped explanation', async () => {
   const fetch = setup()
   await screen.findByRole('heading', { name: 'Мой рабочий день' })

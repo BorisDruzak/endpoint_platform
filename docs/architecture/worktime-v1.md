@@ -117,6 +117,15 @@ snapshot exists; it never deletes or changes such history to restore the old che
 
 ## Technical attribution and measured-return requests
 
+The agent companion only presents a notification and opens the employee portal.
+Employees record work transitions, explanations and corrections in that portal;
+delivery acknowledgements never record work or explanations. Companion links
+select an owned pending request by day and request ID. If login is needed, only
+that validated ISO day and UUID survive in the encrypted, browser-bound, one-use
+OIDC flow (five-minute expiry); the callback constructs a fixed `/employee` URL.
+Arbitrary return URLs and callback-supplied targets are ignored. The employee API
+continues to enforce identity ownership and CSRF independently of the link.
+
 There is no join on OIDC preferred username, email or a similar-looking OS login.
 Without an explicit verified `(person, device, user_key, valid_from, valid_until)`
 mapping, the employee sees UNKNOWN. Mappings require an authorized WorkTime
