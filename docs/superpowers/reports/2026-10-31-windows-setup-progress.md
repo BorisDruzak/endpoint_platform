@@ -84,3 +84,6 @@ were not changed.
 
 Operator evidence and safe controller scripts are retained at
 `C:\endpoint-platform-wix-build\installer-domain-audit-20261031`.
+
+The subsequent [domain policy audit and exact installer exceptions](2026-10-31-domain-installer-policy-audit.md)
+record the later GPO changes, replica verification and remaining B2 acceptance.
