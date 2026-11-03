@@ -626,4 +626,4 @@ Activity still requires APPLIED. KDE autostart replaces its private environment
 before restarting its own unit. See the current ALT baseline and parity ledger
 for installed acceptance and remaining external gates.
 
-The Windows Core160 verifier can install the bundled publisher-signed Setup client from its existing fixed Core assignment. `platform/windows/setup_update_bootstrap.py` performs only local admission and registration; `packaging/windows/EndpointSetupUpdater.ps1` owns the separate protected download/Setup/report task outside MSI-owned paths. Native updates remain delegated to signed full Setup, with unknown outcomes blocked against replay.
+The Windows Core161 verifier can install the bundled publisher-signed Setup client from its existing fixed Core assignment. `platform/windows/setup_update_bootstrap.py` performs only local admission and registration; `packaging/windows/EndpointSetupUpdater.ps1` owns the separate protected download/Setup/report task outside MSI-owned paths. Native updates remain delegated to signed full Setup, with unknown outcomes blocked against replay.

@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "purpose": "Windows-only preparation bridge with corrected signed client1.0.1; full Setup target stays158",
+  "status": "withdrawn: Core verifier refused atomic publication of an existing client journal on Windows PowerShell5.1; selector stayed159",
+  "source_revision": "df0b2709c4a6c20aff0d26a0d8e58c8884ba5a7b",
+  "build": {
+    "schema_version": "update_build_manifest_v1",
+    "build_identifier": "endpoint-windows-core-3.2.160-setup-client",
+    "version": "3.2.160",
+    "platform": "windows_amd64",
+    "channel": "canary",
+    "artifact_url": "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/endpoint-windows-core-3.2.160-setup-client",
+    "artifact_name": "EndpointCore-3.2.160-df0b270.zip",
+    "archive_type": "zip",
+    "sha256": "15873cdeb162c799ad0692813fa2c202344046937397fc2ea523923082c033d9",
+    "size": 22903679,
+    "minimum_launcher_version": "3.2.156",
+    "release_notes": "Full Setup client1.0.1 preparation for explicitly assigned test120"
+  },
+  "client": {
+    "version": "1.0.1",
+    "sha256": "af96c592f3c03c88f4bdfb380189b3e6fc95b7de409151714f2711b5914808e1",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+    "authenticode": "Valid with timestamp"
+  },
+  "test120": {
+    "preparation_id": "49d12c58-075e-4651-b807-bc527249945a",
+    "bridge_rollout_id": "70adb31c-4ba7-491f-b3d3-4b791d09dbf2",
+    "previous_preparation_id": "56d7d76b-a925-4c61-9e76-116d8f2137ac",
+    "previous_status": "cancelled before any Setup assignment",
+    "initial_preparation": "User explicitly approved one-time domain task; only updates owner SYSTEM->LocalService changed; original DACL/group and private-four preserved."
+  },
+  "live_result": {
+    "core_status": "failed / launcher_apply_failed",
+    "selected_core": "3.2.159",
+    "standalone_client": "1.0.1 partially installed; no native Setup launched",
+    "replacement": "Core161 / client1.0.2; real atomic journal and lost-response scenario regression added"
+  }
+}

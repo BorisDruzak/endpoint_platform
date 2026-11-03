@@ -42,7 +42,7 @@ PowerShell5.1/Task Scheduler; PyInstaller Core bridge and Authenticode.
 - [ ] Durable Windows client: signed fixed-purpose scheduled client plus protected
       state/download/native preflight, actual Setup, independent preservation and
       post-WSS acceptance. Tests include signature/path/unknown-outcome refusals.
-- [ ] Legacy bootstrap: explicit Core159 bridge, bundled signed client asset,
+- [ ] Legacy bootstrap: explicit Core160 bridge, bundled signed client asset,
       network-free privileged installation after valid --verify. Red/green tests
       prove normal/historical verification stays unchanged and failure blocks OTA.
 - [ ] Console: full Setup release/readiness/assignment/status controls in device
@@ -50,7 +50,7 @@ PowerShell5.1/Task Scheduler; PyInstaller Core bridge and Authenticode.
 - [ ] Release/deploy: source-bound clean Core159 build and signed client, isolated
       tests, frozen-SHA canonical production deployment and immutable artifact
       registration. Update docs/CODEMAP/release records with actual scope.
-- [ ] Live acceptance: Core bridge159 -> canonical Core157 rollback -> full Setup158,
+- [ ] Live acceptance: Core bridge160 -> canonical Core157 rollback -> full Setup158,
       entirely assigned through Endpoint. Prove a real installation, new WSS,
       health command, preserved identity, restored companions and >=180s CPU.
 

@@ -2,7 +2,7 @@
 param([Parameter(Mandatory)][ValidateSet('Install','Run')][string]$Mode)
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
-$script:ClientVersion='1.0.1'
+$script:ClientVersion='1.0.2'
 $script:Publisher='4D4C23389F5FF77BC4EB32044761019EAE8FB776'
 $script:Origin='https://endpoint.sosnadmin.local'
 $script:ProgramFiles=[Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
@@ -126,7 +126,7 @@ function Write-PrivateJson([string]$path,$value){
  $temporary=$path+'.'+[guid]::NewGuid().ToString('N')+'.tmp';$bytes=[Text.Encoding]::UTF8.GetBytes(($value|ConvertTo-Json -Depth 24))
  $f=[IO.File]::Open($temporary,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
  try{$f.Write($bytes,0,$bytes.Length);$f.Flush($true)}finally{$f.Dispose()}
- if(Test-Path -LiteralPath $path){Assert-AdministrativePath $path;[IO.File]::Replace($temporary,$path,$null)}else{[IO.File]::Move($temporary,$path)}
+ if(Test-Path -LiteralPath $path){Assert-AdministrativePath $path;[IO.File]::Replace($temporary,$path,[NullString]::Value)}else{[IO.File]::Move($temporary,$path)}
 }
 function Assert-SignedFile([string]$path,[string]$sha){
  Assert-NoReparse $path
@@ -343,8 +343,8 @@ function Get-ClientHello {
  $service=Get-Service -Name EndpointAgent -ErrorAction SilentlyContinue
  $selector=Read-BoundedJson (Join-Path $script:AgentRoot 'current.json') 4096
  $core=$null;if($selector.version -cmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'){$core=[string]$selector.version}
- $products=@(Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue|Where-Object {$_.DisplayName -ceq 'Endpoint Platform Agent'})
- $foundation=$null;if($products.Count -eq 1 -and $products[0].DisplayVersion -cmatch '^[0-9]+\.[0-9]+\.[0-9]+$'){$foundation=[string]$products[0].DisplayVersion}
+ $native=Read-BoundedJson (Join-Path $script:InstallerState 'foundation.json') 16384
+ $foundation=$null;if($native.schema_version -eq 1 -and $native.release.version -cmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'){$foundation=[string]$native.release.version}
  $ready=($null -ne $service -and $service.Status -eq 'Running' -and $null -ne $core -and !(Test-CoreOrNativeBusy))
  return [ordered]@{client_version=$script:ClientVersion;core_version=$core;foundation_version=$foundation;ready=$ready;safe_code=$(if($ready){$null}else{'client_waiting_for_agent'})}
 }

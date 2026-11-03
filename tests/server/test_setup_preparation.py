@@ -24,7 +24,7 @@ def build(version, identifier):
 async def test_old_agent_preparation_uses_existing_ota_then_real_rollback_then_full_setup(db, state):
     device, release, *_ = state
     await db.execute(delete(SetupClientPresence))
-    bridge = build('3.2.160', 'endpoint-windows-core-3.2.160-setup-client')
+    bridge = build('3.2.161', 'endpoint-windows-core-3.2.161-setup-client')
     baseline = build('3.2.157', 'endpoint-windows-core-3.2.157-setup-source')
     instance = DeviceInstance(id=uuid4(), device_id=device.id, instance_identifier='original',
         agent_version='3.2.158', launcher_version='3.2.158', last_seen_at=NOW)
@@ -36,7 +36,7 @@ async def test_old_agent_preparation_uses_existing_ota_then_real_rollback_then_f
     await advance_preparations(db, now=NOW)
     assert parent.return_rollout_id is None
     child.status = 'applied'
-    await record_presence(db, device.id, dict(client_version='1.0.0', ready=True, core_version='3.2.160', foundation_version='3.2.158'), now=NOW)
+    await record_presence(db, device.id, dict(client_version='1.0.0', ready=True, core_version='3.2.161', foundation_version='3.2.158'), now=NOW)
     await advance_preparations(db, now=NOW)
     assert parent.status == 'restoring_core' and parent.return_rollout_id is not None
     returned = await db.scalar(select(UpdateTarget).where(UpdateTarget.rollout_id == parent.return_rollout_id))
@@ -56,7 +56,7 @@ async def test_old_agent_preparation_uses_existing_ota_then_real_rollback_then_f
 async def test_preparation_does_not_start_later_stages_after_cancel_or_failed_core(db, state, outcome):
     device, release, *_ = state
     await db.execute(delete(SetupClientPresence))
-    bridge = build('3.2.160', 'endpoint-windows-core-3.2.160-setup-client')
+    bridge = build('3.2.161', 'endpoint-windows-core-3.2.161-setup-client')
     baseline = build('3.2.157', 'endpoint-windows-core-3.2.157-setup-source')
     db.add_all([bridge, baseline, DeviceInstance(id=uuid4(), device_id=device.id,
         instance_identifier='source', agent_version='3.2.158', launcher_version='3.2.158', last_seen_at=NOW)])
@@ -72,7 +72,7 @@ async def test_preparation_does_not_start_later_stages_after_cancel_or_failed_co
         await cancel_preparation(db, prep.id, actor='test-admin', request_id='stop', now=NOW)
     else:
         child.status = 'failed'
-    await record_presence(db, device.id, dict(client_version='1.0.0', ready=True, core_version='3.2.160'), now=NOW)
+    await record_presence(db, device.id, dict(client_version='1.0.0', ready=True, core_version='3.2.161'), now=NOW)
     await advance_preparations(db, now=NOW)
     assert prep.status == ('cancelled' if outcome == 'cancelled' else 'blocked')
     assert prep.assignment_id is None and prep.return_rollout_id is None

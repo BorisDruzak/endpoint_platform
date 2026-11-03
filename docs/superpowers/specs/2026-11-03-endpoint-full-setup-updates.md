@@ -22,9 +22,9 @@ no application-network request; the registered client defers while Core/native
 transactions are active. Normal LocalService runtime and assets-absent historical
 releases do not install a task. No unsigned script or caller-selected path is run.
 
-The new Core bridge has a new immutable version159. To test frozen Setup158,
+The new Core bridge has a new immutable version160. To test frozen Setup158,
 prepare a lower compatible registered Core157 through the canonical rollback
-workflow after the159 bridge completes. Both assignments originate in Endpoint.
+workflow after the160 bridge completes. Both assignments originate in Endpoint.
 Then the durable Setup client applies the actual full158 EXE. This avoids
 overwriting frozen158 code or disguising EXE bytes as a Core ZIP. The test120
 Foundation is already158 from the prior authorized test; report that fact and

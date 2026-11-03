@@ -16,8 +16,8 @@ from .models import SetupPreparation, SetupRelease, SetupClientPresence
 from .service import SetupConflict, assign_setup, lock_device, now_utc, utc, audit
 
 ACTIVE_PREPARATIONS = ('preparing_client', 'restoring_core')
-BRIDGE = 'endpoint-windows-core-3.2.160-setup-client'
-BRIDGE_VERSION = '3.2.160'
+BRIDGE = 'endpoint-windows-core-3.2.161-setup-client'
+BRIDGE_VERSION = '3.2.161'
 RETURN = 'endpoint-windows-core-3.2.157-setup-source'
 
 
@@ -38,7 +38,7 @@ def ready(presence, now):
 
 async def lock_builds(session):
     builds = (await session.scalars(select(UpdateBuild).where(
-        UpdateBuild.build_identifier.in_((BRIDGE, RETURN, 'endpoint-windows-core-3.2.159-setup-client'))).order_by(UpdateBuild.id).with_for_update())).all()
+        UpdateBuild.build_identifier.in_((BRIDGE, RETURN, 'endpoint-windows-core-3.2.159-setup-client', 'endpoint-windows-core-3.2.160-setup-client'))).order_by(UpdateBuild.id).with_for_update())).all()
     return {b.build_identifier: b for b in builds}
 
 
