@@ -3,9 +3,11 @@
 Native execution and HTTP are deliberately replaced; this is not live acceptance.
 """
 import os
+import json
 from pathlib import Path
 import subprocess
 import pytest
+from endpoint_contracts.setup_updates import SetupProgressV1
 
 SCRIPT = Path(__file__).resolve().parents[2] / 'packaging/windows/EndpointSetupUpdater.ps1'
 
@@ -21,6 +23,7 @@ $ast=[Management.Automation.Language.Parser]::ParseFile($Script,[ref]$tokens,[re
 if($errors.Count){throw 'source parse failed'}
 foreach($f in $ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst]},$true)){Invoke-Expression $f.Extent.Text}
 $script:StateRoot=$Root;$script:ClientRoot=$Root;$script:InstallerState=Join-Path $Root 'installer-state'
+$script:WirePath=Join-Path $Root 'wire.jsonl'
 $script:ProgramData=$Root;$script:AgentRoot=$Root;$script:ClientVersion='1.0.2'
 $script:DeviceId='11111111-1111-4111-8111-111111111111';$script:NativeStarts=0;$script:AppliedReports=0;$script:RemotePhase='assigned'
 $script:Assignment='22222222-2222-4222-8222-222222222222';$script:Revision='b'*40;$script:Msi='c'*64
@@ -51,6 +54,7 @@ function Invoke-EndpointJson($method,$path,$body){
  if($path -ceq '/agent/v1/setup-updates/hello'){return @{device_id=$script:DeviceId}}
  if($path.EndsWith('/status')){return @{phase=$script:RemotePhase}}
  if($path.EndsWith('/progress')){
+  [IO.File]::AppendAllText($script:WirePath,($body|ConvertTo-Json -Depth 24 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
   $script:RemotePhase=$body.phase
   if($body.phase -ceq 'applied'){$script:AppliedReports++;if($Fault -ceq 'ack_loss' -and $script:AppliedReports -eq 1){throw 'simulated_response_lost_after_commit'}}
   return @{assignment_id=$script:Assignment;attempt_id=$body.attempt_id;phase=$body.phase}
@@ -79,3 +83,7 @@ Write-Output 'PASS: one native launch; two reports; durable accepted result'
 ''', encoding='utf-8')
     result = subprocess.run(['powershell.exe', '-NoProfile', '-File', str(harness), str(SCRIPT), str(tmp_path / 'state'), fault], capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr
+    # Validate the actual PowerShell-serialized body, including optional string
+    # defaults, rather than accepting everything in the local HTTP substitute.
+    for line in (tmp_path / 'state' / 'wire.jsonl').read_text(encoding='utf-8').splitlines():
+        SetupProgressV1.model_validate(json.loads(line))

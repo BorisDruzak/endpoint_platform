@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import Field, StringConstraints, model_validator
+from pydantic import Field, StringConstraints, model_validator, field_validator
 
 from .base import ContractModelV1
 from .updates import ArtifactNameV1, SafeCodeV1, Sha256V1, UpdateIdentifierV1
@@ -101,6 +101,14 @@ class SetupProgressV1(ContractModelV1):
                    'applied', 'failed', 'rolled_back', 'blocked', 'recovery_required']
     safe_code: SafeCodeV1 | None = None
     proof: SetupNativeProofV1 | None = None
+
+    @field_validator('safe_code', mode='before')
+    @classmethod
+    def empty_optional_diagnostic(cls, value):
+        # Windows PowerShell's optional [string] parameter serializes its null
+        # default as "". Both wire forms mean no diagnostic; nonempty codes
+        # still pass the unchanged closed safe-code validation.
+        return None if value == '' else value
 
     @model_validator(mode='after')
     def require_real_completion(self):
