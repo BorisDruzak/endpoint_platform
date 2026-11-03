@@ -17,6 +17,7 @@ param(
     [string]$TimestampServer,
     [string]$ExistingMsi,
     [string]$ExistingMsiReleaseManifest,
+    [string]$ExistingCoreArchive,
     [string]$WixBuildRoot
 )
 
@@ -329,9 +330,21 @@ if (-not (Test-Path -LiteralPath $setupRuntimeRoot -PathType Container)) {
     if (-not $InitialRuntimeStageRoot) { throw 'Setup requires the exact MSI Core payload for online preparation.' }
     $setupRuntimeRoot = $InitialRuntimeStageRoot
 }
-& (Join-Path $PSScriptRoot 'build-update-zip.ps1') -RuntimeRoot $setupRuntimeRoot `
-    -Version $Version -SourceRevision $msiSourceCommit -MinimumLauncherVersion $Version -OutputPath $setupCoreArchive
-if ($LASTEXITCODE -ne 0) { throw 'Setup Core archive build failed.' }
+if ($ExistingCoreArchive) {
+    # Recompression changes ZIP timestamps. A reused native package must retain
+    # its already published transport bytes, bound to the same full MSI tree.
+    & python -m tools.release.verify_setup_core_archive --archive $ExistingCoreArchive `
+        --runtime $setupRuntimeRoot --release $releaseMsiManifestPath
+    if ($LASTEXITCODE -ne 0) { throw 'Existing Setup Core archive does not match the MSI runtime.' }
+    Copy-Item -LiteralPath $ExistingCoreArchive -Destination $setupCoreArchive
+    if ((Get-FileHash -LiteralPath $ExistingCoreArchive).Hash -cne (Get-FileHash -LiteralPath $setupCoreArchive).Hash) {
+        throw 'Existing Setup Core archive changed during copy.'
+    }
+} else {
+    & (Join-Path $PSScriptRoot 'build-update-zip.ps1') -RuntimeRoot $setupRuntimeRoot `
+        -Version $Version -SourceRevision $msiSourceCommit -MinimumLauncherVersion $Version -OutputPath $setupCoreArchive
+    if ($LASTEXITCODE -ne 0) { throw 'Setup Core archive build failed.' }
+}
 $setupCa = Join-Path $payloadRoot 'endpoint-ca.crt'
 $setupConfig = Join-Path $payloadRoot 'setup-config.json'
 $setupMsiReleaseManifest = Join-Path $payloadRoot 'EndpointAgent.release.json'
