@@ -54,7 +54,7 @@ async def test_new_device_channel_requires_existing_credential(db, state):
 async def test_full_setup_is_never_returned_to_old_core_recommendation(db, state):
     app, token = await boundary(db, state)
     device, release, *_ = state
-    await record_presence(db, device.id, dict(client_version='1.0.3', ready=True), now=datetime.now(UTC))
+    await record_presence(db, device.id, dict(client_version='1.0.4', ready=True), now=datetime.now(UTC))
     job = await assign_setup(db, device.id, release.id, 'full Setup canary', actor='test-admin', request_id='assign')
     await db.commit()
     transport = httpx.ASGITransport(app=app, client=('127.0.0.1', 12345))
@@ -71,7 +71,7 @@ async def test_full_setup_is_never_returned_to_old_core_recommendation(db, state
 async def test_another_authenticated_device_cannot_read_assignment_artifact(db, state):
     app, token = await boundary(db, state)
     device, release, *_ = state
-    await record_presence(db, device.id, dict(client_version='1.0.3', ready=True), now=datetime.now(UTC))
+    await record_presence(db, device.id, dict(client_version='1.0.4', ready=True), now=datetime.now(UTC))
     job = await assign_setup(db, device.id, release.id, 'full Setup canary', actor='test-admin', request_id='assign')
     other = Device(id=uuid4(), device_identifier='another-device')
     db.add(other)
@@ -93,7 +93,7 @@ async def test_progress_revalidates_bearer_after_domain_lock_and_rolls_back_on_r
     from endpoint_server.setup_updates.models import SetupAssignment
     app, token = await boundary(db, state)
     device, release, *_ = state
-    await record_presence(db, device.id, dict(client_version='1.0.3', ready=True))
+    await record_presence(db, device.id, dict(client_version='1.0.4', ready=True))
     job = await assign_setup(db, device.id, release.id, 'full Setup canary', actor='test-admin', request_id='assign')
     job_id = job.id
     await db.commit()

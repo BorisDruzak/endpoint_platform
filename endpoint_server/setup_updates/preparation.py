@@ -14,11 +14,11 @@ from endpoint_server.db.models import DeviceInstance, UpdateBuild, UpdateTarget,
 from endpoint_server.db.instance_order import latest_instance_order
 from endpoint_server.updates.service import create_rollout, create_rollback_rollout
 from .models import SetupPreparation, SetupRelease, SetupClientPresence
-from .service import SetupConflict, assign_setup, lock_device, now_utc, utc, audit, qualified_presence
+from .service import SetupConflict, assign_setup, lock_device, locked_assignment, now_utc, utc, audit, qualified_presence
 
-ACTIVE_PREPARATIONS = ('preparing_client', 'restoring_core')
-BRIDGE = 'endpoint-windows-core-3.2.161-setup-client'
-BRIDGE_VERSION = '3.2.161'
+ACTIVE_PREPARATIONS = ('preparing_client', 'restoring_core', 'recovering_client', 'recovering_source')
+BRIDGE = 'endpoint-windows-core-3.2.162-setup-client'
+BRIDGE_VERSION = '3.2.162'
 RETURN = 'endpoint-windows-core-3.2.157-setup-source'
 
 
@@ -34,6 +34,51 @@ def parts(version):
 
 def ready(presence, now):
     return qualified_presence(presence, now)
+
+
+async def _recovery_child(session, job, create):
+    """A child of the held native attempt, serialized by the same Device lock.
+
+    The private handoff never commits or releases Device; unrelated Core/Setup
+    requests continue to see recovery_required after acquiring that lock.
+    """
+    job.status = 'handoff'
+    await session.flush()
+    try:
+        result = await create()
+    except BaseException:
+        job.status = 'recovery_required'
+        raise
+    job.status = 'recovery_required'
+    await session.flush()
+    return result
+
+
+async def request_client_recovery(session, assignment_id, reason, *, actor, request_id, now=None):
+    now = now_utc(now)
+    builds = await lock_builds(session)
+    job = await locked_assignment(session, assignment_id)
+    presence = await session.scalar(select(SetupClientPresence).where(SetupClientPresence.device_id == job.device_id))
+    owned = await session.scalar(select(SetupPreparation.id).where(SetupPreparation.device_id == job.device_id,
+        SetupPreparation.status.in_(ACTIVE_PREPARATIONS)))
+    if (job.status != 'recovery_required' or job.safe_code != 'native_exit_requires_recovery'
+            or job.attempt_id is None or job.started_at is None or owned
+            or presence is None or not presence.ready or now - utc(presence.last_seen_at) > timedelta(seconds=150)):
+        raise SetupConflict('known exited native operation and fresh idle source required')
+    bridge, source = builds.get(BRIDGE), builds.get(RETURN)
+    if (bridge is None or source is None or bridge.version != BRIDGE_VERSION or source.version != '3.2.157'
+            or bridge.platform != 'windows_amd64' or source.platform != bridge.platform
+            or presence.core_version != source.version or presence.foundation_version != '3.2.158'):
+        raise SetupConflict('qualified recovery client and exact source required')
+    reason = validate_public_update_prose(reason, field_name='reason', max_length=256, required=True)
+    child = await _recovery_child(session, job, lambda: create_rollout(session, bridge.id, 'canary',
+        [job.device_id], reason, actor, request_id, now=now))
+    prep = SetupPreparation(id=uuid4(), device_id=job.device_id, release_id=job.release_id,
+        assignment_id=job.id, bridge_rollout_id=child.id, return_build_id=source.id,
+        status='recovering_client', reason=reason, requested_by=str(actor), updated_at=now)
+    session.add(prep); await session.flush()
+    await audit(session, prep, 'recovery_client_requested', actor, request_id, now)
+    return prep
 
 
 async def lock_builds(session):
@@ -108,7 +153,20 @@ async def advance_preparations(session, *, now=None):
             expected = '3.2.157' if prep.return_rollout_id else BRIDGE_VERSION
             if not ready(presence, now) or presence.core_version != expected:
                 continue
-            if prep.status == 'preparing_client':
+            if prep.status == 'recovering_client':
+                job = await locked_assignment(session, prep.assignment_id)
+                if job.status != 'recovery_required' or RETURN not in builds or builds[RETURN].id != prep.return_build_id:
+                    prep.status, prep.safe_code = 'blocked', 'recovery_ownership_differs'
+                else:
+                    child = await _recovery_child(session, job, lambda: create_rollback_rollout(session,
+                        prep.bridge_rollout_id, prep.return_build_id, [device_id], prep.reason,
+                        prep.requested_by, f'setup_{prep.id.hex}', now=now))
+                    prep.return_rollout_id, prep.status = child.id, 'recovering_source'
+            elif prep.status == 'recovering_source':
+                # The recovered observer settles its original attempt using
+                # actual exit21 plus unchanged-source/private/session proof.
+                prep.status = 'completed'
+            elif prep.status == 'preparing_client':
                 if RETURN not in builds or builds[RETURN].id != prep.return_build_id:
                     prep.status, prep.safe_code = 'blocked', 'immutable_source_unavailable'
                 else:

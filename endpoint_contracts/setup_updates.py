@@ -12,7 +12,7 @@ from .updates import ArtifactNameV1, SafeCodeV1, Sha256V1, UpdateIdentifierV1
 WindowsVersion = Annotated[str, StringConstraints(pattern=r'^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$')]
 SourceRevision = Annotated[str, StringConstraints(pattern=r'^[0-9a-f]{40}$')]
 
-QUALIFIED_SETUP_CLIENT_VERSION = '1.0.3'
+QUALIFIED_SETUP_CLIENT_VERSION = '1.0.4'
 ACTIVE_SETUP_PHASES = ('assigned', 'downloading', 'verified', 'installing', 'verifying', 'recovery_required')
 TERMINAL_SETUP_PHASES = ('applied', 'failed', 'rolled_back', 'blocked', 'cancelled', 'already_current')
 SetupPhase = Literal['assigned', 'downloading', 'verified', 'installing', 'verifying',
@@ -23,7 +23,7 @@ _NEXT = {
     'verified': {'installing', 'already_current', 'cancelled', 'failed', 'blocked'},
     'installing': {'verifying', 'rolled_back', 'recovery_required'},
     'verifying': {'applied', 'rolled_back', 'recovery_required'},
-    'recovery_required': {'verifying', 'rolled_back'},
+    'recovery_required': {'verifying', 'rolled_back', 'failed'},
 }
 
 
@@ -112,6 +112,12 @@ class SetupProgressV1(ContractModelV1):
 
     @model_validator(mode='after')
     def require_real_completion(self):
+        if self.phase == 'failed' and self.proof is not None:
+            if (not self.proof.healthy or self.proof.native_phase != 'unchanged'
+                    or self.proof.exit_code != 21 or self.proof.soak is None
+                    or not self.proof.soak.services_stable
+                    or not self.proof.soak.companions_stable or not self.proof.soak.connected):
+                raise ValueError('verified unchanged source after native rejection required')
         if self.phase in ('applied', 'rolled_back', 'already_current'):
             if self.proof is None or not self.proof.healthy:
                 raise ValueError('healthy native proof is required')

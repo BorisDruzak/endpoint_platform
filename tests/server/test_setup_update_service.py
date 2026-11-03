@@ -44,7 +44,7 @@ async def state(db, tmp_path):
         sha256=hashlib.sha256(artifact.read_bytes()).hexdigest(), size=artifact.stat().st_size,
         source_revision='b' * 40, msi_sha256='c' * 64, tray_sha256='d' * 64, sensor_sha256='e' * 64)
     release = await register_release(db, manifest, artifact_root=tmp_path, actor='test-admin', request_id='register')
-    await record_presence(db, device.id, {'client_version': '1.0.3', 'ready': True,
+    await record_presence(db, device.id, {'client_version': '1.0.4', 'ready': True,
                                        'foundation_version': '3.2.156', 'core_version': '3.2.156'}, now=NOW)
     return device, release, manifest, tmp_path
 

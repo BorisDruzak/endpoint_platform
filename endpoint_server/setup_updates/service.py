@@ -207,6 +207,30 @@ async def record_progress(session, device_id, assignment_id, report, *, now=None
     except ValueError as error:
         raise SetupConflict('Setup progress transition refused') from error
     release = await session.get(SetupRelease, job.release_id)
+    if report.phase == 'failed' and job.status == 'recovery_required':
+        presence = await session.scalar(select(SetupClientPresence).where(SetupClientPresence.device_id == device_id))
+        recovery = await session.scalar(select(SetupPreparation).where(SetupPreparation.assignment_id == job.id)
+            .order_by(SetupPreparation.created_at.desc()).limit(1))
+        returned = (await session.scalar(select(UpdateTarget).where(UpdateTarget.rollout_id == recovery.return_rollout_id,
+            UpdateTarget.device_id == device_id))) if recovery and recovery.return_rollout_id else None
+        if (report.proof is None or report.safe_code != 'native_failed_source_verified'
+                or job.safe_code != 'native_exit_requires_recovery' or not qualified_presence(presence, now)
+                or report.proof.core_version != '3.2.157' or report.proof.foundation_version != '3.2.158'
+                or presence.core_version != '3.2.157' or presence.foundation_version != '3.2.158'
+                or report.proof.msi_sha256 != release.msi_sha256 or report.proof.source_revision != release.source_revision
+                or (recovery and (recovery.status != 'completed' or returned is None or returned.status != 'applied'))):
+            raise SetupConflict('verified source recovery required before releasing native ownership')
+        instance = await session.scalar(select(DeviceInstance).where(DeviceInstance.device_id == device_id)
+            .order_by(*latest_instance_order()).limit(1))
+        connection = await session.scalar(select(DeviceSession).where(DeviceSession.device_id == device_id,
+            DeviceSession.closed_at.is_(None)).order_by(DeviceSession.created_at.desc()).limit(1))
+        if (instance is None or connection is None or connection.device_instance_id != instance.id
+                or instance.agent_version != report.proof.core_version
+                or instance.launcher_version != report.proof.foundation_version
+                or instance.last_seen_at is None or connection.last_seen_at is None
+                or now - utc(instance.last_seen_at) > timedelta(seconds=90)
+                or now - utc(connection.last_seen_at) > timedelta(seconds=90)):
+            raise SetupConflict('fresh source WSS required for native failure recovery')
     if report.phase in ('applied', 'already_current'):
         proof = report.proof
         if (proof.foundation_version != release.version or proof.core_version != release.version

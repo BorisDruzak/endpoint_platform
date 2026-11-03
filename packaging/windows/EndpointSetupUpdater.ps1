@@ -2,7 +2,7 @@
 param([Parameter(Mandatory)][ValidateSet('Install','Run')][string]$Mode)
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
-$script:ClientVersion='1.0.3'
+$script:ClientVersion='1.0.4'
 $script:Publisher='4D4C23389F5FF77BC4EB32044761019EAE8FB776'
 $script:Origin='https://endpoint.sosnadmin.local'
 $script:ProgramFiles=[Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
@@ -278,7 +278,7 @@ function Get-CompanionSessions {
 function Get-LiveSessionSid([int]$session){Initialize-SessionIdentity;return [EndpointSetupSessionIdentity]::Sid($session)}
 function Get-CompanionExpectedHash($job,$session){
  if($session.name -cnotin @('EndpointAgentTray.exe','EndpointUserSensor.exe')){throw 'companion_record_invalid'}
- $hash=if($job.native_exit -eq 67){$session.sha256}elseif($session.name -ceq 'EndpointAgentTray.exe'){$job.release.tray_sha256}else{$job.release.sensor_sha256}
+ $hash=if($null -ne $job.native_exit -and $job.native_exit -ne 0){$session.sha256}elseif($session.name -ceq 'EndpointAgentTray.exe'){$job.release.tray_sha256}else{$job.release.sensor_sha256}
  if($hash -cnotmatch '^[0-9a-f]{64}$'){throw 'companion_binding_unavailable'}
  return $hash
 }
@@ -391,7 +391,27 @@ function Invoke-NativeSetup($job,[string]$setup){
  $job.native_exit=[int]$process.ExitCode;$job.native_ended=[DateTime]::UtcNow.ToString('o');$process.Dispose();Save-Job $job
 }
 function Complete-NativeJob($job,[string]$setup){
- if($job.native_exit -ne 0 -and $job.native_exit -ne 67){Send-Progress $job 'recovery_required' $null 'native_exit_requires_recovery';return}
+ if($job.native_exit -ne 0 -and $job.native_exit -ne 67){
+  # Only a known provenance rejection can be settled by proving that its exact
+  # source survived. Unknown exits and interrupted native journals stay held.
+  if($job.native_exit -ne 21 -or (Test-CoreOrNativeBusy)){Send-Progress $job 'recovery_required' $null 'native_exit_requires_recovery';return}
+  if($job.phase -cne 'recovery_required'){Send-Progress $job 'recovery_required' $null 'native_exit_requires_recovery'}
+  $after=Read-SetupPreflight $setup
+  foreach($part in @('foundation','core')){
+   foreach($field in @('version','source_revision')){
+    if(!$job.before.$part.$field -or $after.$part.$field -cne $job.before.$part.$field){Send-Progress $job 'recovery_required' $null 'native_exit_requires_recovery';return}
+   }
+  }
+  if($job.before.core.package_sha256 -cnotmatch '^[0-9a-f]{64}$' -or $after.core.package_sha256 -cne $job.before.core.package_sha256 -or $after.foundation.package_sha256 -cne $job.before.foundation.package_sha256 -or $after.core.origin -cne $job.before.core.origin -or $after.pending.active_or_degraded){Send-Progress $job 'recovery_required' $null 'native_exit_requires_recovery';return}
+  $journal=Read-BoundedJson (Join-Path $script:InstallerState 'staged-update.json')
+  $observed=$(if($journal){$journal.binding.operation_id}else{$null})
+  if($observed -cne $job.previous_native_id){Send-Progress $job 'recovery_required' $null 'native_exit_requires_recovery';return}
+  $restored=Restore-Companions $job
+  $proof=New-NativeProof $job $after 'unchanged' 21 $restored
+  $proof.soak=Observe-InstalledRuntime $job $job.before.core.version
+  if(!(Test-NativeProofHealthy $proof) -or !$proof.soak.services_stable -or !$proof.soak.connected -or !$proof.soak.companions_stable){Send-Progress $job 'recovery_required' $proof 'native_exit_requires_recovery';return}
+  Send-Progress $job 'failed' $proof 'native_failed_source_verified';return
+ }
  if($job.native_exit -eq 0 -and $job.phase -cin @('installing','recovery_required')){Send-Progress $job 'verifying'}
  $script:Stage='native_verification'
  $after=Read-SetupPreflight $setup
@@ -411,8 +431,11 @@ function Complete-NativeJob($job,[string]$setup){
   $script:Stage='server_acceptance';Send-Progress $job 'applied' $proof 'setup_post_restart_confirmed'
  }
 }
-function Observe-InstalledRuntime($job){
- if($job.soak -and $job.soak.duration_seconds -ge 180 -and $job.soak.samples -ge 6 -and $job.soak.services_stable -and $job.soak.companions_stable -and $job.soak.connected){return $job.soak}
+function Observe-InstalledRuntime($job,[string]$expectedVersion){
+ # Source recovery always starts a new observation epoch. A target-version
+ # cache from a previous observation cannot stand in for the surviving source.
+ if(!$expectedVersion -and $job.soak -and $job.soak.duration_seconds -ge 180 -and $job.soak.samples -ge 6 -and $job.soak.services_stable -and $job.soak.companions_stable -and $job.soak.connected){return $job.soak}
+ if(!$expectedVersion){$expectedVersion=$job.release.version}
  $script:Stage='post_install_observation'
  $processors=[Math]::Max(1,[int](Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors)
  $services=@(Get-CimInstance Win32_Service -Filter "Name='EndpointAgent' OR Name='EndpointBrowserPolicy'"|Sort-Object Name|Select-Object Name,ProcessId)
@@ -434,7 +457,7 @@ function Observe-InstalledRuntime($job){
    $companionBaseline=$surviving
   }catch{$companionsStable=$false}
   $status=Read-BoundedJson (Join-Path $script:ProgramData 'Endpoint Platform\Tray\agent-status.json') 65536
-  if(!$status -or $status.version -cne $job.release.version -or $status.agent_state -cne 'running' -or $status.endpoint_state -cne 'connected' -or ([DateTimeOffset]::UtcNow-[DateTimeOffset]::Parse($status.observed_at)).TotalSeconds -gt 90){$connected=$false}
+  if(!$status -or $status.version -cne $expectedVersion -or $status.agent_state -cne 'running' -or $status.endpoint_state -cne 'connected' -or ([DateTimeOffset]::UtcNow-[DateTimeOffset]::Parse($status.observed_at)).TotalSeconds -gt 90){$connected=$false}
   $samples+=@{elapsed_seconds=[Math]::Round($elapsed,3);sensor_count=$count;sensor_cpu_percent=[Math]::Round($percent,4);utc=[DateTime]::UtcNow.ToString('o')}
   Write-PrivateJson (Join-Path (Get-JobRoot $job.assignment_id) 'observation.json') $samples
   $previous=$next;$last=$elapsed
