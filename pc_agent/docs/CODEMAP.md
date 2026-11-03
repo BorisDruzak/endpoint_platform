@@ -513,13 +513,13 @@ TaskDialog with reason/later actions and refuses Session 0. ALT uses libnotify's
 DBus action interface in the existing KDE session (the optional user-sensor RPM
 requires libnotify). A reason action must obtain a newly authorized Core/server
 reply before the user process opens the browser. No browser token or device
-credential is sent to either user process. See
-`docs/architecture/worktime-companion.md` for durability and qualification limits.
-UUID lease fencing and a fresh server `present` acceptance precede native UI;
-an expired unaccepted claim may move to another verified device for the same
-person, while accepted presentation cannot be reassigned automatically. Polls
-and presentation also require the current effective schedule and fresh active
-person verification through the configured Helpdesk authority.
+credential is sent to either user process. The companion HTTP service is
+optional: the server on this branch does not implement its WorkTime routes.
+Missing routes and request failures return an empty companion reply; startup
+failures retry without terminating the WSS connection. Server-side scheduling,
+person verification and real-user notification acceptance require separate
+qualification. See `docs/releases/current-agent-release.json` for the deployed
+provider source and the current release's verified scope and limits.
 
 `browser_policy_protocol.py` is the closed, stdlib-only privileged helper
 request/reply contract shared by Windows and Linux. Linux `seqpacket.py` owns
@@ -625,3 +625,5 @@ both platforms; Browser Status resumes after the current ACK even on ERROR, whil
 Activity still requires APPLIED. KDE autostart replaces its private environment
 before restarting its own unit. See the current ALT baseline and parity ledger
 for installed acceptance and remaining external gates.
+
+The Windows Core159 verifier can install the bundled publisher-signed Setup client from its existing fixed Core assignment. `platform/windows/setup_update_bootstrap.py` performs only local admission and registration; `packaging/windows/EndpointSetupUpdater.ps1` owns the separate protected download/Setup/report task outside MSI-owned paths. Native updates remain delegated to signed full Setup, with unknown outcomes blocked against replay.

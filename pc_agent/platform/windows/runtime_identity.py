@@ -30,6 +30,11 @@ _LEGACY_MSI_CONTRACTS = {
 # contracts or their captured compatibility_foundations/identity digest.
 # Only these two exact retained media may be selected by the listed foundations.
 _LEGACY_FOUNDATION_EXTENSIONS = {
+    # 158 preserves the pre-82 launcher CLI and optional sensor fallback. This
+    # exact retained79 media approval leaves its historical82 contract intact.
+    '3.2.158': frozenset({
+        '2f7d778799f1e32645af7936dfaf3f090d6ad4df5bb883827ea8a0a5d859f72a',
+    }),
     '3.2.149': frozenset({
         '2f7d778799f1e32645af7936dfaf3f090d6ad4df5bb883827ea8a0a5d859f72a',
     }),
