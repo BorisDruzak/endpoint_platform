@@ -36,13 +36,13 @@ async def test_old_agent_preparation_uses_existing_ota_then_real_rollback_then_f
     await advance_preparations(db, now=NOW)
     assert parent.return_rollout_id is None
     child.status = 'applied'
-    await record_presence(db, device.id, dict(client_version='1.0.0', ready=True, core_version='3.2.161', foundation_version='3.2.158'), now=NOW)
+    await record_presence(db, device.id, dict(client_version='1.0.3', ready=True, core_version='3.2.161', foundation_version='3.2.158'), now=NOW)
     await advance_preparations(db, now=NOW)
     assert parent.status == 'restoring_core' and parent.return_rollout_id is not None
     returned = await db.scalar(select(UpdateTarget).where(UpdateTarget.rollout_id == parent.return_rollout_id))
     assert returned.status == 'assigned'
     returned.status = 'applied'
-    await record_presence(db, device.id, dict(client_version='1.0.0', ready=True, core_version='3.2.157', foundation_version='3.2.158'), now=NOW)
+    await record_presence(db, device.id, dict(client_version='1.0.3', ready=True, core_version='3.2.157', foundation_version='3.2.158'), now=NOW)
     await advance_preparations(db, now=NOW)
     assert parent.status == 'completed'
     actual = await db.get(SetupAssignment, parent.assignment_id)
@@ -72,7 +72,7 @@ async def test_preparation_does_not_start_later_stages_after_cancel_or_failed_co
         await cancel_preparation(db, prep.id, actor='test-admin', request_id='stop', now=NOW)
     else:
         child.status = 'failed'
-    await record_presence(db, device.id, dict(client_version='1.0.0', ready=True, core_version='3.2.161'), now=NOW)
+    await record_presence(db, device.id, dict(client_version='1.0.3', ready=True, core_version='3.2.161'), now=NOW)
     await advance_preparations(db, now=NOW)
     assert prep.status == ('cancelled' if outcome == 'cancelled' else 'blocked')
     assert prep.assignment_id is None and prep.return_rollout_id is None

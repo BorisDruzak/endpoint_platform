@@ -1,6 +1,7 @@
 """Additive migration and serialization on real disposable PostgreSQL."""
 import asyncio
 from uuid import uuid4
+import pytest
 
 from alembic import command
 from sqlalchemy import text
@@ -59,6 +60,31 @@ def test_device_update_lock_serializes_competing_owners(update_migration_databas
     asyncio.run(scenario())
 
 
+def test_postgresql_recovery_hold_has_unique_active_device_ownership(update_migration_database_urls):
+    from datetime import UTC,datetime
+    from sqlalchemy.exc import IntegrityError
+    url,_=update_migration_database_urls
+    async def scenario():
+        provider=AsyncSessionProvider(url)
+        identity,release_id=uuid4(),uuid4()
+        now=datetime.now(UTC)
+        async with provider() as session:
+            session.add(Device(id=identity,device_identifier='hold-'+identity.hex))
+            session.add(SetupRelease(id=release_id,release_identifier='hold-'+release_id.hex,version='3.2.158',
+                artifact_name='hold-'+release_id.hex+'.exe',size=10,sha256='a'*64,source_revision='b'*40,
+                msi_sha256='c'*64,tray_sha256='d'*64,sensor_sha256='e'*64))
+            await session.flush()
+            held=SetupAssignment(id=uuid4(),device_id=identity,release_id=release_id,status='recovery_required',
+                reason='Unresolved native operation',assigned_at=now,updated_at=now,started_at=now)
+            session.add(held);await session.commit()
+            session.add(SetupAssignment(id=uuid4(),device_id=identity,release_id=release_id,status='assigned',
+                reason='Must conflict',assigned_at=now,updated_at=now))
+            with pytest.raises(IntegrityError):await session.flush()
+            await session.rollback()
+        await provider.close()
+    asyncio.run(scenario())
+
+
 def test_real_admin_cookie_csrf_and_persisted_scope_protect_setup_assignment(update_migration_database_urls, tmp_path):
     from datetime import UTC, datetime
     from dataclasses import replace
@@ -83,7 +109,7 @@ def test_real_admin_cookie_csrf_and_persisted_scope_protect_setup_assignment(upd
             issued = issue_admin_session(user_id, settings.session_secret)
             session.add(issued.record)
             await session.flush()
-            await record_presence(session, device_id, dict(client_version='1.0.0', ready=True, core_version='3.2.156'))
+            await record_presence(session, device_id, dict(client_version='1.0.3', ready=True, core_version='3.2.156'))
             await session.commit()
         app = create_app(settings, provider)
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app, client=('127.0.0.1',12345)),

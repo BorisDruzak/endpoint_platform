@@ -12,16 +12,18 @@ from .updates import ArtifactNameV1, SafeCodeV1, Sha256V1, UpdateIdentifierV1
 WindowsVersion = Annotated[str, StringConstraints(pattern=r'^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$')]
 SourceRevision = Annotated[str, StringConstraints(pattern=r'^[0-9a-f]{40}$')]
 
-ACTIVE_SETUP_PHASES = ('assigned', 'downloading', 'verified', 'installing', 'verifying')
+QUALIFIED_SETUP_CLIENT_VERSION = '1.0.3'
+ACTIVE_SETUP_PHASES = ('assigned', 'downloading', 'verified', 'installing', 'verifying', 'recovery_required')
 TERMINAL_SETUP_PHASES = ('applied', 'failed', 'rolled_back', 'blocked', 'cancelled', 'already_current')
 SetupPhase = Literal['assigned', 'downloading', 'verified', 'installing', 'verifying',
-                     'applied', 'failed', 'rolled_back', 'blocked', 'cancelled', 'already_current']
+                     'applied', 'failed', 'rolled_back', 'blocked', 'cancelled', 'already_current', 'recovery_required']
 _NEXT = {
     'assigned': {'downloading', 'cancelled', 'failed', 'blocked'},
     'downloading': {'verified', 'cancelled', 'failed', 'blocked'},
     'verified': {'installing', 'already_current', 'cancelled', 'failed', 'blocked'},
-    'installing': {'verifying', 'rolled_back', 'failed', 'blocked'},
-    'verifying': {'applied', 'rolled_back', 'failed', 'blocked'},
+    'installing': {'verifying', 'rolled_back', 'recovery_required'},
+    'verifying': {'applied', 'rolled_back', 'recovery_required'},
+    'recovery_required': {'verifying', 'rolled_back'},
 }
 
 
@@ -96,7 +98,7 @@ class SetupNativeProofV1(ContractModelV1):
 class SetupProgressV1(ContractModelV1):
     attempt_id: UUID
     phase: Literal['downloading', 'verified', 'installing', 'verifying', 'already_current',
-                   'applied', 'failed', 'rolled_back', 'blocked']
+                   'applied', 'failed', 'rolled_back', 'blocked', 'recovery_required']
     safe_code: SafeCodeV1 | None = None
     proof: SetupNativeProofV1 | None = None
 

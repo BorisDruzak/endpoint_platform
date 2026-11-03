@@ -44,7 +44,7 @@ async def state(db, tmp_path):
         sha256=hashlib.sha256(artifact.read_bytes()).hexdigest(), size=artifact.stat().st_size,
         source_revision='b' * 40, msi_sha256='c' * 64, tray_sha256='d' * 64, sensor_sha256='e' * 64)
     release = await register_release(db, manifest, artifact_root=tmp_path, actor='test-admin', request_id='register')
-    await record_presence(db, device.id, {'client_version': '1.0.0', 'ready': True,
+    await record_presence(db, device.id, {'client_version': '1.0.3', 'ready': True,
                                        'foundation_version': '3.2.156', 'core_version': '3.2.156'}, now=NOW)
     return device, release, manifest, tmp_path
 
@@ -91,6 +91,32 @@ async def test_client_readiness_is_required_and_one_active_assignment(db, state)
     assert job.status == 'assigned'
     with pytest.raises(SetupConflict):
         await assignment(db, state)
+
+
+async def test_unqualified_executor_cannot_accept_setup_even_with_fresh_ready_presence(db, state):
+    device, *_ = state
+    await record_presence(db, device.id, dict(client_version='1.0.1', ready=True, core_version='3.2.157'), now=NOW)
+    with pytest.raises(SetupConflict):
+        await assignment(db, state)
+
+
+async def test_unknown_native_outcome_keeps_device_exclusive_and_cannot_be_cancelled(db, state):
+    job, attempt = await started(db, state)
+    await record_progress(db, job.device_id, job.id,
+        SetupProgressV1(attempt_id=attempt, phase='recovery_required', safe_code='native_outcome_unknown'), now=NOW)
+    assert job.finished_at is None
+    with pytest.raises(SetupConflict):
+        await cancel_assignment(db, job.id, actor='test-admin', request_id='unsafe-cancel', now=NOW)
+    with pytest.raises(SetupConflict):
+        await assignment(db, state)
+    from endpoint_server.updates.service import create_rollout
+    from endpoint_server.updates.errors import UpdateConflict
+    core=UpdateBuild(id=uuid4(),build_identifier='hold-guard-core',version='3.2.170',platform='windows_amd64',
+        channel='canary',artifact_identifier='hold.zip',artifact_url='https://endpoint.sosnadmin.local/hold.zip',
+        artifact_name='hold.zip',archive_type='zip',sha256_digest='a'*64,size=10)
+    db.add(core);await db.flush()
+    with pytest.raises(UpdateConflict):
+        await create_rollout(db,core.id,'canary',[job.device_id],'competing Core','test-admin','overlap',now=NOW)
 
 
 async def test_stale_client_cannot_authorize_a_new_setup(db, state):

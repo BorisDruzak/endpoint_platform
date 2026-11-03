@@ -51,6 +51,7 @@ def test_opaque_error_details_cannot_be_reported():
     ('verifying', 'applied'), ('installing', 'rolled_back'),
     ('assigned', 'cancelled'), ('verified', 'cancelled'),
     ('verified', 'already_current'), ('downloading', 'blocked'),
+    ('installing', 'recovery_required'), ('recovery_required', 'verifying'),
 ])
 def test_valid_update_transitions(old, new):
     validate_setup_transition(old, new)
@@ -61,6 +62,8 @@ def test_valid_update_transitions(old, new):
     ('assigned', 'applied'), ('applied', 'installing'),
     ('rolled_back', 'installing'), ('blocked', 'installing'),
     ('cancelled', 'verified'), ('assigned', 'installing'),
+    ('installing', 'blocked'), ('verifying', 'blocked'),
+    ('installing', 'failed'), ('verifying', 'failed'), ('recovery_required', 'cancelled'),
 ])
 def test_cancel_or_replay_cannot_cross_the_native_start_boundary(old, new):
     with pytest.raises(ValueError):

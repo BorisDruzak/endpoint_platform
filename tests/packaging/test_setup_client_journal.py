@@ -11,10 +11,11 @@ SCRIPT = Path(__file__).resolve().parents[2] / 'packaging/windows/EndpointSetupU
 
 
 @pytest.mark.skipif(os.name != 'nt', reason='Windows PowerShell5.1 file journal')
-def test_client_report_ack_loss_retries_report_without_a_second_native_launch(tmp_path):
+@pytest.mark.parametrize('fault', ['ack_loss', 'private_changed', 'native_failed'])
+def test_client_report_ack_loss_retries_report_without_a_second_native_launch(tmp_path, fault):
     harness = tmp_path / 'journal.ps1'
     harness.write_text(r'''
-param($Script,$Root)
+param($Script,$Root,$Fault)
 $ErrorActionPreference='Stop';$tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile($Script,[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'source parse failed'}
@@ -31,7 +32,7 @@ function New-AdministrativeDirectory($path){New-Item -ItemType Directory -Path $
 function Get-ClientHello{return @{ready=$true;core_version='3.2.157';foundation_version='3.2.158';client_version='1.0.2'}}
 function Get-CompanionSessions{return @()}
 function Restore-Companions($job){return $true}
-function Get-PrivateSnapshot{return @{'device-credential'='credential metadata';'enrollment-identity.json'='identity metadata';'endpoint-origin'='origin metadata';'endpoint-ca.crt'='CA metadata'}}
+function Get-PrivateSnapshot{$value=if($Fault -ceq 'private_changed' -and $script:NativeStarts){'changed'}else{'credential metadata'};return @{'device-credential'=$value;'enrollment-identity.json'='identity metadata';'endpoint-origin'='origin metadata';'endpoint-ca.crt'='CA metadata'}}
 function Get-CimInstance{return [pscustomobject]@{State='Running';StartName='LocalSystem'}}
 function Test-CoreOrNativeBusy{return $false}
 function Get-SetupArtifact($job,$path){[IO.File]::WriteAllText($path,'inert test fixture')}
@@ -45,13 +46,13 @@ function Read-SetupPreflight($path){
   services=@{EndpointAgent=@{identity_valid=$true;state='running';start_mode='automatic'};EndpointAgentUpdater=@{identity_valid=$true;start_mode='manual'}}}
 }
 function Observe-InstalledRuntime($job){return @{duration_seconds=180;samples=6;sensor_count=1;sensor_cpu_percent_max=0;services_stable=$true;companions_stable=$true;connected=$true}}
-function Invoke-NativeSetup($job,$path){$script:NativeStarts++;$job.native_started=$true;$job.native_exit=0;Save-Job $job}
+function Invoke-NativeSetup($job,$path){$script:NativeStarts++;$job.native_started=$true;$job.native_exit=$(if($Fault -ceq 'native_failed'){16}else{0});Save-Job $job}
 function Invoke-EndpointJson($method,$path,$body){
  if($path -ceq '/agent/v1/setup-updates/hello'){return @{device_id=$script:DeviceId}}
  if($path.EndsWith('/status')){return @{phase=$script:RemotePhase}}
  if($path.EndsWith('/progress')){
   $script:RemotePhase=$body.phase
-  if($body.phase -ceq 'applied'){$script:AppliedReports++;if($script:AppliedReports -eq 1){throw 'simulated_response_lost_after_commit'}}
+  if($body.phase -ceq 'applied'){$script:AppliedReports++;if($Fault -ceq 'ack_loss' -and $script:AppliedReports -eq 1){throw 'simulated_response_lost_after_commit'}}
   return @{assignment_id=$script:Assignment;attempt_id=$body.attempt_id;phase=$body.phase}
  }
  if($path.EndsWith('/recommendation')){
@@ -63,13 +64,18 @@ function Invoke-EndpointJson($method,$path,$body){
 }
 $lost=$false
 try{Invoke-SetupClient}catch{if($_.Exception.Message -ceq 'simulated_response_lost_after_commit'){$lost=$true}else{throw}}
-if(!$lost -or $script:NativeStarts -ne 1){throw 'first native attempt not observed'}
+if($script:NativeStarts -ne 1){throw 'first native attempt not observed'}
 $cached=Get-ActiveJob
-if($cached.phase -cne 'verifying' -or $cached.report.phase -cne 'applied'){throw 'retry authority not durable'}
+if($Fault -ceq 'ack_loss'){
+ if(!$lost -or $cached.phase -cne 'verifying' -or $cached.report.phase -cne 'applied'){throw 'retry authority not durable'}
+}elseif($cached.phase -cne 'recovery_required' -or $script:AppliedReports -ne 0){throw 'unhealthy native outcome released ownership or reported applied'}
 Invoke-SetupClient
 $settled=Get-ActiveJob
-if($script:NativeStarts -ne 1 -or $script:AppliedReports -ne 2 -or $settled.phase -cne 'applied' -or $null -ne $settled.report){throw 'lost report caused replay or did not settle'}
+if($script:NativeStarts -ne 1){throw 'native operation replayed'}
+if($Fault -ceq 'ack_loss'){
+ if($script:AppliedReports -ne 2 -or $settled.phase -cne 'applied' -or $null -ne $settled.report){throw 'lost report did not settle'}
+}elseif($settled.phase -cne 'recovery_required' -or $script:AppliedReports -ne 0){throw 'unsafe native outcome stopped holding ownership'}
 Write-Output 'PASS: one native launch; two reports; durable accepted result'
 ''', encoding='utf-8')
-    result = subprocess.run(['powershell.exe', '-NoProfile', '-File', str(harness), str(SCRIPT), str(tmp_path / 'state')], capture_output=True, text=True)
+    result = subprocess.run(['powershell.exe', '-NoProfile', '-File', str(harness), str(SCRIPT), str(tmp_path / 'state'), fault], capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr

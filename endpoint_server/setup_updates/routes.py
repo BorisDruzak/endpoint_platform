@@ -20,7 +20,7 @@ from endpoint_server.updates.agent_routes import _authenticate_device, _artifact
 from .models import SetupRelease, SetupAssignment, SetupClientPresence, SetupPreparation
 from .preparation import request_setup, cancel_preparation
 from .service import (SetupConflict, register_release, assign_setup, cancel_assignment,
-                      record_presence, record_progress, release_manifest)
+                      record_presence, record_progress, release_manifest, qualified_presence)
 
 admin_router = APIRouter(prefix='/api/admin/setup-updates', tags=['admin-setup-updates'])
 agent_router = APIRouter(prefix='/agent/v1/setup-updates', tags=['agent-setup-updates'])
@@ -133,6 +133,9 @@ async def hello(body: SetupClientHelloV1, request: Request):
 async def recommendation(request: Request):
     async with request.app.state.session_provider() as session:
         principal = await _authenticate_device(session, request)
+        presence = await session.scalar(select(SetupClientPresence).where(SetupClientPresence.device_id == principal.device.id))
+        if not qualified_presence(presence, datetime.now(UTC)):
+            return Response(status_code=204)
         row = (await session.execute(select(SetupAssignment, SetupRelease)
             .join(SetupRelease, SetupRelease.id == SetupAssignment.release_id)
             .where(SetupAssignment.device_id == principal.device.id, SetupAssignment.status.in_(ACTIVE_SETUP_PHASES))

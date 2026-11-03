@@ -22,9 +22,9 @@ no application-network request; the registered client defers while Core/native
 transactions are active. Normal LocalService runtime and assets-absent historical
 releases do not install a task. No unsigned script or caller-selected path is run.
 
-The new Core bridge has a new immutable version160. To test frozen Setup158,
+The new Core bridge has a new immutable version161. To test frozen Setup158,
 prepare a lower compatible registered Core157 through the canonical rollback
-workflow after the160 bridge completes. Both assignments originate in Endpoint.
+workflow after the161 bridge completes. Both assignments originate in Endpoint.
 Then the durable Setup client applies the actual full158 EXE. This avoids
 overwriting frozen158 code or disguising EXE bytes as a Core ZIP. The test120
 Foundation is already158 from the prior authorized test; report that fact and
@@ -92,3 +92,5 @@ General fleet release and other native source histories are not accepted by this
 single-device test. Any unverified native compensation source must stay scoped.
 
 The source157 ZIP is made from the exact retained qualified118-file tree, not a rebuilt old version. Source156 MSI history is preserved: the Core worker deliberately refuses changing an existing MSI-owned version directory into ZIP ownership. Preparation blocks unrelated Core/Setup assignments; cancellation prevents future stages without inventing completion of a running Core child.
+
+Executor admission is exact client1.0.3 at preparation handoffs, direct assignment, recommendation and the native-start authority boundary. After native start, recovery_required remains active/exclusive until actual healthy acceptance or verified rollback; nonzero unknown exits, lookup errors and failed proof must retain this hold. WTS failure cannot prove logout. Server schema0044 includes recovery holds in the unique active-device predicate.

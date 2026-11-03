@@ -9,11 +9,12 @@ from uuid import uuid4
 from sqlalchemy import select
 
 from endpoint_contracts.update_safety import validate_public_update_prose
+from endpoint_contracts.setup_updates import QUALIFIED_SETUP_CLIENT_VERSION
 from endpoint_server.db.models import DeviceInstance, UpdateBuild, UpdateTarget, UpdateRollout
 from endpoint_server.db.instance_order import latest_instance_order
 from endpoint_server.updates.service import create_rollout, create_rollback_rollout
 from .models import SetupPreparation, SetupRelease, SetupClientPresence
-from .service import SetupConflict, assign_setup, lock_device, now_utc, utc, audit
+from .service import SetupConflict, assign_setup, lock_device, now_utc, utc, audit, qualified_presence
 
 ACTIVE_PREPARATIONS = ('preparing_client', 'restoring_core')
 BRIDGE = 'endpoint-windows-core-3.2.161-setup-client'
@@ -32,8 +33,7 @@ def parts(version):
 
 
 def ready(presence, now):
-    return (presence is not None and presence.ready
-            and -timedelta(seconds=30) <= now - utc(presence.last_seen_at) <= timedelta(minutes=10))
+    return qualified_presence(presence, now)
 
 
 async def lock_builds(session):

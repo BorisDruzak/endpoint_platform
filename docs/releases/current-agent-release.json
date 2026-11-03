@@ -210,7 +210,8 @@
     "target_setup_version": "3.2.158",
     "scope": "single explicitly assigned existing device test120; no public enrollment change",
     "delivery": "authenticated Endpoint Core OTA bootstrap followed by separate full Setup assignment",
-    "client_version": "1.0.2",
-    "initial_bootstrap_limit": "Existing native158 stager required explicitly approved one-time updates-directory owner preparation on test120."
+    "client_version": "1.0.3",
+    "initial_bootstrap_limit": "Existing native158 stager required explicitly approved one-time updates-directory owner preparation on test120.",
+    "native_uncertainty": "recovery_required retains exclusive device ownership; no replay or cancellation across unknown native outcome"
   }
 }

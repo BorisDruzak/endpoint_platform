@@ -37,8 +37,8 @@ class SetupAssignment(OwnershipRecord, Base):
     __tablename__ = 'setup_update_assignments'
     __table_args__ = (
         Index('uq_setup_update_active_device', 'device_id', unique=True,
-              postgresql_where=text("status IN ('assigned','downloading','verified','installing','verifying')"),
-              sqlite_where=text("status IN ('assigned','downloading','verified','installing','verifying')")),
+              postgresql_where=text("status IN ('assigned','downloading','verified','installing','verifying','recovery_required')"),
+              sqlite_where=text("status IN ('assigned','downloading','verified','installing','verifying','recovery_required')")),
     )
     device_id: Mapped[UUID] = mapped_column(ForeignKey('devices.id', ondelete='CASCADE'), index=True)
     release_id: Mapped[UUID] = mapped_column(ForeignKey('setup_update_releases.id'))

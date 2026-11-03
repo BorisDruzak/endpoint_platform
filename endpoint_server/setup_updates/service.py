@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 
 from endpoint_contracts.setup_updates import (
-    ACTIVE_SETUP_PHASES, TERMINAL_SETUP_PHASES, SetupReleaseManifestV1,
+    ACTIVE_SETUP_PHASES, TERMINAL_SETUP_PHASES, QUALIFIED_SETUP_CLIENT_VERSION, SetupReleaseManifestV1,
     SetupClientHelloV1, SetupProgressV1, validate_setup_transition,
 )
 from endpoint_contracts.update_safety import validate_public_update_prose
@@ -31,6 +31,11 @@ def utc(value):
 
 def now_utc(value=None):
     return utc(value or datetime.now(UTC))
+
+
+def qualified_presence(presence, now):
+    return (presence is not None and presence.client_version == QUALIFIED_SETUP_CLIENT_VERSION
+        and presence.ready and -timedelta(seconds=30) <= now - utc(presence.last_seen_at) <= timedelta(minutes=10))
 
 
 def release_manifest(release):
@@ -115,8 +120,7 @@ async def assign_setup(session, device_id, release_id, reason, *, actor, request
         raise SetupConflict('bounded reason is required')
     presence = await session.scalar(select(SetupClientPresence).where(
         SetupClientPresence.device_id == device_id))
-    if (presence is None or not presence.ready or now - utc(presence.last_seen_at) > timedelta(minutes=10)
-            or utc(presence.last_seen_at) > now + timedelta(seconds=30)):
+    if not qualified_presence(presence, now):
         raise SetupConflict('fresh ready Setup client required')
     active = await session.scalar(select(SetupAssignment.id).where(
         SetupAssignment.device_id == device_id, SetupAssignment.status.in_(ACTIVE_SETUP_PHASES)))
@@ -180,6 +184,10 @@ async def record_progress(session, device_id, assignment_id, report, *, now=None
     report = SetupProgressV1.model_validate(report.model_dump() if isinstance(report, SetupProgressV1) else report)
     now = now_utc(now)
     job = await locked_assignment(session, assignment_id, device_id)
+    if report.phase == 'installing' and job.status != 'installing':
+        presence = await session.scalar(select(SetupClientPresence).where(SetupClientPresence.device_id == device_id))
+        if not qualified_presence(presence, now):
+            raise SetupConflict('fresh qualified Setup executor required before native start')
     if job.attempt_id is not None and job.attempt_id != report.attempt_id:
         raise SetupConflict('Setup attempt differs')
     payload = report.model_dump(mode='json')

@@ -8,6 +8,25 @@ import pytest
 SCRIPT = Path(__file__).resolve().parents[2] / 'packaging/windows/EndpointSetupUpdater.ps1'
 
 
+@pytest.mark.skipif(os.name != 'nt', reason='Native WTS failure admission')
+def test_wts_lookup_error_is_not_treated_as_proven_logout(tmp_path):
+    harness=tmp_path/'wts.ps1'
+    harness.write_text(r'''
+param($Script)
+$ErrorActionPreference='Stop';$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($Script,[ref]$tokens,[ref]$errors)
+$f=$ast.Find({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Initialize-SessionIdentity'},$true)
+Invoke-Expression $f.Extent.Text;Initialize-SessionIdentity
+$refused=$false
+try{$null=[EndpointSetupSessionIdentity]::RequireQuery($false,$null)}catch{if($_.Exception.InnerException.Message -ceq 'session_identity_lookup_failed'){$refused=$true}}
+if(!$refused){throw 'lookup failure was not distinctly refused'}
+if($null -ne [EndpointSetupSessionIdentity]::Sid(2147483000)){throw 'absent session was not proven absent'}
+Write-Output 'PASS'
+''',encoding='utf-8')
+    result=subprocess.run(['powershell.exe','-NoProfile','-File',str(harness),str(SCRIPT)],capture_output=True,text=True)
+    assert result.returncode == 0, result.stdout+result.stderr
+
+
 @pytest.mark.skipif(os.name != 'nt', reason='Windows PowerShell mutex admission')
 def test_mutex_security_uses_sid_identities_without_account_name_translation(tmp_path):
     harness = tmp_path / 'mutex.ps1'

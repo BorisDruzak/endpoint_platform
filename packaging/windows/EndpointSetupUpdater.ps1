@@ -2,7 +2,7 @@
 param([Parameter(Mandatory)][ValidateSet('Install','Run')][string]$Mode)
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
-$script:ClientVersion='1.0.2'
+$script:ClientVersion='1.0.3'
 $script:Publisher='4D4C23389F5FF77BC4EB32044761019EAE8FB776'
 $script:Origin='https://endpoint.sosnadmin.local'
 $script:ProgramFiles=[Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
@@ -77,12 +77,16 @@ public static class EndpointSetupFileEvidence {
 function Initialize-SessionIdentity {
  if('EndpointSetupSessionIdentity' -as [type]){return}
  Add-Type -TypeDefinition @"
-using System;using System.Runtime.InteropServices;using System.Security.Principal;
+using System;using System.IO;using System.Runtime.InteropServices;using System.Security.Principal;
 public static class EndpointSetupSessionIdentity {
+ [StructLayout(LayoutKind.Sequential)] struct Session { public int Id;public IntPtr Station;public int State; }
  [DllImport("wtsapi32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern bool WTSQuerySessionInformation(IntPtr server,int session,int kind,out IntPtr buffer,out int bytes);
+ [DllImport("wtsapi32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern bool WTSEnumerateSessions(IntPtr server,int reserved,int version,out IntPtr buffer,out int count);
  [DllImport("wtsapi32.dll")] static extern void WTSFreeMemory(IntPtr value);
- static string Text(int session,int kind){IntPtr p;int bytes;if(!WTSQuerySessionInformation(IntPtr.Zero,session,kind,out p,out bytes))return null;try{return Marshal.PtrToStringUni(p);}finally{WTSFreeMemory(p);}}
- public static string Sid(int session){string user=Text(session,5),domain=Text(session,7);if(String.IsNullOrEmpty(user))return null;return ((SecurityIdentifier)new NTAccount(domain,user).Translate(typeof(SecurityIdentifier))).Value;}
+ public static string RequireQuery(bool success,string value){if(!success)throw new IOException("session_identity_lookup_failed");return value;}
+ static bool Exists(int id){IntPtr p;int count;if(!WTSEnumerateSessions(IntPtr.Zero,0,1,out p,out count))throw new IOException("session_enumeration_failed");try{int size=Marshal.SizeOf(typeof(Session));for(int i=0;i<count;i++){var item=(Session)Marshal.PtrToStructure(IntPtr.Add(p,i*size),typeof(Session));if(item.Id==id)return true;}return false;}finally{WTSFreeMemory(p);}}
+ static string Text(int session,int kind){IntPtr p;int bytes;bool ok=WTSQuerySessionInformation(IntPtr.Zero,session,kind,out p,out bytes);if(!ok)return RequireQuery(false,null);try{return RequireQuery(true,bytes<2?String.Empty:Marshal.PtrToStringUni(p));}finally{WTSFreeMemory(p);}}
+ public static string Sid(int session){if(!Exists(session))return null;string user=Text(session,5),domain=Text(session,7);if(String.IsNullOrEmpty(user))return null;return ((SecurityIdentifier)new NTAccount(domain,user).Translate(typeof(SecurityIdentifier))).Value;}
 }
 "@
 }
@@ -357,6 +361,12 @@ function New-NativeProof($job,$preflight,[string]$outcome,$exitCode,[bool]$compa
  if(!$browser -or $browser.State -cne 'Running' -or $browser.StartName -cne 'LocalSystem'){$services=$false}
  return [ordered]@{foundation_version=$preflight.foundation.version;core_version=$preflight.core.version;source_revision=$preflight.foundation.source_revision;msi_sha256=$preflight.foundation.package_sha256;native_phase=$outcome;exit_code=$exitCode;native_verified=[bool]$preflight.foundation.native_verified;core_verified=[bool]$preflight.core.verified;provenance_verified=([bool]$preflight.provenance.verified -and !$preflight.provenance.conflict);pending=[bool]$preflight.pending.active_or_degraded;services_verified=$services;companions_restored=$companions;private=$private}
 }
+function Test-NativeProofHealthy($proof){
+ foreach($value in @($proof.native_verified,$proof.core_verified,$proof.provenance_verified,$proof.services_verified,$proof.companions_restored,$proof.private.credential,$proof.private.identity,$proof.private.origin,$proof.private.ca)){
+  if($value -isnot [bool] -or !$value){return $false}
+ }
+ return ($proof.pending -is [bool] -and !$proof.pending)
+}
 function Invoke-NativeSetup($job,[string]$setup){
  $marker=Join-Path (Get-JobRoot $job.assignment_id) 'native-started.json'
  $bytes=[Text.Encoding]::UTF8.GetBytes((@{assignment_id=$job.assignment_id;attempt_id=$job.attempt_id;sha256=$job.release.sha256;utc=[DateTime]::UtcNow.ToString('o')}|ConvertTo-Json -Compress))
@@ -367,18 +377,22 @@ function Invoke-NativeSetup($job,[string]$setup){
  $job.native_pid=$process.Id;$job.native_created=$process.StartTime.ToUniversalTime().ToString('o');Save-Job $job
  $clock=[Diagnostics.Stopwatch]::StartNew()
  while(!$process.WaitForExit(1000)){
-  if($clock.Elapsed.TotalMinutes -gt 40){throw 'native_observation_expired'}
+  if($clock.Elapsed.TotalMinutes -gt 40 -and !$job.observation_expired){
+   $job.observation_expired=$true;Save-Job $job
+   try{Send-Progress $job 'recovery_required' $null 'native_still_running_after_observation_bound'}catch{}
+  }
   $journal=Read-BoundedJson (Join-Path $script:InstallerState 'staged-update.json')
   if($journal -and $journal.binding.operation_id -cne $job.previous_native_id -and $journal.binding.new_release.package_sha256 -ceq $job.release.msi_sha256 -and $journal.phase -cne $job.native_stage){
    $job.native_stage=$journal.phase;Save-Job $job
-   try{Send-Progress $job 'installing' $null ('native_'+$journal.phase.Replace('-','_'))}catch{}
+   $phase=if($job.observation_expired -or $job.phase -ceq 'recovery_required'){'recovery_required'}else{'installing'}
+   try{Send-Progress $job $phase $null ('native_'+$journal.phase.Replace('-','_'))}catch{}
   }
  }
  $job.native_exit=[int]$process.ExitCode;$job.native_ended=[DateTime]::UtcNow.ToString('o');$process.Dispose();Save-Job $job
 }
 function Complete-NativeJob($job,[string]$setup){
- if($job.native_exit -ne 0 -and $job.native_exit -ne 67){Send-Progress $job 'failed' $null 'setup_native_failed';return}
- if($job.native_exit -eq 0 -and $job.phase -ceq 'installing'){Send-Progress $job 'verifying'}
+ if($job.native_exit -ne 0 -and $job.native_exit -ne 67){Send-Progress $job 'recovery_required' $null 'native_exit_requires_recovery';return}
+ if($job.native_exit -eq 0 -and $job.phase -cin @('installing','recovery_required')){Send-Progress $job 'verifying'}
  $script:Stage='native_verification'
  $after=Read-SetupPreflight $setup
  for($n=0;$after.pending.active_or_degraded -and $n -lt 12;$n++){Start-Sleep -Seconds 5;$after=Read-SetupPreflight $setup}
@@ -386,18 +400,19 @@ function Complete-NativeJob($job,[string]$setup){
  if($job.native_exit -eq 67){
   if($after.foundation.version -cne $job.before.foundation.version -or $after.core.version -cne $job.before.core.version -or $after.foundation.package_sha256 -cne $job.before.foundation.package_sha256){throw 'rollback_source_differs'}
   $proof=New-NativeProof $job $after 'rolled-back' 67 $restored
+  if(!(Test-NativeProofHealthy $proof)){Send-Progress $job 'recovery_required' $proof 'rollback_verification_failed';return}
   Send-Progress $job 'rolled_back' $proof 'setup_automatically_rolled_back'
  }else{
   foreach($part in @($after.foundation,$after.core)){if($part.version -cne $job.release.version -or $part.source_revision -cne $job.release.source_revision -or $part.package_sha256 -cne $job.release.msi_sha256){throw 'target_native_binding_differs'}}
   if($after.core.origin -cne 'msi' -or $after.eligibility -cne 'ALREADY_CURRENT'){throw 'target_native_not_current'}
   $proof=New-NativeProof $job $after 'accepted' 0 $restored
   $proof.soak=Observe-InstalledRuntime $job
-  if(!$proof.soak.services_stable -or !$proof.soak.connected -or !$proof.soak.companions_stable){Send-Progress $job 'blocked' $null 'post_install_not_stable';return}
+  if(!(Test-NativeProofHealthy $proof) -or !$proof.soak.services_stable -or !$proof.soak.connected -or !$proof.soak.companions_stable){Send-Progress $job 'recovery_required' $proof 'post_install_verification_failed';return}
   $script:Stage='server_acceptance';Send-Progress $job 'applied' $proof 'setup_post_restart_confirmed'
  }
 }
 function Observe-InstalledRuntime($job){
- if($job.soak -and $job.soak.duration_seconds -ge 180 -and $job.soak.samples -ge 6){return $job.soak}
+ if($job.soak -and $job.soak.duration_seconds -ge 180 -and $job.soak.samples -ge 6 -and $job.soak.services_stable -and $job.soak.companions_stable -and $job.soak.connected){return $job.soak}
  $script:Stage='post_install_observation'
  $processors=[Math]::Max(1,[int](Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors)
  $services=@(Get-CimInstance Win32_Service -Filter "Name='EndpointAgent' OR Name='EndpointBrowserPolicy'"|Sort-Object Name|Select-Object Name,ProcessId)
@@ -465,7 +480,7 @@ function Invoke-SetupClient {
   if($null -eq $job.native_exit){
    $process=Get-CimInstance Win32_Process -Filter ('ProcessId='+[int]$job.native_pid) -ErrorAction SilentlyContinue
    if($process -and $process.CreationDate.ToUniversalTime().ToString('o') -ceq $job.native_created){Save-ClientStatus 'native_still_running' $job;return}
-   Send-Progress $job 'blocked' $null 'setup_outcome_unknown';return
+   Send-Progress $job 'recovery_required' $null 'setup_outcome_unknown';return
   }
   $setup=Join-Path (Get-JobRoot $job.assignment_id) 'Setup.exe';Assert-AdministrativePath $setup
   $pin=[IO.File]::Open($setup,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
@@ -480,7 +495,7 @@ function Invoke-SetupClient {
   if($job -and !(Test-TerminalPhase $job.phase)){throw 'active_assignment_differs'}
   $jobs=Join-Path $script:StateRoot 'jobs';New-AdministrativeDirectory $jobs;$root=Get-JobRoot $assignment;New-AdministrativeDirectory $root
   if(Test-Path -LiteralPath (Join-Path $root 'job.json')){throw 'prior_assignment_must_not_reinstall'}
-  $job=[pscustomobject][ordered]@{assignment_id=$assignment;device_id=$script:DeviceId;attempt_id=[guid]::NewGuid().ToString();release=$recommendation.release;phase='assigned';report=$null;native_started=$false;native_pid=0;native_created=$null;native_exit=$null;native_ended=$null;started_at=$null;native_stage=$null;previous_native_id=$null;before=$null;private_before=$null;companions=@();soak=$null}
+  $job=[pscustomobject][ordered]@{assignment_id=$assignment;device_id=$script:DeviceId;attempt_id=[guid]::NewGuid().ToString();release=$recommendation.release;phase='assigned';report=$null;native_started=$false;observation_expired=$false;native_pid=0;native_created=$null;native_exit=$null;native_ended=$null;started_at=$null;native_stage=$null;previous_native_id=$null;before=$null;private_before=$null;companions=@();soak=$null}
   Save-Job $job;Write-PrivateJson (Join-Path $script:StateRoot 'active.json') @{assignment_id=$assignment}
   $script:CurrentJob=$job
  }
@@ -497,10 +512,12 @@ function Invoke-SetupClient {
   $native=Read-BoundedJson (Join-Path $script:InstallerState 'staged-update.json');$job.previous_native_id=$(if($native){$native.binding.operation_id}else{$null});Save-Job $job
   if($job.phase -ceq 'downloading'){Send-Progress $job 'verified'}
   if($decision -ceq 'ALREADY_CURRENT'){
-   $proof=New-NativeProof $job $before 'unchanged' $null $true;Send-Progress $job 'already_current' $proof 'native_already_current';return
+   $proof=New-NativeProof $job $before 'unchanged' $null $true
+   if(!(Test-NativeProofHealthy $proof)){Send-Progress $job 'blocked' $proof 'current_state_verification_failed';return}
+   Send-Progress $job 'already_current' $proof 'native_already_current';return
   }
   if(Test-CoreOrNativeBusy){Save-ClientStatus 'waiting_for_transaction' $job;return}
-  if(Test-Path -LiteralPath (Join-Path $root 'native-started.json')){Send-Progress $job 'blocked' $null 'setup_outcome_unknown';return}
+  if(Test-Path -LiteralPath (Join-Path $root 'native-started.json')){Send-Progress $job 'recovery_required' $null 'setup_outcome_unknown';return}
   Send-Progress $job 'installing'
   $script:Stage='native_setup';Invoke-NativeSetup $job $setup
   Complete-NativeJob $job $setup
@@ -524,7 +541,12 @@ try{
  # Only a fixed code and line number leave the exception boundary. Neither
  # response bodies nor credentials, paths or arbitrary exception text are logged.
  $failure=Get-PermanentFailureCode $_.Exception.Message
- try{if($failure -and $script:CurrentJob -and !(Test-TerminalPhase $script:CurrentJob.phase)){Send-Progress $script:CurrentJob 'blocked' $null $failure}}catch{}
+ try{
+  if($script:CurrentJob -and !$script:CurrentJob.report -and !(Test-TerminalPhase $script:CurrentJob.phase)){
+   if($script:CurrentJob.native_started){Send-Progress $script:CurrentJob 'recovery_required' $null $(if($failure){$failure}else{'native_observation_unavailable'})}
+   elseif($failure){Send-Progress $script:CurrentJob 'blocked' $null $failure}
+  }
+ }catch{}
  try{Save-ClientStatus 'client_run_failed' $script:CurrentJob $_.InvocationInfo.ScriptLineNumber}catch{}
  exit 20
 }finally{
