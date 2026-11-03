@@ -156,6 +156,22 @@ function Set-SetupAuthenticodeSignature {
     }
 }
 
+function Finalize-SetupMsiSignature {
+    param([string]$Path, [string]$Thumbprint, [string]$Timestamp, [bool]$ReuseExisting)
+    if (-not $ReuseExisting) {
+        Set-SetupAuthenticodeSignature -Path $Path -Thumbprint $Thumbprint -Timestamp $Timestamp
+        return
+    }
+    # Re-signing an already published MSI changes its package digest and breaks
+    # equal-package reconciliation against the installed native authority.
+    if (-not $Thumbprint) { return }
+    $signature = Get-AuthenticodeSignature -LiteralPath $Path
+    if ($signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate -or
+        $signature.SignerCertificate.Thumbprint -ine $Thumbprint) {
+        throw 'Reused MSI must retain its valid timestamped publisher signature.'
+    }
+}
+
 function Resolve-VerifiedExistingMsi {
     param(
         [Parameter(Mandatory)][string]$MsiPath,
@@ -271,7 +287,7 @@ else {
     if ($LASTEXITCODE -ne 0) { throw "MSI build failed." }
 }
 if (-not (Test-Path -LiteralPath $msiPath -PathType Leaf)) { throw "MSI output is missing." }
-Set-SetupAuthenticodeSignature -Path $msiPath -Thumbprint $CodeSigningCertificateThumbprint -Timestamp $TimestampServer
+Finalize-SetupMsiSignature -Path $msiPath -Thumbprint $CodeSigningCertificateThumbprint -Timestamp $TimestampServer -ReuseExisting $hasExistingMsi
 $releaseMsi = Join-Path $releaseRoot "EndpointAgent-$Version-x64.msi"
 Copy-Item -LiteralPath $msiPath -Destination $releaseMsi -Force
 $releaseMsiSha256 = (Get-FileHash -LiteralPath $releaseMsi -Algorithm SHA256).Hash.ToLowerInvariant()
