@@ -1,14 +1,14 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { request } from './api'
 
-type Release = { id: string; version: string }
+type Release = { id: string; version: string; artifact_name: string }
 type Device = { id: string; display_name: string }
 type Client = { client_version: string; core_version: string | null; foundation_version: string | null; ready: boolean; last_seen_at: string }
 type Job = { id: string; release_id: string; status: string; reason: string; safe_code?: string | null; updated_at: string; last_report?: { proof?: { soak?: { sensor_cpu_percent_max: number; duration_seconds: number } } } }
 type State = { client: Client | null; data: Job[] }
-const labels: Record<string, string> = { recovery_required: 'Требуется восстановление', preparing_client: 'Подготовка клиента', restoring_core: 'Подготовка полного Setup', assigned: 'Назначено', downloading: 'Загрузка', verified: 'Проверено перед установкой', installing: 'Установка', verifying: 'Проверка после перезапуска', applied: 'Установлено и проверено', already_current: 'Уже установлено', blocked: 'Требуется разбор', failed: 'Ошибка', cancelled: 'Отменено', rolled_back: 'Выполнен откат' }
+const labels: Record<string, string> = { recovering_client: 'Восстановление клиента обновления', recovering_source: 'Возврат исходной версии Core', recovery_required: 'Требуется восстановление', preparing_client: 'Подготовка клиента', restoring_core: 'Подготовка полного Setup', assigned: 'Назначено', downloading: 'Загрузка', verified: 'Проверено перед установкой', installing: 'Установка', verifying: 'Проверка после перезапуска', applied: 'Установлено и проверено', already_current: 'Уже установлено', blocked: 'Требуется разбор', failed: 'Ошибка', cancelled: 'Отменено', rolled_back: 'Выполнен откат' }
 const cancellable = ['preparing_client', 'restoring_core', 'assigned', 'downloading', 'verified']
-const active = [...cancellable, 'installing', 'verifying', 'recovery_required']
+const active = [...cancellable, 'recovering_client', 'recovering_source', 'installing', 'verifying', 'recovery_required']
 
 export function FullSetupPage({ canWrite, initialDevice = '', revision }: { canWrite: boolean; initialDevice?: string; revision: number }) {
   const [releases, setReleases] = useState<Release[]>([])
@@ -61,7 +61,7 @@ export function FullSetupPage({ canWrite, initialDevice = '', revision }: { canW
     <form className="form-grid" onSubmit={assign}>
       <label>Поиск устройства<input value={search} onChange={e => setSearch(e.target.value)} /></label>
       <label>Устройство<select value={device} onChange={e => { setDevice(e.target.value); setState(null) }}><option value="">Выберите Windows-устройство</option>{devices.map(d => <option key={d.id} value={d.id}>{d.display_name}</option>)}{device && !devices.some(d => d.id === device) && <option value={device}>Выбранное устройство</option>}</select></label>
-      <label>Полный Setup<select value={release} onChange={e => setRelease(e.target.value)}><option value="">Выберите выпуск</option>{releases.map(r => <option key={r.id} value={r.id}>{r.version}</option>)}</select></label>
+      <label>Полный Setup<select value={release} onChange={e => setRelease(e.target.value)}><option value="">Выберите выпуск</option>{releases.map(r => <option key={r.id} value={r.id}>{r.version} · {r.artifact_name}</option>)}</select></label>
       {device && !state && <p aria-live="polite">Получение состояния…</p>}
       {state && <p aria-live="polite">{state.client ? `Core ${state.client.core_version ?? 'неизвестен'} · Foundation ${state.client.foundation_version ?? 'неизвестен'} · ${fresh ? state.client.ready ? 'клиент готов' : 'клиент ожидает завершения текущей операции' : 'нет свежего ответа клиента'}` : 'Клиент будет подготовлен автоматически, если исходная версия поддерживается.'}</p>}
       {canWrite && <><label>Причина<input required maxLength={256} value={reason} onChange={e => setReason(e.target.value)} /></label><div><button className="primary" disabled={busy || !state || !device || !release || !reason.trim() || state.data.some(j => active.includes(j.status))}>Обновить полным Setup</button></div></>}

@@ -7,7 +7,10 @@ vi.mock('./api', () => ({ request: vi.fn() }))
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 function fixtures() {
   vi.mocked(request).mockImplementation(async path => {
-    if (path.endsWith('/releases')) return { data: [{ id: 'release', version: '3.2.158' }] }
+    if (path.endsWith('/releases')) return { data: [
+      { id: 'release', version: '3.2.158', artifact_name: 'EndpointAgentSetup-3.2.158-r3-x64.exe' },
+      { id: 'older', version: '3.2.158', artifact_name: 'EndpointAgentSetup-3.2.158-r2-x64.exe' },
+    ] }
     if (path.includes('/console/devices?')) return { data: [{ id: 'device', display_name: 'Test120' }] }
     if (path.endsWith('/devices/device')) return { client: null, data: [] }
     return { data: { id: 'job', status: 'preparing_client' } }
@@ -16,6 +19,8 @@ function fixtures() {
 it('assigns full Setup even when legacy client needs automatic preparation', async () => {
   fixtures(); render(<FullSetupPage canWrite initialDevice="device" revision={0} />)
   expect(await screen.findByText(/Клиент будет подготовлен автоматически/)).toBeTruthy()
+  expect(screen.getByRole('option', { name: '3.2.158 · EndpointAgentSetup-3.2.158-r3-x64.exe' })).toBeTruthy()
+  expect(screen.getByRole('option', { name: '3.2.158 · EndpointAgentSetup-3.2.158-r2-x64.exe' })).toBeTruthy()
   fireEvent.change(screen.getByLabelText('Полный Setup'), { target: { value: 'release' } })
   fireEvent.change(screen.getByLabelText('Причина'), { target: { value: 'Canary test120' } })
   fireEvent.click(screen.getByRole('button', { name: 'Обновить полным Setup' }))
