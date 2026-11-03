@@ -205,10 +205,12 @@
   "linux_kit_metadata_commit": "2ca38733e99b8412f694285446a4371929902e66",
   "automatic_full_setup": {
     "status": "implementation_pending_live_acceptance",
-    "bridge_core_version": "3.2.159",
+    "bridge_core_version": "3.2.160",
     "return_core_version": "3.2.157",
     "target_setup_version": "3.2.158",
     "scope": "single explicitly assigned existing device test120; no public enrollment change",
-    "delivery": "authenticated Endpoint Core OTA bootstrap followed by separate full Setup assignment"
+    "delivery": "authenticated Endpoint Core OTA bootstrap followed by separate full Setup assignment",
+    "client_version": "1.0.1",
+    "initial_bootstrap_limit": "Existing native158 stager required explicitly approved one-time updates-directory owner preparation on test120."
   }
 }

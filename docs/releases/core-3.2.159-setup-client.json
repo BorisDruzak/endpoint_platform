@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "purpose": "Windows-only Core bridge; primary full Setup stays158",
-  "status": "built; live acceptance pending",
+  "status": "withdrawn for new Setup preparations: Core applied but client1.0.0 mutex SID constructor failed before network/native launch",
   "source_revision": "5947a167aef7f578135d5a6cedc6e0ad82c3fd8e",
   "builds": [
     {
@@ -53,5 +53,11 @@
   "retained157_qualified_tree": {
     "file_count": 118,
     "tree_sha256": "c7a96081734a7b59f38bfe0624d15bbfb47c5cfaf3bb9adda53ce94b405201d2"
+  },
+  "live_result": {
+    "device_id": "0051645c-0e81-4c21-bf52-befcd5ef5407",
+    "core_applied_at": "2026-11-03T10:04:07Z",
+    "safe_failure": "client_run_failed at mutex rule construction",
+    "replacement": "Core160 / client1.0.1; immutable159 artifact retained"
   }
 }

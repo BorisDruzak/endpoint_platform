@@ -8,6 +8,25 @@ import pytest
 SCRIPT = Path(__file__).resolve().parents[2] / 'packaging/windows/EndpointSetupUpdater.ps1'
 
 
+@pytest.mark.skipif(os.name != 'nt', reason='Windows PowerShell mutex admission')
+def test_mutex_security_uses_sid_identities_without_account_name_translation(tmp_path):
+    harness = tmp_path / 'mutex.ps1'
+    harness.write_text(r'''
+param($Script)
+$ErrorActionPreference='Stop';$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($Script,[ref]$tokens,[ref]$errors)
+$f=$ast.Find({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'New-ClientMutexSecurity'},$true)
+if(!$f){throw 'mutex factory missing'};Invoke-Expression $f.Extent.Text
+$acl=New-ClientMutexSecurity
+$rules=@($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]))
+if($rules.Count -ne 2 -or !$acl.AreAccessRulesProtected){throw 'mutex policy differs'}
+foreach($rule in $rules){if($rule.IdentityReference.Value -cnotin @('S-1-5-18','S-1-5-32-544') -or $rule.MutexRights -ne 'FullControl'){throw 'mutex policy differs'}}
+Write-Output 'PASS'
+''')
+    result = subprocess.run(['powershell.exe', '-NoProfile', '-File', str(harness), str(SCRIPT)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 @pytest.mark.skipif(os.name != 'nt', reason='PowerShell recovery policy')
 def test_cancelled_job_does_not_retry_or_launch_and_permanent_failures_are_bounded(tmp_path):
     harness = tmp_path / 'recovery.ps1'

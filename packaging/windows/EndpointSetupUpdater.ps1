@@ -2,7 +2,7 @@
 param([Parameter(Mandatory)][ValidateSet('Install','Run')][string]$Mode)
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
-$script:ClientVersion='1.0.0'
+$script:ClientVersion='1.0.1'
 $script:Publisher='4D4C23389F5FF77BC4EB32044761019EAE8FB776'
 $script:Origin='https://endpoint.sosnadmin.local'
 $script:ProgramFiles=[Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
@@ -16,6 +16,13 @@ $script:TaskName='EndpointSetupUpdater'
 
 function Assert-System {
  if([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne 'S-1-5-18'){throw 'system_required'}
+}
+function New-ClientMutexSecurity {
+ $security=[Security.AccessControl.MutexSecurity]::new();$security.SetAccessRuleProtection($true,$false)
+ foreach($sid in @('S-1-5-18','S-1-5-32-544')){
+  $security.AddAccessRule([Security.AccessControl.MutexAccessRule]::new([Security.Principal.SecurityIdentifier]::new($sid),'FullControl','Allow'))
+ }
+ return $security
 }
 function Assert-NoReparse([string]$path){
  $full=[IO.Path]::GetFullPath($path);$part=$full
@@ -129,6 +136,7 @@ function Assert-SignedFile([string]$path,[string]$sha){
 }
 function Install-SetupClient {
  Assert-System;Assert-SignedFile $PSCommandPath $null
+ $null=New-ClientMutexSecurity
  $pending=Read-BoundedJson (Join-Path $script:AgentData 'updates\pending_update.json') 16384
  if(!$pending -or $pending.version -cnotmatch '^3\.2\.[0-9]+$' -or [version]$pending.version -lt [version]'3.2.159' -or $pending.archive_type -cne 'zip'){throw 'bootstrap_assignment_required'}
  New-AdministrativeDirectory $script:ClientRoot;New-AdministrativeDirectory $script:StateRoot
@@ -504,8 +512,7 @@ $script:Stage='entry';$script:Http=$null;$script:Credential=$null;$mutex=$null;$
 try{
  Assert-System
  if($Mode -ceq 'Install'){Install-SetupClient;exit 0}
- $security=[Security.AccessControl.MutexSecurity]::new();$security.SetAccessRuleProtection($true,$false)
- foreach($sid in @('S-1-5-18','S-1-5-32-544')){$security.AddAccessRule([Security.AccessControl.MutexAccessRule]::new($sid,'FullControl','Allow'))}
+ $security=New-ClientMutexSecurity
  [bool]$created=$false;$mutex=[Threading.Mutex]::new($false,'Global\EndpointSetupUpdater-v1',[ref]$created,$security)
  $acl=$mutex.GetAccessControl()
  if($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -cnotin @('S-1-5-18','S-1-5-32-544')){throw 'client_mutex_unsafe'}

@@ -16,7 +16,8 @@ from .models import SetupPreparation, SetupRelease, SetupClientPresence
 from .service import SetupConflict, assign_setup, lock_device, now_utc, utc, audit
 
 ACTIVE_PREPARATIONS = ('preparing_client', 'restoring_core')
-BRIDGE = 'endpoint-windows-core-3.2.159-setup-client'
+BRIDGE = 'endpoint-windows-core-3.2.160-setup-client'
+BRIDGE_VERSION = '3.2.160'
 RETURN = 'endpoint-windows-core-3.2.157-setup-source'
 
 
@@ -37,7 +38,7 @@ def ready(presence, now):
 
 async def lock_builds(session):
     builds = (await session.scalars(select(UpdateBuild).where(
-        UpdateBuild.build_identifier.in_((BRIDGE, RETURN))).order_by(UpdateBuild.id).with_for_update())).all()
+        UpdateBuild.build_identifier.in_((BRIDGE, RETURN, 'endpoint-windows-core-3.2.159-setup-client'))).order_by(UpdateBuild.id).with_for_update())).all()
     return {b.build_identifier: b for b in builds}
 
 
@@ -61,7 +62,7 @@ async def request_setup(session, device_id, release_id, reason, *, actor, reques
     bridge, source = builds.get(BRIDGE), builds.get(RETURN)
     if (instance is None or bridge is None or source is None
             or bridge.platform != 'windows_amd64' or source.platform != bridge.platform
-            or bridge.version != '3.2.159' or source.version != '3.2.157'
+            or bridge.version != BRIDGE_VERSION or source.version != '3.2.157'
             or parts(instance.launcher_version) < (3, 2, 156)
             or parts(instance.agent_version) >= parts(bridge.version)
             or not parts(source.version) < parts(release.version) < parts(bridge.version)):
@@ -104,7 +105,7 @@ async def advance_preparations(session, *, now=None):
             prep.status, prep.safe_code = 'blocked', 'core_preparation_failed'
         elif target.status == 'applied':
             presence = await session.scalar(select(SetupClientPresence).where(SetupClientPresence.device_id == device_id))
-            expected = '3.2.157' if prep.return_rollout_id else '3.2.159'
+            expected = '3.2.157' if prep.return_rollout_id else BRIDGE_VERSION
             if not ready(presence, now) or presence.core_version != expected:
                 continue
             if prep.status == 'preparing_client':
