@@ -1,0 +1,146 @@
+"""Durable server-owned preparation using canonical Core OTA operations.
+
+Build locks precede Device locks. The private handoff status is flushed only
+inside the transaction holding Device, so unrelated assignments cannot interleave.
+"""
+from datetime import timedelta
+from uuid import uuid4
+
+from sqlalchemy import select
+
+from endpoint_contracts.update_safety import validate_public_update_prose
+from endpoint_server.db.models import DeviceInstance, UpdateBuild, UpdateTarget, UpdateRollout
+from endpoint_server.db.instance_order import latest_instance_order
+from endpoint_server.updates.service import create_rollout, create_rollback_rollout
+from .models import SetupPreparation, SetupRelease, SetupClientPresence
+from .service import SetupConflict, assign_setup, lock_device, now_utc, utc, audit
+
+ACTIVE_PREPARATIONS = ('preparing_client', 'restoring_core')
+BRIDGE = 'endpoint-windows-core-3.2.159-setup-client'
+RETURN = 'endpoint-windows-core-3.2.157-setup-source'
+
+
+def parts(version):
+    try:
+        values = tuple(int(x) for x in version.split('.'))
+        if len(values) != 3:
+            raise ValueError()
+        return values
+    except (AttributeError, ValueError):
+        raise SetupConflict('known Windows versions required') from None
+
+
+def ready(presence, now):
+    return (presence is not None and presence.ready
+            and -timedelta(seconds=30) <= now - utc(presence.last_seen_at) <= timedelta(minutes=10))
+
+
+async def lock_builds(session):
+    builds = (await session.scalars(select(UpdateBuild).where(
+        UpdateBuild.build_identifier.in_((BRIDGE, RETURN))).order_by(UpdateBuild.id).with_for_update())).all()
+    return {b.build_identifier: b for b in builds}
+
+
+async def request_setup(session, device_id, release_id, reason, *, actor, request_id, now=None):
+    now = now_utc(now)
+    builds = await lock_builds(session)
+    await lock_device(session, device_id)
+    reason = validate_public_update_prose(reason, field_name='reason', max_length=256, required=True)
+    release = await session.get(SetupRelease, release_id)
+    if release is None:
+        raise SetupConflict('Setup release unavailable')
+    owned = await session.scalar(select(SetupPreparation.id).where(
+        SetupPreparation.device_id == device_id, SetupPreparation.status.in_(ACTIVE_PREPARATIONS)))
+    if owned:
+        raise SetupConflict('device already has an active Setup preparation')
+    presence = await session.scalar(select(SetupClientPresence).where(SetupClientPresence.device_id == device_id))
+    if ready(presence, now) and parts(presence.core_version) <= parts(release.version):
+        return await assign_setup(session, device_id, release_id, reason, actor=actor, request_id=request_id, now=now)
+    instance = await session.scalar(select(DeviceInstance).where(DeviceInstance.device_id == device_id)
+        .order_by(*latest_instance_order()).limit(1))
+    bridge, source = builds.get(BRIDGE), builds.get(RETURN)
+    if (instance is None or bridge is None or source is None
+            or bridge.platform != 'windows_amd64' or source.platform != bridge.platform
+            or bridge.version != '3.2.159' or source.version != '3.2.157'
+            or parts(instance.launcher_version) < (3, 2, 156)
+            or parts(instance.agent_version) >= parts(bridge.version)
+            or not parts(source.version) < parts(release.version) < parts(bridge.version)):
+        raise SetupConflict('qualified Setup client preparation unavailable for this source')
+    child = await create_rollout(session, bridge.id, 'canary', [device_id], reason,
+                                 actor, request_id, now=now)
+    prep = SetupPreparation(id=uuid4(), device_id=device_id, release_id=release_id,
+        bridge_rollout_id=child.id, return_build_id=source.id, status='preparing_client',
+        reason=reason, requested_by=str(actor), updated_at=now)
+    session.add(prep)
+    await session.flush()
+    await audit(session, prep, 'preparation_requested', actor, request_id, now)
+    return prep
+
+
+async def advance_preparations(session, *, now=None):
+    now = now_utc(now)
+    builds = await lock_builds(session)
+    identities = (await session.execute(select(SetupPreparation.id, SetupPreparation.device_id,
+        SetupPreparation.bridge_rollout_id, SetupPreparation.return_rollout_id)
+        .where(SetupPreparation.status.in_(ACTIVE_PREPARATIONS))
+        .order_by(SetupPreparation.device_id).limit(32))).all()
+    for prep_id, device_id, bridge_id, return_id in identities:
+        # Core pause/activate takes Rollout before Device; respect that order.
+        await session.scalars(select(UpdateRollout).where(UpdateRollout.id.in_(
+            [x for x in (bridge_id, return_id) if x is not None]))
+            .order_by(UpdateRollout.id).with_for_update())
+        await session.scalars(select(UpdateTarget).where(UpdateTarget.rollout_id.in_(
+            [x for x in (bridge_id, return_id) if x is not None]))
+            .order_by(UpdateTarget.id).with_for_update())
+        await lock_device(session, device_id)
+        prep = await session.scalar(select(SetupPreparation).where(SetupPreparation.id == prep_id)
+            .with_for_update().execution_options(populate_existing=True))
+        if prep.status not in ACTIVE_PREPARATIONS:
+            continue
+        rollout_id = prep.return_rollout_id or prep.bridge_rollout_id
+        target = await session.scalar(select(UpdateTarget).where(
+            UpdateTarget.rollout_id == rollout_id, UpdateTarget.device_id == device_id))
+        if target is None or target.status in ('failed', 'rolled_back', 'cancelled'):
+            prep.status, prep.safe_code = 'blocked', 'core_preparation_failed'
+        elif target.status == 'applied':
+            presence = await session.scalar(select(SetupClientPresence).where(SetupClientPresence.device_id == device_id))
+            expected = '3.2.157' if prep.return_rollout_id else '3.2.159'
+            if not ready(presence, now) or presence.core_version != expected:
+                continue
+            if prep.status == 'preparing_client':
+                if RETURN not in builds or builds[RETURN].id != prep.return_build_id:
+                    prep.status, prep.safe_code = 'blocked', 'immutable_source_unavailable'
+                else:
+                    prep.status = 'handoff'
+                    await session.flush()
+                    child = await create_rollback_rollout(session, prep.bridge_rollout_id,
+                        prep.return_build_id, [device_id], prep.reason, prep.requested_by,
+                        f'setup_{prep.id.hex}', now=now)
+                    prep.return_rollout_id, prep.status = child.id, 'restoring_core'
+            else:
+                prep.status = 'handoff'
+                await session.flush()
+                job = await assign_setup(session, device_id, prep.release_id, prep.reason,
+                    actor=prep.requested_by, request_id=f'setup_{prep.id.hex}', now=now,
+                    assignment_id=prep.id)
+                prep.assignment_id, prep.status = job.id, 'completed'
+        else:
+            continue
+        prep.updated_at = now
+        await audit(session, prep, 'preparation_' + prep.status, prep.requested_by, f'setup_{prep.id.hex}', now)
+        await session.flush()
+
+
+async def cancel_preparation(session, preparation_id, *, actor, request_id, now=None):
+    identity = await session.scalar(select(SetupPreparation.device_id).where(SetupPreparation.id == preparation_id))
+    if identity is None:
+        raise SetupConflict('Setup preparation unavailable')
+    await lock_device(session, identity)
+    prep = await session.scalar(select(SetupPreparation).where(SetupPreparation.id == preparation_id)
+        .with_for_update().execution_options(populate_existing=True))
+    if prep.status not in (*ACTIVE_PREPARATIONS, 'cancelled'):
+        raise SetupConflict('Setup preparation is already terminal')
+    if prep.status != 'cancelled':
+        prep.status, prep.safe_code, prep.updated_at = 'cancelled', 'future_stages_cancelled', now_utc(now)
+        await audit(session, prep, 'preparation_cancelled', actor, request_id, prep.updated_at)
+    return prep

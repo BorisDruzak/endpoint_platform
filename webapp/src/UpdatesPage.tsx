@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { request, type UpdateObservability } from './api'
+import { FullSetupPage } from './FullSetupPage'
 
 type Build = {
   id: string; build_identifier: string; version: string; platform: string; channel: string
@@ -40,7 +41,7 @@ export function UpdateTimeline({ target }: { target: UpdateObservability }) {
 
 export function UpdatesPage({ canWrite }: { canWrite: boolean }) {
   const [searchParams] = useSearchParams()
-  const [tab, setTab] = useState('builds')
+  const [tab, setTab] = useState(searchParams.get('lane') === 'setup' ? 'setup' : 'builds')
   const [builds, setBuilds] = useState<Build[]>([])
   const [rollouts, setRollouts] = useState<Rollout[]>([])
   const [history, setHistory] = useState<Rollout[]>([])
@@ -154,7 +155,8 @@ export function UpdatesPage({ canWrite }: { canWrite: boolean }) {
   }
   return <>
     <div className="page-heading"><div><p className="eyebrow">ОБНОВЛЕНИЯ</p><h1>Релизы и обновления</h1><p className="muted">Неизменяемые сборки и состояние развёртывания</p></div><button onClick={() => setRevision(value => value + 1)}>Обновить</button></div>
-    <nav className="tabs" aria-label="Разделы обновлений"><button className={tab === 'builds' ? 'selected' : ''} onClick={() => setTab('builds')}>Релизы агента</button><button className={tab === 'rollouts' ? 'selected' : ''} onClick={() => setTab('rollouts')}>Развёртывания</button><button className={tab === 'history' ? 'selected' : ''} onClick={() => setTab('history')}>История</button></nav>
+    <nav className="tabs" aria-label="Разделы обновлений"><button className={tab === 'builds' ? 'selected' : ''} onClick={() => setTab('builds')}>Релизы агента</button><button className={tab === 'rollouts' ? 'selected' : ''} onClick={() => setTab('rollouts')}>Развёртывания</button><button className={tab === 'history' ? 'selected' : ''} onClick={() => setTab('history')}>История</button><button className={tab === 'setup' ? 'selected' : ''} onClick={() => setTab('setup')}>Полный Setup</button></nav>
+    {tab === 'setup' && <FullSetupPage canWrite={canWrite} initialDevice={searchParams.get('device') ?? ''} revision={revision} />}
     {error && <div className="panel error" role="alert">{error} <button onClick={() => setRevision(value => value + 1)}>Повторить</button></div>}
     {!loaded && <p aria-live="polite">Загрузка обновлений…</p>}
     {loaded && tab === 'builds' && <section className="panel table-panel"><div className="table-top"><h2>Релизы агента</h2><span>{totalBuilds} всего</span></div>{builds.length ? <div className="table-scroll"><table><thead><tr><th>Версия</th><th>Платформа</th><th>Канал</th><th>Артефакт</th><th>SHA-256</th><th>Размер</th><th>Создан</th></tr></thead><tbody>{builds.map(build => <tr key={build.id}><td><strong>{build.version}</strong><small>{build.release_notes ?? ''}</small></td><td>{platforms[build.platform] ?? build.platform}</td><td>{build.channel}</td><td>{build.artifact_name}</td><td><code>{build.sha256}</code></td><td>{(build.size / 1024 ** 2).toFixed(1)} МБ</td><td>{dateText(build.created_at)}</td></tr>)}</tbody></table></div> : <p className="empty-text">Релизы ещё не зарегистрированы.</p>}<div className="pagination"><button disabled={buildOffset === 0} onClick={() => setBuildOffset(Math.max(0, buildOffset - 50))}>Назад</button><span>{Math.min(buildOffset + 50, totalBuilds)} из {totalBuilds}</span><button disabled={buildOffset + 50 >= totalBuilds} onClick={() => setBuildOffset(buildOffset + 50)}>Далее</button></div></section>}

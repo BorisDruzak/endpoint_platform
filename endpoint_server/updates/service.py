@@ -534,6 +534,15 @@ async def _lock_assignable_devices(
     ).all()
     if owned:
         raise UpdateConflict("one or more devices already have an active update")
+    from endpoint_server.setup_updates.models import SetupAssignment, SetupPreparation
+    from endpoint_contracts.setup_updates import ACTIVE_SETUP_PHASES
+    setup_owned = await session.scalar(select(SetupAssignment.id).where(
+        SetupAssignment.device_id.in_(device_ids), SetupAssignment.status.in_(ACTIVE_SETUP_PHASES)))
+    preparation_owned = await session.scalar(select(SetupPreparation.id).where(
+        SetupPreparation.device_id.in_(device_ids),
+        SetupPreparation.status.in_(['preparing_client', 'restoring_core'])))
+    if setup_owned or preparation_owned:
+        raise UpdateConflict("one or more devices already have an active full Setup update")
 
 
 async def _require_completed_canary(session: AsyncSession, build_id: UUID) -> None:

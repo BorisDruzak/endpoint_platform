@@ -172,6 +172,8 @@ def test_report_service_revalidates_constructed_contract_secret_fields(
 async def session(tmp_path) -> AsyncIterator[AsyncSession]:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     tables = (
+        __import__('endpoint_server.setup_updates.models', fromlist=['SetupAssignment']).SetupAssignment.__table__,
+        __import__('endpoint_server.setup_updates.models', fromlist=['SetupPreparation']).SetupPreparation.__table__,
         Device.__table__,
         DeviceInstance.__table__,
         UpdateBuild.__table__,

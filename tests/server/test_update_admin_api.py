@@ -90,7 +90,9 @@ def _principal(scopes: list[str]) -> AdminPrincipal:
 @pytest_asyncio.fixture
 async def session_provider() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    from endpoint_server.setup_updates.models import SetupRelease, SetupAssignment, SetupClientPresence, SetupPreparation
     tables = (
+        SetupRelease.__table__, SetupAssignment.__table__, SetupClientPresence.__table__, SetupPreparation.__table__,
         Device.__table__,
         UpdateBuild.__table__,
         UpdateRollout.__table__,
