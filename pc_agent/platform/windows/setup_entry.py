@@ -598,7 +598,15 @@ def _msi_reconciliation_required(msi_path: Path, *, paths=None) -> bool:
             return True
         selector={'schema_version':1,'version':expected.identity.version,'source_revision':expected.identity.source_revision}
         candidate=provenance._inspect_core_value(paths,provenance._selector_bytes(expected.identity),selector,expected.package.version)
-        return candidate.origin!='msi' or candidate.identity!=expected.identity
+        if candidate.origin!='msi' or candidate.identity!=expected.identity:
+            return True
+        selected = inspected.current
+        if selected.identity.version != expected.identity.version:
+            # A complete158 payload can exist while an older ZIP Core is the
+            # active selector. Reconcile that selection, retaining the existing
+            # rule that a newer compatible Core is never downgraded by Setup.
+            return _is_strictly_newer_version(expected.identity.version, selected.identity.version)
+        return selected.origin!='msi' or selected.identity!=expected.identity
     except (OSError,ValueError,KeyError,TypeError):
         # The locked wrapper performs authoritative conflict/repair selection;
         # this read-only decision never authorizes an overwrite on its own.
