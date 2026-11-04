@@ -12,18 +12,18 @@ Ship a new immutable Core163 bootstrap; retain exact native158 MSI/Setup bytes.
 **Tech stack:** Existing PowerShell5.1/WTS/TaskScheduler, frozen Python3.12 build,
 canonical Core/Setup services and real Windows/server acceptance.
 
-- [ ] Write failing PowerShell tests for absent source companions, duplicate
+- [x] Write failing PowerShell tests for absent source companions, duplicate
   processes, invalid/reused session identity, late logon and busy/native-failure
   maintenance refusal. Preserve existing rollback/source/private guarantees.
-- [ ] Implement bounded WTS session discovery and exact-path per-session launch.
+- [x] Implement bounded WTS session discovery and exact-path per-session launch.
   Persist the planned companion set before native execution; verify target hashes
   and native bindings before adding post-install sessions. Add logon trigger and
   periodic repair using only an accepted exact native target and no pending work.
-- [ ] Qualify1.0.5 for new preparations via Core163; retain1.0.4 compatibility
+- [x] Qualify1.0.5 for new preparations via Core163; retain1.0.4 compatibility
   for historical in-flight operation reporting. Tests before changing controller.
-- [ ] Independent security review, focused tests, commit, signed immutable build
+- [x] Independent security review, focused tests, commit, signed immutable build
   from exact source and original158 native artifacts. Never replace older ZIPs.
-- [ ] User-authorized full removal on101.120 and original signed156 installation.
+- [x] User-authorized full removal on101.120 and original signed156 installation.
   Preserve domain/user/GPO and old server receipts; retire only exact removed
   registration. Accept pristine156 with no observer/ACL intervention or manually
   launched user companions, then remove baseline administration tasks.
@@ -32,6 +32,13 @@ canonical Core/Setup services and real Windows/server acceptance.
   fresh WSS, stable nonzero UserSensor and fresh activity/policy/sensor health.
 - [ ] Deploy fleet UI/control after checks, leave policy disabled for the user's
   launch. Record exact release qualification only after successful combined test.
+
+Native156→158 and automatic companions passed at11:50:46Z,183.636 seconds,
+sensor_count1. Fleet UI/control is deployed and a disabled max_parallel1 policy
+is saved. Remaining checkboxes include fresh accepted user telemetry and canonical
+release qualification: the existing test session is WTSDisconnected. Reconnect
+normally as functional stimulus; never weaken pipe authorization or invent health.
+See [live report](../../verification/2026-11-04-test120-usersensor156-full158.md).
 
 No GPO changes, no workstation SSH, no post-baseline ACL repair, no native replay
 for unknown outcomes, and no fleet enablement are part of this implementation.
