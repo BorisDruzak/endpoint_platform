@@ -282,18 +282,18 @@ class Settings:
             values.get("ENDPOINT_MODULE_EXECUTION_ENABLED", ""),
         )
         endpoint_policy_enabled = _parse_optional_boolean(
-            "ENDPOINT_POLICY_ENABLED", values.get("ENDPOINT_POLICY_ENABLED", "")
+            "ENDPOINT_POLICY_ENABLED", values.get("ENDPOINT_POLICY_ENABLED", "true")
         )
         endpoint_activity_sensor_enabled = _parse_optional_boolean(
             "ENDPOINT_ACTIVITY_SENSOR_ENABLED",
-            values.get("ENDPOINT_ACTIVITY_SENSOR_ENABLED", ""),
+            values.get("ENDPOINT_ACTIVITY_SENSOR_ENABLED", "true"),
         )
         endpoint_browser_sensor_enabled = _parse_optional_boolean(
             "ENDPOINT_BROWSER_SENSOR_ENABLED",
-            values.get("ENDPOINT_BROWSER_SENSOR_ENABLED", ""),
+            values.get("ENDPOINT_BROWSER_SENSOR_ENABLED", "true"),
         )
         endpoint_dlp_audit_enabled = _parse_optional_boolean(
-            "ENDPOINT_DLP_AUDIT_ENABLED", values.get("ENDPOINT_DLP_AUDIT_ENABLED", "")
+            "ENDPOINT_DLP_AUDIT_ENABLED", values.get("ENDPOINT_DLP_AUDIT_ENABLED", "true")
         )
         if (
             endpoint_module_execution_enabled
@@ -336,5 +336,5 @@ class Settings:
             ),
             activity_analytics=AnalyticsPolicy.from_environment(values),
             oidc=OIDCSettings.from_environment(values),
-            worktime_enabled=_parse_optional_boolean('ENDPOINT_WORKTIME_ENABLED',values.get('ENDPOINT_WORKTIME_ENABLED','')),
+            worktime_enabled=_parse_optional_boolean('ENDPOINT_WORKTIME_ENABLED',values.get('ENDPOINT_WORKTIME_ENABLED','true')),
         )
