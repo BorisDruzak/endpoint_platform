@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "status": "published_for_canary",
+  "purpose": "Service bridge for unattended UserSensor and Tray startup; final native target remains158",
+  "source_revision": "b23857849ad5b877e67d0de3c28d297f9ae5d507",
+  "build_id": "b59ac4e6-9c52-4d56-9294-8a791feba25b",
+  "build": {
+    "schema_version": "update_build_manifest_v1",
+    "build_identifier": "endpoint-windows-core-3.2.163-setup-client",
+    "version": "3.2.163",
+    "platform": "windows_amd64",
+    "channel": "canary",
+    "artifact_url": "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/endpoint-windows-core-3.2.163-setup-client",
+    "artifact_name": "EndpointCore-3.2.163-b238578.zip",
+    "archive_type": "zip",
+    "sha256": "119dc8152289f1bd057ad84a780699c445df9846cb492a325ea6801c89991a5e",
+    "size": 22905610,
+    "minimum_launcher_version": "3.2.156"
+  },
+  "client": {
+    "version": "1.0.5",
+    "sha256": "5b606fd5d25158be550ba4a6e1a8f82bd203a47e485051b867e63a376da620dd",
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776"
+  },
+  "operator_path": "C:\\endpoint-platform-wix-build\\setup-client-3.2.163-b238578\\EndpointCore-3.2.163-b238578.zip",
+  "limits": [
+    "Not a primary installer, full native upgrade or Linux release",
+    "Signed observer is installed only by the existing authenticated privileged Core verifier",
+    "No mutable replacement of historical Core162 or native158 MSI/Setup bytes",
+    "Combined clean156 native158 user telemetry acceptance pending"
+  ]
+}

@@ -11,8 +11,8 @@ validates size/hash/publisher/timestamp and native preflight, then runs the full
 Setup with `--quiet`. No SSH or interactive action on the workstation is part of
 this delivery. Existing Core-only clients continue to receive ZIP archives only.
 
-The current qualified observer is1.0.4. When preparation is required, server
-`setup_updates.preparation.request_setup` creates canonical Core162 bootstrap
+The current delivery client is1.0.5. When preparation is required, server
+`setup_updates.preparation.request_setup` creates canonical Core163 bootstrap
 and exact Core157 return operations before the full Setup assignment. A genuine
 Foundation156 instead returns to the retained compatible Core155: Core157 requires
 Foundation157 and must never have its minimum weakened. The selected immutable
@@ -43,10 +43,21 @@ Other nonzero or unknown outcomes remain held for native recovery.
 For the legacy observer1.0.3 hold on test120, authorized server maintenance calls
 `request_client_recovery` rather than changing Windows files manually. It admits
 only a fresh idle Foundation158/Core157 and an authenticated known-exit hold;
-canonical Core162/return157 children keep that original hold committed. The server
+canonical Core163/return157 children keep that original hold committed. The server
 also requires the exact return child to be applied/completed before accepting
 source recovery. This recovery profile is qualified only on test120's existing
 Foundation158/Core157; it is not a fresh Foundation156→158 qualification.
+
+Client1.0.5 plans both fixed installed companions for logged-on ordinary WTS
+sessions even when neither process existed before a SYSTEM installation. Each
+launch uses a limited interactive token and validates the live SID, session,
+fixed file path and release hash. Later logons are handled by a logon trigger
+and bounded periodic maintenance against an accepted, unchanged native target.
+Maintenance joins the canonical native/OTA mutex and preserves unresolved native
+ownership. A maintenance error is reported without starving Endpoint polling.
+No user password or manual companion-start task is required on the workstation.
+
+Fleet control is documented in [FULL_SETUP_FLEET_POLICY.md](FULL_SETUP_FLEET_POLICY.md).
 
 ## Immutable build inputs
 
