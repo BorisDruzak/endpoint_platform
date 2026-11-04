@@ -20,7 +20,7 @@ ACTIVE_PREPARATIONS = ('preparing_client', 'restoring_core', 'recovering_client'
 BRIDGE = 'endpoint-windows-core-3.2.162-setup-client'
 BRIDGE_VERSION = '3.2.162'
 RETURN = 'endpoint-windows-core-3.2.157-setup-source'
-RETURN156 = 'endpoint-windows-core-3.2.155-setup-source'
+RETURN156 = 'endpoint-windows-core-3.2.155-setup-source-725739f'
 
 
 def parts(version):

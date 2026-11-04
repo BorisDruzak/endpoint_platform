@@ -82,7 +82,7 @@ async def test_foundation156_uses_frozen_core155_return_before_full_setup(db, st
     device, release, *_ = state
     await db.execute(delete(SetupClientPresence))
     bridge = build('3.2.162', 'endpoint-windows-core-3.2.162-setup-client')
-    compatible = build('3.2.155', 'endpoint-windows-core-3.2.155-setup-source')
+    compatible = build('3.2.155', 'endpoint-windows-core-3.2.155-setup-source-725739f')
     compatible.minimum_launcher_version = '3.2.155'
     incompatible = build('3.2.157', 'endpoint-windows-core-3.2.157-setup-source')
     incompatible.minimum_launcher_version = '3.2.157'
@@ -113,7 +113,7 @@ async def test_foundation156_refuses_unavailable_immutable_return(db, state, fau
     await db.execute(delete(SetupClientPresence))
     db.add(build('3.2.162', 'endpoint-windows-core-3.2.162-setup-client'))
     if fault == 'incompatible':
-        source = build('3.2.155', 'endpoint-windows-core-3.2.155-setup-source')
+        source = build('3.2.155', 'endpoint-windows-core-3.2.155-setup-source-725739f')
         source.minimum_launcher_version = '3.2.157'
         db.add(source)
     db.add(DeviceInstance(id=uuid4(), device_id=device.id, instance_identifier='clean156',
