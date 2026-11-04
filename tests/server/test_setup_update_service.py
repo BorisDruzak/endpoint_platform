@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from endpoint_contracts.setup_updates import SetupReleaseManifestV1, SetupProgressV1
 from endpoint_server.db.models import Device, DeviceInstance, DeviceSession, DeviceCredential, AdminUser, AdminSession, UpdateTarget, UpdateBuild, UpdateRollout, AuditEvent
-from endpoint_server.setup_updates.models import SetupRelease, SetupAssignment, SetupClientPresence, SetupPreparation
+from endpoint_server.setup_updates.models import SetupRelease, SetupAssignment, SetupClientPresence, SetupPreparation, SetupFleetPolicy, SetupFleetDecision, SetupFleetQualification
 from endpoint_server.setup_updates.service import register_release, assign_setup, cancel_assignment, record_progress, record_presence, SetupConflict
 
 NOW = datetime(2026, 11, 3, tzinfo=UTC)
@@ -20,7 +20,8 @@ async def db(tmp_path):
     engine = create_async_engine('sqlite+aiosqlite:///:memory:')
     tables = [Device.__table__, DeviceInstance.__table__, DeviceSession.__table__, DeviceCredential.__table__,
               UpdateBuild.__table__, UpdateRollout.__table__, UpdateTarget.__table__,
-              AuditEvent.__table__, SetupRelease.__table__, SetupAssignment.__table__, SetupClientPresence.__table__, SetupPreparation.__table__]
+              AuditEvent.__table__, SetupRelease.__table__, SetupAssignment.__table__, SetupClientPresence.__table__, SetupPreparation.__table__,
+              SetupFleetPolicy.__table__, SetupFleetDecision.__table__, SetupFleetQualification.__table__]
     async with engine.begin() as conn:
         await conn.run_sync(lambda c: Device.metadata.create_all(c, tables=tables))
         # Core's production-only partial index has no SQLite predicate.

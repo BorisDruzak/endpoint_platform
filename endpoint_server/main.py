@@ -76,6 +76,7 @@ from endpoint_server.gateway.ws_routes import (
 from endpoint_server.updates.admin_routes import router as updates_admin_router
 from endpoint_server.updates.agent_routes import router as updates_agent_router
 from endpoint_server.setup_updates.routes import admin_router as setup_updates_admin_router, agent_router as setup_updates_agent_router
+from endpoint_server.setup_updates.fleet_routes import router as setup_fleet_router
 from endpoint_server.updates.admin_transaction import UpdateAdminTransactionProvider
 
 
@@ -198,6 +199,7 @@ def create_app(
     app.include_router(updates_admin_router)
     app.include_router(updates_agent_router)
     app.include_router(setup_updates_admin_router)
+    app.include_router(setup_fleet_router)
     app.include_router(setup_updates_agent_router)
     app.include_router(context_router)
     if settings.endpoint_operations_api_enabled:

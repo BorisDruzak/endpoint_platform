@@ -1,10 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { request } from './api'
+import { SetupFleetPolicy } from './SetupFleetPolicy'
 
 type Release = { id: string; version: string; artifact_name: string }
 type Device = { id: string; display_name: string }
 type Client = { client_version: string; core_version: string | null; foundation_version: string | null; ready: boolean; last_seen_at: string }
-type Job = { id: string; release_id: string; status: string; reason: string; safe_code?: string | null; updated_at: string; last_report?: { proof?: { soak?: { sensor_cpu_percent_max: number; duration_seconds: number } } } }
+type Job = { id: string; release_id: string; status: string; reason: string; safe_code?: string | null; updated_at: string; last_report?: { proof?: { soak?: { sensor_count: number; sensor_cpu_percent_max: number; duration_seconds: number } } } }
 type State = { client: Client | null; data: Job[] }
 const labels: Record<string, string> = { recovering_client: 'Восстановление клиента обновления', recovering_source: 'Возврат исходной версии Core', recovery_required: 'Требуется восстановление', preparing_client: 'Подготовка клиента', restoring_core: 'Подготовка полного Setup', assigned: 'Назначено', downloading: 'Загрузка', verified: 'Проверено перед установкой', installing: 'Установка', verifying: 'Проверка после перезапуска', applied: 'Установлено и проверено', already_current: 'Уже установлено', blocked: 'Требуется разбор', failed: 'Ошибка', cancelled: 'Отменено', rolled_back: 'Выполнен откат' }
 const cancellable = ['preparing_client', 'restoring_core', 'assigned', 'downloading', 'verified']
@@ -55,8 +56,9 @@ export function FullSetupPage({ canWrite, initialDevice = '', revision }: { canW
     finally { setBusy(false) }
   }
   const fresh = state?.client && Date.now() - Date.parse(state.client.last_seen_at) <= 600_000
-  return <section className="panel" aria-label="Обновление полным Setup">
+  return <section className="panel full-setup-page" aria-label="Обновление полным Setup">
     <h2>Полный Setup Windows</h2><p className="muted">Установка и проверка выполняются автоматически на выбранном устройстве. Существующие учётные данные и регистрация сохраняются.</p>
+    <SetupFleetPolicy canWrite={canWrite} releases={releases} devices={devices} revision={revision} />
     {error && <p role="alert" className="error">{error}</p>}
     <form className="form-grid" onSubmit={assign}>
       <label>Поиск устройства<input value={search} onChange={e => setSearch(e.target.value)} /></label>
@@ -66,7 +68,7 @@ export function FullSetupPage({ canWrite, initialDevice = '', revision }: { canW
       {state && <p aria-live="polite">{state.client ? `Core ${state.client.core_version ?? 'неизвестен'} · Foundation ${state.client.foundation_version ?? 'неизвестен'} · ${fresh ? state.client.ready ? 'клиент готов' : 'клиент ожидает завершения текущей операции' : 'нет свежего ответа клиента'}` : 'Клиент будет подготовлен автоматически, если исходная версия поддерживается.'}</p>}
       {canWrite && <><label>Причина<input required maxLength={256} value={reason} onChange={e => setReason(e.target.value)} /></label><div><button className="primary" disabled={busy || !state || !device || !release || !reason.trim() || state.data.some(j => active.includes(j.status))}>Обновить полным Setup</button></div></>}
     </form>
-    {state?.data.map(job => <article className="panel" key={job.id}><h3>{labels[job.status] ?? job.status} · {releases.find(r => r.id === job.release_id)?.version ?? 'Setup'}</h3><p>{job.reason}</p><p className="muted">{new Date(job.updated_at).toLocaleString('ru-RU')}</p>{job.last_report?.proof?.soak && <p>Проверка {Math.round(job.last_report.proof.soak.duration_seconds)} с · CPU датчика, максимум {job.last_report.proof.soak.sensor_cpu_percent_max}%</p>}{job.safe_code && ['failed', 'blocked', 'rolled_back', 'recovery_required'].includes(job.status) && <p>Код диагностики: {job.safe_code}</p>}{canWrite && cancellable.includes(job.status) && <><button disabled={busy} onClick={() => void cancel(job)}>Отменить следующие этапы</button><p className="muted">Уже начатый этап подготовки Core может завершиться.</p></>}</article>)}
+    {state?.data.map(job => <article className="panel" key={job.id}><h3>{labels[job.status] ?? job.status} · {releases.find(r => r.id === job.release_id)?.version ?? 'Setup'}</h3><p>{job.reason}</p><p className="muted">{new Date(job.updated_at).toLocaleString('ru-RU')}</p>{job.last_report?.proof?.soak && <p>Проверка {Math.round(job.last_report.proof.soak.duration_seconds)} с · {job.last_report.proof.soak.sensor_count > 0 ? `CPU датчика, максимум ${job.last_report.proof.soak.sensor_cpu_percent_max}% · датчиков: ${job.last_report.proof.soak.sensor_count}` : 'Датчик не наблюдался; CPU и пользовательская телеметрия не проверены'}</p>}{job.safe_code && ['failed', 'blocked', 'rolled_back', 'recovery_required'].includes(job.status) && <p>Код диагностики: {job.safe_code}</p>}{canWrite && cancellable.includes(job.status) && <><button disabled={busy} onClick={() => void cancel(job)}>Отменить следующие этапы</button><p className="muted">Уже начатый этап подготовки Core может завершиться.</p></>}</article>)}
     {state && state.data.length === 0 && <p className="empty-text">Обновления полным Setup ещё не назначены.</p>}
   </section>
 }

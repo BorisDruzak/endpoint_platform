@@ -52,10 +52,11 @@ from endpoint_server.security.models import SecurityEvent
 from endpoint_server.power.models import PowerSourceState
 from endpoint_server.activity.analytics_models import ActivityCursor, ActivityDaily, ActivityInterval
 
-from endpoint_server.setup_updates.models import SetupRelease, SetupAssignment, SetupClientPresence, SetupPreparation
+from endpoint_server.setup_updates.models import SetupRelease, SetupAssignment, SetupClientPresence, SetupPreparation, SetupFleetPolicy, SetupFleetDecision, SetupFleetQualification
 
 __all__ = [
     "SetupRelease", "SetupAssignment", "SetupClientPresence", "SetupPreparation",
+    "SetupFleetPolicy", "SetupFleetDecision", "SetupFleetQualification",
     "ActivityCursor", "ActivityDaily", "ActivityInterval",
     "DeviceBindingChallenge",
     "DeviceBindingThrottle",

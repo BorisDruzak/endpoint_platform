@@ -90,6 +90,8 @@ async def lock_builds(session):
 
 async def request_setup(session, device_id, release_id, reason, *, actor, request_id, now=None):
     now = now_utc(now)
+    from .policy import reserve_fleet_admission
+    await reserve_fleet_admission(session, device_id)
     builds = await lock_builds(session)
     await lock_device(session, device_id)
     reason = validate_public_update_prose(reason, field_name='reason', max_length=256, required=True)
@@ -113,7 +115,7 @@ async def request_setup(session, device_id, release_id, reason, *, actor, reques
             or parts(instance.launcher_version) < (3, 2, 156)
             or (source.minimum_launcher_version is not None and parts(source.minimum_launcher_version) > parts(instance.launcher_version))
             or parts(instance.agent_version) >= parts(bridge.version)
-            or not parts(source.version) < parts(release.version) < parts(bridge.version)):
+            or not parts(source.version) < parts(release.version)):
         raise SetupConflict('qualified Setup client preparation unavailable for this source')
     child = await create_rollout(session, bridge.id, 'canary', [device_id], reason,
                                  actor, request_id, now=now)

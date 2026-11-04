@@ -109,7 +109,7 @@ def test_real_admin_cookie_csrf_and_persisted_scope_protect_setup_assignment(upd
             issued = issue_admin_session(user_id, settings.session_secret)
             session.add(issued.record)
             await session.flush()
-            await record_presence(session, device_id, dict(client_version='1.0.4', ready=True, core_version='3.2.156'))
+            await record_presence(session, device_id, dict(client_version='1.0.5', ready=True, core_version='3.2.156'))
             await session.commit()
         app = create_app(settings, provider)
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app, client=('127.0.0.1',12345)),

@@ -132,7 +132,9 @@ async def assign_setup(session, device_id, release_id, reason, *, actor, request
     if active or core_active or prep_active:
         raise SetupConflict('device already has an active update')
     job = SetupAssignment(id=assignment_id or uuid4(), device_id=device_id, release_id=release_id, status='assigned',
-        reason=reason, assigned_at=now, updated_at=now)
+        reason=reason, assigned_at=now, updated_at=now,
+        source_foundation_version=presence.foundation_version,
+        source_core_version=presence.core_version, source_client_version=presence.client_version)
     session.add(job)
     await session.flush()
     await audit(session, job, 'assigned', actor, request_id, now)

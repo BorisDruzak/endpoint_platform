@@ -94,8 +94,10 @@ async def test_preparation_does_not_start_later_stages_after_cancel_or_failed_co
     assert prep.assignment_id is None and prep.return_rollout_id is None
 
 
-async def test_foundation156_uses_frozen_core155_return_before_full_setup(db, state):
+@pytest.mark.parametrize('target', ['3.2.158', '3.2.164'])
+async def test_foundation156_uses_frozen_core155_return_before_full_setup(db, state, target):
     device, release, *_ = state
+    release.version = target
     await db.execute(delete(SetupClientPresence))
     bridge = build('3.2.163', 'endpoint-windows-core-3.2.163-setup-client')
     compatible = build('3.2.155', 'endpoint-windows-core-3.2.155-setup-source-725739f')
