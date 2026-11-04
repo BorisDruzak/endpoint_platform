@@ -13,7 +13,10 @@ this delivery. Existing Core-only clients continue to receive ZIP archives only.
 
 The current qualified observer is1.0.4. When preparation is required, server
 `setup_updates.preparation.request_setup` creates canonical Core162 bootstrap
-and exact Core157 return operations before the full Setup assignment. The Core
+and exact Core157 return operations before the full Setup assignment. A genuine
+Foundation156 instead returns to the retained compatible Core155: Core157 requires
+Foundation157 and must never have its minimum weakened. The selected immutable
+return build is persisted before bootstrap. The Core
 verifier installs the signed observer locally; its task and journal live outside
 the MSI-owned Agent directory and survive full Setup. Readiness is not success.
 

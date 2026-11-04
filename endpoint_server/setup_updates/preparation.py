@@ -20,6 +20,7 @@ ACTIVE_PREPARATIONS = ('preparing_client', 'restoring_core', 'recovering_client'
 BRIDGE = 'endpoint-windows-core-3.2.162-setup-client'
 BRIDGE_VERSION = '3.2.162'
 RETURN = 'endpoint-windows-core-3.2.157-setup-source'
+RETURN156 = 'endpoint-windows-core-3.2.155-setup-source'
 
 
 def parts(version):
@@ -83,7 +84,7 @@ async def request_client_recovery(session, assignment_id, reason, *, actor, requ
 
 async def lock_builds(session):
     builds = (await session.scalars(select(UpdateBuild).where(
-        UpdateBuild.build_identifier.in_((BRIDGE, RETURN, 'endpoint-windows-core-3.2.159-setup-client', 'endpoint-windows-core-3.2.160-setup-client'))).order_by(UpdateBuild.id).with_for_update())).all()
+        UpdateBuild.build_identifier.in_((BRIDGE, RETURN, RETURN156, 'endpoint-windows-core-3.2.159-setup-client', 'endpoint-windows-core-3.2.160-setup-client'))).order_by(UpdateBuild.id).with_for_update())).all()
     return {b.build_identifier: b for b in builds}
 
 
@@ -104,11 +105,13 @@ async def request_setup(session, device_id, release_id, reason, *, actor, reques
         return await assign_setup(session, device_id, release_id, reason, actor=actor, request_id=request_id, now=now)
     instance = await session.scalar(select(DeviceInstance).where(DeviceInstance.device_id == device_id)
         .order_by(*latest_instance_order()).limit(1))
-    bridge, source = builds.get(BRIDGE), builds.get(RETURN)
+    source_identifier = RETURN156 if instance is not None and parts(instance.launcher_version) == (3, 2, 156) else RETURN
+    bridge, source = builds.get(BRIDGE), builds.get(source_identifier)
     if (instance is None or bridge is None or source is None
             or bridge.platform != 'windows_amd64' or source.platform != bridge.platform
-            or bridge.version != BRIDGE_VERSION or source.version != '3.2.157'
+            or bridge.version != BRIDGE_VERSION or source.version != ('3.2.155' if source_identifier == RETURN156 else '3.2.157')
             or parts(instance.launcher_version) < (3, 2, 156)
+            or (source.minimum_launcher_version is not None and parts(source.minimum_launcher_version) > parts(instance.launcher_version))
             or parts(instance.agent_version) >= parts(bridge.version)
             or not parts(source.version) < parts(release.version) < parts(bridge.version)):
         raise SetupConflict('qualified Setup client preparation unavailable for this source')
@@ -150,7 +153,14 @@ async def advance_preparations(session, *, now=None):
             prep.status, prep.safe_code = 'blocked', 'core_preparation_failed'
         elif target.status == 'applied':
             presence = await session.scalar(select(SetupClientPresence).where(SetupClientPresence.device_id == device_id))
-            expected = '3.2.157' if prep.return_rollout_id else BRIDGE_VERSION
+            source = next((builds[name] for name in (RETURN, RETURN156)
+                if name in builds and builds[name].id == prep.return_build_id), None)
+            if source is None:
+                prep.status, prep.safe_code, prep.updated_at = 'blocked', 'immutable_source_unavailable', now
+                await audit(session, prep, 'preparation_blocked', prep.requested_by, f'setup_{prep.id.hex}', now)
+                await session.flush()
+                continue
+            expected = source.version if prep.return_rollout_id else BRIDGE_VERSION
             if not ready(presence, now) or presence.core_version != expected:
                 continue
             if prep.status == 'recovering_client':
@@ -167,7 +177,11 @@ async def advance_preparations(session, *, now=None):
                 # actual exit21 plus unchanged-source/private/session proof.
                 prep.status = 'completed'
             elif prep.status == 'preparing_client':
-                if RETURN not in builds or builds[RETURN].id != prep.return_build_id:
+                if not presence.foundation_version:
+                    # A nullable hello must not roll back unrelated preparations.
+                    continue
+                if (source.minimum_launcher_version is not None
+                        and parts(source.minimum_launcher_version) > parts(presence.foundation_version)):
                     prep.status, prep.safe_code = 'blocked', 'immutable_source_unavailable'
                 else:
                     prep.status = 'handoff'

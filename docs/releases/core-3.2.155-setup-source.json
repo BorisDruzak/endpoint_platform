@@ -1,0 +1,13 @@
+{
+  "version": "3.2.155",
+  "purpose": "Immutable compatible Core return for Foundation156 full Setup preparation",
+  "primary_release": false,
+  "build_identifier": "endpoint-windows-core-3.2.155-setup-source",
+  "source_revision": "725739f19757d13942658fc07b8489b799b9f520",
+  "minimum_foundation_version": "3.2.155",
+  "archive_sha256": "f000675abfa68210dc54b5cdfcb7c1b2a95ff83677a06fa8d7c7c1369ba4decd",
+  "archive_size": 22851526,
+  "original_msi_sha256": "0fdfcc917e4e23d7efd8283da566c2e30044b41da563a5313b72874d55877715",
+  "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+  "verification": "Original signed MSI package inventory, exact release binding and complete Core ZIP/runtime tree verified; archive copied unchanged. Live156 to158 qualification pending."
+}

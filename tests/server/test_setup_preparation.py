@@ -77,3 +77,68 @@ async def test_preparation_does_not_start_later_stages_after_cancel_or_failed_co
     assert prep.status == ('cancelled' if outcome == 'cancelled' else 'blocked')
     assert prep.assignment_id is None and prep.return_rollout_id is None
 
+
+async def test_foundation156_uses_frozen_core155_return_before_full_setup(db, state):
+    device, release, *_ = state
+    await db.execute(delete(SetupClientPresence))
+    bridge = build('3.2.162', 'endpoint-windows-core-3.2.162-setup-client')
+    compatible = build('3.2.155', 'endpoint-windows-core-3.2.155-setup-source')
+    compatible.minimum_launcher_version = '3.2.155'
+    incompatible = build('3.2.157', 'endpoint-windows-core-3.2.157-setup-source')
+    incompatible.minimum_launcher_version = '3.2.157'
+    db.add_all([bridge, compatible, incompatible, DeviceInstance(id=uuid4(), device_id=device.id,
+        instance_identifier='clean156', agent_version='3.2.156', launcher_version='3.2.156', last_seen_at=NOW)])
+    await db.flush()
+    prep = await request_setup(db, device.id, release.id, 'True Foundation156 update',
+        actor='test-admin', request_id='156-start', now=NOW)
+    assert prep.return_build_id == compatible.id
+    child = await db.scalar(select(UpdateTarget).where(UpdateTarget.rollout_id == prep.bridge_rollout_id))
+    child.status = 'applied'
+    await record_presence(db, device.id, dict(client_version='1.0.4', ready=True,
+        core_version='3.2.162', foundation_version='3.2.156'), now=NOW)
+    await advance_preparations(db, now=NOW)
+    returned = await db.scalar(select(UpdateTarget).where(UpdateTarget.rollout_id == prep.return_rollout_id))
+    assert returned.status == 'assigned'
+    returned.status = 'applied'
+    await record_presence(db, device.id, dict(client_version='1.0.4', ready=True,
+        core_version='3.2.155', foundation_version='3.2.156'), now=NOW)
+    await advance_preparations(db, now=NOW)
+    assert prep.status == 'completed'
+    assert (await db.get(SetupAssignment, prep.assignment_id)).status == 'assigned'
+
+
+@pytest.mark.parametrize('fault', ['missing', 'incompatible'])
+async def test_foundation156_refuses_unavailable_immutable_return(db, state, fault):
+    device, release, *_ = state
+    await db.execute(delete(SetupClientPresence))
+    db.add(build('3.2.162', 'endpoint-windows-core-3.2.162-setup-client'))
+    if fault == 'incompatible':
+        source = build('3.2.155', 'endpoint-windows-core-3.2.155-setup-source')
+        source.minimum_launcher_version = '3.2.157'
+        db.add(source)
+    db.add(DeviceInstance(id=uuid4(), device_id=device.id, instance_identifier='clean156',
+        agent_version='3.2.156', launcher_version='3.2.156', last_seen_at=NOW))
+    await db.flush()
+    with pytest.raises(SetupConflict):
+        await request_setup(db, device.id, release.id, 'Clean156 test',
+            actor='test-admin', request_id='guard', now=NOW)
+    assert (await db.scalars(select(UpdateTarget))).all() == []
+
+
+async def test_missing_foundation_presence_waits_without_aborting_preparation(db, state):
+    device, release, *_ = state
+    await db.execute(delete(SetupClientPresence))
+    db.add_all([build('3.2.162', 'endpoint-windows-core-3.2.162-setup-client'),
+        build('3.2.157', 'endpoint-windows-core-3.2.157-setup-source'),
+        DeviceInstance(id=uuid4(), device_id=device.id, instance_identifier='source',
+            agent_version='3.2.158', launcher_version='3.2.158', last_seen_at=NOW)])
+    await db.flush()
+    prep = await request_setup(db, device.id, release.id, 'Missing Foundation test',
+        actor='test-admin', request_id='missing-foundation', now=NOW)
+    child = await db.scalar(select(UpdateTarget).where(UpdateTarget.rollout_id == prep.bridge_rollout_id))
+    child.status = 'applied'
+    await record_presence(db, device.id, dict(client_version='1.0.4', ready=True,
+        core_version='3.2.162', foundation_version=None), now=NOW)
+    await advance_preparations(db, now=NOW)
+    assert prep.status == 'preparing_client' and prep.return_rollout_id is None
+
