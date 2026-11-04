@@ -93,7 +93,7 @@ async def create_enrollment_request(
     now = datetime.now(UTC)
     async with request.app.state.session_provider() as session:
         try:
-            result = await session.execute(select(EnrollmentCampaign).with_for_update())
+            result = await session.execute(select(EnrollmentCampaign).order_by(EnrollmentCampaign.id).with_for_update())
             fingerprint_digest = hardware_fingerprint_digest(
                 body.hardware_fingerprint,
                 request.app.state.settings.device_token_pepper,

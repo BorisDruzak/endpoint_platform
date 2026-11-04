@@ -13,6 +13,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
@@ -20,6 +21,7 @@ from sqlalchemy import select
 from endpoint_server.console.installer import _sha256
 from endpoint_server.db.models import WindowsSetupRelease
 from endpoint_server.db.session import create_session_provider
+from endpoint_server.enrollment.default_campaign import include_windows_release
 
 
 _VERSION_RE = r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$"
@@ -63,7 +65,8 @@ def validate_release_inputs(sidecar: Path, setup: Path, msi: Path) -> SetupSidec
     return metadata
 
 
-async def register_release(metadata: SetupSidecar, setup: Path, *, database_url: str, artifact_root: Path) -> WindowsSetupRelease:
+async def register_release(metadata: SetupSidecar, setup: Path, *, database_url: str, artifact_root: Path,
+        default_campaign_id: UUID | None = None, include_in_auto_campaign: bool = True) -> WindowsSetupRelease:
     root = artifact_root.resolve(strict=True)
     if not root.is_dir():
         raise ValueError("ARTIFACT_ROOT is not a directory")
@@ -74,6 +77,9 @@ async def register_release(metadata: SetupSidecar, setup: Path, *, database_url:
             if existing is not None:
                 if existing.setup_sha256 != metadata.setup_sha256:
                     raise ValueError("release version already has a different digest")
+                if include_in_auto_campaign:
+                    await include_windows_release(session, existing, campaign_id=default_campaign_id)
+                    await session.commit()
                 return existing
             target = root / metadata.filename
             if target.exists():
@@ -100,6 +106,9 @@ async def register_release(metadata: SetupSidecar, setup: Path, *, database_url:
                 msi_authenticode_publisher=metadata.msi_authenticode_publisher,
             )
             session.add(release)
+            await session.flush()
+            if include_in_auto_campaign:
+                await include_windows_release(session, release, campaign_id=default_campaign_id)
             await session.commit()
             return release
     finally:
@@ -111,13 +120,17 @@ def main() -> int:
     parser.add_argument("--sidecar", type=Path, required=True)
     parser.add_argument("--setup", type=Path, required=True)
     parser.add_argument("--msi", type=Path, required=True)
+    parser.add_argument('--default-campaign-id', type=UUID)
+    parser.add_argument('--without-auto-enrollment', action='store_true',
+        help='Explicit diagnostic publication exception; published releases normally join the default campaign')
     args = parser.parse_args()
     metadata = validate_release_inputs(args.sidecar, args.setup, args.msi)
     database_url = os.environ.get("DATABASE_URL", "")
     artifact_root = os.environ.get("ARTIFACT_ROOT", "")
     if not database_url or not artifact_root:
         raise ValueError("DATABASE_URL and ARTIFACT_ROOT are required")
-    release = asyncio.run(register_release(metadata, args.setup, database_url=database_url, artifact_root=Path(artifact_root)))
+    release = asyncio.run(register_release(metadata, args.setup, database_url=database_url, artifact_root=Path(artifact_root),
+        default_campaign_id=args.default_campaign_id, include_in_auto_campaign=not args.without_auto_enrollment))
     print(f"registered Windows Setup release {release.version} ({release.id})")
     return 0
 
