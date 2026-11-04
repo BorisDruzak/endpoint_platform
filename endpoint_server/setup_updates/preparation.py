@@ -17,8 +17,8 @@ from .models import SetupPreparation, SetupRelease, SetupClientPresence
 from .service import SetupConflict, assign_setup, lock_device, locked_assignment, now_utc, utc, audit, qualified_presence
 
 ACTIVE_PREPARATIONS = ('preparing_client', 'restoring_core', 'recovering_client', 'recovering_source')
-BRIDGE = 'endpoint-windows-core-3.2.162-setup-client'
-BRIDGE_VERSION = '3.2.162'
+BRIDGE = 'endpoint-windows-core-3.2.163-setup-client'
+BRIDGE_VERSION = '3.2.163'
 RETURN = 'endpoint-windows-core-3.2.157-setup-source'
 RETURN156 = 'endpoint-windows-core-3.2.155-setup-source-725739f'
 
@@ -34,7 +34,7 @@ def parts(version):
 
 
 def ready(presence, now):
-    return qualified_presence(presence, now)
+    return qualified_presence(presence, now) and presence.client_version == QUALIFIED_SETUP_CLIENT_VERSION
 
 
 async def _recovery_child(session, job, create):

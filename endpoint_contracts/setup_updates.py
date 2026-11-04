@@ -12,7 +12,8 @@ from .updates import ArtifactNameV1, SafeCodeV1, Sha256V1, UpdateIdentifierV1
 WindowsVersion = Annotated[str, StringConstraints(pattern=r'^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$')]
 SourceRevision = Annotated[str, StringConstraints(pattern=r'^[0-9a-f]{40}$')]
 
-QUALIFIED_SETUP_CLIENT_VERSION = '1.0.4'
+QUALIFIED_SETUP_CLIENT_VERSION = '1.0.5'
+LEGACY_SETUP_CLIENT_VERSION = '1.0.4'
 ACTIVE_SETUP_PHASES = ('assigned', 'downloading', 'verified', 'installing', 'verifying', 'recovery_required')
 TERMINAL_SETUP_PHASES = ('applied', 'failed', 'rolled_back', 'blocked', 'cancelled', 'already_current')
 SetupPhase = Literal['assigned', 'downloading', 'verified', 'installing', 'verifying',

@@ -15,7 +15,7 @@ from tests.server.test_setup_preparation import build
 
 
 async def live_source(db, device_id):
-    await record_presence(db, device_id, dict(client_version='1.0.4', ready=True,
+    await record_presence(db, device_id, dict(client_version='1.0.5', ready=True,
         core_version='3.2.157', foundation_version='3.2.158'), now=NOW)
     instance = DeviceInstance(id=uuid4(),device_id=device_id,instance_identifier='source-recovered',
         agent_version='3.2.157',launcher_version='3.2.158',last_seen_at=NOW)
@@ -29,7 +29,7 @@ async def test_recovery_children_preserve_native_hold_and_do_not_replay_setup(db
     job, attempt = await started(db, state)
     await record_progress(db, job.device_id, job.id, SetupProgressV1(attempt_id=attempt,
         phase='recovery_required', safe_code='native_exit_requires_recovery'), now=NOW)
-    bridge = build('3.2.162', 'endpoint-windows-core-3.2.162-setup-client')
+    bridge = build('3.2.163', 'endpoint-windows-core-3.2.163-setup-client')
     source = build('3.2.157', 'endpoint-windows-core-3.2.157-setup-source')
     db.add_all([bridge, source]); await db.flush()
     await record_presence(db, job.device_id, dict(client_version='1.0.3', ready=True, core_version='3.2.157', foundation_version='3.2.158'), now=NOW)
@@ -41,8 +41,8 @@ async def test_recovery_children_preserve_native_hold_and_do_not_replay_setup(db
         await create_rollout(db, source.id, 'canary', [job.device_id], 'unrelated', 'test-admin', 'overlap', now=NOW)
     child = await db.scalar(select(UpdateTarget).where(UpdateTarget.rollout_id == prep.bridge_rollout_id))
     child.status = 'applied'
-    await record_presence(db, job.device_id, dict(client_version='1.0.4', ready=True,
-        core_version='3.2.162', foundation_version='3.2.158'), now=NOW)
+    await record_presence(db, job.device_id, dict(client_version='1.0.5', ready=True,
+        core_version='3.2.163', foundation_version='3.2.158'), now=NOW)
     await advance_preparations(db, now=NOW)
     assert job.status == 'recovery_required' and prep.status == 'recovering_source'
     returned = await db.scalar(select(UpdateTarget).where(UpdateTarget.rollout_id == prep.return_rollout_id))

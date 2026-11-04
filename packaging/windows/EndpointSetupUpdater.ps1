@@ -2,7 +2,7 @@
 param([Parameter(Mandatory)][ValidateSet('Install','Run')][string]$Mode)
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
-$script:ClientVersion='1.0.4'
+$script:ClientVersion='1.0.5'
 $script:Publisher='4D4C23389F5FF77BC4EB32044761019EAE8FB776'
 $script:Origin='https://endpoint.sosnadmin.local'
 $script:ProgramFiles=[Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
@@ -85,6 +85,7 @@ public static class EndpointSetupSessionIdentity {
  [DllImport("wtsapi32.dll")] static extern void WTSFreeMemory(IntPtr value);
  public static string RequireQuery(bool success,string value){if(!success)throw new IOException("session_identity_lookup_failed");return value;}
  static bool Exists(int id){IntPtr p;int count;if(!WTSEnumerateSessions(IntPtr.Zero,0,1,out p,out count))throw new IOException("session_enumeration_failed");try{int size=Marshal.SizeOf(typeof(Session));for(int i=0;i<count;i++){var item=(Session)Marshal.PtrToStructure(IntPtr.Add(p,i*size),typeof(Session));if(item.Id==id)return true;}return false;}finally{WTSFreeMemory(p);}}
+ public static int[] Sessions(){IntPtr p;int count;if(!WTSEnumerateSessions(IntPtr.Zero,0,1,out p,out count))throw new IOException("session_enumeration_failed");try{if(count<0||count>1024)throw new IOException("session_enumeration_invalid");var ids=new System.Collections.Generic.List<int>();int size=Marshal.SizeOf(typeof(Session));for(int i=0;i<count;i++){var item=(Session)Marshal.PtrToStructure(IntPtr.Add(p,i*size),typeof(Session));if(item.Id>0)ids.Add(item.Id);}return ids.ToArray();}finally{WTSFreeMemory(p);}}
  static string Text(int session,int kind){IntPtr p;int bytes;bool ok=WTSQuerySessionInformation(IntPtr.Zero,session,kind,out p,out bytes);if(!ok)return RequireQuery(false,null);try{return RequireQuery(true,bytes<2?String.Empty:Marshal.PtrToStringUni(p));}finally{WTSFreeMemory(p);}}
  public static string Sid(int session){if(!Exists(session))return null;string user=Text(session,5),domain=Text(session,7);if(String.IsNullOrEmpty(user))return null;return ((SecurityIdentifier)new NTAccount(domain,user).Translate(typeof(SecurityIdentifier))).Value;}
 }
@@ -158,9 +159,10 @@ function Install-SetupClient {
  $powershell=Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::System)) 'WindowsPowerShell\v1.0\powershell.exe'
  $action=New-ScheduledTaskAction -Execute $powershell -Argument ('-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy AllSigned -File "'+$target+'" -Mode Run')
  $trigger=New-ScheduledTaskTrigger -Once -At ([DateTime]::Now.AddSeconds(15)) -RepetitionInterval ([TimeSpan]::FromMinutes(1))
+ $logon=New-ScheduledTaskTrigger -AtLogOn
  $settings=New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
  $principal=New-ScheduledTaskPrincipal -UserId SYSTEM -LogonType ServiceAccount -RunLevel Highest
- Register-ScheduledTask -TaskName $script:TaskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description 'Endpoint Platform authenticated full Setup updates' -Force|Out-Null
+ Register-ScheduledTask -TaskName $script:TaskName -Action $action -Trigger @($trigger,$logon) -Settings $settings -Principal $principal -Description 'Endpoint Platform authenticated full Setup updates and user-session continuity' -Force|Out-Null
  $scheduler=New-Object -ComObject Schedule.Service;$scheduler.Connect();$scheduler.GetFolder('\').GetTask($script:TaskName).SetSecurityDescriptor('D:P(A;;FA;;;SY)(A;;FA;;;BA)',0)
  Write-PrivateJson (Join-Path $script:StateRoot 'client.json') @{client_version=$script:ClientVersion;script_sha256=$sha;installed_at=[DateTime]::UtcNow.ToString('o')}
 }
@@ -264,6 +266,15 @@ function Read-SetupPreflight([string]$setup){
  if($exit -ne 0 -or $out.Length -gt 32768 -or $err.Length){throw 'preflight_unavailable'}
  return $out|ConvertFrom-Json
 }
+function Get-LoggedOnUserSessions {
+ Initialize-SessionIdentity
+ $rows=@()
+ foreach($id in [EndpointSetupSessionIdentity]::Sessions()){
+  $sid=Get-LiveSessionSid ([int]$id)
+  if($sid -and $sid -cmatch '^S-1-5-21-[0-9-]+$'){$rows+=@{session=[int]$id;sid=$sid}}
+ }
+ return $rows
+}
 function Get-CompanionSessions {
  $rows=@();$seen=@{}
  foreach($process in @(Get-CimInstance Win32_Process -Filter "Name='EndpointAgentTray.exe' OR Name='EndpointUserSensor.exe'")){
@@ -272,6 +283,19 @@ function Get-CompanionSessions {
   if($owner.ReturnValue -ne 0 -or $owner.Sid -cnotmatch '^S-1-5-21-[0-9-]+$'){throw 'companion_identity_unavailable'}
   $key=[string]$process.SessionId+'|'+$owner.Sid+'|'+$process.Name
   if(!$seen.ContainsKey($key)){$rows+=@{session=[int]$process.SessionId;sid=$owner.Sid;name=$process.Name;sha256=(Get-FileHash -LiteralPath $process.ExecutablePath).Hash.ToLowerInvariant()};$seen[$key]=$true}
+ }
+ # A SYSTEM installation has no user token and may leave both companions absent
+ # in an existing ordinary session. Plan the installed pair even in that case.
+ foreach($session in @(Get-LoggedOnUserSessions)){
+  if($session.session -le 0 -or $session.sid -cnotmatch '^S-1-5-21-[0-9-]+$'){continue}
+  if((Get-LiveSessionSid ([int]$session.session)) -cne $session.sid){continue}
+  foreach($name in @('EndpointAgentTray.exe','EndpointUserSensor.exe')){
+   $key=[string]$session.session+'|'+$session.sid+'|'+$name
+   if(!$seen.ContainsKey($key)){
+    $file=Join-Path $script:AgentRoot $name;Assert-NoReparse $file
+    $rows+=@{session=[int]$session.session;sid=$session.sid;name=$name;sha256=(Get-FileHash -LiteralPath $file).Hash.ToLowerInvariant()};$seen[$key]=$true
+   }
+  }
  }
  return $rows
 }
@@ -287,7 +311,7 @@ function Get-CompanionEvidence($job){
  foreach($session in @($job.companions)){
   if((Get-LiveSessionSid ([int]$session.session)) -cne $session.sid){continue}
   $file=Join-Path $script:AgentRoot $session.name
-  $processes=@(Get-CimInstance Win32_Process -Filter ("Name='"+$session.name+"'")|Where-Object {$_.SessionId -eq $session.session})
+  $processes=@(Get-CimInstance Win32_Process -Filter ("Name='"+$session.name+"'")|Where-Object {$_.SessionId -eq $session.session -and $_.ExecutablePath -ieq $file})
   if($processes.Count -lt 1 -or $processes.Count -gt 2 -or ($session.name -ceq 'EndpointUserSensor.exe' -and $processes.Count -ne 1)){throw 'companion_liveness_failed'}
   if($processes.Count -eq 2 -and @($processes|Where-Object {$processes.ProcessId -contains $_.ParentProcessId}).Count -ne 1){throw 'companion_process_tree_invalid'}
   foreach($process in $processes){
@@ -298,18 +322,20 @@ function Get-CompanionEvidence($job){
  }
  return @($evidence|Sort-Object session,name,pid)
 }
-function Restore-Companions($job){
+function Restore-Companions($job,[int]$BudgetSeconds=0){
  Initialize-SessionIdentity
+ $clock=[Diagnostics.Stopwatch]::StartNew()
  $scheduler=$null;$owned=@()
  try{
   foreach($session in @($job.companions)){
+   if($BudgetSeconds -gt 0 -and $clock.Elapsed.TotalSeconds -ge $BudgetSeconds){return $false}
    if($session.name -cnotin @('EndpointAgentTray.exe','EndpointUserSensor.exe') -or $session.session -le 0 -or $session.sid -cnotmatch '^S-1-5-21-[0-9-]+$'){throw 'companion_record_invalid'}
    $liveSid=Get-LiveSessionSid ([int]$session.session)
    if(!$liveSid -or $liveSid -cne $session.sid){continue}
    $file=Join-Path $script:AgentRoot $session.name;Assert-NoReparse $file
    $expected=Get-CompanionExpectedHash $job $session
    if((Get-FileHash -LiteralPath $file).Hash -ine $expected){throw 'companion_payload_differs'}
-   $processes=@(Get-CimInstance Win32_Process -Filter ("Name='"+$session.name+"'")|Where-Object {$_.SessionId -eq $session.session})
+   $processes=@(Get-CimInstance Win32_Process -Filter ("Name='"+$session.name+"'")|Where-Object {$_.SessionId -eq $session.session -and $_.ExecutablePath -ieq $file})
    if(!$processes.Count){
     $name='EndpointSetupCompanion-'+$job.assignment_id.Replace('-','')+'-'+$session.session+'-'+$session.name.Replace('.exe','')
     $existing=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
@@ -322,7 +348,7 @@ function Restore-Companions($job){
     $task=$scheduler.GetFolder('\').GetTask($name);$task.SetSecurityDescriptor('D:P(A;;FA;;;SY)(A;;FA;;;BA)',0)
     $null=$task.RunEx($null,12,[int]$session.session,[string]$session.sid)
     Start-Sleep -Seconds 8
-    $processes=@(Get-CimInstance Win32_Process -Filter ("Name='"+$session.name+"'")|Where-Object {$_.SessionId -eq $session.session})
+    $processes=@(Get-CimInstance Win32_Process -Filter ("Name='"+$session.name+"'")|Where-Object {$_.SessionId -eq $session.session -and $_.ExecutablePath -ieq $file})
    }
    if($processes.Count -lt 1 -or $processes.Count -gt 2 -or ($session.name -ceq 'EndpointUserSensor.exe' -and $processes.Count -ne 1)){throw 'companion_launch_not_verified'}
    if($processes.Count -eq 2 -and @($processes|Where-Object {$processes.ProcessId -contains $_.ParentProcessId}).Count -ne 1){throw 'companion_process_tree_invalid'}
@@ -335,6 +361,60 @@ function Restore-Companions($job){
  }finally{
   foreach($name in $owned){Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue}
  }
+}
+function Enter-CompanionExclusion {
+ # Same kernel object, protected ACL and service rights as update_transaction.py.
+ # This maintenance path never starts MSI and never clears an abandoned fence.
+ $expected=@{'S-1-5-18'=0x1f0001;'S-1-5-32-544'=0x1f0001;'S-1-5-80-1102781572-1373263041-1070489469-7526906-1468061691'=0x120001;'S-1-5-80-327494974-20047353-929432329-1920152597-707704661'=0x120001;'S-1-3-4'=0x20000}
+ $security=[Security.AccessControl.MutexSecurity]::new();$security.SetAccessRuleProtection($true,$false)
+ foreach($sid in $expected.Keys){$security.AddAccessRule([Security.AccessControl.MutexAccessRule]::new([Security.Principal.SecurityIdentifier]::new($sid),[Security.AccessControl.MutexRights]$expected[$sid],'Allow'))}
+ [bool]$created=$false;$mutex=[Threading.Mutex]::new($false,'Global\EndpointPlatform.Agent.UpdateTransaction',[ref]$created,$security)
+ try{
+  $acl=$mutex.GetAccessControl()
+  if(!$acl.AreAccessRulesProtected -or $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -cnotin @('S-1-5-18','S-1-5-32-544','S-1-5-19','S-1-5-80-1102781572-1373263041-1070489469-7526906-1468061691','S-1-5-80-327494974-20047353-929432329-1920152597-707704661')){throw 'companion_exclusion_unsafe'}
+  $seen=@{};foreach($ace in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])){
+   $sid=$ace.IdentityReference.Value
+   if($seen.ContainsKey($sid) -or !$expected.ContainsKey($sid) -or $ace.AccessControlType -ne 'Allow' -or [int]$ace.MutexRights -ne $expected[$sid]){throw 'companion_exclusion_unsafe'};$seen[$sid]=$true
+  }
+  if($seen.Count -ne $expected.Count){throw 'companion_exclusion_unsafe'}
+  $held=$false;try{$held=$mutex.WaitOne(0)}catch [Threading.AbandonedMutexException]{$held=$true}
+  if(!$held){$mutex.Dispose();return $null}
+  return $mutex
+ }catch{$mutex.Dispose();throw}
+}
+function Exit-CompanionExclusion($lease){if($lease){try{$lease.ReleaseMutex()}finally{$lease.Dispose()}}}
+function Invoke-CompanionMaintenance($job){
+ try{Maintain-UserCompanions $job;return $true}catch{
+  # User-session maintenance must not starve authenticated hello/assignments.
+  try{Save-ClientStatus 'user_companion_unavailable' $job}catch{}
+  return $false
+ }
+}
+function Maintain-UserCompanions($job){
+ if(!$job -or $job.phase -cne 'applied' -or $job.native_exit -ne 0 -or !$job.soak -or
+  $job.soak.duration_seconds -lt 180 -or $job.soak.samples -lt 6 -or
+  !$job.soak.services_stable -or !$job.soak.companions_stable -or !$job.soak.connected){return}
+ if(Test-CoreOrNativeBusy){return}
+ $lease=Enter-CompanionExclusion
+ if(!$lease){return}
+ try{
+ if(Test-CoreOrNativeBusy){return}
+ $service=Get-Service -Name EndpointAgent -ErrorAction SilentlyContinue
+ if(!$service -or $service.Status -ne 'Running'){return}
+ $selector=Read-BoundedJson (Join-Path $script:AgentRoot 'current.json') 4096
+ $native=Read-BoundedJson (Join-Path $script:InstallerState 'foundation.json') 16384
+ if(!$selector -or !$native -or $native.schema_version -ne 1){return}
+ foreach($part in @($selector,$native.release)){
+  if($part.version -cne $job.release.version -or $part.source_revision -cne $job.release.source_revision){return}
+ }
+ if($native.release.package_sha256 -cne $job.release.msi_sha256){return}
+ # Persist/revalidate logged-on identities before launching, including a new
+ # logon after native acceptance. Do not reopen or replay the native operation.
+ $job.companions=@(Get-CompanionSessions);Save-Job $job
+ if(Test-CoreOrNativeBusy){return}
+ $restored=Restore-Companions $job -BudgetSeconds 10
+ if(!$restored){throw 'user_companion_waiting'}
+ }finally{Exit-CompanionExclusion $lease}
 }
 function Test-CoreOrNativeBusy {
  if(Test-Path -LiteralPath (Join-Path $script:AgentData 'updates\pending_update.json')){return $true}
@@ -416,15 +496,18 @@ function Complete-NativeJob($job,[string]$setup){
  $script:Stage='native_verification'
  $after=Read-SetupPreflight $setup
  for($n=0;$after.pending.active_or_degraded -and $n -lt 12;$n++){Start-Sleep -Seconds 5;$after=Read-SetupPreflight $setup}
- $script:Stage='user_session_restore';$restored=Restore-Companions $job
  if($job.native_exit -eq 67){
   if($after.foundation.version -cne $job.before.foundation.version -or $after.core.version -cne $job.before.core.version -or $after.foundation.package_sha256 -cne $job.before.foundation.package_sha256){throw 'rollback_source_differs'}
+  $script:Stage='user_session_restore';$restored=Restore-Companions $job
   $proof=New-NativeProof $job $after 'rolled-back' 67 $restored
   if(!(Test-NativeProofHealthy $proof)){Send-Progress $job 'recovery_required' $proof 'rollback_verification_failed';return}
   Send-Progress $job 'rolled_back' $proof 'setup_automatically_rolled_back'
  }else{
   foreach($part in @($after.foundation,$after.core)){if($part.version -cne $job.release.version -or $part.source_revision -cne $job.release.source_revision -or $part.package_sha256 -cne $job.release.msi_sha256){throw 'target_native_binding_differs'}}
   if($after.core.origin -cne 'msi' -or $after.eligibility -cne 'ALREADY_CURRENT'){throw 'target_native_not_current'}
+  $null=Assert-FullSetupSource $after $job.release
+  $job.companions=@(Get-CompanionSessions);Save-Job $job
+  $script:Stage='user_session_restore';$restored=Restore-Companions $job
   $proof=New-NativeProof $job $after 'accepted' 0 $restored
   $proof.soak=Observe-InstalledRuntime $job
   if(!(Test-NativeProofHealthy $proof) -or !$proof.soak.services_stable -or !$proof.soak.connected -or !$proof.soak.companions_stable){Send-Progress $job 'recovery_required' $proof 'post_install_verification_failed';return}
@@ -490,11 +573,12 @@ function Invoke-SetupClient {
  Assert-System;Assert-AdministrativePath $PSCommandPath;Assert-SignedFile $PSCommandPath $null
  Assert-AdministrativePath $script:ClientRoot;Assert-AdministrativePath $script:StateRoot
  $script:Stage='authentication';Initialize-EndpointClient
+ $job=Get-ActiveJob;$script:CurrentJob=$job
+ $maintenanceReady=Invoke-CompanionMaintenance $job
  $hello=Get-ClientHello
+ if(!$maintenanceReady){$hello.safe_code='user_companion_unavailable'}
  $accepted=Invoke-EndpointJson 'POST' '/agent/v1/setup-updates/hello' $hello
  if($accepted.device_id -cne $script:DeviceId){throw 'authenticated_device_differs'}
- $job=Get-ActiveJob
- $script:CurrentJob=$job
  if($job -and !(Test-TerminalPhase $job.phase)){Sync-ServerJob $job}
  if($job -and $job.report){
   $pending=$job.report;Send-Progress $job $pending.phase $pending.proof $pending.safe_code
@@ -512,7 +596,7 @@ function Invoke-SetupClient {
  }
  if(!$hello.ready){Save-ClientStatus 'waiting_for_agent' $job;return}
  $recommendation=Invoke-EndpointJson 'GET' '/agent/v1/setup-updates/recommendation'
- if(!$recommendation){Save-ClientStatus 'idle' $job;return}
+ if(!$recommendation){Save-ClientStatus $(if($maintenanceReady){'idle'}else{'user_companion_unavailable'}) $job;return}
  $assignment=Assert-SetupRecommendation $recommendation
  if(!$job -or $job.assignment_id -cne $assignment){
   if($job -and !(Test-TerminalPhase $job.phase)){throw 'active_assignment_differs'}

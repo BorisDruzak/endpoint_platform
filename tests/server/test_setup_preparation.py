@@ -14,6 +14,22 @@ from endpoint_server.updates.errors import UpdateConflict
 import pytest
 
 
+async def test_legacy_ready_client_is_upgraded_before_new_unattended_setup(db, state):
+    device, release, *_ = state
+    await record_presence(db, device.id, dict(client_version='1.0.4', ready=True,
+        core_version='3.2.156', foundation_version='3.2.156'), now=NOW)
+    bridge = build('3.2.163', 'endpoint-windows-core-3.2.163-setup-client')
+    source = build('3.2.155', 'endpoint-windows-core-3.2.155-setup-source-725739f')
+    source.minimum_launcher_version = '3.2.155'
+    db.add_all([bridge, source, DeviceInstance(id=uuid4(),device_id=device.id,
+        instance_identifier='source156',agent_version='3.2.156',launcher_version='3.2.156',last_seen_at=NOW)])
+    await db.flush()
+    prep=await request_setup(db,device.id,release.id,'Automatic user sensor start',
+        actor='test-admin',request_id='client-upgrade',now=NOW)
+    assert prep.status=='preparing_client'
+    assert prep.return_build_id==source.id
+
+
 def build(version, identifier):
     return UpdateBuild(id=uuid4(), build_identifier=identifier, version=version, platform='windows_amd64',
         channel='canary', artifact_identifier=identifier+'.zip', artifact_url='https://endpoint.sosnadmin.local/artifact.zip',
@@ -24,7 +40,7 @@ def build(version, identifier):
 async def test_old_agent_preparation_uses_existing_ota_then_real_rollback_then_full_setup(db, state):
     device, release, *_ = state
     await db.execute(delete(SetupClientPresence))
-    bridge = build('3.2.162', 'endpoint-windows-core-3.2.162-setup-client')
+    bridge = build('3.2.163', 'endpoint-windows-core-3.2.163-setup-client')
     baseline = build('3.2.157', 'endpoint-windows-core-3.2.157-setup-source')
     instance = DeviceInstance(id=uuid4(), device_id=device.id, instance_identifier='original',
         agent_version='3.2.158', launcher_version='3.2.158', last_seen_at=NOW)
@@ -36,13 +52,13 @@ async def test_old_agent_preparation_uses_existing_ota_then_real_rollback_then_f
     await advance_preparations(db, now=NOW)
     assert parent.return_rollout_id is None
     child.status = 'applied'
-    await record_presence(db, device.id, dict(client_version='1.0.4', ready=True, core_version='3.2.162', foundation_version='3.2.158'), now=NOW)
+    await record_presence(db, device.id, dict(client_version='1.0.5', ready=True, core_version='3.2.163', foundation_version='3.2.158'), now=NOW)
     await advance_preparations(db, now=NOW)
     assert parent.status == 'restoring_core' and parent.return_rollout_id is not None
     returned = await db.scalar(select(UpdateTarget).where(UpdateTarget.rollout_id == parent.return_rollout_id))
     assert returned.status == 'assigned'
     returned.status = 'applied'
-    await record_presence(db, device.id, dict(client_version='1.0.4', ready=True, core_version='3.2.157', foundation_version='3.2.158'), now=NOW)
+    await record_presence(db, device.id, dict(client_version='1.0.5', ready=True, core_version='3.2.157', foundation_version='3.2.158'), now=NOW)
     await advance_preparations(db, now=NOW)
     assert parent.status == 'completed'
     actual = await db.get(SetupAssignment, parent.assignment_id)
@@ -56,7 +72,7 @@ async def test_old_agent_preparation_uses_existing_ota_then_real_rollback_then_f
 async def test_preparation_does_not_start_later_stages_after_cancel_or_failed_core(db, state, outcome):
     device, release, *_ = state
     await db.execute(delete(SetupClientPresence))
-    bridge = build('3.2.162', 'endpoint-windows-core-3.2.162-setup-client')
+    bridge = build('3.2.163', 'endpoint-windows-core-3.2.163-setup-client')
     baseline = build('3.2.157', 'endpoint-windows-core-3.2.157-setup-source')
     db.add_all([bridge, baseline, DeviceInstance(id=uuid4(), device_id=device.id,
         instance_identifier='source', agent_version='3.2.158', launcher_version='3.2.158', last_seen_at=NOW)])
@@ -72,7 +88,7 @@ async def test_preparation_does_not_start_later_stages_after_cancel_or_failed_co
         await cancel_preparation(db, prep.id, actor='test-admin', request_id='stop', now=NOW)
     else:
         child.status = 'failed'
-    await record_presence(db, device.id, dict(client_version='1.0.4', ready=True, core_version='3.2.162'), now=NOW)
+    await record_presence(db, device.id, dict(client_version='1.0.5', ready=True, core_version='3.2.163'), now=NOW)
     await advance_preparations(db, now=NOW)
     assert prep.status == ('cancelled' if outcome == 'cancelled' else 'blocked')
     assert prep.assignment_id is None and prep.return_rollout_id is None
@@ -81,7 +97,7 @@ async def test_preparation_does_not_start_later_stages_after_cancel_or_failed_co
 async def test_foundation156_uses_frozen_core155_return_before_full_setup(db, state):
     device, release, *_ = state
     await db.execute(delete(SetupClientPresence))
-    bridge = build('3.2.162', 'endpoint-windows-core-3.2.162-setup-client')
+    bridge = build('3.2.163', 'endpoint-windows-core-3.2.163-setup-client')
     compatible = build('3.2.155', 'endpoint-windows-core-3.2.155-setup-source-725739f')
     compatible.minimum_launcher_version = '3.2.155'
     incompatible = build('3.2.157', 'endpoint-windows-core-3.2.157-setup-source')
@@ -94,13 +110,13 @@ async def test_foundation156_uses_frozen_core155_return_before_full_setup(db, st
     assert prep.return_build_id == compatible.id
     child = await db.scalar(select(UpdateTarget).where(UpdateTarget.rollout_id == prep.bridge_rollout_id))
     child.status = 'applied'
-    await record_presence(db, device.id, dict(client_version='1.0.4', ready=True,
-        core_version='3.2.162', foundation_version='3.2.156'), now=NOW)
+    await record_presence(db, device.id, dict(client_version='1.0.5', ready=True,
+        core_version='3.2.163', foundation_version='3.2.156'), now=NOW)
     await advance_preparations(db, now=NOW)
     returned = await db.scalar(select(UpdateTarget).where(UpdateTarget.rollout_id == prep.return_rollout_id))
     assert returned.status == 'assigned'
     returned.status = 'applied'
-    await record_presence(db, device.id, dict(client_version='1.0.4', ready=True,
+    await record_presence(db, device.id, dict(client_version='1.0.5', ready=True,
         core_version='3.2.155', foundation_version='3.2.156'), now=NOW)
     await advance_preparations(db, now=NOW)
     assert prep.status == 'completed'
@@ -111,7 +127,7 @@ async def test_foundation156_uses_frozen_core155_return_before_full_setup(db, st
 async def test_foundation156_refuses_unavailable_immutable_return(db, state, fault):
     device, release, *_ = state
     await db.execute(delete(SetupClientPresence))
-    db.add(build('3.2.162', 'endpoint-windows-core-3.2.162-setup-client'))
+    db.add(build('3.2.163', 'endpoint-windows-core-3.2.163-setup-client'))
     if fault == 'incompatible':
         source = build('3.2.155', 'endpoint-windows-core-3.2.155-setup-source-725739f')
         source.minimum_launcher_version = '3.2.157'
@@ -128,7 +144,7 @@ async def test_foundation156_refuses_unavailable_immutable_return(db, state, fau
 async def test_missing_foundation_presence_waits_without_aborting_preparation(db, state):
     device, release, *_ = state
     await db.execute(delete(SetupClientPresence))
-    db.add_all([build('3.2.162', 'endpoint-windows-core-3.2.162-setup-client'),
+    db.add_all([build('3.2.163', 'endpoint-windows-core-3.2.163-setup-client'),
         build('3.2.157', 'endpoint-windows-core-3.2.157-setup-source'),
         DeviceInstance(id=uuid4(), device_id=device.id, instance_identifier='source',
             agent_version='3.2.158', launcher_version='3.2.158', last_seen_at=NOW)])
@@ -137,8 +153,8 @@ async def test_missing_foundation_presence_waits_without_aborting_preparation(db
         actor='test-admin', request_id='missing-foundation', now=NOW)
     child = await db.scalar(select(UpdateTarget).where(UpdateTarget.rollout_id == prep.bridge_rollout_id))
     child.status = 'applied'
-    await record_presence(db, device.id, dict(client_version='1.0.4', ready=True,
-        core_version='3.2.162', foundation_version=None), now=NOW)
+    await record_presence(db, device.id, dict(client_version='1.0.5', ready=True,
+        core_version='3.2.163', foundation_version=None), now=NOW)
     await advance_preparations(db, now=NOW)
     assert prep.status == 'preparing_client' and prep.return_rollout_id is None
 
