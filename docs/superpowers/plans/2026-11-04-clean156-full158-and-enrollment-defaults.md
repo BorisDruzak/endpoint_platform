@@ -30,26 +30,33 @@ PowerShell5.1/TaskScheduler, frozen signed156/158 installers; no dependency upgr
 
 ## Steps
 
-- [ ] Native158 uninstall,absence proof and exact four-root purge. Retire/revoke
+- [x] Native158 uninstall,absence proof and exact four-root purge. Retire/revoke
   only its confirmed server registration after uninstall;retain historical records.
-- [ ] Install original signed156. If historical identity guard intervenes,approve
+- [x] Install original signed156. If historical identity guard intervenes,approve
   only the fresh exact-host request on server while Setup waits. Prove native156,
   Core156,new authentication,no observer and untouched updater-root permissions.
-- [ ] Tests first: telemetry config defaults with explicit-disable compatibility;
+- [x] Tests first: telemetry config defaults with explicit-disable compatibility;
   transactional signed-release inclusion in the unique configured auto campaign,
   idempotency,missing/ambiguous/retired campaign and immutable digest refusal.
-- [ ] Implement defaults in `endpoint_server/config.py`; new canonical enrollment
+- [x] Implement defaults in `endpoint_server/config.py`; new canonical enrollment
   helper plus `tools/register_windows_setup_release.py` publication hook. Update
   AGENTS/runbook and relevant tests. Pin libraries;test actual PostgreSQL behavior.
-- [ ] Consolidate existing Windows campaigns to09e62472-a6ae-49ab-aaaa-6613836b4423
+- [x] Consolidate existing Windows campaigns to09e62472-a6ae-49ab-aaaa-6613836b4423
   with canonical audit/revocation and all available trusted versions. Preserve its
   existing network/expiry/quota;no campaign token is printed or persisted anew.
-- [ ] Enable production telemetry gates and assign full supported audit defaults,
+- [x] Enable production telemetry gates and assign full supported audit defaults,
   updating existing limited overrides without resetting retention or user state.
-  Verify delivered policy and advancing telemetry on live devices,test120 first.
-- [ ] Assign the full158 preparation/update through Endpoint. No workstation SSH,
+  Delivered policy is APPLIED on test120; advancing user samples verified on six
+  other live devices. Test120 has no active UserSensor after SYSTEM baseline
+  installation, so its user/browser/security/WorkTime acceptance remains a limit.
+- [x] Assign the full158 preparation/update through Endpoint. No workstation SSH,
   owner/DACL repair,or observer installation after156 source acceptance. If it
   fails,record the actual gate and retain native ownership;do not mask it.
-- [ ] Only after genuine156→158 acceptance,write the requested server auto-update
+- [x] Only after genuine156→158 acceptance,write the requested server auto-update
   implementation plan with qualification,rollout,hold/rollback,telemetry and
   publication/campaign gates. Otherwise record the specific blocker and required fix.
+
+Native/Core/Foundation acceptance passed at2026-11-04T10:37:54.514968Z. See
+`docs/verification/2026-11-04-test120-clean156-full158.md` and the server policy plan
+`docs/superpowers/plans/2026-11-04-server-full-setup-autoupdate.md` for proof and the
+remaining user-sensor/fleet qualification gates. No broad rollout was started.

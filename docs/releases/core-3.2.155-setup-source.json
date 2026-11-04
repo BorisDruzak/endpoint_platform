@@ -9,5 +9,9 @@
   "archive_size": 22851526,
   "original_msi_sha256": "0fdfcc917e4e23d7efd8283da566c2e30044b41da563a5313b72874d55877715",
   "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
-  "verification": "Original signed MSI package inventory, exact release binding and complete Core ZIP/runtime tree verified; archive copied unchanged. Live156 to158 qualification pending."
+  "verification": "Original signed MSI inventory, exact release binding and full ZIP/runtime tree verified; unchanged archive applied as canonical return on clean Foundation156 before successful full Setup158.",
+  "update_build_id": "7300a086-1d3e-49a1-947b-0c41893446aa",
+  "channel": "stable",
+  "artifact_url": "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/endpoint-windows-core-3.2.155-setup-source-725739f",
+  "verification_record": "docs/verification/2026-11-04-test120-clean156-full158.md"
 }
