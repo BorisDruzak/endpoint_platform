@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "status": "qualified_test120_applied",
+  "manifest": {
+    "schema_version": "windows_setup_release_v1",
+    "release_identifier": "endpoint-windows-full-setup-3.2.158-r3-5cb267d",
+    "version": "3.2.158",
+    "artifact_name": "EndpointAgentSetup-3.2.158-r3-x64.exe",
+    "sha256": "3a603f2440bf501b85032e0defcdb8123efb5bdb31c1a7d4ed87433fcf7f7bb2",
+    "size": 145929792,
+    "source_revision": "9423d9c27ea6b2d6c544c1bcdc1edb7cc9d15421",
+    "msi_sha256": "b7d3ccebdeb5db1bc0b10af14923244c96b1debb3d1ff78cb4e8c062fe56d1a1",
+    "tray_sha256": "525ca5dca5791163ecd1d43923d24e87403f47516c8c83ef1d9428df200da50a",
+    "sensor_sha256": "1ae5dbbb9214f2ed828f860e78fe29237a0b4df9fc991a89c1396d56e5b65290"
+  },
+  "wrapper_source_revision": "5cb267d3440511a62e466f49e6cc4ce80c3897a8",
+  "operator_path": "C:\\endpoint-platform-wix-build\\setup158-r3-5cb267d\\releases\\EndpointAgentSetup-3.2.158-r3-x64.exe",
+  "authenticode": "Valid with timestamp; fixed publisher",
+  "original_core_archive_sha256": "f826df944c3ed1ce9d901c41a68cd838296f6ddbeee3008e89f93fcec80c66e9",
+  "original_msi_and_core_archive_preserved": true,
+  "endpoint_release_id": "b06ce3dd-49ea-4202-aa55-d446e0dacc6b",
+  "assignment_id": "f032a785-deaa-4034-892e-8402f4a3547f",
+  "native_exit_code": 0,
+  "applied_at": "2026-11-03T13:05:11.530911Z",
+  "qualification": "Existing Foundation158/ZIP Core157 -> full Setup -> native Foundation158/MSI Core158. No new156->158 native source qualification, Linux release or primary publication promotion.",
+  "verification_record": "docs/verification/2026-11-03-test120-endpoint-full-setup158.md"
+}

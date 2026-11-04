@@ -1,0 +1,242 @@
+{
+  "schema_version": 1,
+  "version": "3.2.158",
+  "status": "qualified existing-device rollout",
+  "runtime_source_commit": "9423d9c27ea6b2d6c544c1bcdc1edb7cc9d15421",
+  "windows_packaging_commit": "f9bf89187f33a47b01a0b555558f5cce3614b488",
+  "verification_code_commit": "2ca38733e99b8412f694285446a4371929902e66",
+  "canonical_rules": "AGENTS.md#canonical-agent-release",
+  "previous_release_record": "docs/releases/agent-3.2.156.json",
+  "windows": {
+    "setup": {
+      "filename": "EndpointAgentSetup-3.2.158-x64.exe",
+      "sha256": "ba26d597744c16859676652ae9cf64d07ebd46659012b18ea2be3ba94898b578",
+      "size": 145929600,
+      "authenticode": "Valid with timestamp; fixed existing publisher",
+      "operator_path": "C:\\endpoint-platform-wix-build\\staged-3.2.158-9423d9c\\native-setup-build\\releases\\EndpointAgentSetup-3.2.158-x64.exe",
+      "delivery": "Signed full Setup for the qualified existing authenticated cohort; no new-enrollment permission changes."
+    },
+    "msi": {
+      "filename": "EndpointAgent-3.2.158-x64.msi",
+      "sha256": "b7d3ccebdeb5db1bc0b10af14923244c96b1debb3d1ff78cb4e8c062fe56d1a1",
+      "authenticode": "Valid with timestamp"
+    },
+    "runtime_source_binding": "packaging/windows/initial-runtime-3.2.158.json",
+    "public_enrollment_default": {
+      "filename": "EndpointAgentSetup-3.2.156-x64.exe",
+      "sha256": "92c17fddab6d1c4a32b322bb5a39855bc876c688f743684129fc4cfc412e4665",
+      "size": 145896304,
+      "authenticode": "Valid with timestamp",
+      "operator_path": "C:\\endpoint-platform-wix-build\\staged-3.2.156-6ed41cd\\native-setup-build\\releases\\EndpointAgentSetup-3.2.156-x64.exe",
+      "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgentSetup-3.2.156-x64.exe",
+      "console_url": "https://endpoint.sosnadmin.local/admin/enrollment",
+      "download_url": "https://endpoint.sosnadmin.local/api/admin/console/installer/releases/f1f81b7a-7f99-4050-86b6-4fe65fd95365/download",
+      "version": "3.2.156",
+      "reason": "Existing active campaign allowlists do not permit158; leave new-enrollment defaults unchanged while upgrading the existing authenticated cohort."
+    },
+    "update": null,
+    "core_ota_status": "No158 Windows Core ZIP is published. A Core ZIP cannot upgrade an older Foundation. Current158 delivery uses signed full Setup.",
+    "historical_stable_core_catalog": {
+      "schema_version": "update_build_manifest_v1",
+      "build_identifier": "agent-windows-unified32156-6ed41cd",
+      "version": "3.2.156",
+      "platform": "windows_amd64",
+      "channel": "stable",
+      "artifact_url": "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/agent-windows-unified32156-6ed41cd",
+      "artifact_name": "endpoint-agent-windows_amd64-3.2.156.zip",
+      "archive_type": "zip",
+      "sha256": "21ca92ede7b18ef35076d10b4c7d2b9dee2507ca0d7e17fb8fc8604e178bcf25",
+      "size": 22866442,
+      "release_notes": "Unified agent with power history, resilient telemetry and installation recovery.",
+      "minimum_launcher_version": "3.2.156"
+    },
+    "native_qualification": {
+      "source_version": "3.2.156",
+      "source_revision": "6ed41cd01d494e46111a452c2ae3a844f723175b",
+      "source_msi_sha256": "ab6cde32554798a18b446c8e33ce6f0926eba6a85439bc7224a08a88b25a1073",
+      "core_origin": "msi",
+      "previous": "3.2.149 / source1ae42be",
+      "origin": "legitimately absent / compiled_default",
+      "positive_exit": 0,
+      "genuine_no_proof_compensation_exit": 67,
+      "retry_on_actual_compensated_disks": true,
+      "private4_content_file_ids_owner_group_sddl_preserved": true,
+      "stable_runtime_seconds": 186.5821965,
+      "real_sensor_health_and_browser_observations_advanced": true,
+      "operator_verdict": "C:\\endpoint-platform-wix-build\\fleet158-windows156-20261027-vm123\\qualification-verdict.json",
+      "verdict_sha256": "ff05367b57653f7a32b2866d21016820ad3a5784d2106ae6c07aba7440f44a15"
+    },
+    "administrative_delivery": {
+      "driver_operator_path": "C:\\endpoint-platform-wix-build\\fleet158-domain-prepare-20261027\\fleet-install-158.ps1",
+      "driver_sha256": "d33022db87fb3f9755ea995a05c02f0ed571ca8f4867a829bdb7d06c3c6748c9",
+      "auth_wrapper_operator_path": "C:\\endpoint-platform-wix-build\\fleet158-domain-prepare-20261027\\auth-wrapper-158-v2.ps1",
+      "auth_wrapper_sha256": "cf4e4a6e929d0a5a3f9aef53bff28aff077f59e52c5ab4e698f0ff978c07c004",
+      "registry_snapshot_max_age_minutes": 5,
+      "actual_device_gate_minutes": 30,
+      "current_authentication": "Actual protected device identity and current AD SID/GUID plus one strict authenticated204; normal OS TLS, no proxy, redirects or response body; bearer never persisted by the probe.",
+      "retry": "Permanent atomic started marker; preserve every refusal and native history, never automatically repeat an uncertain native installation."
+    },
+    "production_canary": {
+      "native_exit": 0,
+      "native_core_exact": true,
+      "private4_preserved": true,
+      "authenticated_session_seconds": 219.584108,
+      "policy": "APPLIED",
+      "fresh_sensor_health_and_power": "READY / loss0",
+      "root_independent_live_native_and_server_acceptance": true
+    },
+    "retained_legacy_compatibility": "Only the exact historically pinned79 MSI/tree is additionally admitted by Foundation158. Legacy81 and unrecognized histories remain rejected; never remove protected history to make preflight pass.",
+    "automatic_setup_revision": {
+      "filename": "EndpointAgentSetup-3.2.158-r3-x64.exe",
+      "operator_path": "C:\\endpoint-platform-wix-build\\setup158-r3-5cb267d\\releases\\EndpointAgentSetup-3.2.158-r3-x64.exe",
+      "sha256": "3a603f2440bf501b85032e0defcdb8123efb5bdb31c1a7d4ed87433fcf7f7bb2",
+      "size": 145929792,
+      "authenticode": "Valid with timestamp; fixed existing publisher",
+      "wrapper_source_commit": "5cb267d3440511a62e466f49e6cc4ce80c3897a8",
+      "native_source_commit": "9423d9c27ea6b2d6c544c1bcdc1edb7cc9d15421",
+      "original_msi_and_core_zip_bytes_preserved": true,
+      "release_id": "b06ce3dd-49ea-4202-aa55-d446e0dacc6b"
+    }
+  },
+  "linux": {
+    "distribution": "ALT11 x86_64",
+    "core_rpm": {
+      "filename": "endpoint-agent-3.2.158-alt5.x86_64.rpm",
+      "sha256": "4370c67462a12ca0bb19d859ac71c7042bb22832f5c1ca0ef8ec5a4b5358a285"
+    },
+    "user_sensor_rpm": {
+      "filename": "endpoint-agent-user-sensor-3.2.158-alt5.x86_64.rpm",
+      "sha256": "ed75d34e8be4d90b1a38ceafd6929b9cfa5836757292424c6e3ba7cd90f05838"
+    },
+    "kit": {
+      "name": "endpoint-alt-pilot-3.2.158-1",
+      "operator_directory": "C:\\endpoint-platform-wix-build\\unified-3.2.158\\linux-kit",
+      "operator_path": "C:\\endpoint-platform-wix-build\\unified-3.2.158\\linux-kit\\endpoint-alt-pilot-3.2.158-1.tar.gz",
+      "server_directory": "/srv/endpoint-platform-distribution/alt/endpoint-alt-pilot-3.2.158-1",
+      "download_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.158-1/endpoint-alt-pilot-3.2.158-1.tar.gz",
+      "sha256": "5c05c1258e387199d225fb2aa4d4bd6044fb255831155b6a91686bddbbb0877f",
+      "size": 50839655,
+      "publisher_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+      "actual_https_bytes_and_pinned_openpgp_archive_and_manifest_signatures_verified": true
+    },
+    "update": {
+      "archive_type": "tar.gz",
+      "artifact_name": "endpoint-agent-linux_amd64-3.2.158.tar.gz",
+      "artifact_url": "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/agent-linux-unified32158-9423d9c-canary",
+      "build_identifier": "agent-linux-unified32158-9423d9c-canary",
+      "channel": "canary",
+      "minimum_launcher_version": null,
+      "platform": "linux_amd64",
+      "release_notes": "WorkTime companion notifications and bounded installation compatibility.",
+      "schema_version": "update_build_manifest_v1",
+      "sha256": "db3c8e437b8e4a6a22cf24a60585e3f846dc48cbd26a424d92195f6d79ecf54c",
+      "size": 21694414,
+      "version": "3.2.158"
+    },
+    "ota_singleton": {
+      "status": "applied / post_restart_handshake_confirmed",
+      "native_rpm_and_selected_core_version": "3.2.158",
+      "source_revision": "9423d9c27ea6b2d6c544c1bcdc1edb7cc9d15421",
+      "runtime_files_verified": 98,
+      "retained_previous_version": "3.2.156",
+      "current_private4_permissions_and_two_sample_continuity_verified": true,
+      "historical_pre158_private4_raw_baseline_available": false,
+      "historical_private4_continuity_claimed": false,
+      "root_fresh_runtime_check": "All98 file hashes, native RPMs, current selector and unchanged service/CUPS/SSSD process identities verified independently."
+    },
+    "bulk_qualification": "Do not infer broad OTA qualification from the singleton terminal status. Missing historical pre158 private baseline remains a limit. Five unreachable historical Linux targets retain their existing156 assignments; they are not158 installation results."
+  },
+  "verification": {
+    "windows_agent_tests": {
+      "passed": 2811,
+      "skipped": 86
+    },
+    "linux_agent_tests": {
+      "passed": 2381,
+      "skipped": 516
+    },
+    "full_postgres_ci": {
+      "source": "668e7bc30898ef24bdbe0a22ccb92a6ed8be366d",
+      "run": "https://github.com/BorisDruzak/endpoint_platform/actions/runs/40459347035",
+      "passed": 5256,
+      "skipped": 918,
+      "failures": 0,
+      "artifact_source_and_xml_verified": true
+    },
+    "selective_main_integration_ci": {
+      "source": "2ca38733e99b8412f694285446a4371929902e66",
+      "run": "https://github.com/BorisDruzak/endpoint_platform/actions/runs/40464299306",
+      "passed": 5134,
+      "skipped": 913,
+      "failures": 0,
+      "artifact_source_and_xml_verified": true,
+      "broader_sso_server_changes_included": false
+    }
+  },
+  "provider": {
+    "last_observed_runtime_source": "62fb4c83efbea9e4acc19c779db034a80087d2f9",
+    "note": "Separately authorized SSO pilot provider; this agent rollout does not deploy the server or merge its broad SSO/WorkTime branch.",
+    "deployment_guard": "This agent integration does not reconcile the separately deployed SSO provider/database migrations. Do not infer that this main server snapshot can replace that provider."
+  },
+  "delivery_repair_156": {
+    "causes": [
+      "Task registration after boot missed the boot-only first run; periodic fallback was seven hours.",
+      "Reserved PowerShell$input parameter made authorization copying fail before native Setup."
+    ],
+    "fixed_bootstrap_sha256": "17ec4153d69a7e0a821d1e97a58b6a3a484857df5956eb9fd85d974a1381e4e4",
+    "fixed_gpp_task_sha256": "37a78cb994f91d71d7e49958fae42e15528bbca8641652a1944a09992320dc43",
+    "gpo_machine_version": 2,
+    "registration_delay": "PT2M",
+    "old8policies_4shares_scope_and_links_preserved": true,
+    "actual_automatic_registration_trigger_completions": 2,
+    "production156_bridge_nodes_independently_verified": 3
+  },
+  "limits": [
+    "Public Windows new-enrollment default remains156; no new campaign, quota or source scope was expanded.",
+    "Original PC with protected configured origin is under separate qualification; never delete its override.",
+    "Legacy81 source and incompatible protected histories remain unqualified.",
+    "Offline assignments, stale heartbeat and duplicate historical VM identities are not installation acceptance.",
+    "Real-user SSO, WorkTime notifications and broad server feature acceptance are separate from native/runtime upgrade acceptance."
+  ],
+  "fleet_rollout": {
+    "production_windows158_independently_verified": 6,
+    "windows158_native_profile": "Source156 / exact6ed-ab6 / previous149 / absent compiled-default origin",
+    "per_device_authenticated_wss_window_at_least_seconds": 180,
+    "root_live_native_source_private4_and_server_verification": true,
+    "maximum_simultaneous_native_installs": 2,
+    "bulk_native_retries": 0,
+    "bridge156_previous_failures_fixed_and_three_devices_verified": true,
+    "linux158_existing_singleton_current_state_verified": true,
+    "unreachable_linux_records": 4,
+    "historical_linux_address_now_has_other_protected_device_identity": 1,
+    "legacy_windows63_core79_reconnected_but_not_qualified_by156_or158_cohort_drivers": 1,
+    "legacy_windows81_preflight_conflict": 1,
+    "original_protected_origin_previous_none_profile": "Explicitly authorized original-PC qualification in preparation; current156 not yet158 acceptance."
+  },
+  "linux_kit_metadata_commit": "2ca38733e99b8412f694285446a4371929902e66",
+  "automatic_full_setup": {
+    "status": "qualified_test120_applied",
+    "bridge_core_version": "3.2.162",
+    "bridge_record": "docs/releases/core-3.2.162-setup-client.json",
+    "return_core_version": "3.2.157",
+    "target_setup_version": "3.2.158",
+    "client_version": "1.0.4",
+    "scope": "Only device0051645c-0e81-4c21-bf52-befcd5ef5407/test120; existing Foundation158 plus ZIP Core157; no public enrollment change",
+    "delivery": "Authenticated Endpoint Core bootstrap/return, then full signed Setup158-r3; no workstation SSH",
+    "assignment_id": "f032a785-deaa-4034-892e-8402f4a3547f",
+    "applied_at": "2026-11-03T13:05:11.530911Z",
+    "native_exit_code": 0,
+    "observed_seconds": 183.191,
+    "sensor_count": 1,
+    "sensor_cpu_percent_max": 0.0064,
+    "health_collection_id": "18401f05-ea6f-4334-8694-288ec307f5d0",
+    "health_completed_at": "2026-11-03T13:05:37.743238Z",
+    "initial_bootstrap_limit": "Installed158 stager required explicitly user-approved one-time updates owner SYSTEM->LocalService preparation; exact DACL/group/private-four preserved; temporary task removed",
+    "native_uncertainty": "Unknown outcomes retain exclusive recovery_required. Known exit21 may settle honestly as failed only after verified unchanged source and completed recovery return.",
+    "verification_record": "docs/verification/2026-11-03-test120-endpoint-full-setup158.md",
+    "followup_health_collection_id": "4954dec4-0f71-4677-97e5-2daee2090e61",
+    "followup_health_completed_at": "2026-11-04T09:22:24.075668Z",
+    "followup_health_warnings": []
+  },
+  "record_role": "Existing-device158 qualification; primary published version remains156"
+}

@@ -33,24 +33,24 @@ PowerShell5.1/Task Scheduler; PyInstaller Core bridge and Authenticode.
 
 ## Tasks
 
-- [ ] Contracts and state: add failing tests for immutable Setup manifests,
+- [x] Contracts and state: add failing tests for immutable Setup manifests,
       terminal native proof, transitions and cancellation. Implement typed shared
       contracts and pure state validation in endpoint_contracts/setup_updates.py.
-- [ ] Server ownership/API: new models/migration under endpoint_server/setup_updates;
+- [x] Server ownership/API: new models/migration under endpoint_server/setup_updates;
       authenticated admin/device endpoints, audit and artifact containment. Test
       real PostgreSQL locks, old/Core overlap and replay. Wire router and worker.
-- [ ] Durable Windows client: signed fixed-purpose scheduled client plus protected
+- [x] Durable Windows client: signed fixed-purpose scheduled client plus protected
       state/download/native preflight, actual Setup, independent preservation and
       post-WSS acceptance. Tests include signature/path/unknown-outcome refusals.
-- [ ] Legacy bootstrap: explicit Core160 bridge, bundled signed client asset,
+- [x] Legacy bootstrap: explicit Core162 bridge, bundled signed client asset,
       network-free privileged installation after valid --verify. Red/green tests
       prove normal/historical verification stays unchanged and failure blocks OTA.
-- [ ] Console: full Setup release/readiness/assignment/status controls in device
+- [x] Console: full Setup release/readiness/assignment/status controls in device
       Updates view. Validate user-visible states and endpoint compatibility.
-- [ ] Release/deploy: source-bound clean Core159 build and signed client, isolated
+- [x] Release/deploy: source-bound clean Core162 build and signed client, isolated
       tests, frozen-SHA canonical production deployment and immutable artifact
       registration. Update docs/CODEMAP/release records with actual scope.
-- [ ] Live acceptance: Core bridge160 -> canonical Core157 rollback -> full Setup158,
+- [x] Live acceptance: Core bridge162 -> canonical Core157 rollback -> full Setup158,
       entirely assigned through Endpoint. Prove a real installation, new WSS,
       health command, preserved identity, restored companions and >=180s CPU.
 
@@ -74,3 +74,5 @@ Unknown outcomes remain held. The server also requires a qualified fresh client
 and the recovery return child's applied/completed authority. No new Setup runs
 until that proof has been accepted. This recovery is qualified only for the
 actual test120 Foundation158/Core157 profile.
+
+Final acceptance: test120 assignment f032a785-deaa-4034-892e-8402f4a3547f applied2026-11-03T13:05:11.530911Z, real fullSetup158-r3 exit0,183.191s stable target observation, private-four and ordinary companions preserved, server fresh targetWSS and health completed. Follow-up2026-11-04 health succeeded without warnings. See docs/verification/2026-11-03-test120-endpoint-full-setup158.md for failures, scope and one approved initial preparation exception.
