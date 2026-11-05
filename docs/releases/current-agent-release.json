@@ -486,12 +486,15 @@
   },
   "windows_full_setup169_candidate": {
     "version": "3.2.169",
-    "status": "frozen_runtime_native_build_pending",
+    "status": "signed_registered_candidate_not_native_qualified",
     "runtime_source_commit": "4525435f1345e0d44253948f2867a0a099475f6b",
     "runtime_source_binding": "packaging/windows/initial-runtime-3.2.169.json",
     "record": "docs/releases/windows-3.2.169-setup.json",
     "native_qualified": false,
     "fleet_enabled": false,
-    "enrollment_download_promoted": false
+    "enrollment_download_promoted": false,
+    "windows_packaging_commit": "982b84181486a28e9b351947ca665323cdeae2d8",
+    "setup_update_release_id": "dee3a7c6-c758-47fc-beca-f01f8d7c7ef3",
+    "setup_sha256": "7dce65e273a2b96432b7ca57eb7b38a01cebe1bce7246fab22c7cff0777fb4b1"
   }
 }

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "version": "3.2.169",
   "platform": "windows_amd64",
-  "status": "frozen_runtime_native_build_pending",
+  "status": "signed_registered_candidate_not_native_qualified",
   "runtime_source_commit": "4525435f1345e0d44253948f2867a0a099475f6b",
   "runtime_source_binding": "packaging/windows/initial-runtime-3.2.169.json",
   "producer_root": "C:\\endpoint-platform-wix-build\\setup169-4525435",
@@ -30,8 +30,81 @@
     "enabled": false,
     "policy_revision": 3,
     "max_parallel": 2,
-    "active_recovery_devices": ["192.168.101.120", "192.168.101.27"]
+    "active_recovery_devices": [
+      "192.168.101.120",
+      "192.168.101.27"
+    ]
   },
   "existing_native_recovery_authorized_by_this_release": false,
-  "independent_support_tunnel_included": false
+  "independent_support_tunnel_included": false,
+  "windows_packaging_commit": "982b84181486a28e9b351947ca665323cdeae2d8",
+  "server_console_commit": "75adbf4b414fb5e9d65622a5b0b32a6f6f1c7dc4",
+  "setup_update_release_id": "dee3a7c6-c758-47fc-beca-f01f8d7c7ef3",
+  "setup_update_manifest": {
+    "schema_version": "windows_setup_release_v1",
+    "release_identifier": "endpoint-windows-full-setup-3.2.169-4525435",
+    "version": "3.2.169",
+    "artifact_name": "EndpointAgentSetup-3.2.169-x64.exe",
+    "sha256": "7dce65e273a2b96432b7ca57eb7b38a01cebe1bce7246fab22c7cff0777fb4b1",
+    "size": 146246784,
+    "source_revision": "4525435f1345e0d44253948f2867a0a099475f6b",
+    "msi_sha256": "07a01d95af8f4b65dd1b0f763d4ada5d83cc41068002077ebd6ed590b88a8301",
+    "tray_sha256": "732dea9bf07568357771b728f685d28ce754a2828017c1afb84e73430e348903",
+    "sensor_sha256": "6d45f501976dd23fd8fd788d3f834d1ad307be7fa8f5c4d35561b7f073e358b3"
+  },
+  "signatures": [
+    {
+      "File": "EndpointAgent-3.2.169-x64.msi",
+      "Size": 104431616,
+      "SHA256": "07a01d95af8f4b65dd1b0f763d4ada5d83cc41068002077ebd6ed590b88a8301",
+      "Signature": "Valid",
+      "Publisher": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+      "Timestamped": true
+    },
+    {
+      "File": "EndpointAgentSetup-3.2.169-x64.exe",
+      "Size": 146246784,
+      "SHA256": "7dce65e273a2b96432b7ca57eb7b38a01cebe1bce7246fab22c7cff0777fb4b1",
+      "Signature": "Valid",
+      "Publisher": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+      "Timestamped": true
+    }
+  ],
+  "native_helper": {
+    "inspection": {
+      "sha256": "f912e92587dfb88d35282e8d968cecd8c0891e940f5b89d3d20f30687c4cec3e",
+      "build_tools_absent": true,
+      "python_module_count": 438,
+      "archive_member_count": 112
+    },
+    "observer_payload": {
+      "client_version": "1.0.6",
+      "schema_version": 1,
+      "script_sha256": "f6359376cac7f5a5de6476ed9c41ea652fb95fe7e64c285d1ff2eaa8f6b0b069",
+      "source_sha256": "ff518de2831f75ed12b4203463c0dbdc94751579d2ac60adebc75e6df24f3119"
+    },
+    "canonical_selector_in_core_and_helper": true,
+    "strict_grant_reader_unchanged": true
+  },
+  "artifacts": [
+    {
+      "filename": "EndpointAgent-3.2.169-x64.msi",
+      "operator_path": "C:\\endpoint-platform-wix-build\\setup169-4525435\\native-setup-build\\releases\\EndpointAgent-3.2.169-x64.msi",
+      "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgent-3.2.169-x64.msi",
+      "sha256": "07a01d95af8f4b65dd1b0f763d4ada5d83cc41068002077ebd6ed590b88a8301",
+      "size": 104431616
+    },
+    {
+      "filename": "EndpointAgentSetup-3.2.169-x64.exe",
+      "operator_path": "C:\\endpoint-platform-wix-build\\setup169-4525435\\native-setup-build\\releases\\EndpointAgentSetup-3.2.169-x64.exe",
+      "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgentSetup-3.2.169-x64.exe",
+      "sha256": "7dce65e273a2b96432b7ca57eb7b38a01cebe1bce7246fab22c7cff0777fb4b1",
+      "size": 146246784
+    }
+  ],
+  "enrollment": {
+    "published": false,
+    "existing_default_version": "3.2.165",
+    "auto_campaign_unchanged": true
+  }
 }
