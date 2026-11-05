@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 
 from endpoint_contracts.setup_updates import (
-    ACTIVE_SETUP_PHASES, TERMINAL_SETUP_PHASES, QUALIFIED_SETUP_CLIENT_VERSION, LEGACY_SETUP_CLIENT_VERSION, SetupReleaseManifestV1,
+    ACTIVE_SETUP_PHASES, TERMINAL_SETUP_PHASES, QUALIFIED_SETUP_CLIENT_VERSIONS, LEGACY_SETUP_CLIENT_VERSION, SetupReleaseManifestV1,
     SetupClientHelloV1, SetupProgressV1, validate_setup_transition,
 )
 from endpoint_contracts.update_safety import validate_public_update_prose
@@ -34,7 +34,7 @@ def now_utc(value=None):
 
 
 def qualified_presence(presence, now):
-    return (presence is not None and presence.client_version in (QUALIFIED_SETUP_CLIENT_VERSION, LEGACY_SETUP_CLIENT_VERSION)
+    return (presence is not None and presence.client_version in (*QUALIFIED_SETUP_CLIENT_VERSIONS, LEGACY_SETUP_CLIENT_VERSION)
         and presence.ready and -timedelta(seconds=30) <= now - utc(presence.last_seen_at) <= timedelta(minutes=10))
 
 

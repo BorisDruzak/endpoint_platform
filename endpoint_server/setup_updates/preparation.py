@@ -9,7 +9,7 @@ from uuid import uuid4
 from sqlalchemy import select
 
 from endpoint_contracts.update_safety import validate_public_update_prose
-from endpoint_contracts.setup_updates import QUALIFIED_SETUP_CLIENT_VERSION
+from endpoint_contracts.setup_updates import QUALIFIED_SETUP_CLIENT_VERSIONS
 from endpoint_server.db.models import DeviceInstance, UpdateBuild, UpdateTarget, UpdateRollout
 from endpoint_server.db.instance_order import latest_instance_order
 from endpoint_server.updates.service import create_rollout, create_rollback_rollout
@@ -34,7 +34,7 @@ def parts(version):
 
 
 def ready(presence, now):
-    return qualified_presence(presence, now) and presence.client_version == QUALIFIED_SETUP_CLIENT_VERSION
+    return qualified_presence(presence, now) and presence.client_version in QUALIFIED_SETUP_CLIENT_VERSIONS
 
 
 async def _recovery_child(session, job, create):

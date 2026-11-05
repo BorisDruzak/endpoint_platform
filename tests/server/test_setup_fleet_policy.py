@@ -51,6 +51,22 @@ async def decision(db, fleet):
     return evaluate_device(policy, release, facts, now=NOW)
 
 
+@pytest.mark.parametrize('client_version', ['1.0.5', '1.0.6'])
+async def test_companion_fixed_observer_keeps_existing_native_qualification_gates(db, fleet, client_version):
+    from endpoint_server.setup_updates.models import SetupClientPresence
+    from endpoint_server.setup_updates.preparation import ready
+    from endpoint_server.setup_updates.service import qualified_presence
+    job, _ = await qualification_evidence(db, fleet)
+    job.source_client_version = client_version
+    presence = await db.scalar(select(SetupClientPresence).where(SetupClientPresence.device_id == job.device_id))
+    presence.client_version = client_version
+    assert qualified_presence(presence, NOW)
+    assert ready(presence, NOW)
+    qualified = await qualify_release(db, fleet[1].id, job.id,
+        actor='test-admin', request_id='observer-compatible', now=NOW)
+    assert qualified.evidence_assignment_id == job.id
+
+
 async def test_fleet_requires_exact_authenticated_platform_and_fresh_open_wss(db, fleet):
     assert (await decision(db, fleet)).code == 'eligible'
     fleet[3].platform = None

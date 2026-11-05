@@ -2,7 +2,7 @@
 param([Parameter(Mandatory)][ValidateSet('Install','Run')][string]$Mode)
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
-$script:ClientVersion='1.0.5'
+$script:ClientVersion='1.0.6'
 $script:Publisher='4D4C23389F5FF77BC4EB32044761019EAE8FB776'
 $script:Origin='https://endpoint.sosnadmin.local'
 $script:ProgramFiles=[Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
@@ -322,6 +322,17 @@ function Get-CompanionEvidence($job){
  }
  return @($evidence|Sort-Object session,name,pid)
 }
+function Get-CompanionTaskAccount([string]$sid){
+ # ScheduledTasks' interactive UserId rejects a literal SID on supported
+ # Windows builds. Resolve only the captured identity and verify the round trip;
+ # RunEx and subsequent process ownership remain bound to the original SID.
+ try{
+  $identity=[Security.Principal.SecurityIdentifier]::new($sid)
+  $account=$identity.Translate([Security.Principal.NTAccount])
+  if(!$account.Value -or $account.Translate([Security.Principal.SecurityIdentifier]).Value -cne $sid){throw 'identity differs'}
+  return $account.Value
+ }catch{throw 'companion_principal_unavailable'}
+}
 function Restore-Companions($job,[int]$BudgetSeconds=0){
  Initialize-SessionIdentity
  $clock=[Diagnostics.Stopwatch]::StartNew()
@@ -342,7 +353,8 @@ function Restore-Companions($job,[int]$BudgetSeconds=0){
     if($existing){throw 'companion_prior_launch_unsettled'}
     $action=New-ScheduledTaskAction -Execute $file -WorkingDirectory $script:AgentRoot
     $settings=New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-    $principal=New-ScheduledTaskPrincipal -UserId $session.sid -LogonType Interactive -RunLevel Limited
+    $account=Get-CompanionTaskAccount ([string]$session.sid)
+    $principal=New-ScheduledTaskPrincipal -UserId $account -LogonType Interactive -RunLevel Limited
     Register-ScheduledTask -TaskName $name -Action $action -Settings $settings -Principal $principal -Description 'Endpoint full Setup user-session continuation'|Out-Null;$owned+=$name
     if(!$scheduler){$scheduler=New-Object -ComObject Schedule.Service;$scheduler.Connect()}
     $task=$scheduler.GetFolder('\').GetTask($name);$task.SetSecurityDescriptor('D:P(A;;FA;;;SY)(A;;FA;;;BA)',0)

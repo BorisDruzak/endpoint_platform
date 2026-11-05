@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select, text
 
-from endpoint_contracts.setup_updates import ACTIVE_SETUP_PHASES, QUALIFIED_SETUP_CLIENT_VERSION, SetupProgressV1
+from endpoint_contracts.setup_updates import ACTIVE_SETUP_PHASES, QUALIFIED_SETUP_CLIENT_VERSIONS, SetupProgressV1
 from endpoint_contracts.update_safety import validate_public_update_prose
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.db.instance_order import latest_instance_order
@@ -101,7 +101,7 @@ async def qualify_release(session, release_id, evidence_assignment_id, *, actor,
             or not timedelta(0) <= now - utc(job.finished_at) <= timedelta(days=1)):
         raise SetupConflict('Fresh applied native evidence required')
     source_foundation, source_core = version(job.source_foundation_version), version(job.source_core_version)
-    if (job.source_client_version != '1.0.5' or source_foundation is None or source_core is None
+    if (job.source_client_version not in QUALIFIED_SETUP_CLIENT_VERSIONS or source_foundation is None or source_core is None
             or not (3, 2, 156) <= source_foundation <= version(release.version)
             or source_core > version(release.version)):
         raise SetupConflict('Persisted qualified source profile required')
@@ -119,7 +119,7 @@ async def qualify_release(session, release_id, evidence_assignment_id, *, actor,
             or not proof.soak.services_stable or not proof.soak.companions_stable or not proof.soak.connected):
         raise SetupConflict('Native and active user sensor qualification required')
     presence = await session.scalar(select(SetupClientPresence).where(SetupClientPresence.device_id == job.device_id))
-    if (presence is None or presence.client_version != '1.0.5' or not presence.ready
+    if (presence is None or presence.client_version not in QUALIFIED_SETUP_CLIENT_VERSIONS or not presence.ready
             or presence.foundation_version != release.version or presence.core_version != release.version
             or not -timedelta(seconds=30) <= now-utc(presence.last_seen_at) <= timedelta(seconds=90)):
         raise SetupConflict('Fresh qualified client required')
@@ -288,7 +288,7 @@ def evaluate_device(policy, release, facts, *, now):
                 or (client.core_version is not None and client.core_version != instance.agent_version)
                 or (client_ready and (client.foundation_version is None or client.core_version is None))):
             return Decision('waiting', 'waiting_source_confirmation')
-        if client.client_version == QUALIFIED_SETUP_CLIENT_VERSION and not client.ready:
+        if client.client_version in QUALIFIED_SETUP_CLIENT_VERSIONS and not client.ready:
             return Decision('waiting', 'waiting_setup_client')
     # Modern Core already carries the qualified observer. A late/missing hello
     # cannot be repaired by downgrading it through the legacy preparation bridge.
