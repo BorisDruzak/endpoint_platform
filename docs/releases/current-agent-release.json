@@ -483,5 +483,15 @@
     "fleet_eligible": false,
     "recovery_device": "192.168.101.27",
     "enrollment_download_promoted": false
+  },
+  "windows_full_setup169_candidate": {
+    "version": "3.2.169",
+    "status": "frozen_runtime_native_build_pending",
+    "runtime_source_commit": "4525435f1345e0d44253948f2867a0a099475f6b",
+    "runtime_source_binding": "packaging/windows/initial-runtime-3.2.169.json",
+    "record": "docs/releases/windows-3.2.169-setup.json",
+    "native_qualified": false,
+    "fleet_enabled": false,
+    "enrollment_download_promoted": false
   }
 }

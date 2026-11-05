@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "version": "3.2.169",
+  "platform": "windows_amd64",
+  "status": "frozen_runtime_native_build_pending",
+  "runtime_source_commit": "4525435f1345e0d44253948f2867a0a099475f6b",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.169.json",
+  "producer_root": "C:\\endpoint-platform-wix-build\\setup169-4525435",
+  "initial_runtime": {
+    "file_count": 119,
+    "tree_sha256": "20434630595dc71d5a97b2aa8c73638921025e71e67ad8ca4909f7926bb1f3ec",
+    "component_guid": "220A91EB-0942-59DC-B931-844B15D31F6E",
+    "source_file_count": 280,
+    "native_helpers_reuse_allowed": false
+  },
+  "fixes": [
+    "f5e6f33c94798296cbe6f0ddcdd1831987946d27",
+    "d7304706263f1427b6ed267e66661a3989ecf8d6"
+  ],
+  "packaged_observer": {
+    "client_version": "1.0.6",
+    "script_sha256": "f6359376cac7f5a5de6476ed9c41ea652fb95fe7e64c285d1ff2eaa8f6b0b069"
+  },
+  "qualification": {
+    "native_applied": false,
+    "active_user_telemetry": false,
+    "setup_assignments": 0
+  },
+  "fleet": {
+    "enabled": false,
+    "policy_revision": 3,
+    "max_parallel": 2,
+    "active_recovery_devices": ["192.168.101.120", "192.168.101.27"]
+  },
+  "existing_native_recovery_authorized_by_this_release": false,
+  "independent_support_tunnel_included": false
+}
