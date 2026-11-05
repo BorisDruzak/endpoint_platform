@@ -47,12 +47,16 @@ def release_manifest(release):
 
 
 async def audit(session, assignment, action, actor, request_id, now):
+    details = {'device_id': str(assignment.device_id), 'release_id': str(assignment.release_id),
+               'status': assignment.status, 'safe_code': assignment.safe_code}
+    report = getattr(assignment, 'last_report', None)
+    if report and report.get('safe_code') != assignment.safe_code:
+        details['reported_safe_code'] = report.get('safe_code')
     await append_audit_event(session, actor_kind='operator' if actor else 'agent',
         actor_identifier=str(actor) if actor else str(assignment.device_id),
         action='setup_updates.' + action, object_kind='setup_update_assignment',
         object_identifier=str(assignment.id), request_id=request_id,
-        details={'device_id': str(assignment.device_id), 'release_id': str(assignment.release_id),
-                 'status': assignment.status, 'safe_code': assignment.safe_code}, occurred_at=now)
+        details=details, occurred_at=now)
 
 
 async def lock_device(session, device_id):
@@ -180,6 +184,67 @@ async def require_new_wss(session, job, release, now):
             or now - utc(instance.last_seen_at) > timedelta(seconds=90)
             or now - utc(connection.last_seen_at) > timedelta(seconds=90)):
         raise SetupConflict('fresh post-install WSS and target versions required')
+    return instance, connection
+
+
+async def require_recovered_target(session, job, release, report, now):
+    """A recovered target releases ownership as FAILED, retaining native exit 21."""
+    from endpoint_server.context.models import ContextCurrent
+    from endpoint_server.policy.models import PolicyDeviceState, PolicySensorHealthCurrent
+    from endpoint_server.policy.service import resolve_effective_policy
+    from .preparation import ACTIVE_PREPARATIONS
+
+    proof = report.proof
+    presence = await session.scalar(select(SetupClientPresence).where(
+        SetupClientPresence.device_id == job.device_id))
+    if (job.status != 'recovery_required' or job.safe_code != 'native_exit_requires_recovery'
+            or job.attempt_id is None or job.attempt_id != report.attempt_id
+            or release is None or proof.foundation_version != release.version
+            or proof.core_version != release.version or proof.source_revision != release.source_revision
+            or proof.msi_sha256 != release.msi_sha256
+            or presence is None or presence.client_version != '1.0.6' or not presence.ready
+            or presence.foundation_version != release.version or presence.core_version != release.version
+            or not -timedelta(seconds=30) <= now - utc(presence.last_seen_at) <= timedelta(seconds=90)
+            or job.started_at is None or utc(presence.last_seen_at) <= utc(job.started_at)):
+        raise SetupConflict('verified target recovery and fresh qualified observer required')
+    core_active = await session.scalar(select(UpdateTarget.id).where(
+        UpdateTarget.device_id == job.device_id, UpdateTarget.status.in_(['assigned', 'requested', 'scheduled'])))
+    preparations = (await session.scalars(select(SetupPreparation).where(
+        SetupPreparation.device_id == job.device_id,
+        (SetupPreparation.assignment_id == job.id) | SetupPreparation.status.in_(ACTIVE_PREPARATIONS)))).all()
+    if core_active or any(prep.status != 'completed' for prep in preparations):
+        raise SetupConflict('completed preparation and no competing update required')
+
+    instance, connection = await require_new_wss(session, job, release, now)
+    if (instance.platform != 'windows_amd64' or utc(connection.expires_at) <= now
+            or utc(connection.created_at) > now + timedelta(seconds=30)
+            or now - utc(instance.last_seen_at) < -timedelta(seconds=30)
+            or now - utc(connection.last_seen_at) < -timedelta(seconds=30)):
+        raise SetupConflict('current Windows post-install WSS required')
+
+    effective = await resolve_effective_policy(session, job.device_id)
+    policy = await session.scalar(select(PolicyDeviceState).where(PolicyDeviceState.device_id == job.device_id))
+    health = await session.scalar(select(PolicySensorHealthCurrent).where(
+        PolicySensorHealthCurrent.device_id == job.device_id))
+    if (effective is None or policy is None or policy.status != 'APPLIED'
+            or policy.policy_version_id != effective.id or policy.policy_digest != effective.digest
+            or not effective.document.get('activity', {}).get('enabled')
+            or health is None or health.policy_id != effective.definition_id
+            or health.policy_version != effective.version or health.activity_listener_state != 'READY'):
+        raise SetupConflict('current applied activity policy and matching sensor health required')
+    for sampled_at in (health.observed_at, health.received_at, health.user_sensor_last_seen_at):
+        if (sampled_at is None or utc(sampled_at) <= utc(job.started_at)
+                or not -timedelta(seconds=30) <= now - utc(sampled_at) <= timedelta(seconds=150)):
+            raise SetupConflict('fresh post-install active user sensor required')
+    activity = await session.scalar(select(ContextCurrent).where(
+        ContextCurrent.device_id == job.device_id, ContextCurrent.profile == 'activity_v1'))
+    if activity is None:
+        raise SetupConflict('fresh post-install activity required')
+    # Identical activity advances last_observed_at without changing updated_at.
+    if (activity.last_observed_at is None or utc(activity.last_observed_at) <= utc(job.started_at)
+            or not -timedelta(seconds=30) <= now - utc(activity.last_observed_at) <= timedelta(seconds=150)
+            or utc(activity.updated_at) > now + timedelta(seconds=30)):
+        raise SetupConflict('fresh post-install activity required')
 
 
 async def record_progress(session, device_id, assignment_id, report, *, now=None):
@@ -192,6 +257,14 @@ async def record_progress(session, device_id, assignment_id, report, *, now=None
             raise SetupConflict('fresh qualified Setup executor required before native start')
     if job.attempt_id is not None and job.attempt_id != report.attempt_id:
         raise SetupConflict('Setup attempt differs')
+    safe_code = report.safe_code
+    if (job.status == 'recovery_required' or (job.status == 'verifying' and job.safe_code is not None)):
+        if report.phase in ('recovery_required', 'verifying'):
+            # Observation updates cannot manufacture a known native exit, including
+            # a recovery -> verifying -> recovery cycle. Keep its original classification.
+            safe_code = job.safe_code or 'setup_outcome_unknown'
+            if report.safe_code == 'native_exit_requires_recovery' and safe_code != report.safe_code:
+                raise SetupConflict('unknown native hold cannot be promoted to a known exit')
     payload = report.model_dump(mode='json')
     if job.status == report.phase:
         if job.last_report == payload:
@@ -199,7 +272,7 @@ async def record_progress(session, device_id, assignment_id, report, *, now=None
         if job.status in TERMINAL_SETUP_PHASES:
             raise SetupConflict('replayed Setup report differs')
         job.last_report = payload
-        job.safe_code = report.safe_code
+        job.safe_code = safe_code
         job.updated_at = now
         await audit(session, job, 'progress', None, str(report.attempt_id), now)
         await session.flush()
@@ -209,7 +282,9 @@ async def record_progress(session, device_id, assignment_id, report, *, now=None
     except ValueError as error:
         raise SetupConflict('Setup progress transition refused') from error
     release = await session.get(SetupRelease, job.release_id)
-    if report.phase == 'failed' and job.status == 'recovery_required':
+    if report.safe_code == 'native_failed_target_recovered':
+        await require_recovered_target(session, job, release, report, now)
+    elif report.phase == 'failed' and job.status == 'recovery_required':
         presence = await session.scalar(select(SetupClientPresence).where(SetupClientPresence.device_id == device_id))
         recovery = await session.scalar(select(SetupPreparation).where(SetupPreparation.assignment_id == job.id)
             .order_by(SetupPreparation.created_at.desc()).limit(1))
@@ -242,7 +317,7 @@ async def record_progress(session, device_id, assignment_id, report, *, now=None
             await require_new_wss(session, job, release, now)
     job.status = report.phase
     job.attempt_id = report.attempt_id
-    job.safe_code = report.safe_code
+    job.safe_code = safe_code
     job.last_report = payload
     job.updated_at = now
     if report.phase == 'installing':

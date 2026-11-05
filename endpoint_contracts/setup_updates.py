@@ -114,7 +114,17 @@ class SetupProgressV1(ContractModelV1):
 
     @model_validator(mode='after')
     def require_real_completion(self):
-        if self.phase == 'failed' and self.proof is not None:
+        target_recovered = self.safe_code == 'native_failed_target_recovered'
+        if target_recovered:
+            if (self.phase != 'failed' or self.proof is None or not self.proof.healthy
+                    or self.proof.native_phase != 'accepted' or self.proof.exit_code != 21
+                    or self.proof.soak is None or self.proof.soak.sensor_count < 1
+                    or not self.proof.soak.services_stable or not self.proof.soak.companions_stable
+                    or not self.proof.soak.connected):
+                raise ValueError('healthy recovered target after native exit 21 required')
+        elif self.proof is not None and (self.proof.native_phase, self.proof.exit_code) == ('accepted', 21):
+            raise ValueError('accepted native exit 21 requires the recovered-target failure diagnostic')
+        if self.phase == 'failed' and self.proof is not None and not target_recovered:
             if (not self.proof.healthy or self.proof.native_phase != 'unchanged'
                     or self.proof.exit_code != 21 or self.proof.soak is None
                     or not self.proof.soak.services_stable
