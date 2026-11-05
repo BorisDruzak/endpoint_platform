@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'rea
 import { ApiError, request } from './api'
 
 type Release = { id: string; version: string; artifact_name: string }
-type Device = { id: string; display_name: string }
+type Device = { id: string; display_name: string; hostname?: string | null }
 type Policy = { revision: number; enabled: boolean; release_id: string | null; scope: 'all_active' | 'selected'; device_ids: string[]; max_parallel: number; reason: string; safe_code: string | null }
 type Draft = Omit<Policy, 'revision' | 'safe_code'> & { expected_revision: number }
 type Item = { device_id: string; display_name: string | null; status: string; safe_code: string; job_id?: string | null; policy_revision?: number }
@@ -126,7 +126,7 @@ export function SetupFleetPolicy({ canWrite, releases, devices, revision, render
       <form className="form-grid" onSubmit={save}>
         <h4 className="setup-step">4. Проверьте охват и лимит цепочек</h4>
         <label>Охват обновления<select value={draft.scope} disabled={!canWrite || busy} onChange={e => change({ scope: e.target.value as Draft['scope'], device_ids: [] })}><option value="all_active">Все активные Windows-устройства</option><option value="selected">Выбранная группа устройств</option></select></label>
-        {draft.scope === 'selected' && <fieldset className="setup-fleet-selection"><legend>Устройства группы ({draft.device_ids.length})</legend><p className="muted">Список использует поиск устройств в шаге 2. Выбор сохраняется при поиске.</p>{devices.map(d => <label key={d.id}><input type="checkbox" checked={draft.device_ids.includes(d.id)} disabled={!canWrite || busy} onChange={e => change({ device_ids: e.target.checked ? [...draft.device_ids, d.id] : draft.device_ids.filter(i => i !== d.id) })} /> {d.display_name}</label>)}{selectedMissing.map(id => <label key={id}><input type="checkbox" checked disabled={!canWrite || busy} onChange={() => change({ device_ids: draft.device_ids.filter(i => i !== id) })} /> Выбрано: {id}</label>)}</fieldset>}
+        {draft.scope === 'selected' && <fieldset className="setup-fleet-selection"><legend>Устройства группы ({draft.device_ids.length})</legend><p className="muted">Список использует поиск устройств в шаге 2. Выбор сохраняется при поиске.</p>{devices.map(d => <label key={d.id}><input type="checkbox" checked={draft.device_ids.includes(d.id)} disabled={!canWrite || busy} onChange={e => change({ device_ids: e.target.checked ? [...draft.device_ids, d.id] : draft.device_ids.filter(i => i !== d.id) })} /> {d.hostname ? `${d.hostname} · ${d.display_name}` : d.display_name}</label>)}{selectedMissing.map(id => <label key={id}><input type="checkbox" checked disabled={!canWrite || busy} onChange={() => change({ device_ids: draft.device_ids.filter(i => i !== id) })} /> Выбрано: {id}</label>)}</fieldset>}
         <label>Одновременных цепочек<select value={draft.max_parallel} disabled={!canWrite || busy} onChange={e => change({ max_parallel: Number(e.target.value) })}><option value={1}>1</option><option value={2}>2</option></select></label>
         <p className="muted">Лимит включает полные цепочки Setup с подготовкой Core и удержания восстановления, в том числе ручные назначения Setup. Неизвестный результат установки сохраняет занятый слот.</p>
         {!qualified && <p className="muted">Нет действующей квалификации точного Setup и исходного профиля с работающим датчиком. Выполните одиночный тест и квалификацию выше.</p>}

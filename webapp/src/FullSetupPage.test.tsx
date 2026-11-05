@@ -104,3 +104,14 @@ it('pins an edited canary to its exact EXE while another administrator changes t
   fireEvent.click(screen.getByRole('button', { name: 'Обновить полным Setup' }))
   await waitFor(() => expect(vi.mocked(request)).toHaveBeenCalledWith('/api/admin/setup-updates/assignments', expect.objectContaining({ method: 'POST', body: JSON.stringify({ release_id: 'release', device_id: 'device', reason: 'Test only A.exe' }) })))
 })
+
+it('distinguishes canary computers with the same enrollment name by hostname', async () => {
+  fixtures()
+  const implementation = vi.mocked(request).getMockImplementation()!
+  vi.mocked(request).mockImplementation((path, options) => path.includes('/console/devices?')
+    ? Promise.resolve({ data: [{ id: 'device', display_name: 'Windows AUTO', hostname: 'DESKTOP-9ST5HO2' }, { id: 'other-device', display_name: 'Windows AUTO', hostname: 'OTHER-HOST' }] })
+    : implementation(path, options))
+  render(<FullSetupPage canWrite revision={0} />)
+  expect(await screen.findByRole('option', { name: 'DESKTOP-9ST5HO2 · Windows AUTO' })).toBeTruthy()
+  expect(screen.getByRole('option', { name: 'OTHER-HOST · Windows AUTO' })).toBeTruthy()
+})

@@ -3,7 +3,7 @@ import { request } from './api'
 import { SetupFleetPolicy } from './SetupFleetPolicy'
 
 type Release = { id: string; version: string; artifact_name: string }
-type Device = { id: string; display_name: string }
+type Device = { id: string; display_name: string; hostname?: string | null }
 type Client = { client_version: string; core_version: string | null; foundation_version: string | null; ready: boolean; last_seen_at: string }
 type Job = { id: string; release_id: string; status: string; reason: string; safe_code?: string | null; updated_at: string; last_report?: { proof?: { soak?: { sensor_count: number; sensor_cpu_percent_max: number; duration_seconds: number } } } }
 type State = { client: Client | null; data: Job[] }
@@ -62,7 +62,7 @@ export function FullSetupPage({ canWrite, initialDevice = '', revision }: { canW
     {error && <p role="alert" className="error">{error}</p>}
     <form className="form-grid" onSubmit={event => void assign(event, release)}>
       <label>Поиск устройства<input value={search} onChange={e => { pinTarget(); setSearch(e.target.value) }} /></label>
-      <label>Устройство<select value={device} onChange={e => { pinTarget(); setDevice(e.target.value); setState(null) }}><option value="">Выберите Windows-устройство</option>{devices.map(d => <option key={d.id} value={d.id}>{d.display_name}</option>)}{device && !devices.some(d => d.id === device) && <option value={device}>Выбранное устройство</option>}</select></label>
+      <label>Устройство<select value={device} onChange={e => { pinTarget(); setDevice(e.target.value); setState(null) }}><option value="">Выберите Windows-устройство</option>{devices.map(d => <option key={d.id} value={d.id}>{d.hostname ? `${d.hostname} · ${d.display_name}` : d.display_name}</option>)}{device && !devices.some(d => d.id === device) && <option value={device}>Выбранное устройство</option>}</select></label>
       {device && !state && <p aria-live="polite">Получение состояния…</p>}
       {state && <p aria-live="polite">{state.client ? `Core ${state.client.core_version ?? 'неизвестен'} · Foundation ${state.client.foundation_version ?? 'неизвестен'} · ${fresh ? state.client.ready ? 'клиент готов' : 'клиент ожидает завершения текущей операции' : 'нет свежего ответа клиента'}` : 'Клиент будет подготовлен автоматически, если исходная версия поддерживается.'}</p>}
       {canWrite && <><label>Причина<input required maxLength={256} value={reason} onChange={e => { pinTarget(); setReason(e.target.value) }} /></label><div><button className="primary" disabled={busy || !state || !device || !release || !reason.trim() || state.data.some(j => active.includes(j.status))}>Обновить полным Setup</button></div></>}
