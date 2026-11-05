@@ -16,18 +16,18 @@ or Foundation build. Reuse this clean, suitable production worktree.
 - [x] Add regression tests in pc_agent/tests/power/test_windows_boot_fallback.py;
   run RED before changes. Cover rollover, no synthetic startup, old-boot rejection,
   record-ID reuse, WMI validation/failure, current notifications and primary-path stability.
-- [ ] Implement the smallest reader/projection fix in
+- [x] Implement the smallest reader/projection fix in
   pc_agent/platform/windows/power_events.py. Run GREEN and relevant full suites.
-- [ ] Review exact impact, diff and release compatibility. Commit the fix and new
+- [x] Review exact impact, diff and release compatibility. Commit the fix and new
   Core version atomically. Build Windows Core from that exact committed source;
   retain signed observer input and immutable158/163 artifacts.
-- [ ] Publish through canonical update registration, verify actual downloaded ZIP
+- [x] Publish through canonical update registration, verify actual downloaded ZIP
   and hashes, then update101.27 and101.187 through Endpoint. Verify applied state,
   unchanged Foundation158/private identity, selected Core, fresh WSS/sensor/activity,
   current power source and stable observation; no workstation bootstrap preparation.
-- [ ] After canaries pass, run bounded waves on compatible active Windows agents;
+- [x] After canaries pass, run bounded waves on compatible active Windows agents;
   preserve other platforms, conflicting operations and disconnected sources.
-- [ ] Record actual outcomes/limits and immutable release metadata; complete review
+- [x] Record actual outcomes/limits and immutable release metadata; complete review
   and relevant checks before committing acceptance. Do not claim unrun native Setup.
 
 ## Review focus
@@ -69,3 +69,30 @@ or Foundation build. Reuse this clean, suitable production worktree.
   First Python3.12 full collection lacked Authlib; isolated test-extra supplies
   pinned Authlib1.9.1/ joserfc1.8.0 without modifying shared build/test environments.
   Previous golden fixture161 is updated together with the164 version bump.
+-06:59Z: canonical Core164 registration, exact source1c2e54a, minimum Foundation158;
+  actual packaged119-file manifest, ZIP/EXE digests and signed observer verified.
+-07:00:53Z/07:08:10Z:187/27 actually APPLIED164 through Endpoint. Independent
+  source/private metadata, native158, fresh health/session/user/activity and
+ 180-second observation accepted before wider waves.27 recovered READY without
+  reboot or synthetic startup; reset1/loss0 retained.187 sensor PID10180 retained.
+- Ruling: wave slots include applied-but-unconfirmed devices, maximum2; require
+  at least60 seconds post-applied plus fresh telemetry for each wider-wave slot.
+  Any failed/rolled-back target stops further assignments. Respect normal polls.
+- Broad suite5889 passed/13 failed/442 skipped; agent subset2839 passed/0 failed.
+  Ten failures reproduced on untouched baseline, two claim-expiration cases pass
+  isolated on both revisions, one packaging case passes with signed input. Full
+  dependency-split10 passed including real PyInstaller build; no all-green claim.
+-07:35Z rescan found newly connected Windows158 node138/C1-ARHIT-S7; exact device,
+  inventory and fresh authenticated source checked before adding to explicit scope.
+  Baseline power READY/loss2/reset0 is preserved, not relabelled as a new loss.
+- Independent SMB inspection unavailable on138/146; keep that evidence gap visible.
+ 144 had no fresh UserSensor at admission; do not create an employee login just
+  to obtain a positive telemetry result. All are still eligible for Core delivery.
+
+-07:43Z: all12 currently connected compatible Windows158 sources APPLIED164;
+ 24 postchecks completed, all12 fresh power READY,11 fresh UserSensor/activity.
+ Audit intervals verify maximum2 slots, no outstanding reservation or failure.
+ New138 loss2 and27 reset1 preserved. Independent runtime/private proofs10/12;
+ SMB unavailable138/146, inactive/unverified user telemetry144 explicitly limited.
+ Release records and runbook retain primary native156, qualified158, Linux and
+ disabled full-Setup policy; future/offline assignment is not implied.

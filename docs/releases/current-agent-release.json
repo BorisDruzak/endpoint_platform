@@ -413,5 +413,19 @@
     "general_fleet_enabled": false,
     "clean120_qualification_unchanged": true,
     "verification_record": "docs/verification/2026-11-05-test29-endpoint-full158.md"
+  },
+  "windows_core_patch": {
+    "version": "3.2.164",
+    "status": "qualified_connected_windows158_cohort",
+    "verified_utc": "2026-11-05T07:43:33.594390+00:00",
+    "minimum_foundation_version": "3.2.158",
+    "record": "docs/releases/core-3.2.164-power-context.json",
+    "build_identifier": "endpoint-windows-core-3.2.164-power-context",
+    "source_revision": "1c2e54a06d1a7dfb6c2c2e0d2ef2cde2d0fe9896",
+    "sha256": "3c6d89a40473cf66ae64bbd1fcac4d8e0852b283df8906055861e846f91684de",
+    "connected_windows_agents_applied": 12,
+    "full_setup_fleet_enabled": false,
+    "primary_native_release_unchanged": true,
+    "persistent_auto_assignment_for_future_or_offline_agents": false
   }
 }
