@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import sys
 import weakref
 import xml.etree.ElementTree as ET
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 
 from endpoint_contracts.power_events import PowerSourceStatusV1
 from pc_agent.power.native import NativePage, native_event, opaque_id
@@ -71,6 +72,37 @@ def _record_anchor(row):
     )
 
 
+def _read_current_boot(now):
+    """Optional read-only current-boot evidence, inside the killable worker.
+
+    WMI supplies context only. It never supplies an OS_STARTED event or proof
+    about an earlier boot whose native boundary is no longer retained.
+    """
+    try:
+        import pywintypes
+        import win32com.client
+    except ImportError:
+        return None
+    try:
+        service = win32com.client.GetObject("winmgmts:root\\cimv2")
+        rows = service.ExecQuery("SELECT LastBootUpTime FROM Win32_OperatingSystem", "WQL", 0x30)
+        values = []
+        for row in rows:
+            values.append(str(row.LastBootUpTime))
+            if len(values) > 1:
+                return None
+        if len(values) != 1 or not re.fullmatch(r"[0-9]{14}\.[0-9]{6}[+-][0-9]{3}", values[0]):
+            return None
+        value = values[0]
+        offset = int(value[22:]) * (1 if value[21] == "+" else -1)
+        started = datetime.strptime(value[:21], "%Y%m%d%H%M%S.%f").replace(
+            tzinfo=timezone(timedelta(minutes=offset))
+        ).astimezone(UTC)
+        return started if started <= now else None
+    except (pywintypes.com_error, OSError, ValueError, TypeError, AttributeError, OverflowError):
+        return None
+
+
 def project_windows_page(rows, checkpoint, *, now):
     if len(rows) > 128:
         raise ValueError("Windows native page exceeds bound")
@@ -88,7 +120,7 @@ def project_windows_page(rows, checkpoint, *, now):
                 int(row["event_id"]),
                 row.get("data", {}),
             )
-            occurred = _time(row["timestamp"])
+            occurred = recorded_at = _time(row["timestamp"])
             if occurred > now + timedelta(minutes=5):
                 raise ValueError("native clock skew")
             if provider == _GENERAL and identifier == 12:
@@ -110,6 +142,8 @@ def project_windows_page(rows, checkpoint, *, now):
                 state["boot_id"] = opaque_id(
                     f"System:boot:{record_id}:{occurred.isoformat()}"
                 )
+                state.pop("fallback_boot_id", None)
+                state.pop("fallback_boot_started_at", None)
                 kind = "OS_STARTED" if boot_type == 0 else "OS_RESUMED"
             elif provider == _GENERAL and identifier == 13:
                 kind, occurred = "OS_SHUTDOWN_STARTED", _time(data["StopTime"])
@@ -136,6 +170,13 @@ def project_windows_page(rows, checkpoint, *, now):
                 kind, evidence = "OS_SHUTDOWN_STARTED", "request"
             if kind is None:
                 continue
+            fallback_started = state.get("fallback_boot_started_at")
+            if fallback_started and min(recorded_at, occurred) < _time(fallback_started):
+                # Current WMI context cannot identify a retained earlier boot.
+                losses += 1
+                continue
+            if "boot_id" not in state and fallback_started:
+                state["boot_id"] = state["fallback_boot_id"]
             if "boot_id" not in state:
                 # Incomplete retained log cannot identify the historical boot.
                 losses += 1
@@ -146,7 +187,10 @@ def project_windows_page(rows, checkpoint, *, now):
                 native_event(
                     source="windows.system",
                     boot_id=state["boot_id"],
-                    native_record_id=str(record_id),
+                    native_record_id=(
+                        f"{record_id}:{_record_anchor(row)}"
+                        if fallback_started else str(record_id)
+                    ),
                     event_kind=kind,
                     occurred_at=occurred,
                     observed_at=now,
@@ -156,6 +200,9 @@ def project_windows_page(rows, checkpoint, *, now):
             )
         except (ValueError, TypeError, KeyError, OverflowError):
             losses += 1
+    if state.get("fallback_boot_started_at"):
+        # An empty retained page still permits current native notifications.
+        state["boot_id"] = state["fallback_boot_id"]
     state["coverage"] = min(
         [
             state.get("coverage", now.isoformat()),
@@ -247,7 +294,15 @@ def _read_system(checkpoint, now):
                 handle.Close()
     finally:
         query.Close()
-    if rows or "boot_id" not in state:
+    # The native queries are separate snapshots. A boundary can arrive after
+    # the reverse query but before this forward page; never overwrite it with
+    # an older fallback when establishing current notification context.
+    for row in rows:
+        if row["provider"] == _BOOT and row["event_id"] == 27 and (
+            live_boot is None or row["record_id"] > live_boot["record_id"]
+        ):
+            live_boot = row
+    if rows or "boot_id" not in state or state.get("fallback_boot_id"):
         # Resolve the boot of the earliest replay record, not today's newest
         # boot. Its boundary may predate retention of the facts by many months.
         boundary = (
@@ -270,6 +325,10 @@ def _read_system(checkpoint, now):
                 state["boot_id"] = opaque_id(
                     f"System:boot:{historical_boot['record_id']}:{occurred.isoformat()}"
                 )
+                # This boundary precedes the page. Otherwise keep fallback
+                # provenance until projection actually crosses a Boot27 row.
+                state.pop("fallback_boot_id", None)
+                state.pop("fallback_boot_started_at", None)
     live_boot_id = (
         opaque_id(
             f"System:boot:{live_boot['record_id']}:{_time(live_boot['timestamp']).isoformat()}"
@@ -277,6 +336,21 @@ def _read_system(checkpoint, now):
         if live_boot
         else None
     )
+    if live_boot is None:
+        started = _read_current_boot(now)
+        if started is not None and started <= now:
+            fallback_id = opaque_id(f"WMI:current-boot:{started.isoformat()}")
+            if state.get("fallback_boot_id") != fallback_id:
+                state.pop("boot_id", None)
+                state["coverage"] = now.isoformat()
+            state["fallback_boot_id"] = fallback_id
+            state["fallback_boot_started_at"] = started.isoformat()
+            live_boot_id = fallback_id
+        else:
+            # A cached boot identity cannot replace fresh current-boot evidence.
+            if state.pop("fallback_boot_id", None) is not None:
+                state.pop("boot_id", None)
+            state.pop("fallback_boot_started_at", None)
     return rows, json.dumps(state), reset, live_boot_id
 
 
