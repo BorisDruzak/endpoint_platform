@@ -1,4 +1,9 @@
 .employee-shell .sidebar { background: #183c3b; }
+.wt-workspace-links { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px; }
+.wt-helpdesk-return { display: inline-flex; align-items: center; min-height: 40px; color: #1c5952; font-size: 14px; font-weight: 600; text-underline-offset: 3px; }
+.wt-helpdesk-return:focus-visible { outline: 2px solid #217962; outline-offset: 3px; border-radius: 3px; }
+.employee-login .wt-helpdesk-return { margin-top: 16px; }
+@media (max-width: 700px) { .employee-shell .topbar { height: auto; min-height: 66px; flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; } }
 .employee-shell .nav-link.active, .employee-shell .nav-link[aria-current=page] { background: #245551; border-left-color: #72cbb3; }
 .employee-shell .nav-link:hover { background: #285653; }
 .wt-sidebar-note { color: #c3dcd7; padding: 0 24px; font-size: 12px; line-height: 1.7; }

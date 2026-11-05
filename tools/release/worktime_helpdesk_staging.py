@@ -20,7 +20,7 @@ import time
 import fcntl
 
 BASE = Path('/opt/endpoint-staging')
-OLD = BASE / 'releases/endpoint-platform-1b6ce5a83dd1'
+OLD = BASE / 'releases/endpoint-platform-ee86a9458a0c'
 ENV = Path('/etc/endpoint-staging/endpoint-platform.env')
 UNITS = ['endpoint-staging.service', 'endpoint-staging-worker.service']
 
@@ -131,7 +131,7 @@ def main(p):
     lock=os.open(root/'release.lock',os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600);fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
     need((BASE/'current').resolve()==OLD and os.readlink(BASE/'current')==str(OLD))
     validate_migrate_unit(command(['systemctl','show','endpoint-staging-migrate.service','-p','ExecStart','-p','EnvironmentFiles','-p','WorkingDirectory']).decode())
-    need(revision()=='0043_worktime_recorded');active();quiescent()
+    need(revision()=='0044_worktime_helpdesk');active();quiescent()
     need(shutil.disk_usage(BASE).free>=10*1024**3)
     name='endpoint-platform-'+p['commit'][:12];new=BASE/'releases'/name;inventory={}
     with tarfile.open(archive,'r:gz') as source:

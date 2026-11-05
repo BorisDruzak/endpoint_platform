@@ -493,8 +493,10 @@ JSON stdin requires mode prepare|activate, absolute archive path, full commit,
 archive sha256 and expiry epoch within15min. Run with `/usr/bin/python3.12 -I -B
 <root>/release.py --run` through the approved staging transport. Preserve each
 phase's receipt. Prepare keeps current services running; activation follows the
-stop/verified-backup/switch/migrate/start sequence above, with self-only auth
-features still disabled. Old schema43/current1b6ce5a83dd1 are fixed guards.
+stop/verified-backup/switch/migrate/start sequence above. For the return-navigation
+follow-up, schema44/currentee86a9458a0c are fixed guards; both enabled handoff
+flags remain unchanged. The migration service confirms the existing head without
+changing schema.
 Failure restores the old selector/services, retaining additive migration44;
 never rerun a consumed activation or downgrade local identities/history.
 Enable `ENDPOINT_WORKTIME_HELPDESK_ENABLED=true` and Helpdesk

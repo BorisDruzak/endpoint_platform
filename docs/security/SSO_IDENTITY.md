@@ -181,3 +181,10 @@ Implementation: auth/worktime_{protocol,handoff,sessions}.py,
 identity/worktime_{client,identity}.py. Helpdesk is the authority provider for the
 new confidential exchange/introspection/person routes, documented in its SSO
 contract. Do not invent managed GitNexus links for this reverse relationship.
+
+
+The employee header, sign-in and session-error screens include **Вернуться в
+Helpdesk**. `webapp/src/HelpdeskReturnLink.tsx` maps only canonical Endpoint
+production/staging origins to the matching Helpdesk `/app`; unknown origins have
+no cross-service link. Navigation keeps both sessions and returns to the user's
+normal authorized workspace. The header wraps on narrow screens.

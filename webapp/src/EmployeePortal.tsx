@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 
 import { Link, NavLink, Navigate, Route, Routes, useNavigate, useSearchParams } from 'react-router'
 import { EmployeeApiError, employeeClient, getEmployeeSession, getWorktimeSession, worktimePath, type Category, type EmployeeRequest, type EmployeeSession, type WorkDay, type WorkHistory, type WorkMonth } from './employeeApi'
 import { WorktimeLoginMethods } from './WorktimeLoginMethods'
+import { HelpdeskReturnLink } from './HelpdeskReturnLink'
 import { WorkTimeRing, durationText, intervalLabel, selectableIntervals, statusColors, statusLabels, timeText, type SelectedInterval } from './WorkTimeRing'
 import './employee.css'
 import { DlpPortal } from './DlpPortal'
@@ -35,6 +36,7 @@ export function EmployeeLogin() {
     <p className="muted">{dlp || companion ? 'Войдите с вашей доменной учётной записью.' : 'Рабочий день, объяснения и корректировки — в вашем кабинете сотрудника.'}</p>
     {params.has('handoff_error') && <p role="alert">Не удалось завершить вход через Helpdesk. Попробуйте снова или войдите через AD.</p>}
     <WorktimeLoginMethods adHref={adHref} allowHelpdesk={!dlp && !companion} />
+    <HelpdeskReturnLink />
   </section></main>
 }
 
@@ -68,7 +70,7 @@ export function EmployeePortal({ dlp = false }: { dlp?: boolean }) {
     check(); window.addEventListener('focus', check)
     return () => { active = false; pending?.abort(); window.removeEventListener('focus', check) }
   }, [unauthorized, revision, dlp])
-  if (error) return <main className="state-page"><p role="alert">{error}</p><button onClick={() => setRevision(value => value + 1)}>Повторить</button></main>
+  if (error) return <main className="state-page"><p role="alert">{error}</p><button onClick={() => setRevision(value => value + 1)}>Повторить</button><HelpdeskReturnLink /></main>
   if (!session) return <main className="state-page" aria-live="polite">Проверка сеанса сотрудника…</main>
   return <>{checking && <main className="state-page" aria-live="polite">Проверка сеанса сотрудника…</main>}<div hidden={checking}><EmployeeRealm key={`${session.person_id}:${session.department_id}:${session.csrf_token}:${session.privileged_assurance}:${JSON.stringify(session.grants)}`} session={session} unauthorized={unauthorized} dlp={dlp} /></div></>
 }
@@ -102,7 +104,7 @@ function EmployeeRealm({ session, unauthorized, dlp }: { session: EmployeeSessio
       {hr && <NavLink className="nav-link" to="/employee/reports">Табели и отчёты</NavLink>}
       {canDlp(session) && <NavLink className="nav-link" to="/dlp">DLP</NavLink>}
     </nav><p className="wt-sidebar-note">Часовой пояс отчётов<br />Екатеринбург · UTC+5</p>
-  </aside><div className="content-shell"><header className="topbar"><strong>Рабочее время</strong><div className="account"><span>Сеанс сотрудника</span><button onClick={signOut}>Выйти</button></div></header>
+  </aside><div className="content-shell"><header className="topbar"><div className="wt-workspace-links"><strong>Рабочее время</strong><HelpdeskReturnLink /></div><div className="account"><span>Сеанс сотрудника</span><button onClick={signOut}>Выйти</button></div></header>
     <main className="content employee-content">{error && <p role="alert" className="error">{error}</p>}{(stepUpRequired || session.privileged_assurance === false && hasRole(session, 'manager', 'hr', 'worktime_admin', 'dlp_officer')) && <section className="panel wt-mfa" aria-label="Подтверждение MFA"><p>Для кадровых действий и DLP подтвердите вход с MFA.</p><a href="/auth/employee/step-up">Подтвердить вход с MFA</a></section>}<Routes>
       {dlp ? <Route path="*" element={canDlp(session) ? <DlpPortal request={request} /> : <AccessDenied />} /> : <>
       <Route index element={<WorkTimePage request={request} session={session} />} />
