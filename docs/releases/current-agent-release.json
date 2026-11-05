@@ -446,19 +446,22 @@
     "max_parallel": 2,
     "pause_reason": "fleet_failure_requires_review",
     "recovery_device": "192.168.101.146",
+    "recovery_status": "original_assignment_applied_after_authorized_manual_repair",
+    "recovery_applied_at": "2026-11-05T12:36:56.777021Z",
     "general_fleet_accepted": false,
     "linux_primary_unchanged": true,
     "verification_record": "docs/verification/2026-11-05-setup165-web-fleet.md"
   },
   "windows_full_setup167_candidate": {
     "version": "3.2.167",
-    "status": "registered_update_candidate_not_native_qualified",
+    "status": "native_canary_failed_continuation_not_qualified",
     "record": "docs/releases/windows-3.2.167-setup.json",
     "runtime_source_commit": "ab313225e04b7cccefc0c30ae17b949d8fdd964d",
     "windows_packaging_commit": "773f2dbeeee561cc565b124c9f2dcbac553bd48f",
     "setup_update_release_id": "b3feccd9-ac42-4a86-8c17-9a7fc1509869",
     "setup_sha256": "7a994993281e0cbbdb2f4f190369968be46e3d142dc2605cf129b9d96803b9ae",
     "native_qualified": false,
+    "recovery_device": "192.168.101.120",
     "enrollment_download_promoted": false,
     "fleet_enabled": false,
     "observer_bootstrap_record": "docs/releases/core-3.2.166-observer-bootstrap.json"

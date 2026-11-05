@@ -2,7 +2,7 @@
   "schema_version": 1,
   "version": "3.2.165",
   "platform": "windows_amd64",
-  "status": "published_native_canary_qualified_fleet_paused_recovery_required",
+  "status": "published_native_canary_qualified_fleet_paused",
   "verified_utc": "2026-11-05T09:23:00.240291+00:00",
   "runtime_source_commit": "ed7f77a559e19500df75b9ec169c5336e308b304",
   "windows_packaging_commit": "0080690784ff4efa8cecd014d0e38afbc02bc1d5",
@@ -108,7 +108,7 @@
   "limits": [
     "Windows native release only; ALT Linux primary156 unchanged",
     "Yandex browser telemetry remains explicitly user-deferred",
-    "Published download and accepted canary do not imply fleet acceptance;146 recovery remains held and policy is paused",
+    "Published download and accepted canary do not imply fleet acceptance. Original146 assignment later completed after an authorized one-off repair; policy remains paused.",
     "Source Foundation158 qualification only; no new clean156 acceptance implied",
     "Source qualification expires after30 days; unsupported or unqualified sources retain explicit safe reasons"
   ],
@@ -146,5 +146,19 @@
       "user_sensor_last_seen_at": "2026-11-05T09:03:42.942789Z",
       "root_cause": "not_yet_established"
     }
-  ]
+  ],
+  "recovery_146_followup": {
+    "assignment_id": "6bc214b4-50b3-4fe0-91b4-0732b8dea2e6",
+    "attempt_id": "43731f03-f211-465d-8cf2-f8dd1f8fc5fa",
+    "status": "applied",
+    "finished_at": "2026-11-05T12:36:56.777021Z",
+    "native_exit": 0,
+    "client_version": "1.0.6",
+    "manual_repair_exception": true,
+    "soak_seconds": 181.517,
+    "sensor_count": 1,
+    "private_preserved": true,
+    "unattended_source_qualified": false,
+    "verification_record": "docs/verification/2026-11-05-recovery146-canary167.md"
+  }
 }

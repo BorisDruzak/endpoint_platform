@@ -2,8 +2,8 @@
   "schema_version": 1,
   "version": "3.2.167",
   "platform": "windows_amd64",
-  "status": "registered_update_candidate_not_native_qualified",
-  "verified_utc": "2026-11-05T11:55:35.248225+00:00",
+  "status": "native_canary_failed_continuation_not_qualified",
+  "verified_utc": "2026-11-05T13:07:02.313702+00:00",
   "runtime_source_commit": "ab313225e04b7cccefc0c30ae17b949d8fdd964d",
   "windows_packaging_commit": "773f2dbeeee561cc565b124c9f2dcbac553bd48f",
   "server_console_commit": "773f2dbeeee561cc565b124c9f2dcbac553bd48f",
@@ -70,7 +70,28 @@
     "native_applied": false,
     "active_user_telemetry": false,
     "source_foundations": [],
-    "setup_assignments": 0
+    "setup_assignments": 1,
+    "failed_canary": {
+      "device_id": "943c87ef-f121-40b9-a31f-003e9459e292",
+      "address": "192.168.101.120",
+      "assignment_id": "0301db1b-38b2-40f1-91dc-3842e85fc66c",
+      "attempt_id": "15268bc4-4594-4121-9b8b-b7591972f67d",
+      "source_core": "3.2.165",
+      "source_foundation": "3.2.165",
+      "source_client": "1.0.5",
+      "assigned_through_console": true,
+      "workstation_update_preparation": false,
+      "native_stage": "accepted",
+      "native_exit": 21,
+      "status": "recovery_required",
+      "safe_code": "native_exit_requires_recovery",
+      "failed_phase": "restore-staged-companions",
+      "root_cause": "Native reconciliation and staged trial serialize the same authenticated candidate selector in different JSON key order; the immutable continuation grant correctly rejects the changed byte hash.",
+      "core_and_foundation_observed": "3.2.167",
+      "observer_observed": "1.0.5",
+      "post_update_user_telemetry_verified": false,
+      "original_job_and_native_hold_preserved": true
+    }
   },
   "enrollment": {
     "published": false,
@@ -84,7 +105,8 @@
     "max_parallel": 2,
     "target_version": "3.2.165",
     "pause_reason": "fleet_failure_requires_review",
-    "existing_146_chain_preserved": true
+    "existing_146_chain_preserved": true,
+    "active_recovery_device": "192.168.101.120"
   },
   "independent_support_tunnel": {
     "status": "design_only",

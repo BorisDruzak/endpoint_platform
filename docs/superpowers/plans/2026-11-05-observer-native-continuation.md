@@ -49,7 +49,7 @@ without coordination; its signed bytes are already immutable.
 - [ ] Promote only verified publication; update rules, release metadata and
   evidence. Keep Linux and explicitly deferred browser testing separate.
 
-## Checkpoint
+## Earlier checkpoint (superseded live state)
 
 Task2 implementation:0b13272998a9dc2fda1dca609a1cfd62882d837f and final
 material-review corrections9f34f118db36ffbd25a0859a73ab621b2613edd7.
@@ -62,3 +62,21 @@ review loop.
 146 user-supplied preflight currently has null/unverified Foundation and Core,
 provenance conflict and pending state-invalid. These are missing authority,
 not permission to overwrite native state or weaken the repair's preflight gate.
+
+## 13:07 UTC checkpoint
+
+146 completed its original165 assignment at12:36:56Z after the authorized,
+signed one-off ACL/observer repair, without native replay. The tray is current;
+fresh Activity is still a separate policy-retry acceptance gate. This exception
+does not qualify unattended source delivery.
+
+The first unprepared Console167 canary on120 failed at companion restoration:
+native reconciliation and staged trial serialized the same exact selector in
+different key order. Original exit21/job/native ownership remain held. Do not
+qualify or assign167 again. The prospective fix reuses the canonical selector
+writer after authenticated candidate validation; the grant reader stays exact.
+Root verification:219 Windows continuation/staged/compound tests passed;
+86 server policy/gateway/activity tests and contract generation check passed.
+Independent reviews found no material issue. Real native acceptance and fleet
+resume remain unchecked. See
+`docs/verification/2026-11-05-recovery146-canary167.md`.
