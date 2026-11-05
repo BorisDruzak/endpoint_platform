@@ -1,4 +1,6 @@
 from contextlib import nullcontext
+import os
+import shutil
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -137,6 +139,9 @@ def test_owner_bridge_exposes_only_authenticated_native_continuation(monkeypatch
 
 @pytest.mark.parametrize('users,observer,passes', [('running','provisioned',True),('not-required','provisioned',True),('session-unavailable','provisioned',True),('launch-requested','provisioned',False),('running','missing',False)])
 def test_wrapper_continuation_checks_observer_and_observed_companions(tmp_path, users, observer, passes):
+    powershell = shutil.which('powershell.exe') or shutil.which('pwsh')
+    if powershell is None:
+        pytest.skip('PowerShell wrapper parser and continuation')
     import subprocess
     from pathlib import Path
     source = Path(__file__).resolve().parents[3]/'packaging/windows/Install-EndpointAgentCanary.ps1'
@@ -154,7 +159,7 @@ try{Complete-NativeContinuation ([pscustomobject]@{TransactionId='operation'})}c
 if($ok -ne ($Expected -eq 'True')){throw 'wrong acceptance'}
 'passed'
 ''')
-    result = subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-File',str(script),str(source),users,observer,str(passes)], capture_output=True,text=True,timeout=15)
+    result = subprocess.run([powershell,'-NoProfile','-NonInteractive','-File',str(script),str(source),users,observer,str(passes)], capture_output=True,text=True,timeout=15)
     assert result.returncode == 0, result.stderr
 
 
@@ -170,7 +175,7 @@ def test_continuation_hold_binds_native_acceptance_and_cannot_be_replaced(staged
         continuation.finish_continuation_hold(paths, cap)
         assert continuation.pending_continuation(paths) is None
 
-@pytest.mark.skipif(__import__('os').name != 'nt', reason='actual Windows task registration')
+@pytest.mark.skipif(os.name != 'nt', reason='actual Windows task registration')
 def test_actual_interactive_task_registration_uses_resolved_account_without_trigger(monkeypatch, staged):
     import os
     import win32api, win32con, win32security, win32ts, win32com.client
@@ -288,6 +293,7 @@ def test_fresh_continuation_cannot_recreate_an_unrelated_native_owner(monkeypatc
         continuation.assert_original_native_owner(SimpleNamespace(),cap)
 
 
+@pytest.mark.skipif(os.name != 'nt', reason='compiled Windows owner policy')
 def test_actual_owner_policy_rejects_native_continuation_without_settlement_proof(tmp_path):
     import subprocess
     from pathlib import Path
@@ -315,6 +321,7 @@ foreach($mode in @('fresh','exit-zero','recovery','uninstall')){
     assert result.returncode==0,result.stderr
 
 
+@pytest.mark.skipif(os.name != 'nt', reason='native Windows SID canonicalization')
 def test_observer_schedule_readback_accepts_canonical_system_sid_and_checks_repetition(monkeypatch):
     from pathlib import Path
     from pc_agent.platform.windows import native_setup_observer as observer
@@ -352,7 +359,7 @@ def test_native_asset_signature_gate_keeps_all_signed_and_fixed_vendor(monkeypat
     assert kwargs['shell'] is False and kwargs['timeout']==30
 
 
-@pytest.mark.skipif(__import__('os').name!='nt',reason='native inherited administrative ACL')
+@pytest.mark.skipif(os.name != 'nt',reason='native inherited administrative ACL')
 def test_native_provision_accepts_existing_signed_observer_inherited_admin_file_acl(native_protected_root):
     import win32security
     from pc_agent.platform.windows import native_setup_observer as observer
