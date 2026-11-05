@@ -1,7 +1,8 @@
 # Unattended UserSensor and full156 to158 on test120
 
-Status: native upgrade and automatic UserSensor startup passed. Active-user
-telemetry qualification awaits normal RDP reconnection; fleet remains disabled.
+Status: native upgrade, automatic UserSensor startup and active-user telemetry
+passed; exact158-r3/source156 qualified on05.11. Known Yandex browser issue
+explicitly deferred by user. Fleet remains disabled, max_parallel1.
 
 ## Authorized source
 
@@ -133,6 +134,48 @@ a timestamped preview, not an assertion that all21 are update-ready Windows agen
 The single active Windows enrollment AUTO campaign remains
 09e62472-a6ae-49ab-aaaa-6613836b4423, quota100/use_count4, expiry2030-09-27.
 New enrollment consumed one legitimate use; historical campaigns remain revoked.
+
+## Follow-up acceptance 2026-11-05
+
+The user reconnected normally to existing session2. At04:07:14Z `quser` showed
+Active. Original UserSensor PID2056 and Tray7576/4092 remained in that same ordinary
+SID/session and fixed installed paths. No companion restart, administrator task,
+ACL repair or other workstation preparation was performed. Accepted activity began
+04:06:40.455826Z. At04:12:06Z four intervals extended through04:11:55.727840Z;
+READY user-sensor health received04:11:22.969666Z had an accepted sample at
+04:11:10.697158Z. Security spool/USB/print sources remained READY; this does not
+claim physical USB, printing, browser upload/paste or employee WorkTime tests.
+
+Canonical `qualify_release` passed at04:07:57.728041Z while the native receipt was
+less than one day old and current client/WSS/user health were fresh. Qualification
+872a53bc-17f3-48ac-a481-dfeaaac2f961 is bound to the unchanged exact158-r3 SHA256,
+source Foundation156 and assignmentd729ed87-2988-4ce4-a26c-917338403c0f. Evidence code
+native0_sensor_source_verified; expiry2026-12-05T04:07:57.728041Z. It does not
+qualify other source Foundations, promote the primary download or enable fleet.
+
+Read-only preview04:08:00Z:21 non-retired records,9 already_current,10
+platform_unknown,1 unsupported platform,1 eligible; active chains0. Policy
+0ab7e6f8-7f3b-42b4-9b62-e0718dd6a3fc stays revision1/enabled=false/max_parallel1.
+Fleet decisions0; no broad assignment or installer replay was created.
+
+The user then opened Yandex26.10.0.1818. Its exact Endpoint extension
+kkkoaifoohdbdaccmnnoagedifflbide/0.1.0 was installed automatically on disk, location7,
+but Secure Preferences reported disable_reasons=[65536]. Chromium's documented
+constant is DISABLE_BLOCKED_BY_POLICY. Yandex was RUNNING, Endpoint installation
+policyAPPLIED and native hostREADY, but extension heartbeat remained null and
+browser activity intervals0. These facts are separate from live UserSensor data.
+Only the pinned extension's diagnostic fields were inspected; no browser history,
+cookies, password store or profile contents were modified.
+
+The exact blocking policy/provider was not established. Before further UI
+diagnosis the user explicitly deferred this known Yandex issue. No browser/GPO
+workaround, manual enablement, profile modification or permission relaxation was
+performed. This is an accepted browser exception, not successful browser telemetry.
+The existing WorkTime person/schedule and physical hardware-event limits also remain.
+
+Sources for browser diagnosis: [Chromium disable reasons](https://chromium.googlesource.com/chromium/src/+/75285cc49/extensions/browser/disable_reason.h),
+[Yandex force-install policy](https://browser.yandex.ru/support/browser-corporate/ru/policy/extension-install-forcelist).
+Private operator follow-up receipt: `C:\Temp\endpoint-sensor156-20261104\followup-20261105.json`.
 
 ## Verification before live execution
 

@@ -27,17 +27,19 @@ canonical Core/Setup services and real Windows/server acceptance.
   Preserve domain/user/GPO and old server receipts; retire only exact removed
   registration. Accept pristine156 with no observer/ACL intervention or manually
   launched user companions, then remove baseline administration tasks.
-- [ ] Assign only through Endpoint, observe163 to compatible155 to full158.
+- [x] Assign only through Endpoint, observe163 to compatible155 to full158.
   Require actual native0, private bytes/metadata continuity, correct services,
   fresh WSS, stable nonzero UserSensor and fresh activity/policy/sensor health.
-- [ ] Deploy fleet UI/control after checks, leave policy disabled for the user's
+- [x] Deploy fleet UI/control after checks, leave policy disabled for the user's
   launch. Record exact release qualification only after successful combined test.
 
 Native156→158 and automatic companions passed at11:50:46Z,183.636 seconds,
 sensor_count1. Fleet UI/control is deployed and a disabled max_parallel1 policy
-is saved. Remaining checkboxes include fresh accepted user telemetry and canonical
-release qualification: the existing test session is WTSDisconnected. Reconnect
-normally as functional stimulus; never weaken pipe authorization or invent health.
+is saved. On05.11 normal RDP reconnection confirmed accepted user samples and
+activity with the original sensor PID; canonical exact158/source156 qualification
+872a53bc-17f3-48ac-a481-dfeaaac2f961 passed. Known Yandex extension policy blocking
+was explicitly deferred by the user; no browser success is claimed and no browser
+or GPO workaround was applied. Fleet remains disabled.
 See [live report](../../verification/2026-11-04-test120-usersensor156-full158.md).
 
 No GPO changes, no workstation SSH, no post-baseline ACL repair, no native replay

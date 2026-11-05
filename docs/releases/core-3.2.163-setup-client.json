@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "qualified_native_and_companion_startup_user_telemetry_pending",
+  "status": "qualified_native_and_active_user_sensor_browser_exception",
   "purpose": "Service bridge for unattended UserSensor and Tray startup; final native target remains158",
   "source_revision": "b23857849ad5b877e67d0de3c28d297f9ae5d507",
   "build_id": "b59ac4e6-9c52-4d56-9294-8a791feba25b",
@@ -28,10 +28,10 @@
     "Not a primary installer, full native upgrade or Linux release",
     "Signed observer is installed only by the existing authenticated privileged Core verifier",
     "No mutable replacement of historical Core162 or native158 MSI/Setup bytes",
-    "Clean156 native158 and automatic UserSensor startup passed; active-user telemetry awaits normal RDP reconnect, fleet qualification not recorded"
+    "Clean156 native158, unattended companions and fresh active-user telemetry passed; known Yandex browser issue explicitly deferred by user; fleet remains disabled"
   ],
   "acceptance": {
-    "status": "native_and_companion_startup_passed_user_telemetry_pending",
+    "status": "qualified_native_and_active_user_sensor_browser_exception",
     "device_id": "943c87ef-f121-40b9-a31f-003e9459e292",
     "initial_core_version": "3.2.156",
     "initial_foundation_version": "3.2.156",
@@ -57,8 +57,40 @@
     "health_collection_id": "f7274027-a65c-4e1d-8566-5e7ad0fbccd2",
     "health_completed_at": "2026-11-04T11:51:06.096524Z",
     "health_warnings": [],
-    "user_telemetry_limit": "Existing session2 is WTSDisconnected;158 accepts only WTSActive user samples. Normal RDP reconnection needed for functional telemetry proof; no fleet qualification recorded.",
+    "user_telemetry_limit": "Active ordinary-user telemetry confirmed after normal RDP reconnect, without companion restart or workstation preparation. Yandex browser telemetry remains a known user-accepted exception; not an all-telemetry qualification.",
     "fleet_enabled": false,
-    "verification_record": "docs/verification/2026-11-04-test120-usersensor156-full158.md"
+    "verification_record": "docs/verification/2026-11-04-test120-usersensor156-full158.md",
+    "active_user_telemetry": {
+      "verified_at": "2026-11-05T04:12:06.42583+00:00",
+      "activity_listener_state": "READY",
+      "user_sensor_last_seen_at": "2026-11-05T04:11:10.697158+00:00",
+      "activity_intervals": 4,
+      "first_activity_at": "2026-11-05T04:06:40.455826+00:00",
+      "last_activity_at": "2026-11-05T04:11:55.72784+00:00",
+      "manual_companion_start": false,
+      "original_sensor_pid": 2056
+    },
+    "fleet_qualification": {
+      "id": "872a53bc-17f3-48ac-a481-dfeaaac2f961",
+      "release_id": "b06ce3dd-49ea-4202-aa55-d446e0dacc6b",
+      "sha256": "3a603f2440bf501b85032e0defcdb8123efb5bdb31c1a7d4ed87433fcf7f7bb2",
+      "source_foundation": "3.2.156",
+      "evidence_assignment_id": "d729ed87-2988-4ce4-a26c-917338403c0f",
+      "qualified_at": "2026-11-05T04:07:57.728041+00:00",
+      "expires_at": "2026-12-05T04:07:57.728041+00:00",
+      "evidence_code": "native0_sensor_source_verified"
+    },
+    "browser_exception": {
+      "browser": "yandex",
+      "version": "26.10.0.1818",
+      "extension_id": "kkkoaifoohdbdaccmnnoagedifflbide",
+      "extension_version_on_disk": "0.1.0",
+      "disable_reasons": [
+        65536
+      ],
+      "extension_heartbeat_verified": false,
+      "user_requested_skip": true,
+      "scope": "Known browser issue explicitly deferred by user on2026-11-05; no browser or GPO workaround applied"
+    }
   }
 }
