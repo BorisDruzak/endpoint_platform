@@ -150,7 +150,7 @@ async def test_owned_native_hold_trips_circuit_without_changing_native_state(db,
 
 
 async def qualification_evidence(db, fleet, *, bridge='3.2.163', source_foundation='3.2.156'):
-    from endpoint_server.db.models import UpdateRollout, PolicySensorHealthCurrent
+    from endpoint_server.db.models import UpdateBuild, UpdateRollout, PolicySensorHealthCurrent
     from endpoint_server.setup_updates.models import SetupPreparation
     from endpoint_server.setup_updates.service import record_presence
     from tests.server.test_setup_preparation import build
@@ -165,9 +165,13 @@ async def qualification_evidence(db, fleet, *, bridge='3.2.163', source_foundati
     native_proof['foundation_version'] = native_proof['core_version'] = release.version
     job.last_report = dict(attempt_id=str(job.attempt_id), phase='applied', proof=native_proof)
     db.add(job)
-    bridge_build = build(bridge, f'endpoint-windows-core-{bridge}-setup-client')
-    source_build = (build('3.2.155', 'endpoint-windows-core-3.2.155-setup-source-725739f')
-        if source_foundation == '3.2.156' else build('3.2.157', 'endpoint-windows-core-3.2.157-setup-source'))
+    bridge_name = f'endpoint-windows-core-{bridge}-setup-client'
+    source_name = ('endpoint-windows-core-3.2.155-setup-source-725739f'
+        if source_foundation == '3.2.156' else 'endpoint-windows-core-3.2.157-setup-source')
+    bridge_build = await db.scalar(select(UpdateBuild).where(UpdateBuild.build_identifier == bridge_name))
+    source_build = await db.scalar(select(UpdateBuild).where(UpdateBuild.build_identifier == source_name))
+    bridge_build = bridge_build or build(bridge, bridge_name)
+    source_build = source_build or build('3.2.155' if source_foundation == '3.2.156' else '3.2.157', source_name)
     db.add_all([bridge_build, source_build]); await db.flush()
     rollouts = []
     for b in (bridge_build, source_build):
@@ -179,12 +183,12 @@ async def qualification_evidence(db, fleet, *, bridge='3.2.163', source_foundati
     db.add(SetupPreparation(id=uuid4(), device_id=device.id, release_id=release.id, assignment_id=job.id,
         bridge_rollout_id=rollouts[0].id, return_rollout_id=rollouts[1].id, return_build_id=source_build.id,
         status='completed', reason='Source156 qualification', requested_by='test-admin', updated_at=NOW))
-    connection = await db.scalar(select(DeviceSession))
+    connection = await db.scalar(select(DeviceSession).where(DeviceSession.device_id == device.id))
     connection.created_at = NOW-timedelta(minutes=3)
     await record_presence(db, device.id, dict(client_version='1.0.5', ready=True,
         foundation_version=release.version, core_version=release.version), now=NOW)
     async with db.bind.begin() as conn:
-        await conn.run_sync(lambda c: PolicySensorHealthCurrent.__table__.create(c))
+        await conn.run_sync(lambda c: PolicySensorHealthCurrent.__table__.create(c, checkfirst=True))
     health = PolicySensorHealthCurrent(id=uuid4(), device_id=device.id, observation_id=uuid4(),
         policy_id=uuid4(), policy_version=1, observed_at=NOW, received_at=NOW,
         activity_listener_state='READY', user_sensor_last_seen_at=NOW,
@@ -349,3 +353,43 @@ async def test_target_switch_does_not_hide_earlier_owned_chain_failure(db, fleet
     fleet[2].max_parallel = 2
     assert await schedule_one(db, now=NOW+timedelta(seconds=1)) is False
     assert not fleet[2].enabled and fleet[2].safe_code == 'fleet_failure_requires_review'
+
+async def test_all_active_policy_includes_later_registrations_and_reconnects_with_two_global_slots(db, fleet):
+    from endpoint_server.db.models import Device
+    from endpoint_server.setup_updates.service import record_presence
+    device, release, policy, original = fleet
+    original.launcher_version = release.version  # Original cohort is already current.
+    policy.max_parallel = 2
+    later = []
+    for index in range(3):
+        row = Device(id=uuid4(), device_identifier=f'later-registration-{index}')
+        db.add(row); await db.flush()
+        instance = DeviceInstance(id=uuid4(), device_id=row.id, instance_identifier=uuid4().hex,
+            platform='windows_amd64', agent_version='3.2.156', launcher_version='3.2.156',
+            last_seen_at=NOW-timedelta(minutes=10))
+        db.add(instance); await db.flush()
+        connection = DeviceSession(id=uuid4(), device_id=row.id, device_instance_id=instance.id,
+            session_identifier='gateway-'+uuid4().hex, expires_at=NOW+timedelta(minutes=5), last_seen_at=NOW-timedelta(minutes=10))
+        db.add(connection)
+        await record_presence(db, row.id, dict(client_version='1.0.5', ready=True,
+            foundation_version='3.2.156', core_version='3.2.156'), now=NOW-timedelta(minutes=10))
+        later.append((row, instance, connection))
+    await db.flush()
+    for tick in range(4):
+        await schedule_one(db, now=NOW+timedelta(seconds=tick))
+    assert (await db.scalars(select(SetupAssignment).where(SetupAssignment.device_id.in_([r.id for r, _, _ in later])))).all() == []
+    waiting = (await db.scalars(select(SetupFleetDecision).where(SetupFleetDecision.device_id.in_([r.id for r, _, _ in later])))).all()
+    assert len(waiting) == 3 and all(row.safe_code == 'waiting_reconnect' for row in waiting)
+    for row, instance, connection in later:
+        instance.last_seen_at = connection.last_seen_at = NOW+timedelta(seconds=5)
+        await record_presence(db, row.id, dict(client_version='1.0.5', ready=True,
+            foundation_version='3.2.156', core_version='3.2.156'), now=NOW+timedelta(seconds=5))
+    for tick in range(8):
+        await schedule_one(db, now=NOW+timedelta(seconds=tick+10))
+    assignments = (await db.scalars(select(SetupAssignment).where(SetupAssignment.device_id.in_([r.id for r, _, _ in later])))).all()
+    assert len(assignments) == 2
+    assert len({job.device_id for job in assignments}) == 2
+    decisions = (await db.scalars(select(SetupFleetDecision).where(SetupFleetDecision.device_id.in_([r.id for r, _, _ in later])))).all()
+    assert sum(row.job_id is not None for row in decisions) == 2
+    assert sum(row.safe_code == 'capacity_full' for row in decisions) == 1
+    assert policy.scope == 'all_active' and policy.device_ids == []

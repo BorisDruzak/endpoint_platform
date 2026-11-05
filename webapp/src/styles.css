@@ -57,7 +57,7 @@ button:disabled { cursor: wait; opacity: .65; }
 .error { color: #a51e28; }
 .setup-fleet-policy { margin: 18px 0 24px; background: #f8fafc; }
 .full-setup-page .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-.full-setup-page .form-grid > p, .setup-fleet-policy .row-actions, .setup-fleet-selection { grid-column: 1 / -1; }
+.full-setup-page .form-grid > h4, .full-setup-page .form-grid > div[aria-live], .full-setup-page .form-grid > p, .setup-fleet-policy .row-actions, .setup-fleet-selection { grid-column: 1 / -1; }
 .full-setup-page label { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 13px; }
 .full-setup-page input, .full-setup-page select { width: 100%; min-width: 0; max-width: 100%; font: inherit; padding: 9px; color: #17263a; border: 1px solid #bac6d4; border-radius: 4px; background: #fff; }
 .full-setup-page button { padding: 9px 12px; border: 1px solid #aebccd; border-radius: 4px; background: white; color: #1b5eaa; }

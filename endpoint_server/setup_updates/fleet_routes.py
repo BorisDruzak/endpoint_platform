@@ -12,12 +12,29 @@ from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.auth.admin_sessions import AdminPrincipal, require_admin, require_admin_update_scope
 from endpoint_server.db.models import Device
 from .models import SetupFleetPolicy, SetupFleetDecision, SetupRelease
-from .policy import (FleetPolicyUpdate, update_policy, qualifications, active_chain_devices,
+from .policy import (FleetPolicyUpdate, update_policy, qualifications, qualify_release, active_chain_devices,
                      load_device_facts, evaluate_device)
 from .routes import mutate_admin
 from .service import now_utc
 
 router = APIRouter(prefix='/api/admin/setup-updates/fleet', tags=['admin-setup-updates'])
+
+
+class FleetQualificationRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    release_id: UUID
+    evidence_assignment_id: UUID
+
+
+@router.post('/qualifications')
+async def qualify(body: FleetQualificationRequest, request: Request,
+                  principal: Annotated[AdminPrincipal, Depends(require_admin_update_scope)]):
+    async def operation(session):
+        row = await qualify_release(session, body.release_id, body.evidence_assignment_id,
+            actor=principal.user.id, request_id=audit_request_id(request))
+        return {'data': {key: getattr(row, key) for key in ('id', 'release_id', 'source_foundation',
+            'evidence_assignment_id', 'qualified_at', 'expires_at')}}
+    return await mutate_admin(request, principal, operation)
 
 
 def policy_data(row):

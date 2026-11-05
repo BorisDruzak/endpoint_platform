@@ -15,7 +15,6 @@ export function FullSetupPage({ canWrite, initialDevice = '', revision }: { canW
   const [releases, setReleases] = useState<Release[]>([])
   const [devices, setDevices] = useState<Device[]>([])
   const [device, setDevice] = useState(initialDevice)
-  const [release, setRelease] = useState('')
   const [reason, setReason] = useState('')
   const [search, setSearch] = useState('')
   const [state, setState] = useState<State | null>(null)
@@ -42,8 +41,8 @@ export function FullSetupPage({ canWrite, initialDevice = '', revision }: { canW
     void poll()
     return () => { mounted = false; clearTimeout(timer) }
   }, [device, revision, refresh])
-  async function assign(event: FormEvent) {
-    event.preventDefault(); if (!release || !device || !reason.trim()) return
+  async function assign(event: FormEvent, release: string) {
+    event.preventDefault(); if (!canWrite || busy || !release || !device || !reason.trim()) return
     setBusy(true); setError('')
     try { await request('/api/admin/setup-updates/assignments', { method: 'POST', body: JSON.stringify({ release_id: release, device_id: device, reason: reason.trim() }) }); setRefresh(v => v + 1) }
     catch (e) { setError(e instanceof Error ? e.message : 'Не удалось назначить обновление') }
@@ -58,17 +57,22 @@ export function FullSetupPage({ canWrite, initialDevice = '', revision }: { canW
   const fresh = state?.client && Date.now() - Date.parse(state.client.last_seen_at) <= 600_000
   return <section className="panel full-setup-page" aria-label="Обновление полным Setup">
     <h2>Полный Setup Windows</h2><p className="muted">Установка и проверка выполняются автоматически на выбранном устройстве. Существующие учётные данные и регистрация сохраняются.</p>
-    <SetupFleetPolicy canWrite={canWrite} releases={releases} devices={devices} revision={revision} />
+    <SetupFleetPolicy canWrite={canWrite} releases={releases} devices={devices} revision={revision} renderCanary={(release, qualify, policyBusy) => <>
+    <h4>2. Проверьте выпуск на одном устройстве</h4>
     {error && <p role="alert" className="error">{error}</p>}
-    <form className="form-grid" onSubmit={assign}>
+    <form className="form-grid" onSubmit={event => void assign(event, release)}>
       <label>Поиск устройства<input value={search} onChange={e => setSearch(e.target.value)} /></label>
       <label>Устройство<select value={device} onChange={e => { setDevice(e.target.value); setState(null) }}><option value="">Выберите Windows-устройство</option>{devices.map(d => <option key={d.id} value={d.id}>{d.display_name}</option>)}{device && !devices.some(d => d.id === device) && <option value={device}>Выбранное устройство</option>}</select></label>
-      <label>Полный Setup<select value={release} onChange={e => setRelease(e.target.value)}><option value="">Выберите выпуск</option>{releases.map(r => <option key={r.id} value={r.id}>{r.version} · {r.artifact_name}</option>)}</select></label>
       {device && !state && <p aria-live="polite">Получение состояния…</p>}
       {state && <p aria-live="polite">{state.client ? `Core ${state.client.core_version ?? 'неизвестен'} · Foundation ${state.client.foundation_version ?? 'неизвестен'} · ${fresh ? state.client.ready ? 'клиент готов' : 'клиент ожидает завершения текущей операции' : 'нет свежего ответа клиента'}` : 'Клиент будет подготовлен автоматически, если исходная версия поддерживается.'}</p>}
       {canWrite && <><label>Причина<input required maxLength={256} value={reason} onChange={e => setReason(e.target.value)} /></label><div><button className="primary" disabled={busy || !state || !device || !release || !reason.trim() || state.data.some(j => active.includes(j.status))}>Обновить полным Setup</button></div></>}
     </form>
     {state?.data.map(job => <article className="panel" key={job.id}><h3>{labels[job.status] ?? job.status} · {releases.find(r => r.id === job.release_id)?.version ?? 'Setup'}</h3><p>{job.reason}</p><p className="muted">{new Date(job.updated_at).toLocaleString('ru-RU')}</p>{job.last_report?.proof?.soak && <p>Проверка {Math.round(job.last_report.proof.soak.duration_seconds)} с · {job.last_report.proof.soak.sensor_count > 0 ? `CPU датчика, максимум ${job.last_report.proof.soak.sensor_cpu_percent_max}% · датчиков: ${job.last_report.proof.soak.sensor_count}` : 'Датчик не наблюдался; CPU и пользовательская телеметрия не проверены'}</p>}{job.safe_code && ['failed', 'blocked', 'rolled_back', 'recovery_required'].includes(job.status) && <p>Код диагностики: {job.safe_code}</p>}{canWrite && cancellable.includes(job.status) && <><button disabled={busy} onClick={() => void cancel(job)}>Отменить следующие этапы</button><p className="muted">Уже начатый этап подготовки Core может завершиться.</p></>}</article>)}
     {state && state.data.length === 0 && <p className="empty-text">Обновления полным Setup ещё не назначены.</p>}
+    <h4>3. Квалифицируйте фактический результат</h4>
+    <p className="muted">Сервер проверит сохранённое нативное принятие точного выпуска, исходную Foundation, 180 секунд наблюдения, свежее подключение и датчик пользователя. Квалификация не включает политику.</p>
+    {release && state?.data.filter(job => job.release_id === release && job.status === 'applied').map(job => <div className="setup-qualification" key={job.id}><p>Принятый результат · {releases.find(r => r.id === release)?.artifact_name} · {new Date(job.updated_at).toLocaleString('ru-RU')} · операция {job.id}</p>{canWrite && <button type="button" disabled={busy || policyBusy} onClick={() => void qualify(job.id)}>Квалифицировать этот результат</button>}</div>)}
+    {(!release || !state?.data.some(job => job.release_id === release && job.status === 'applied')) && <p>Для выбранного выпуска на этом устройстве ещё нет принятого результата.</p>}
+    </>} />
   </section>
 }
