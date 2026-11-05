@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "version": "3.2.168",
+  "platform": "windows_amd64",
+  "status": "frozen_runtime_native_build_pending",
+  "runtime_source_commit": "8c110e8d9b5ec9c002c4e7084eefd4bba8a8d6b3",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.168.json",
+  "producer_root": "C:\\endpoint-platform-wix-build\\setup168-8c110e8",
+  "initial_runtime": {
+    "file_count": 119,
+    "tree_sha256": "d5d0c4e7c943887a5409a86c14c2847fa87e0b2d18a7d5a10ca489e57875ee46",
+    "component_guid": "6E275835-EB4B-576F-BBE2-1011CBC9F848",
+    "source_file_count": 280,
+    "native_helpers_reuse_allowed": false
+  },
+  "fix": {
+    "commit": "f5e6f33c94798296cbe6f0ddcdd1831987946d27",
+    "scope": "Staged trial uses the verified native canonical selector serializer; continuation grant byte hashes and owner authority remain unchanged."
+  },
+  "packaged_observer": {
+    "client_version": "1.0.6",
+    "script_sha256": "f6359376cac7f5a5de6476ed9c41ea652fb95fe7e64c285d1ff2eaa8f6b0b069"
+  },
+  "qualification": {
+    "native_applied": false,
+    "active_user_telemetry": false,
+    "setup_assignments": 0
+  },
+  "fleet": {
+    "enabled": false,
+    "policy_revision": 3,
+    "max_parallel": 2
+  },
+  "existing_167_recovery_authorized_by_this_release": false,
+  "independent_support_tunnel_included": false
+}

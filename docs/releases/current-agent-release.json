@@ -214,11 +214,11 @@
     "followup_health_warnings": []
   },
   "live_provider": {
-    "commit": "773f2dbeeee561cc565b124c9f2dcbac553bd48f",
-    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-773f2dbeeee5",
+    "commit": "75adbf4b414fb5e9d65622a5b0b32a6f6f1c7dc4",
+    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-75adbf4b414f",
     "migration": "0045_setup_fleet_policy",
-    "scope": "Observer1.0.6 and upward Core166 preparation deployed; full Setup167 registered unqualified; fleet paused revision3/all-active/max2; enrollment165 preserved",
-    "verified_utc": "2026-11-05T11:55:35.248225+00:00",
+    "scope": "Bounded same-policy retry after browser helper unavailability deployed; actual146 still returns helper unavailable. Setup167 failed canary120 remains held. Fleet paused revision3/all-active/max2; enrollment165 preserved.",
+    "verified_utc": "2026-11-05T13:14:51.199489+00:00",
     "health_http_status": 200,
     "database": "ok"
   },
@@ -465,5 +465,14 @@
     "enrollment_download_promoted": false,
     "fleet_enabled": false,
     "observer_bootstrap_record": "docs/releases/core-3.2.166-observer-bootstrap.json"
+  },
+  "windows_full_setup168_candidate": {
+    "version": "3.2.168",
+    "status": "frozen_runtime_native_build_pending",
+    "runtime_source_commit": "8c110e8d9b5ec9c002c4e7084eefd4bba8a8d6b3",
+    "runtime_source_binding": "packaging/windows/initial-runtime-3.2.168.json",
+    "record": "docs/releases/windows-3.2.168-setup.json",
+    "native_qualified": false,
+    "fleet_enabled": false
   }
 }
