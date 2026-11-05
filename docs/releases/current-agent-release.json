@@ -427,5 +427,24 @@
     "full_setup_fleet_enabled": false,
     "primary_native_release_unchanged": true,
     "persistent_auto_assignment_for_future_or_offline_agents": false
+  },
+  "windows_full_setup165": {
+    "version": "3.2.165",
+    "status": "published_canary_qualified_fleet_paused",
+    "record": "docs/releases/windows-3.2.165-setup.json",
+    "runtime_source_commit": "ed7f77a559e19500df75b9ec169c5336e308b304",
+    "windows_packaging_commit": "0080690784ff4efa8cecd014d0e38afbc02bc1d5",
+    "runtime_source_binding": "packaging/windows/initial-runtime-3.2.165.json",
+    "setup_sha256": "c71cfffca525f8370b22a9f96155176464566739c675f9325596fd2d045f159a",
+    "download_url": "https://endpoint.sosnadmin.local/api/admin/console/installer/releases/e1ae6965-f135-43e8-9c7e-0d55a2dbe983/download",
+    "full_setup_fleet_enabled": false,
+    "policy_revision": 3,
+    "scope": "all_active",
+    "max_parallel": 2,
+    "pause_reason": "fleet_failure_requires_review",
+    "recovery_device": "192.168.101.146",
+    "general_fleet_accepted": false,
+    "linux_primary_unchanged": true,
+    "verification_record": "docs/verification/2026-11-05-setup165-web-fleet.md"
   }
 }

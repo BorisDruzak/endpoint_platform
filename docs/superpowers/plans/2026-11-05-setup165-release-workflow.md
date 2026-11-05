@@ -20,9 +20,9 @@ packaging/windows/initial-runtime-3.2.165.json; release records at acceptance.
 Interface: signed EXE/MSI, exact runtime source/artifact binding, canonical
 SetupReleaseManifestV1 and WindowsSetupRelease publication metadata for Task3.
 
-- [ ] Bump Core version165 and fixture; run fallback/context regressions, commit.
-- [ ] Freeze Core from that exact commit; produce native runtime contract/evidence.
-- [ ] Build/sign MSI and Setup with canonical scripts; verify signatures, version,
+- [x] Bump Core version165 and fixture; run fallback/context regressions, commit.
+- [x] Freeze Core from that exact commit; produce native runtime contract/evidence.
+- [x] Build/sign MSI and Setup with canonical scripts; verify signatures, version,
   embedded payload, hashes and secret-free publication inputs. Preserve all older bytes.
 
 ### Task 2: Unified Console steps and qualification action
@@ -33,11 +33,11 @@ Interface: POST /api/admin/setup-updates/fleet/qualifications with exact release
 and evidence_assignment_id calls qualify_release inside mutate_admin. Existing
 GET fleet returns qualification state; existing policy PUT persists all-active/max2.
 
-- [ ] Add failing tests for legitimate qualification versus missing/foreign/stale
+- [x] Add failing tests for legitimate qualification versus missing/foreign/stale
   proof, write role/CSRF/revalidation/audit, and single-target numbered UI process.
-- [ ] Implement minimum endpoint and reusable UI; preserve manual canary access,
+- [x] Implement minimum endpoint and reusable UI; preserve manual canary access,
   read-only views, failed operation ownership, stale draft/preview protection.
-- [ ] Run focused server/UI suites, full web tests/typecheck/build, and browser
+- [x] Run focused server/UI suites, full web tests/typecheck/build, and browser
   desktop/mobile interaction checks. Review code before production deployment.
 
 ### Task 3: Native canary, persistent rollout and rules
@@ -46,17 +46,31 @@ Files: AGENTS.md; docs/runbooks/FULL_SETUP_FLEET_POLICY.md;
 docs/releases/current-agent-release.json and new165 record; verification report.
 Consumes Tasks1/2's exact immutable release and deployed Console interface.
 
-- [ ] Deploy tested Console/server through canonical release procedure without
+- [x] Deploy tested Console/server through canonical release procedure without
   replacing unrelated state. Register signed165 and include default AUTO campaign.
-- [ ] Use Console to assign101.120; verify real native165/165 acceptance, stable
+- [x] Use Console to assign101.120; verify real native165/165 acceptance, stable
  180-second observation, private continuity and fresh active-user/power telemetry.
-- [ ] Qualify actual canary in Console, preview and save all-active/max_parallel2;
+- [x] Qualify actual canary in Console, preview and save all-active/max_parallel2;
   verify persistence/reload, server audit and actual bounded assignments/results.
-- [ ] Prove later registration/reconnection scheduling in tests, enumerate blocked
+- [x] Prove later registration/reconnection scheduling in tests, enumerate blocked
   sources honestly, and record remaining live acceptance limits.
 - [ ] Promote verified Windows download165, document the single release process
   and mandatory future-release inclusion rule; retain Linux metadata separately.
 - [ ] Commit exact acceptance, verification and review evidence. No push/PR requested.
+
+## Current live gate
+
+120 and144 passed native165 acceptance.146 is held with
+`native_observation_unavailable`, native proof unavailable and stale UserSensor.
+The real failure circuit automatically paused policy revision3, retaining
+all-active scope and max_parallel2. Published enrollment165 bytes/signatures
+are verified, but general fleet acceptance and stable-primary declaration are
+withheld. See `docs/verification/2026-11-05-setup165-web-fleet.md`.
+
+- [ ] Obtain146 protected observer stage/line and establish the actual cause.
+- [ ] Recover the original attempt without MSI replay or loss of native ownership.
+- [ ] Prove fresh active-user telemetry, then resume through Console and observe
+  the remaining bounded waves.
 
 ## Review focus
 

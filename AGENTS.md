@@ -7,8 +7,8 @@
 
 # Canonical agent release
 
-- The primary published agent version remains **3.2.156** for Windows and ALT Linux. Read [`docs/releases/current-agent-release.json`](docs/releases/current-agent-release.json) for exact publication source, signed artifacts and compatibility limits.158 qualification is preserved separately in [`docs/releases/agent-3.2.158.json`](docs/releases/agent-3.2.158.json). The primary download stays156; the single Windows AUTO campaign now accepts all eight available installer release IDs, including158.
-- The primary Windows installer is `C:\endpoint-platform-wix-build\staged-3.2.156-6ed41cd\native-setup-build\releases\EndpointAgentSetup-3.2.156-x64.exe`, bound by `packaging/windows/initial-runtime-3.2.156.json`. The product download at `https://endpoint.sosnadmin.local/admin/enrollment` remains156. Foundations older than156 require full signed Setup before Core-only156.
+- The primary published agent version remains **3.2.156** for Windows and ALT Linux. Read [`docs/releases/current-agent-release.json`](docs/releases/current-agent-release.json) for exact publication source, signed artifacts and compatibility limits.158 qualification is preserved separately in [`docs/releases/agent-3.2.158.json`](docs/releases/agent-3.2.158.json). That156 primary checkpoint is historical. The current enrollment download is candidate165 and the single Windows AUTO campaign accepts nine immutable installer releases. Fleet is paused after the first165 wave; see the current165 record below.
+- The primary Windows installer is `C:\endpoint-platform-wix-build\staged-3.2.156-6ed41cd\native-setup-build\releases\EndpointAgentSetup-3.2.156-x64.exe`, bound by `packaging/windows/initial-runtime-3.2.156.json`. This is the historical156 primary artifact; the enrollment page now serves published candidate165, whose fleet acceptance is incomplete. Foundations older than156 require full signed Setup before Core-only156.
 - The primary Linux kit remains `C:\endpoint-platform-wix-build\unified-3.2.156\linux-kit\endpoint-alt-pilot-3.2.156-1.tar.gz`, published under `/srv/endpoint-platform-distribution/alt/endpoint-alt-pilot-3.2.156-1/`. Historical158 ALT singleton/kit evidence remains in the separate158 record; this Windows auto-update task publishes no new Linux release.
 - Core **3.2.163**, source `b23857849ad5b877e67d0de3c28d297f9ae5d507`, is the current Windows preparation bridge with signed client1.0.5. Its artifact is `C:\endpoint-platform-wix-build\setup-client-3.2.163-b238578\EndpointCore-3.2.163-b238578.zip`; see [`docs/releases/core-3.2.163-setup-client.json`](docs/releases/core-3.2.163-setup-client.json). It is not a primary installer or Linux release. Historical Core162/client1.0.4 artifacts and reports remain immutable. Foundation156 uses the exact compatible Core155 return, identifier `endpoint-windows-core-3.2.155-setup-source-725739f`, before full Setup158; other qualified profiles retain Core157. Never weaken Core157's Foundation157 minimum. Preserve all failed attempt receipts.
 - Windows power-context patch Core **3.2.164**, source `1c2e54a06d1a7dfb6c2c2e0d2ef2cde2d0fe9896`, requires Foundation **3.2.158**. Immutable artifact: `C:\endpoint-platform-wix-build\core164-power-1c2e54a\EndpointCore-3.2.164-1c2e54a.zip`. See [`docs/releases/core-3.2.164-power-context.json`](docs/releases/core-3.2.164-power-context.json) for actual Endpoint cohort acceptance and limits. This patch does not promote a primary installer, change Foundation158 or replace the compatible163 bridge for Foundation156. Future full Setup media must include the corrected runtime in a new, separately qualified native version; historical installer bytes remain unchanged. Explicit Core cohort assignments do not enable the disabled full-Setup fleet policy or create persistent automatic assignment for future/offline agents.
@@ -17,6 +17,41 @@
 - The second clean156 test with client1.0.5 automatically started UserSensor/Tray and applied full158 with native0 and183.636 seconds of stable observation, sensor_count1. Normal RDP reconnection on05.11 confirmed fresh accepted UserSensor samples and activity without a companion restart. Exact158-r3/source156 qualification872a53bc-17f3-48ac-a481-dfeaaac2f961 expires2026-12-05T04:07:57.728041Z; other source profiles are not inferred. Yandex26.10 browser telemetry remains a known issue explicitly deferred by the user, not a passed browser test. See [`docs/verification/2026-11-04-test120-usersensor156-full158.md`](docs/verification/2026-11-04-test120-usersensor156-full158.md). Fleet policy is deployed but disabled, max_parallel1. Use [`docs/runbooks/FULL_SETUP_FLEET_POLICY.md`](docs/runbooks/FULL_SETUP_FLEET_POLICY.md) for bounded waves.
 - Every subsequent agent release must update this section's version/paths and the canonical record together with runtime version, Windows source binding and Linux kit metadata. Verify actual published bytes/signatures before declaring a new primary. Keep native source qualification, public enrollment, scoped bootstrap and fleet acceptance distinct.
 - Existing156 on A2-INFAN-N/101.29 initially failed to bootstrap163: an Administrators-owned updates root denied LocalService the WRITE_DAC required by frozen156 before download. After explicit user authorization, a one-time owner-only repair changed that root to LocalService while preserving its exact DACL/group and private files. The same Endpoint bridge163/return155/full158 chain then applied05.11 at05:25:49Z, native0,181.622 seconds stable, fresh UserSensor/activity and completed health/inventory. This administratively prepared continuation does not qualify unattended historical156 delivery or replace the clean120 evidence; fleet remains disabled. Do not generalize version eligibility to historical ACL readiness or apply this repair elsewhere without authorization. See [`docs/verification/2026-11-05-test29-endpoint-full158.md`](docs/verification/2026-11-05-test29-endpoint-full158.md).
+
+- Current Windows full Setup candidate is **3.2.165**, signed EXE `C:\endpoint-platform-wix-build\setup165-final-ed7f77a\native-setup-build\releases\EndpointAgentSetup-3.2.165-x64.exe`, source binding `packaging/windows/initial-runtime-3.2.165.json`. Its enrollment download is published and the exact Foundation158-source canary120 is qualified, but the first automatic wave stopped on101.146 with `native_observation_unavailable` and stale UserSensor. Policy revision3 is **paused**, all-active/max2 retained;144 applied successfully. Preserve146 recovery ownership and do not replay or resume before diagnosis. This is not general fleet acceptance or a new stable-primary declaration. See [`docs/releases/windows-3.2.165-setup.json`](docs/releases/windows-3.2.165-setup.json) and [`docs/verification/2026-11-05-setup165-web-fleet.md`](docs/verification/2026-11-05-setup165-web-fleet.md). Historical disabled/max1 statements above describe their earlier checkpoints; Linux primary156 remains unchanged.
+
+# Canonical Windows update workflow
+
+- Use one process for every new Windows full release: immutable signed build,
+  candidate publication, Console canary, server qualification, coverage preview,
+  persistent fleet policy, observed acceptance and primary-download promotion.
+  Follow [`docs/runbooks/FULL_SETUP_FLEET_POLICY.md`](docs/runbooks/FULL_SETUP_FLEET_POLICY.md).
+- Author the runtime compatibility contract before freezing initial runtime
+  bytes. Bind its complete tree, reviewed source files, exact Git revision,
+  toolchain and a new component GUID/version. Verify signed MSI and EXE bytes
+  with the existing trusted publisher and timestamp. Never replace old packages.
+- In **Releases and updates -> Full Setup**, use the single exact target through
+  all numbered steps. Select the canary by computer hostname; duplicate enrollment
+  campaign names are not sufficient device identity. A canary draft pins its target.
+- Qualification comes only from a real accepted assignment for that EXE/source:
+  native0, exact Core/Foundation/source/MSI, preserved private identity, stable
+  services/companions, fresh WSS and active-user telemetry, at least180 seconds
+  observed. The Console qualification action never enables the policy itself.
+- After qualification, preview **all active Windows**, select **two concurrent
+  chains**, enable and save. This is a persistent dynamic scope with no frozen
+  UUID list: later registrations and reconnections are evaluated automatically.
+  Include every trusted new installer in the single default AUTO enrollment
+  campaign through the canonical transactional publisher; preserve its authority.
+- Fresh WSS and Setup hello must agree before automatic native admission. Missing,
+  stale or busy modern observers and discordant versions wait for confirmation;
+  they must not trigger a legacy bridge, poison a device or pause the whole fleet.
+  Preserve the existing controlled legacy preparation/return path.
+- Keep exact-source qualification and its expiry visible. Unsupported sources
+  remain blocked with a reason. Global slots include manual/recovery chains;
+  real failure pauses new work. Never replay MSI or clear an unknown native outcome.
+- Verify actual assignments and fresh telemetry after update; heartbeat/version
+  alone is not acceptance. Promote the Windows download only after native canary
+  acceptance and verified served bytes. Keep Linux release/version separate.
 
 # Production host
 
