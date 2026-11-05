@@ -2,7 +2,7 @@
   "schema_version": 1,
   "version": "3.2.169",
   "platform": "windows_amd64",
-  "status": "signed_registered_candidate_not_native_qualified",
+  "status": "source168_native_accepted_source158_recovery_required",
   "runtime_source_commit": "4525435f1345e0d44253948f2867a0a099475f6b",
   "runtime_source_binding": "packaging/windows/initial-runtime-3.2.169.json",
   "producer_root": "C:\\endpoint-platform-wix-build\\setup169-4525435",
@@ -22,23 +22,27 @@
     "script_sha256": "f6359376cac7f5a5de6476ed9c41ea652fb95fe7e64c285d1ff2eaa8f6b0b069"
   },
   "qualification": {
-    "native_applied": false,
-    "active_user_telemetry": false,
-    "setup_assignments": 0
+    "native_applied": true,
+    "active_user_telemetry": true,
+    "setup_assignments": 2,
+    "accepted_source_foundations": [
+      "3.2.168"
+    ],
+    "server_qualified_source_foundations": [],
+    "fleet_eligible": false
   },
   "fleet": {
     "enabled": false,
     "policy_revision": 3,
     "max_parallel": 2,
     "active_recovery_devices": [
-      "192.168.101.120",
-      "192.168.101.27"
+      "192.168.101.187"
     ]
   },
   "existing_native_recovery_authorized_by_this_release": false,
   "independent_support_tunnel_included": false,
   "windows_packaging_commit": "982b84181486a28e9b351947ca665323cdeae2d8",
-  "server_console_commit": "75adbf4b414fb5e9d65622a5b0b32a6f6f1c7dc4",
+  "server_console_commit": "280d5c2e3005f58c350885744c393af4eeaeeb7d",
   "setup_update_release_id": "dee3a7c6-c758-47fc-beca-f01f8d7c7ef3",
   "setup_update_manifest": {
     "schema_version": "windows_setup_release_v1",
@@ -106,5 +110,40 @@
     "published": false,
     "existing_default_version": "3.2.165",
     "auto_campaign_unchanged": true
-  }
+  },
+  "live_canaries": [
+    {
+      "address": "192.168.101.187",
+      "device_id": "d3ed13cd-1b40-4ccc-b035-240a184cf247",
+      "assignment_id": "0d4299e7-7c17-495d-8ddb-56b50f03a154",
+      "attempt_id": "f0da578b-2234-417a-b625-8b356994123a",
+      "source_core": "3.2.164",
+      "source_foundation": "3.2.158",
+      "source_client": "1.0.5",
+      "status": "recovery_required",
+      "safe_code": "native_exit_requires_recovery",
+      "native_proof": null,
+      "observed_target_core_foundation": "3.2.169",
+      "observer_version": "1.0.6",
+      "manual_preparation": false
+    },
+    {
+      "address": "192.168.101.146",
+      "device_id": "00aa5779-d229-4dce-a28c-1e668819eed2",
+      "assignment_id": "5bd501de-51fe-4932-8ac2-e4f19f5cd67a",
+      "attempt_id": "0cb501b7-9376-46ac-9f51-35e406116bd8",
+      "source_core": "3.2.168",
+      "source_foundation": "3.2.168",
+      "source_client": "1.0.6",
+      "status": "applied",
+      "native_exit": 0,
+      "finished_at": "2026-11-05T17:57:48.819602Z",
+      "soak_seconds": 181.528,
+      "sensor_count": 1,
+      "sensor_cpu_percent_max": 0.0,
+      "private_preserved": true,
+      "manual_preparation": false
+    }
+  ],
+  "verification_record": "docs/verification/2026-11-05-setup169-web-fleet.md"
 }
