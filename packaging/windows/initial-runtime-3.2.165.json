@@ -3,7 +3,7 @@
   "version": "3.2.165",
   "agent_version": "3.2.165",
   "component_guid": "B0EFC509-91BC-543A-86BD-E6BB708F9287",
-  "source_revision": "4bff5010c759d98d35b30a80a7ab8e38bde5e5bb",
+  "source_revision": "ed7f77a559e19500df75b9ec169c5336e308b304",
   "source_files": [
     {
       "path": "browser_sensor/extension-id.txt",
@@ -1099,15 +1099,15 @@
     }
   ],
   "artifact": {
-    "file_count": 118,
-    "tree_sha256": "fc87297042cce99ab34ebd370190b0e2b9977c3ba9ed799252ac4e264836cb09"
+    "file_count": 119,
+    "tree_sha256": "ac6284d140dd6e312fc7c778a98dd71d73ab738d4263025ee8c38499dd443562"
   },
   "toolchain": {
     "implementation": "CPython",
     "platform": "win-amd64",
     "pyinstaller_version": "6.22.3",
     "python_version": "3.12.14",
-    "source_date_epoch": 1793865438,
+    "source_date_epoch": 1793866511,
     "python_hash_seed": "0",
     "pyinstaller_hooks_contrib_version": "2026.8"
   }
