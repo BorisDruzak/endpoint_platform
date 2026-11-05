@@ -2,7 +2,7 @@
   "schema_version": 1,
   "version": "3.2.168",
   "platform": "windows_amd64",
-  "status": "frozen_runtime_native_build_pending",
+  "status": "source165_qualified_source158_canary_failed",
   "runtime_source_commit": "8c110e8d9b5ec9c002c4e7084eefd4bba8a8d6b3",
   "runtime_source_binding": "packaging/windows/initial-runtime-3.2.168.json",
   "producer_root": "C:\\endpoint-platform-wix-build\\setup168-8c110e8",
@@ -22,15 +22,181 @@
     "script_sha256": "f6359376cac7f5a5de6476ed9c41ea652fb95fe7e64c285d1ff2eaa8f6b0b069"
   },
   "qualification": {
-    "native_applied": false,
-    "active_user_telemetry": false,
-    "setup_assignments": 0
+    "native_applied": true,
+    "active_user_telemetry": true,
+    "setup_assignments": 2,
+    "source_foundations": [
+      "3.2.165"
+    ],
+    "source_qualifications": [
+      {
+        "id": "f9f2ffb1-7b9a-4a05-bac1-8c89db4b68ce",
+        "source_foundation": "3.2.165",
+        "sha256": "bb48b95a10dbae2f054686b5660a2e293ad96ffec84856cb2ece042d76b66ca6",
+        "qualified_at": "2026-11-05 13:31:17.480947+00:00",
+        "expires_at": "2026-12-05 13:31:17.480947+00:00",
+        "evidence_assignment_id": "113c1719-def9-41ee-8960-e7037d44fac4"
+      }
+    ]
   },
   "fleet": {
     "enabled": false,
     "policy_revision": 3,
-    "max_parallel": 2
+    "max_parallel": 2,
+    "known_candidate_failure": true,
+    "active_recovery_devices": [
+      "192.168.101.120",
+      "192.168.101.27"
+    ]
   },
   "existing_167_recovery_authorized_by_this_release": false,
-  "independent_support_tunnel_included": false
+  "independent_support_tunnel_included": false,
+  "windows_packaging_commit": "53a7cc4ae344ed1411fa616f6d83f0b6b7074f0c",
+  "server_console_commit": "75adbf4b414fb5e9d65622a5b0b32a6f6f1c7dc4",
+  "setup_update_release_id": "6e9b355c-15cd-4756-973a-70cef6a80b04",
+  "setup_update_manifest": {
+    "schema_version": "windows_setup_release_v1",
+    "release_identifier": "endpoint-windows-full-setup-3.2.168-8c110e8",
+    "version": "3.2.168",
+    "artifact_name": "EndpointAgentSetup-3.2.168-x64.exe",
+    "sha256": "bb48b95a10dbae2f054686b5660a2e293ad96ffec84856cb2ece042d76b66ca6",
+    "size": 146248016,
+    "source_revision": "8c110e8d9b5ec9c002c4e7084eefd4bba8a8d6b3",
+    "msi_sha256": "cb7b8dafc404b665405f589926ff536abf6ddfcf4dac12d9539dd4d4ab394c2a",
+    "tray_sha256": "77d96a3559bcbb5ba2e4d8293a6e954b580c7a93a8a9cd62e497f53883bc41e9",
+    "sensor_sha256": "f7e484dc144a4bc5328409460e9cac1920008e1c212feda16a1b6d411d28b40f"
+  },
+  "signatures": [
+    {
+      "File": "EndpointAgent-3.2.168-x64.msi",
+      "Size": 104435712,
+      "SHA256": "cb7b8dafc404b665405f589926ff536abf6ddfcf4dac12d9539dd4d4ab394c2a",
+      "Signature": "Valid",
+      "Publisher": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+      "Timestamped": true
+    },
+    {
+      "File": "EndpointAgentSetup-3.2.168-x64.exe",
+      "Size": 146248016,
+      "SHA256": "bb48b95a10dbae2f054686b5660a2e293ad96ffec84856cb2ece042d76b66ca6",
+      "Signature": "Valid",
+      "Publisher": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+      "Timestamped": true
+    }
+  ],
+  "native_helper": {
+    "inspection": {
+      "sha256": "6679742c57db6df1c2513578119d738fc116622001f0e41b0bd35c62e8d2f231",
+      "build_tools_absent": true,
+      "python_module_count": 438,
+      "archive_member_count": 112
+    },
+    "observer_payload": {
+      "client_version": "1.0.6",
+      "schema_version": 1,
+      "script_sha256": "f6359376cac7f5a5de6476ed9c41ea652fb95fe7e64c285d1ff2eaa8f6b0b069",
+      "source_sha256": "ff518de2831f75ed12b4203463c0dbdc94751579d2ac60adebc75e6df24f3119"
+    },
+    "canonical_selector_in_core_and_helper": true,
+    "strict_grant_reader_unchanged": true
+  },
+  "artifacts": [
+    {
+      "filename": "EndpointAgent-3.2.168-x64.msi",
+      "operator_path": "C:\\endpoint-platform-wix-build\\setup168-8c110e8\\native-setup-build\\releases\\EndpointAgent-3.2.168-x64.msi",
+      "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgent-3.2.168-x64.msi",
+      "sha256": "cb7b8dafc404b665405f589926ff536abf6ddfcf4dac12d9539dd4d4ab394c2a",
+      "size": 104435712
+    },
+    {
+      "filename": "EndpointAgentSetup-3.2.168-x64.exe",
+      "operator_path": "C:\\endpoint-platform-wix-build\\setup168-8c110e8\\native-setup-build\\releases\\EndpointAgentSetup-3.2.168-x64.exe",
+      "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgentSetup-3.2.168-x64.exe",
+      "sha256": "bb48b95a10dbae2f054686b5660a2e293ad96ffec84856cb2ece042d76b66ca6",
+      "size": 146248016
+    }
+  ],
+  "enrollment": {
+    "published": false,
+    "existing_default_version": "3.2.165",
+    "auto_campaign_unchanged": true
+  },
+  "canary": {
+    "device_id": "00aa5779-d229-4dce-a28c-1e668819eed2",
+    "address": "192.168.101.146",
+    "assignment_id": "113c1719-def9-41ee-8960-e7037d44fac4",
+    "attempt_id": "034099c3-d0c8-40f8-8281-c7b5cfe93179",
+    "source_core": "3.2.165",
+    "source_foundation": "3.2.165",
+    "source_client": "1.0.6",
+    "assigned_at": "2026-11-05T13:24:19.494112Z",
+    "assigned_through_console": true,
+    "workstation_preparation_for_this_update": false,
+    "source_165_previously_repaired_manually": true,
+    "status": "applied",
+    "finished_at": "2026-11-05 13:30:50.426427+00:00",
+    "proof": {
+      "foundation_version": "3.2.168",
+      "core_version": "3.2.168",
+      "source_revision": "8c110e8d9b5ec9c002c4e7084eefd4bba8a8d6b3",
+      "msi_sha256": "cb7b8dafc404b665405f589926ff536abf6ddfcf4dac12d9539dd4d4ab394c2a",
+      "native_phase": "accepted",
+      "exit_code": 0,
+      "native_verified": true,
+      "core_verified": true,
+      "provenance_verified": true,
+      "pending": false,
+      "services_verified": true,
+      "companions_restored": true,
+      "private": {
+        "credential": true,
+        "identity": true,
+        "origin": true,
+        "ca": true
+      },
+      "soak": {
+        "duration_seconds": 181.509,
+        "samples": 6,
+        "sensor_count": 1,
+        "sensor_cpu_percent_max": 0.0043,
+        "services_stable": true,
+        "companions_stable": true,
+        "connected": true
+      }
+    },
+    "policy": {
+      "status": "APPLIED",
+      "error_code": null,
+      "received_at": "2026-11-05 13:26:30.769743+00:00",
+      "applied_at": "2026-11-05 13:26:30.790688+00:00",
+      "acknowledged_at": "2026-11-05 13:26:30.849351+00:00"
+    },
+    "user_sensor_last_seen_at": "2026-11-05 13:31:23.564464+00:00",
+    "activity_latest": "2026-11-05 13:32:23.614462+00:00"
+  },
+  "second_canary": {
+    "device_id": "13f38b93-cc73-4130-b58c-41f534b1893e",
+    "address": "192.168.101.27",
+    "assignment_id": "e41d9fe1-628c-4279-b224-b7a4f55e7b99",
+    "attempt_id": "91899f50-0c7b-439b-a741-ddb8d2329aa4",
+    "source_core": "3.2.164",
+    "source_foundation": "3.2.158",
+    "source_client": "1.0.5",
+    "assigned_at": "2026-11-05T13:31:43.340898Z",
+    "assigned_through_console": true,
+    "workstation_preparation_for_this_update": false,
+    "status": "recovery_required",
+    "safe_code": "native_exit_requires_recovery",
+    "native_exit": 21,
+    "native_stage": "accepted",
+    "updated_at": "2026-11-05T13:35:19.813607Z",
+    "original_job_and_native_hold_preserved": true,
+    "post_update_user_telemetry_verified": false,
+    "root_cause": "Missing observer1.0.6 directory is checked by reject_reparse_ancestors before mkdir; FileNotFoundError winerror2. Existing1.0.6 on146 hid this separate provisioning defect.",
+    "diagnostic_event_source": "Endpoint Platform Installer",
+    "diagnostic_event_id": 1001,
+    "selector_hashes_match_immutable_grant": true,
+    "future_source_fix": "d7304706263f1427b6ed267e66661a3989ecf8d6"
+  },
+  "verification_record": "docs/verification/2026-11-05-native168-canaries.md"
 }

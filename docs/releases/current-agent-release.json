@@ -217,8 +217,8 @@
     "commit": "75adbf4b414fb5e9d65622a5b0b32a6f6f1c7dc4",
     "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-75adbf4b414f",
     "migration": "0045_setup_fleet_policy",
-    "scope": "Bounded same-policy retry after browser helper unavailability deployed; actual146 still returns helper unavailable. Setup167 failed canary120 remains held. Fleet paused revision3/all-active/max2; enrollment165 preserved.",
-    "verified_utc": "2026-11-05T13:14:51.199489+00:00",
+    "scope": "Bounded same-policy browser-helper retry deployed.146 full Setup168 accepted and fresh policy/UserSensor/Activity restored.168 source158 canary27 failed before creating observer1.0.6;167 canary120 remains held. Fleet disabled revision3/all-active/max2; enrollment165 unchanged.",
+    "verified_utc": "2026-11-05T13:36:48.905726+00:00",
     "health_http_status": 200,
     "database": "ok"
   },
@@ -468,11 +468,20 @@
   },
   "windows_full_setup168_candidate": {
     "version": "3.2.168",
-    "status": "frozen_runtime_native_build_pending",
+    "status": "source165_qualified_source158_canary_failed",
     "runtime_source_commit": "8c110e8d9b5ec9c002c4e7084eefd4bba8a8d6b3",
     "runtime_source_binding": "packaging/windows/initial-runtime-3.2.168.json",
     "record": "docs/releases/windows-3.2.168-setup.json",
-    "native_qualified": false,
-    "fleet_enabled": false
+    "native_qualified": true,
+    "fleet_enabled": false,
+    "windows_packaging_commit": "53a7cc4ae344ed1411fa616f6d83f0b6b7074f0c",
+    "setup_update_release_id": "6e9b355c-15cd-4756-973a-70cef6a80b04",
+    "setup_sha256": "bb48b95a10dbae2f054686b5660a2e293ad96ffec84856cb2ece042d76b66ca6",
+    "qualified_source_foundations": [
+      "3.2.165"
+    ],
+    "fleet_eligible": false,
+    "recovery_device": "192.168.101.27",
+    "enrollment_download_promoted": false
   }
 }
