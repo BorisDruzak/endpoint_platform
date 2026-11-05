@@ -369,6 +369,116 @@ def test_native_provision_accepts_existing_signed_observer_inherited_admin_file_
     observer._assert_administrative_file(asset)
 
 
+def _observer_directory_sddl(path):
+    import win32security as security
+    flags = security.OWNER_SECURITY_INFORMATION | security.DACL_SECURITY_INFORMATION
+    descriptor = security.GetNamedSecurityInfo(str(path), security.SE_FILE_OBJECT, flags)
+    return security.ConvertSecurityDescriptorToStringSecurityDescriptor(descriptor, 1, flags)
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='native administrative directory admission')
+def test_native_observer_creates_missing_version_below_existing_protected_root(native_protected_root):
+    from pc_agent.platform.windows import native_setup_observer as observer, durable_state
+    before = _observer_directory_sddl(native_protected_root)
+    with durable_state.installer_mutation_checkpoints(lambda: None):
+        version = observer._administrative_directory(native_protected_root, '1.0.6')
+    assert version.is_dir()
+    observer.fence.assert_state_security(version, secret=True)
+    assert _observer_directory_sddl(native_protected_root) == before
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='native administrative directory admission')
+def test_native_observer_missing_directory_requires_live_mutation_scope(native_protected_root):
+    from pc_agent.platform.windows import native_setup_observer as observer
+    with pytest.raises(ValueError, match='installer mutation scope is absent'):
+        observer._administrative_directory(native_protected_root, '1.0.6')
+    assert not (native_protected_root / '1.0.6').exists()
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='native administrative directory admission')
+@pytest.mark.parametrize('defect', ['unsafe-parent', 'file', 'reparse', 'broken-reparse'])
+def test_native_observer_rejects_unsafe_directory_without_repairing_acl(native_protected_root, defect):
+    import win32security as security
+    from pc_agent.platform.windows import native_setup_observer as observer, durable_state
+    parent = native_protected_root / 'client'
+    parent.mkdir()
+    observer.fence.protect_state(parent, secret=True)
+    target = parent / '1.0.6'
+    if defect == 'unsafe-parent':
+        acl = security.GetNamedSecurityInfo(str(parent), security.SE_FILE_OBJECT,
+            security.DACL_SECURITY_INFORMATION).GetSecurityDescriptorDacl()
+        acl.AddAccessAllowedAce(security.ACL_REVISION, 0x40, security.ConvertStringSidToSid('S-1-1-0'))
+        security.SetNamedSecurityInfo(str(parent), security.SE_FILE_OBJECT,
+            security.DACL_SECURITY_INFORMATION | security.PROTECTED_DACL_SECURITY_INFORMATION,
+            None, None, acl, None)
+    elif defect == 'file':
+        target.write_bytes(b'preserve existing file')
+        observer.fence.protect_state(target, secret=True)
+    else:
+        destination = native_protected_root / 'unrelated'
+        if defect == 'reparse': destination.mkdir()
+        try:
+            target.symlink_to(destination, target_is_directory=True)
+        except OSError as error:
+            pytest.skip('directory symlink unavailable: ' + str(error.winerror))
+    before = _observer_directory_sddl(parent)
+    with durable_state.installer_mutation_checkpoints(lambda: None), pytest.raises((ValueError, OSError)):
+        observer._administrative_directory(parent, '1.0.6')
+    assert _observer_directory_sddl(parent) == before
+    if defect == 'unsafe-parent': assert not target.exists()
+    elif defect == 'file': assert target.read_bytes() == b'preserve existing file'
+    else: assert target.is_symlink() and destination.exists() == (defect == 'reparse')
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='native packaged observer provisioning')
+def test_native_observer_provisions_new_version_with_existing_client_roots(native_protected_root, monkeypatch):
+    import hashlib
+    import json
+    from pc_agent.platform.windows import native_setup_observer as observer, durable_state
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+    machine = native_protected_root
+    program_files, program_data = machine / 'ProgramFiles', machine / 'ProgramData'
+    program_files.mkdir()
+    program_data.mkdir()
+    client_root = program_files / 'EndpointPlatformSetupUpdater'
+    state_root = program_data / 'EndpointPlatformSetupUpdates'
+    for root in (client_root, state_root):
+        root.mkdir()
+        observer.fence.protect_state(root, secret=True)
+    old = client_root / '1.0.5'
+    old.mkdir()
+    (old / 'EndpointSetupUpdater.ps1').write_bytes(b'preserve old observer')
+    before = {root: _observer_directory_sddl(root) for root in (client_root, state_root)}
+    paths = WindowsUpdatePaths(program_files / 'Endpoint Platform' / 'Agent',
+        program_data / 'Endpoint Platform' / 'Agent' / 'updates' / 'pending_update.json')
+    packaged = machine / 'frozen' / 'setup-updater'
+    packaged.mkdir(parents=True)
+    body = "$script:ClientVersion='1.0.6'\n# source-bound observer"
+    raw = (body + '\n# SIG # Begin signature block\nsigned fixture\n# SIG # End signature block\n').encode()
+    metadata = {'schema_version': 1, 'client_version': '1.0.6',
+        'script_sha256': hashlib.sha256(raw).hexdigest(), 'source_sha256': hashlib.sha256(body.encode()).hexdigest()}
+    asset = packaged / 'EndpointSetupUpdater.ps1'
+    asset.write_bytes(raw)
+    (packaged / 'EndpointSetupUpdater.payload.json').write_text(json.dumps(metadata))
+    monkeypatch.setattr(observer.sys, 'frozen', True, raising=False)
+    monkeypatch.setattr(observer.sys, '_MEIPASS', str(packaged.parent), raising=False)
+    monkeypatch.setattr(WindowsUpdatePaths, 'production', classmethod(lambda cls: paths))
+    # Authenticode and Scheduler are external OS boundaries; payload binding,
+    # parent/child security, byte pinning and durable publication remain real.
+    monkeypatch.setattr(observer, '_verify_signature', lambda _: None)
+    monkeypatch.setattr(observer, '_register_observer', lambda _: None)
+    with durable_state.installer_mutation_checkpoints(lambda: None):
+        assert observer.provision_packaged_observer(paths) == 'provisioned'
+    target = client_root / '1.0.6' / 'EndpointSetupUpdater.ps1'
+    assert target.read_bytes() == raw
+    observer.fence.assert_state_security(target.parent, secret=True)
+    observer.fence.assert_state_security(target, secret=True)
+    installed = json.loads((state_root / 'client.json').read_bytes())
+    assert installed['client_version'] == '1.0.6' and installed['script_sha256'] == metadata['script_sha256']
+    assert (old / 'EndpointSetupUpdater.ps1').read_bytes() == b'preserve old observer'
+    assert {root: _observer_directory_sddl(root) for root in before} == before
+
+
 def test_completion_reserves_exclusion_before_native_fence_publication(staged,monkeypatch):
     from pc_agent.platform.windows import installer_transaction_bridge as bridge, installer_fence as fence, native_setup_continuation as continuation, durable_state
     from pc_agent.tests.windows.test_installer_fence import state as native_fence

@@ -71,7 +71,7 @@ try{{$store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite);
 
 def _administrative_directory(parent, name):
     path = parent / name
-    fence.assert_namespace_security(path)
+    fence.assert_namespace_security(parent, include_self=True)
     if not path.exists():
         durable_state.installer_mutation_checkpoint(required=True)
         path.mkdir()
