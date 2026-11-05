@@ -348,11 +348,14 @@ async def login_admin(
         if not allowed:
             raise _unauthorized()
         lifetime=DEFAULT_SESSION_LIFETIME
+        issued_at=datetime.now(UTC)
         if emergency:
-            lifetime=min(timedelta(hours=1),request.app.state.settings.oidc.breakglass_until-datetime.now(UTC))
+            lifetime=min(timedelta(hours=1),request.app.state.settings.oidc.breakglass_until-issued_at)
+            if lifetime<=timedelta(0):raise _unauthorized()
         issued = issue_admin_session(
             user.id,
             request.app.state.settings.session_secret,
+            now=issued_at,
             lifetime=lifetime,
         )
         if emergency:

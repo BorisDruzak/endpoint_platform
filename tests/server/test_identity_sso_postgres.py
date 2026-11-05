@@ -109,6 +109,9 @@ async def test_migrated_admin_local_bypass_requires_new_bounded_audited_breakgla
             assert (await client.get('/api/admin/console/session')).status_code==401
             issued=await client.post('/api/admin/session',json=body)
             assert issued.status_code==201
+            async with provider() as expiry_session:
+                current=await expiry_session.scalar(select(AdminSession).where(AdminSession.auth_method=='breakglass'))
+                assert current.expires_at<=until
             assert (await client.get('/api/admin/console/session')).status_code==200
             async with provider() as session:
                 emergency=await session.scalar(select(AdminSession).where(AdminSession.auth_method=='breakglass'))
