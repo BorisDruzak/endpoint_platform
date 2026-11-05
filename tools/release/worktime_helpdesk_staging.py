@@ -85,7 +85,7 @@ def validate_migrate_unit(raw):
     need(set(migrate)=={'ExecStart','EnvironmentFiles','WorkingDirectory'})
     need(migrate['WorkingDirectory']=='/opt/endpoint-staging/current' and migrate['EnvironmentFiles']==str(ENV)+' (ignore_errors=no)')
     executable='/opt/endpoint-staging/current/venv/bin/python'
-    need(re.fullmatch(r'\{ path='+re.escape(executable)+r' ; argv\[\]='+re.escape(executable+' -m alembic upgrade head')+r' ; ignore_errors=no ; start_time=.* ; stop_time=.* ; pid=\d+ ; code=.* ; status=.* \}',migrate['ExecStart']) is not None)
+    need(re.fullmatch(r'\{ path='+re.escape(executable)+r' ; argv\[\]='+re.escape(executable+' -m alembic upgrade head')+r' ; ignore_errors=no ; start_time=[^{};]* ; stop_time=[^{};]* ; pid=\d+ ; code=[^{};]* ; status=[^{};]* \}',migrate['ExecStart']) is not None)
 
 
 def save(path, value):

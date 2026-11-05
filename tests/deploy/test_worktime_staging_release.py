@@ -33,6 +33,7 @@ def test_exact_reviewed_migrate_unit(monkeypatch):
     UNIT.replace(' (ignore_errors=no)\n',' (ignore_errors=no) /etc/foreign.env (ignore_errors=no)\n'),
     UNIT.replace('-m alembic upgrade head','-m alembic -x foreign upgrade head'),
     UNIT.replace('WorkingDirectory=/opt/endpoint-staging/current','WorkingDirectory=/opt/endpoint-platform/current'),
+    UNIT.replace('status=0/0 }','status=0/0 } { path=/foreign ; argv[]=/foreign ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }'),
 ])
 def test_overrides_foreign_realm_and_extra_argv_fail(monkeypatch,wrong):
     with pytest.raises(RuntimeError):module(monkeypatch).validate_migrate_unit(wrong)
