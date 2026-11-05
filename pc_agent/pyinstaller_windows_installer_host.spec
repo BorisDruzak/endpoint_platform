@@ -7,6 +7,7 @@ sys.path.insert(0, str(project_root))
 from tools.canary.tzdata_payload import configure_tzdata_archive
 from tools.canary.ssl_payload import configure_ssl_resources
 from tools.canary.privileged_bootstrap_contract import assert_no_build_modules
+from tools.canary.setup_client_payload import signed_setup_client_payload
 a = Analysis(
     [str(pc_agent_root / 'platform' / 'windows' / 'installer_host_entry.py')],
     pathex=[str(project_root), str(pc_agent_root)],
@@ -15,10 +16,12 @@ a = Analysis(
         'pc_agent.platform.windows.staged_trial_proof',
         'pc_agent.platform.windows.staged_foundation_rollback',
         'pc_agent.platform.windows.staged_recovery',
+        'pc_agent.platform.windows.native_setup_continuation',
+        'pc_agent.platform.windows.native_setup_observer',
         'pc_agent.platform.windows.retained_storage',
         'win32security', 'ntsecuritycon',
     ],
-    datas=[], hookspath=[], hooksconfig={},
+    datas=signed_setup_client_payload(project_root, Path(workpath)), hookspath=[], hooksconfig={},
     runtime_hooks=[str(pc_agent_root / 'runtime_hook_tzdata_zip.py')],
     excludes=['PySide6', 'qasync', 'pc_agent.ui_gui', 'pc_agent.ui_bridge',
               'setuptools', 'pkg_resources', '_distutils_hack'],

@@ -27,7 +27,7 @@ PHASES = frozenset({'inspect','inspect-compound','prepare','stage-online','seal-
     'restore-staged-companions','inspect-staged-recovery','recover-staged-owner','record-staged-native-start','record-staged-native-success','record-staged-reboot-3010','record-staged-reboot-1641',
     'inspect-staged-state','prepare-foundation-rollback','bind-foundation-rollback-roles',
     'rollback-candidate-removed','rollback-native-committed','verify-foundation-rollback',
-    'foundation-config','msi-complete','reconcile','finish','verify-settled',
+    'foundation-config','msi-complete','reconcile','finish','verify-settled','native-continuation',
     'uninstall-finalize-preflight','uninstall-finalize-enter','uninstall-finalize-complete',
     'compound-old-returned','compound-new-returned','compound-commit','compound-retire','compound-complete','compound-finalize',
     'compound-repair-returned','compound-repair-commit'})
@@ -510,6 +510,9 @@ def execute_authorized_phase(client,paths,*,feature_states=None,rollback_disable
                    and isinstance(extra,dict) and extra.get('role')=='remove')
         if staged_removal != ('1' if removal else ''):
             _failed()
+    if client.phase == 'native-continuation':
+        from .native_setup_continuation import execute_native_continuation
+        return execute_native_continuation(client, paths)
     if client.phase in {'restore-staged-companions','inspect-staged-recovery','recover-staged-owner','record-staged-native-start','record-staged-native-success','record-staged-reboot-3010','record-staged-reboot-1641'}:
         from .staged_recovery import execute_staged_recovery_phase
         return execute_staged_recovery_phase(client, paths)

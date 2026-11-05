@@ -381,6 +381,9 @@ def execute_staged_recovery_phase(client, paths):
             or cap['recovery'] or cap['uninstall_finalization'] or 'compound' in cap
             or 'staged_rollback' in cap or 'recovery_parent' in cap):
         _fail()
+    if client.phase == 'restore-staged-companions' and record.phase == 'accepted':
+        from .native_setup_continuation import execute_native_continuation
+        return execute_native_continuation(client, paths)
     if client.phase == 'inspect-staged-recovery':
         inputs = _validate_recovery_inputs(paths, record)
         _assert_owner_dead(record.owner)
@@ -430,8 +433,7 @@ def _probe_companions(paths):
             _fail()
         sid = str(output.Properties_('Sid').Value)
         item = {'role': expected[os.path.normcase(process.ExecutablePath)], 'session_id': session, 'sid': sid}
-        if item not in result:
-            result.append(item)
+        result.append(item)
     companion_restore_decisions(result, [])  # validate strict bounded records
     return result
 
@@ -463,7 +465,7 @@ def _active_sessions():
     result = []
     for session in win32ts.WTSEnumerateSessions():
         session_id = session['SessionId']
-        if session_id <= 0 or session['State'] != win32ts.WTSActive:
+        if session_id <= 0 or session['State'] not in (win32ts.WTSActive, win32ts.WTSDisconnected):
             continue
         user = win32ts.WTSQuerySessionInformation(None, session_id, win32ts.WTSUserName)
         domain = win32ts.WTSQuerySessionInformation(None, session_id, win32ts.WTSDomainName)
@@ -477,13 +479,21 @@ def _active_sessions():
 def _restore_companion_task(paths, operation_id, item):
     """A password-free existing interactive token; never a SYSTEM GUI process."""
     import win32com.client
+    import win32security
     if item not in companion_restore_decisions([item], _active_sessions()):
         return False
     scheduler = win32com.client.Dispatch('Schedule.Service'); scheduler.Connect()
     folder = scheduler.GetFolder('\\')
     name = 'EndpointCompanionRestore-' + operation_id + '-' + item['role'] + '-' + str(item['session_id'])
     definition = scheduler.NewTask(0)
-    definition.Principal.UserId = item['sid']
+    # ScheduledTasks rejects a literal user SID on supported domain clients.
+    # Resolve the account but keep the original SID/session as launch authority.
+    name_part, domain, _ = win32security.LookupAccountSid(None, win32security.ConvertStringSidToSid(item['sid']))
+    account = domain + '\\' + name_part if domain else name_part
+    resolved, *_ = win32security.LookupAccountName(None, account)
+    if win32security.ConvertSidToStringSid(resolved) != item['sid']:
+        _fail()
+    definition.Principal.UserId = account
     definition.Principal.LogonType = 3  # TASK_LOGON_INTERACTIVE_TOKEN
     definition.Principal.RunLevel = 0  # TASK_RUNLEVEL_LUA
     definition.Settings.Enabled = True
@@ -496,17 +506,65 @@ def _restore_companion_task(paths, operation_id, item):
     security = 'O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;GRGX;;;' + item['sid'] + ')'
     try:
         # No update/replace flag: a pre-existing foreign task is a conflict.
-        task = folder.RegisterTaskDefinition(name, definition, 2, item['sid'], None, 3, security)
+        durable_state.installer_mutation_checkpoint(required=True)
+        task = folder.RegisterTaskDefinition(name, definition, 2, account, None, 3, security)
     except Exception:
         return False
     try:
+        from xml.etree import ElementTree as ET
+        xml = ET.fromstring(task.Xml)
+        actions = xml.findall('{*}Actions/{*}Exec')
+        if (xml.findtext('{*}Principals/{*}Principal/{*}UserId') != item['sid']
+                or len(actions) != 1 or len(xml.findall('{*}Actions/*')) != 1
+                or actions[0].findtext('{*}Command') != str(paths.install_root / _COMPANIONS[item['role']])
+                or actions[0].findtext('{*}Arguments') not in (None, '')):
+            _fail()
         if item not in companion_restore_decisions([item], _active_sessions()):
             return False
+        durable_state.installer_mutation_checkpoint(required=True)
         task.RunEx(None, 4, item['session_id'], '')  # TASK_RUN_USE_SESSION_ID
         return True
     finally:
         # Deleting the launcher registration does not stop its interactive process.
+        durable_state.installer_mutation_checkpoint(required=True)
         folder.DeleteTask(name, 0)
+
+
+def restore_expected_companions(paths, operation_id, *, checkpoint, timeout_seconds=20):
+    """Accepted native payload needs both roles, including previously absent ones.
+
+    A RunEx request is never running proof. Only the original matching SID and
+    session with the installed executable path can satisfy the bounded probe.
+    The caller holds verified Foundation bytes throughout this operation.
+    """
+    import time
+    sessions = _active_sessions()
+    if len(sessions) > 32:
+        _fail()
+    expected = [{'role': role, **session} for session in sessions for role in _COMPANIONS]
+    companion_restore_decisions(expected, sessions)
+    if not expected:
+        return 'not-required'
+    for item in expected:
+        checkpoint()
+        if not companion_restore_decisions([item], _active_sessions()):
+            continue
+        if item not in _probe_companions(paths):
+            if not _restore_companion_task(paths, operation_id, item):
+                if companion_restore_decisions([item], _active_sessions()):
+                    _fail()
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        checkpoint()
+        required = companion_restore_decisions(expected, _active_sessions())
+        if not required:
+            return 'session-unavailable'
+        running = _probe_companions(paths)
+        if all(running.count(item) == 1 for item in required):
+            return 'running'
+        if time.monotonic() >= deadline:
+            _fail()
+        time.sleep(0.2)
 
 
 def _service_outcomes(paths, record):
