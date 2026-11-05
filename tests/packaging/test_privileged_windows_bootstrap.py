@@ -32,6 +32,16 @@ def _analyze_spec(name, tmp_path, monkeypatch, *, bad_module=None, bad_script=No
         path = tmp_path / filename
         path.write_bytes(b"public fixture for spec evaluation only")
         monkeypatch.setenv(variable, str(path))
+    if name in {'endpoint_core_windows', 'windows_installer_host'}:
+        # Static spec evaluation needs source-bound public bytes, never an
+        # operator's private signing workspace or an ambient older release.
+        # No executable is built here and this placeholder is not a signature
+        # acceptance test; native provisioning separately checks Authenticode.
+        source = (ROOT / 'packaging/windows/EndpointSetupUpdater.ps1').read_text(encoding='utf-8-sig').rstrip()
+        client = tmp_path / 'EndpointSetupUpdater.ps1'
+        client.write_text(source + '\n# SIG # Begin signature block\n'
+                          '# static public fixture only\n# SIG # End signature block\n', encoding='utf-8')
+        monkeypatch.setenv('ENDPOINT_SIGNED_SETUP_CLIENT', str(client))
     observed = {}
 
     class Analysis:
