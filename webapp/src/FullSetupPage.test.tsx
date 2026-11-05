@@ -84,3 +84,23 @@ it('does not submit a retained canary draft after write permission is removed', 
   fireEvent.submit(screen.getByLabelText('Устройство').closest('form')!)
   expect(vi.mocked(request).mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false)
 })
+
+it('pins an edited canary to its exact EXE while another administrator changes the policy', async () => {
+  fixtures()
+  const implementation = vi.mocked(request).getMockImplementation()!
+  let changed = false
+  vi.mocked(request).mockImplementation((path, options) => path.endsWith('/fleet')
+    ? Promise.resolve({ data: { revision: changed ? 2 : 1, enabled: false, release_id: changed ? 'older' : 'release', scope: 'all_active', device_ids: [], max_parallel: 1, reason: '', safe_code: null }, qualifications: {}, active_chains: 0, decisions: [] })
+    : implementation(path, options))
+  const { rerender } = render(<FullSetupPage canWrite initialDevice="device" revision={0} />)
+  await screen.findByText(/Версия политики: 1/)
+  await screen.findByText(/Клиент будет подготовлен автоматически/)
+  fireEvent.change(screen.getByLabelText('Причина'), { target: { value: 'Test only A.exe' } })
+  changed = true
+  rerender(<FullSetupPage canWrite initialDevice="device" revision={1} />)
+  await screen.findByText(/Версия политики: 2/)
+  await screen.findByText(/Клиент будет подготовлен автоматически/)
+  expect((screen.getByLabelText('Целевой полный Setup') as HTMLSelectElement).value).toBe('release')
+  fireEvent.click(screen.getByRole('button', { name: 'Обновить полным Setup' }))
+  await waitFor(() => expect(vi.mocked(request)).toHaveBeenCalledWith('/api/admin/setup-updates/assignments', expect.objectContaining({ method: 'POST', body: JSON.stringify({ release_id: 'release', device_id: 'device', reason: 'Test only A.exe' }) })))
+})

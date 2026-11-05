@@ -15,6 +15,7 @@ function draftOf(policy: Policy): Draft {
 const reasons: Record<string, string> = {
   eligible: 'Готово к обновлению', already_current: 'Целевая или более новая Foundation уже установлена',
   waiting_reconnect: 'Ожидается свежее подключение WSS', platform_unknown: 'Платформа неизвестна; требуется новое подключение',
+  waiting_setup_client: 'Ожидается готовый клиент установки', waiting_source_confirmation: 'Ожидается совпадение версий WSS и клиента установки',
   platform_unsupported: 'Другая платформа', source_unknown: 'Исходная версия неизвестна',
   source_unsupported: 'Исходная версия не поддерживается', source_not_qualified: 'Нет квалификации для исходной Foundation',
   native_recovery_required: 'Неизвестный результат Setup; сохранена блокировка восстановления',
@@ -26,7 +27,7 @@ const reasons: Record<string, string> = {
   target_not_product: 'Выберите полный выпуск продукта', outside_scope: 'Вне выбранной группы', chain_requested: 'Цепочка назначена',
 }
 
-export function SetupFleetPolicy({ canWrite, releases, devices, revision, renderCanary }: { canWrite: boolean; releases: Release[]; devices: Device[]; revision: number; renderCanary?: (releaseId: string, qualify: (assignmentId: string) => Promise<void>, busy: boolean) => ReactNode }) {
+export function SetupFleetPolicy({ canWrite, releases, devices, revision, renderCanary }: { canWrite: boolean; releases: Release[]; devices: Device[]; revision: number; renderCanary?: (releaseId: string, qualify: (assignmentId: string) => Promise<void>, busy: boolean, pinTarget: () => void) => ReactNode }) {
   const [status, setStatus] = useState<Status | null>(null)
   const [draft, setDraft] = useState<Draft>(() => draftOf(initial))
   const [preview, setPreview] = useState<Preview | null>(null)
@@ -121,7 +122,7 @@ export function SetupFleetPolicy({ canWrite, releases, devices, revision, render
       <p className="muted">Сборка и подпись выполняются по процедуре публикации. Один выбранный артефакт используется для теста и автоматического обновления.</p>
         <label>Целевой полный Setup<select value={draft.release_id ?? ''} disabled={!canWrite || busy} onChange={e => change({ release_id: e.target.value || null, enabled: false })}><option value="">Выберите выпуск</option>{releases.map(r => <option key={r.id} value={r.id}>{r.version} · {r.artifact_name}{status.qualifications[r.id]?.length ? ' · квалифицирован' : ' · без квалификации'}</option>)}</select></label>
         {draft.release_id && <p className="muted">Цель: {releases.find(r => r.id === draft.release_id)?.artifact_name ?? draft.release_id}{status.qualifications[draft.release_id]?.map(q => ` · исходная Foundation ${q.source_foundation} · квалификация до ${new Date(q.expires_at).toLocaleDateString('ru-RU')}`).join('')}</p>}
-      {renderCanary?.(draft.release_id ?? '', qualify, busy)}
+      {renderCanary?.(draft.release_id ?? '', qualify, busy, () => { dirty.current = true })}
       <form className="form-grid" onSubmit={save}>
         <h4 className="setup-step">4. Проверьте охват и лимит цепочек</h4>
         <label>Охват обновления<select value={draft.scope} disabled={!canWrite || busy} onChange={e => change({ scope: e.target.value as Draft['scope'], device_ids: [] })}><option value="all_active">Все активные Windows-устройства</option><option value="selected">Выбранная группа устройств</option></select></label>
