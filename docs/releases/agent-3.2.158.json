@@ -333,5 +333,28 @@
       "user_requested_skip": true,
       "scope": "Known browser issue explicitly deferred by user on2026-11-05; no browser or GPO workaround applied"
     }
+  },
+  "existing156_test29_attempt": {
+    "status": "blocked_before_core_download_bridge_paused",
+    "device_id": "dd5ebcfc-2e47-4d2b-ab29-85c689028b24",
+    "hostname": "A2-INFAN-N",
+    "address": "192.168.101.29",
+    "source_core": "3.2.156",
+    "source_foundation": "3.2.156",
+    "preparation_id": "403f9fce-7f6c-4943-a8f2-49eb2ea4448c",
+    "bridge_rollout_id": "4a38e1c1-cd24-4924-b8b1-665765eae210",
+    "bridge_status": "paused",
+    "paused_at": "2026-11-05T04:35:13.833718Z",
+    "native_assignment_id": null,
+    "native_exit_code": null,
+    "target158_accepted": false,
+    "staging_owner_sid": "S-1-5-32-544",
+    "service_account": "NT AUTHORITY\\LocalService",
+    "barrier": "Frozen156 replaces updates DACL before ZIP download; existing Administrators-owned root grants service modify but no WRITE_DAC",
+    "runtime_exception_log_observed": false,
+    "workstation_preparation": false,
+    "current_user_telemetry_verified": true,
+    "general_fleet_enabled": false,
+    "verification_record": "docs/verification/2026-11-05-test29-endpoint-full158.md"
   }
 }
