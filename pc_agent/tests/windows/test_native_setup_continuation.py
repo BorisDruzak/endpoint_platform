@@ -493,6 +493,141 @@ def reserved_native(staged,monkeypatch):
     return c,paths,cap,completed,before
 
 
+@pytest.fixture
+def accepted_candidate_grant(staged, monkeypatch):
+    """Reserve the real167 native selector, then run the actual staged trial writer."""
+    from dataclasses import replace
+    from pc_agent.platform.windows import native_setup_continuation as c, durable_state
+    from pc_agent.platform.windows import msi_inventory
+    from pc_agent.platform.windows import staged_trial_proof as proof
+    from pc_agent.tests.windows.test_staged_update_state import begin, move
+    from pc_agent.tests.windows.test_installer_fence import state as native_fence
+    state, paths, binding, owner = staged
+    source = 'ab313225e04b7cccefc0c30ae17b949d8fdd964d'
+    tree = '5d81e12d78d07c2caca984c5ee3614299825c454befeb44a2eb35629be74f9ce'
+    selected = b'{"schema_version":1,"version":"3.2.165","source_revision":"ed7f77a559e19500df75b9ec169c5336e308b304"}'
+    previous = b'{"schema_version":1,"source_revision":"1c2e54a06d1a7dfb6c2c2e0d2ef2cde2d0fe9896","version":"3.2.164"}'
+    package = {**binding.new_release, 'version': '3.2.167', 'source_revision': source,
+               'package_sha256': 'ffb3e7def4573a33551f424c0bbb9b7dde6a8617ce8dfb673993d129788bee70',
+               'product_code': '{86ADD870-38BF-420F-A5B9-98E176C8E418}',
+               'initial_runtime_tree_sha256': 'e0ce0ce8f513c432ff898bb5961acada8de982d205e5103f60562eeb05c4216a'}
+    old = {**binding.old_release, 'version': '3.2.165',
+           'source_revision': 'ed7f77a559e19500df75b9ec169c5336e308b304',
+           'package_sha256': '831ed1996daae0bf68a046828ff0e8f3775b879e14bf05e9a086304672cee5a9',
+           'product_code': '{2784BFCB-4D3E-4BD5-A92D-57D1DEBFA447}',
+           'initial_runtime_tree_sha256': 'ac6284d140dd6e312fc7c778a98dd71d73ab738d4263025ee8c38499dd443562'}
+    binding = replace(binding, old_release=old, new_release=package, selected_before=selected, previous_before=previous,
+                      selected_tree_sha256_before='54182cf3ae02a623dad64f338dbd984f44feb0a605e619c59987c861a73f2ded',
+                      previous_tree_sha256_before='a2435f187cb99c4eb92c478d2898ac28a861f815f46e225286a116db2d39e9d3', candidate_version='3.2.167',
+                      candidate_source_revision=source, candidate_tree_sha256=tree)
+    paths.current_path.write_bytes(selected)
+    paths.previous_path.write_bytes(previous)
+    c.fence.protect_state(paths.previous_path)
+    staged = state, paths, binding, owner
+    begin(staged)
+    move(staged, 'preparing', 'prepared')
+    move(staged, 'prepared', 'switching')
+    identity = SimpleNamespace(version='3.2.167', source_revision=source, tree_sha256=tree)
+    expected = SimpleNamespace(identity=identity, package=SimpleNamespace(version='3.2.167'))
+    monkeypatch.setattr(msi_inventory, 'read_expected_package', lambda *_: expected)
+    monkeypatch.setattr(c.provenance, 'verified_foundation_release', lambda _: package)
+    monkeypatch.setattr(c.provenance, '_inspect_core_value', lambda *_: SimpleNamespace(identity=identity))
+    monkeypatch.setattr(c.provenance, 'inspect_installed_core', lambda *a, **kw: SimpleNamespace(current=SimpleNamespace(identity=identity)))
+    monkeypatch.setattr(proof.gate, 'create_trial_gate', lambda *_: None)
+    # Exact native-finalization bytes, before the existing trial writer runs.
+    paths.current_path.write_bytes(b'{"schema_version":1,"source_revision":"ab313225e04b7cccefc0c30ae17b949d8fdd964d","version":"3.2.167"}')
+    paths.previous_path.write_bytes(selected)
+    session = str(uuid4())
+    cap = {'schema_version': 1, 'transaction_id': binding.operation_id, 'package': package, 'owner': owner,
+           'helper_sha256': 'f' * 64, 'session_id': session, 'operation': 'install', 'recovery': False,
+           'uninstall_finalization': False, 'selected': 'c' * 64, 'previous': 'd' * 64,
+           'pipe_name': 'EndpointInstaller-' + session + '-' + 'e' * 32,
+           'secret': 'e' * 64, 'service_states': {}}
+    private = c.fence.state_root(paths) / 'capabilities'
+    private.mkdir()
+    c.fence.protect_state(private, secret=True)
+    monkeypatch.setattr(c, '_capture_authority', lambda *_: {'session_id': session, 'capture_sha256': 'a' * 64})
+    completed = native_fence()
+    completed.update(transaction_id=binding.operation_id, phase='complete', startup_restored=True)
+    completed['package'].update(sha256=package['package_sha256'], version=package['version'],
+                                source_revision=source, product_code=package['product_code'])
+    with durable_state.installer_mutation_checkpoints(lambda: None):
+        durable_state.write_json_atomic(private / (session + '.json'), cap, trusted_root=private,
+                                        max_bytes=16384, protect=lambda leaf: c.fence.protect_state(leaf, secret=True))
+        c.reserve_native_continuation(paths, cap, completed, {**completed, 'phase': 'reconciling'})
+        proof.begin_staged_trial(paths, binding.operation_id, owner=owner)
+    move(staged, 'trial', 'accepted')
+    return c, paths, cap, expected, staged
+
+
+def test_accepted_staged_trial_preserves_native_grant_selection_and_continues(accepted_candidate_grant, monkeypatch):
+    from pc_agent.platform.windows import msi_inventory, installer_data_security as security, native_setup_observer as observer
+    c, paths, cap, expected, _ = accepted_candidate_grant
+    leaf = c._grant_path(paths, cap['transaction_id'])
+    original = leaf.read_bytes()
+    grant = c.recovery._read(leaf)
+    assert grant['selection'] == {'selected_sha256': 'dc8e070cf7dc7fb1beff241e153fa75a56af9ceaf58efa3e7f166e3ef51e2086',
+                                  'previous_sha256': '6138efe66a5cbed3583130b74db5f173f9d7d531e545a25a29c91fc297d3d863',
+                                  'tree_sha256': '5d81e12d78d07c2caca984c5ee3614299825c454befeb44a2eb35629be74f9ce'}
+    assert c._selected_scope(paths, cap) == grant['selection']
+    monkeypatch.setattr(msi_inventory, 'verified_foundation_bytes', lambda *_: nullcontext())
+    monkeypatch.setattr(security, 'verify_preserved', lambda *_: None)
+    monkeypatch.setattr(observer, 'provision_packaged_observer', lambda _: 'provisioned')
+    monkeypatch.setattr(c.recovery, 'restore_expected_companions', lambda *a, **kw: 'running')
+    monkeypatch.setattr(c.recovery, '_service_outcomes', lambda *_: {'EndpointAgent': 'running'})
+    client = SimpleNamespace(capability=cap, checkpoint=lambda: None, request=lambda *_: None)
+    result = c.execute_native_continuation(client, paths)
+    assert result['observer'] == 'provisioned' and result['users'] == 'running'
+    assert c.pending_continuation(paths) is None
+    assert leaf.read_bytes() == original
+
+
+@pytest.mark.parametrize('defect', ['alternate-serialization', 'wrong-source', 'wrong-tree', 'changed-previous'])
+def test_continuation_grant_keeps_exact_selection_after_trial(accepted_candidate_grant, monkeypatch, defect):
+    c, paths, cap, _, staged = accepted_candidate_grant
+    _, _, binding, _ = staged
+    if defect == 'alternate-serialization':
+        paths.current_path.write_bytes(b'{"schema_version":1,"version":"3.2.167","source_revision":"ab313225e04b7cccefc0c30ae17b949d8fdd964d"}')
+    elif defect == 'wrong-source':
+        paths.current_path.write_bytes(b'{"schema_version":1,"source_revision":"' + b'9' * 40 + b'","version":"3.2.167"}')
+    elif defect == 'wrong-tree':
+        monkeypatch.setattr(c.provenance, 'inspect_installed_core', lambda *a, **kw: SimpleNamespace(current=SimpleNamespace(identity=SimpleNamespace(tree_sha256='9' * 64))))
+    elif defect == 'changed-previous':
+        paths.previous_path.write_bytes(binding.previous_before)
+    with pytest.raises(ValueError): c.read_continuation_grant(paths, cap)
+    assert c.pending_continuation(paths) is not None
+
+
+@pytest.mark.parametrize('owner_alive', [False, True])
+def test_accepted_staged_trial_preserves_fresh_recovery_only_after_owner_death(accepted_candidate_grant, monkeypatch, owner_alive):
+    from pc_agent.platform.windows import msi_inventory, installer_data_security as security
+    c, paths, cap, _, _ = accepted_candidate_grant
+    fresh = {**cap, 'session_id': str(uuid4()),
+             'owner': {**cap['owner'], 'pid': cap['owner']['pid'] + 100, 'created': cap['owner']['created'] + 100}}
+    leaf = c._grant_path(paths, cap['transaction_id'])
+    original = leaf.read_bytes()
+    monkeypatch.setattr(msi_inventory, 'verified_foundation_bytes', lambda *_: nullcontext())
+    monkeypatch.setattr(security, 'verify_preserved', lambda *_: None)
+    def death(owner):
+        assert owner == cap['owner']
+        if owner_alive:
+            raise ValueError('RECOVERY_REQUIRED')
+    monkeypatch.setattr(c.recovery, '_assert_owner_dead', death)
+    with pytest.raises(ValueError):
+        c.assert_original_native_owner(paths, fresh)
+    client = SimpleNamespace(capability=fresh, checkpoint=lambda: None, request=lambda *_: None)
+    if owner_alive:
+        with pytest.raises(ValueError): c.recover_native_continuation(client, paths)
+        assert not c._owner_receipt(paths, fresh).exists()
+    else:
+        assert c.recover_native_continuation(client, paths) == {
+            'operation_id': cap['transaction_id'], 'result': 'native-settled-for-staged-recovery'}
+        c.assert_original_native_owner(paths, fresh)
+        with pytest.raises(ValueError): c.accepted_native_record(paths, fresh)
+    assert leaf.read_bytes() == original
+    assert c.pending_continuation(paths) == {'transaction_id': cap['transaction_id'], 'package': cap['package']}
+
+
 @pytest.mark.parametrize('boundary',['before-public-hold','before-completed-receipt','before-first-continuation'])
 @pytest.mark.parametrize('defect',[None,'capture','selection','payload','owner-alive','pending','missing-grant'])
 def test_exact_new_owner_recovers_native_boundaries_without_msi(reserved_native,monkeypatch,boundary,defect):
