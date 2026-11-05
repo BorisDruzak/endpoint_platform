@@ -1,11 +1,10 @@
 # Bounded recovery proposal: original27/120 native continuations
 
-Status: PREPARED, independently reviewed and signed. **Not authorized or applied
-on either workstation.** No recovery-script publication, host execution, task
-change or server job-state write was performed in preparing this proposal.
-The user's earlier administrative exception named146 only; it is not reused as
-permission for these hosts. Approval is needed because this is an exception to
-the requested Endpoint-only update path without workstation preparation.
+Status: the operator explicitly authorized the one-off administrative recovery
+on both101.27 and101.120 on2026-11-05. This is a scoped exception to the normal
+Endpoint-only update path. The original proposal and immutable R1 evidence below
+are historical; live execution uses separately reviewed, signed immutable R3/R4
+helpers described in `2026-11-05-native-canary-recovery-execution.md`.
 
 ## Exact artifact and verification
 
