@@ -15,7 +15,7 @@ const day = { person_id: 'person-a', day: '2026-10-27', timezone: 'Asia/Yekateri
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 function setup(entry = '/employee?day=2026-10-27', grants: EmployeeGrant[] = session.grants) {
-  const fetch = vi.fn(async (path: string, _init?: RequestInit): Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }> => ({ ok: true, status: 200, json: async () => path === '/api/employee/session' ? { ...session, grants }
+  const fetch = vi.fn(async (path: string, _init?: RequestInit): Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }> => ({ ok: true, status: 200, json: async () => (path === '/api/employee/session' || path === '/api/employee/worktime/session') ? { ...session, grants }
     : path.includes('/categories') ? { categories: [{ code: 'meeting', label: 'Совещание', requires_comment: true }] }
       : path.includes('/history') ? { events: [], explanations: [], corrections: [], approvals: [] }
         : path.includes('/month') ? { month: '2026-10', days: [day], totals: day.totals }
@@ -28,9 +28,9 @@ function setup(entry = '/employee?day=2026-10-27', grants: EmployeeGrant[] = ses
 it('uses an employee SSO entry without an admin session or password form', () => {
   const fetch = setup('/employee/login')
   expect(screen.getByRole('heading', { name: 'Вход сотрудника' })).toBeTruthy()
-  expect(screen.getByRole('link', { name: 'Войти с доменной учётной записью' }).getAttribute('href')).toBe('/auth/employee/login')
+  expect(screen.getByRole('link', { name: 'Войти через AD' }).getAttribute('href')).toBe('/auth/employee/login?worktime=1')
   expect(screen.queryByLabelText('Пароль')).toBeNull()
-  expect(fetch).not.toHaveBeenCalled()
+  expect(fetch.mock.calls.map(([path]) => path)).toEqual(['/api/employee/worktime/login-options'])
 })
 
 it('preserves a companion target through an expired session and the SSO entry', async () => {
@@ -38,7 +38,7 @@ it('preserves a companion target through an expired session and the SSO entry', 
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 401, json: async () => ({ detail: 'Session expired' }) })))
   render(<MemoryRouter initialEntries={[`/employee${query}`]}><App /></MemoryRouter>)
   expect(await screen.findByRole('heading', { name: 'Вход сотрудника' })).toBeTruthy()
-  expect(screen.getByRole('link', { name: 'Войти с доменной учётной записью' }).getAttribute('href')).toBe(`/auth/employee/login${query}`)
+  expect(screen.getByRole('link', { name: 'Войти через AD' }).getAttribute('href')).toBe(`/auth/employee/login${query}&worktime=1`)
 })
 
 it.each([
@@ -47,7 +47,7 @@ it.each([
   '?return_to=https://foreign.example',
 ])('drops unsafe or ambiguous companion login context: %s', query => {
   setup(`/employee/login${query}`)
-  expect(screen.getByRole('link', { name: 'Войти с доменной учётной записью' }).getAttribute('href')).toBe('/auth/employee/login')
+  expect(screen.getByRole('link', { name: 'Войти через AD' }).getAttribute('href')).toBe('/auth/employee/login?worktime=1')
 })
 
 it('keeps work and UNKNOWN evidence independent, selects a keyboard interval and sends scoped explanation', async () => {
@@ -76,7 +76,7 @@ it('revalidates on focus and ignores a late response from the previous employee'
   let release: (value: { ok: boolean; status: number; json: () => Promise<unknown> }) => void = () => {}
   fetch.mockImplementationOnce(() => new Promise(resolve => { release = resolve }))
   fireEvent.click(screen.getByRole('button', { name: 'Обновить' }))
-  fetch.mockImplementation(async (path: string) => ({ ok: true, status: 200, json: async () => path === '/api/employee/session'
+  fetch.mockImplementation(async (path: string) => ({ ok: true, status: 200, json: async () => (path === '/api/employee/session' || path === '/api/employee/worktime/session')
     ? { ...session, person_id: 'person-b', csrf_token: 'new-csrf' }
     : path.includes('/categories') ? { categories: [] } : path.includes('/history') ? { events: [], explanations: [], corrections: [], approvals: [] }
       : { ...day, person_id: 'person-b', totals: { ...day.totals, work_seconds: 7200 } } }))

@@ -1,0 +1,177 @@
+openapi: "3.1.0"
+info:
+  title: "Endpoint WorkTime browser authentication"
+  version: "v1"
+paths:
+  "/auth/worktime/helpdesk/login":
+    get:
+      description: "Five-minute state/browser/PKCE flow; fixed Helpdesk origin. No person or return URL parameters."
+      responses:
+        "303":
+          description: "Fixed Helpdesk authorization redirect"
+        "400":
+          description: "Invalid flow"
+        "401":
+          description: "Invalid authority"
+        "403":
+          description: "Permission or CSRF denied"
+        "404":
+          description: "Handoff disabled"
+        "429":
+          description: "Rate limited"
+        "503":
+          description: "Authority unavailable"
+  "/auth/worktime/helpdesk/callback":
+    post:
+      description: "Exact Helpdesk Origin and flow cookie required. Bounded form POST; codes never enter URLs."
+      requestBody:
+        required: true
+        content:
+          "application/x-www-form-urlencoded":
+            schema:
+              type: "object"
+              additionalProperties: false
+              required:
+                - "code"
+                - "state"
+              properties:
+                code:
+                  type: "string"
+                  pattern: "^[A-Za-z0-9_-]{43}$"
+                state:
+                  type: "string"
+                  pattern: "^[A-Za-z0-9_-]{43}$"
+      responses:
+        "303":
+          description: "Own cabinet or fixed login error"
+        "400":
+          description: "Invalid flow"
+        "401":
+          description: "Invalid authority"
+        "403":
+          description: "Permission or CSRF denied"
+        "404":
+          description: "Handoff disabled"
+        "429":
+          description: "Rate limited"
+        "503":
+          description: "Authority unavailable"
+  "/api/employee/worktime/login-options":
+    get:
+      responses:
+        "200":
+          description: "No-store feature discovery"
+          content:
+            "application/json":
+              schema:
+                type: "object"
+                required:
+                  - "helpdesk_login_enabled"
+                properties:
+                  helpdesk_login_enabled:
+                    type: "boolean"
+  "/api/employee/worktime/session":
+    get:
+      security:
+        -
+          WorktimeCookie: []
+        -
+          EmployeeCookie: []
+      description: "Present WorkTime cookie takes priority, is introspected live and never falls back when invalid. Helpdesk grants empty and assurance false."
+      responses:
+        "200":
+          description: "No-store selected session"
+          content:
+            "application/json":
+              schema:
+                type: "object"
+                required:
+                  - "person_id"
+                  - "department_id"
+                  - "csrf_token"
+                  - "grants"
+                  - "privileged_assurance"
+                  - "auth_source"
+                properties:
+                  person_id:
+                    type: "string"
+                    format: "uuid"
+                  department_id:
+                    type:
+                      - "string"
+                      - "null"
+                    format: "uuid"
+                  csrf_token:
+                    type: "string"
+                  grants:
+                    type: "array"
+                    items:
+                      type: "object"
+                      required:
+                        - "role"
+                        - "department_id"
+                      properties:
+                        role:
+                          type: "string"
+                        department_id:
+                          type:
+                            - "string"
+                            - "null"
+                          format: "uuid"
+                  privileged_assurance:
+                    type: "boolean"
+                  auth_source:
+                    enum:
+                      - "helpdesk"
+                      - "oidc"
+        "400":
+          description: "Invalid flow"
+        "401":
+          description: "Invalid authority"
+        "403":
+          description: "Permission or CSRF denied"
+        "404":
+          description: "Handoff disabled"
+        "429":
+          description: "Rate limited"
+        "503":
+          description: "Authority unavailable"
+    delete:
+      security:
+        -
+          WorktimeCookie: []
+        -
+          EmployeeCookie: []
+      description: "Revoke only selected local session with its own CSRF; Helpdesk/provider sessions remain separate."
+      parameters:
+        -
+          in: "header"
+          name: "X-CSRF-Token"
+          required: true
+          schema:
+            type: "string"
+      responses:
+        "204":
+          description: "Selected session revoked"
+        "400":
+          description: "Invalid flow"
+        "401":
+          description: "Invalid authority"
+        "403":
+          description: "Permission or CSRF denied"
+        "404":
+          description: "Handoff disabled"
+        "429":
+          description: "Rate limited"
+        "503":
+          description: "Authority unavailable"
+components:
+  securitySchemes:
+    WorktimeCookie:
+      type: "apiKey"
+      in: "cookie"
+      name: "endpoint_worktime_session"
+    EmployeeCookie:
+      type: "apiKey"
+      in: "cookie"
+      name: "endpoint_employee_session"

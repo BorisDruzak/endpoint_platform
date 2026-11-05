@@ -13,7 +13,8 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 
 from endpoint_server.auth.authorization import authorize_person
-from endpoint_server.auth.employee_sessions import EmployeePrincipal, require_employee
+from endpoint_server.auth.employee_sessions import EmployeePrincipal
+from endpoint_server.auth.worktime_sessions import require_worktime_employee as require_employee
 from endpoint_server.db.models.identity import ConfirmedIdentity, ScopedRoleGrant
 from . import service
 from .domain import TIMEZONE, utc
@@ -137,6 +138,8 @@ async def transaction(request):
 
 
 async def visible_people(session, principal, action='worktime.read'):
+    if getattr(principal,'auth_source','oidc')=='helpdesk':
+        return [principal.identity]
     grants = (await session.scalars(select(ScopedRoleGrant).where(ScopedRoleGrant.identity_id == principal.identity.id,
         ScopedRoleGrant.revoked_at.is_(None)))).all()
     roles = {'manager','hr','worktime_admin'} if action == 'worktime.read' else {'hr','worktime_admin','manager'}

@@ -196,6 +196,7 @@ class Settings:
     activity_analytics: AnalyticsPolicy = AnalyticsPolicy()
     oidc: OIDCSettings = OIDCSettings()
     worktime_enabled: bool = False
+    worktime_helpdesk_enabled: bool = False
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str] | None = None) -> Settings:
@@ -337,4 +338,5 @@ class Settings:
             activity_analytics=AnalyticsPolicy.from_environment(values),
             oidc=OIDCSettings.from_environment(values),
             worktime_enabled=_parse_optional_boolean('ENDPOINT_WORKTIME_ENABLED',values.get('ENDPOINT_WORKTIME_ENABLED','')),
+            worktime_helpdesk_enabled=_parse_optional_boolean('ENDPOINT_WORKTIME_HELPDESK_ENABLED',values.get('ENDPOINT_WORKTIME_HELPDESK_ENABLED','')),
         )

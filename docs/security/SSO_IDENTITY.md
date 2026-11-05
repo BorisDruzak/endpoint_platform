@@ -145,3 +145,39 @@ these server changes.
 The implementation follows the [official Authlib HTTPX client documentation](https://docs.authlib.org/en/v1.6.9/client/httpx.html)
 and verifies the installed 1.9.1 public APIs and claim validator source. Context7
 was unavailable because its quota was exhausted.
+
+
+## Helpdesk employee WorkTime login
+
+`ENDPOINT_WORKTIME_HELPDESK_ENABLED` defaultsfalse and requires WorkTime+OIDC
+configuration and the fixed same-environment HTTPS origin pair. It reuses the
+existing dedicated Helpdesk identity service credential and TLS trust. No AD
+password, Helpdesk cookie, role or provider token is transferred.
+
+`/auth/worktime/helpdesk/login` creates a5min state/browser/PKCE-bound durable
+flow. The fixed callback accepts bounded form POSTs only from the exact Helpdesk
+Origin. Atomic flow/code consumption yields an encrypted server-held lease and a
+separate Secure/HttpOnly `endpoint_worktime_session`, limited to8h/source lifetime.
+Each WorkTime request introspects the live Helpdesk authority; invalid401 and
+provider outage503 are distinct. Cookie-present invalid authority never falls
+back to a different AD identity. CSRF comes from the selected cookie.
+
+WorkTime uses GET/DELETE `/api/employee/worktime/session`; public no-store
+`/api/employee/worktime/login-options` advertises only the feature boolean.
+The original `/api/employee/session`, DLP, admin, companion and privileged grants
+retain their OIDC authority. Helpdesk principals receive no grants/assurance and
+can only read/write their own WorkTime. Login never starts a workday or links a PC.
+
+Migration0044 introduces explicit `authority_kind=helpdesk` and nullable AD GUID
+only for this kind (no admin owner), plus flow/session tables. A verified later
+AD employee callback may promote only the exact same confirmed person under the
+shared advisory lock, preserving the identity primary key/history/grants. No
+name-based match or auto-grant is allowed. Explicit WorkTime AD login carries the
+encrypted `worktime=1` marker and clears a shadowing handoff cookie on success.
+
+Disable the new flag for rollback; keep schema/history. Downgrade refuses when
+local identities exist. Canonical browser contract: contracts/openapi/endpoint-platform-worktime-v1.yaml.
+Implementation: auth/worktime_{protocol,handoff,sessions}.py,
+identity/worktime_{client,identity}.py. Helpdesk is the authority provider for the
+new confidential exchange/introspection/person routes, documented in its SSO
+contract. Do not invent managed GitNexus links for this reverse relationship.

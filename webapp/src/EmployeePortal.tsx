@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { Link, NavLink, Navigate, Route, Routes, useNavigate, useSearchParams } from 'react-router'
-import { EmployeeApiError, employeeClient, getEmployeeSession, worktimePath, type Category, type EmployeeRequest, type EmployeeSession, type WorkDay, type WorkHistory, type WorkMonth } from './employeeApi'
+import { EmployeeApiError, employeeClient, getEmployeeSession, getWorktimeSession, worktimePath, type Category, type EmployeeRequest, type EmployeeSession, type WorkDay, type WorkHistory, type WorkMonth } from './employeeApi'
+import { WorktimeLoginMethods } from './WorktimeLoginMethods'
 import { WorkTimeRing, durationText, intervalLabel, selectableIntervals, statusColors, statusLabels, timeText, type SelectedInterval } from './WorkTimeRing'
 import './employee.css'
 import { DlpPortal } from './DlpPortal'
@@ -23,12 +24,17 @@ function companionQuery(params: URLSearchParams) {
 
 export function EmployeeLogin() {
   const [params] = useSearchParams()
+  const companion = companionQuery(params)
+  const dlp = params.get('realm') === 'dlp'
+  const adQuery = new URLSearchParams(companion)
+  if (!dlp) adQuery.set('worktime', '1')
+  const adHref = `/auth/employee/login${adQuery.size ? `?${adQuery}` : ''}`
   useEffect(() => { const previous = document.title; document.title = 'WorkTime — Вход сотрудника'; return () => { document.title = previous } }, [])
   return <main className="login-page employee-login"><section className="login-panel">
     <p className="product-name">WorkTime · Кабинет сотрудника</p><h1>Вход сотрудника</h1>
-    <p className="muted">Рабочий день, объяснения и корректировки — с вашей доменной учётной записью.</p>
-    <a className="primary-button wt-login-link" href={`/auth/employee/login${companionQuery(params)}`}>Войти с доменной учётной записью</a>
-    <p className="muted">Доступ открывается после подтверждения связи с реестром сотрудников.</p>
+    <p className="muted">{dlp || companion ? 'Войдите с вашей доменной учётной записью.' : 'Рабочий день, объяснения и корректировки — в вашем кабинете сотрудника.'}</p>
+    {params.has('handoff_error') && <p role="alert">Не удалось завершить вход через Helpdesk. Попробуйте снова или войдите через AD.</p>}
+    <WorktimeLoginMethods adHref={adHref} allowHelpdesk={!dlp && !companion} />
   </section></main>
 }
 
@@ -36,7 +42,7 @@ export function EmployeePortal({ dlp = false }: { dlp?: boolean }) {
   useEffect(() => { const previous = document.title; document.title = dlp ? 'DLP — Endpoint Platform' : 'WorkTime — Кабинет сотрудника'; return () => { document.title = previous } }, [dlp])
   const navigate = useNavigate()
   const [params] = useSearchParams()
-  const loginQuery = companionQuery(params)
+  const loginQuery = dlp ? '?realm=dlp' : companionQuery(params)
   const [session, setSession] = useState<EmployeeSession | null>(null)
   const [checking, setChecking] = useState(true)
   const [error, setError] = useState('')
@@ -48,7 +54,7 @@ export function EmployeePortal({ dlp = false }: { dlp?: boolean }) {
     const check = () => {
       pending?.abort(); const current = new AbortController(); pending = current
       setChecking(true)
-      getEmployeeSession(current.signal).then(value => {
+      ;(dlp ? getEmployeeSession : getWorktimeSession)(current.signal).then(value => {
         if (!active || current.signal.aborted) return
         setSession(previous => JSON.stringify(previous) === JSON.stringify(value) ? previous : value); setError(''); setChecking(false)
       }).catch(reason => {
@@ -61,7 +67,7 @@ export function EmployeePortal({ dlp = false }: { dlp?: boolean }) {
     }
     check(); window.addEventListener('focus', check)
     return () => { active = false; pending?.abort(); window.removeEventListener('focus', check) }
-  }, [unauthorized, revision])
+  }, [unauthorized, revision, dlp])
   if (error) return <main className="state-page"><p role="alert">{error}</p><button onClick={() => setRevision(value => value + 1)}>Повторить</button></main>
   if (!session) return <main className="state-page" aria-live="polite">Проверка сеанса сотрудника…</main>
   return <>{checking && <main className="state-page" aria-live="polite">Проверка сеанса сотрудника…</main>}<div hidden={checking}><EmployeeRealm key={`${session.person_id}:${session.department_id}:${session.csrf_token}:${session.privileged_assurance}:${JSON.stringify(session.grants)}`} session={session} unauthorized={unauthorized} dlp={dlp} /></div></>
@@ -82,7 +88,7 @@ function EmployeeRealm({ session, unauthorized, dlp }: { session: EmployeeSessio
     }
   }, [session, unauthorized])
   async function signOut() {
-    try { await request('/api/employee/session', { method: 'DELETE' }); unauthorized() }
+    try { await request(dlp ? '/api/employee/session' : '/api/employee/worktime/session', { method: 'DELETE' }); unauthorized() }
     catch (reason) { if (!ended.current) setError(messageOf(reason)) }
   }
   const manager = hasRole(session, 'manager', 'worktime_admin')

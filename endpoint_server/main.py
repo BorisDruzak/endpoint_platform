@@ -18,6 +18,10 @@ from endpoint_server.auth.employee_sessions import router as employee_auth_route
 from endpoint_server.auth.identity_admin import router as identity_admin_router
 from endpoint_server.console.employee import router as employee_shell_router
 from endpoint_server.worktime.router import router as worktime_router
+from endpoint_server.auth.worktime_handoff import router as worktime_handoff_router
+from endpoint_server.auth.worktime_sessions import router as worktime_session_router
+from endpoint_server.auth.worktime_protocol import fixed_helpdesk_endpoints
+from endpoint_server.identity.worktime_client import WorktimeIdentityClient
 from endpoint_server.worktime.companion import router as worktime_companion_router
 from endpoint_server.identity.helpdesk_client import HelpdeskIdentityClient
 from endpoint_server.browser_sensor.public_routes import router as browser_sensor_public_router
@@ -113,6 +117,13 @@ def create_app(
     app.include_router(identity_admin_router)
     app.include_router(employee_shell_router)
     app.include_router(worktime_router)
+    app.include_router(worktime_handoff_router)
+    app.include_router(worktime_session_router)
+    app.state.worktime_identity_client=None
+    if settings.worktime_helpdesk_enabled:
+        if not settings.worktime_enabled or not settings.oidc.enabled:raise ValueError('WorkTime Helpdesk login requires configured WorkTime and identity service')
+        fixed_helpdesk_endpoints(settings.public_base_url,settings.oidc.helpdesk_base_url)
+        app.state.worktime_identity_client=WorktimeIdentityClient(settings.oidc.helpdesk_base_url,settings.oidc.helpdesk_credential,ca_file=settings.oidc.ca_file)
     if settings.worktime_enabled:
         app.include_router(worktime_companion_router)
     app.state.session_provider = session_provider or create_session_provider(

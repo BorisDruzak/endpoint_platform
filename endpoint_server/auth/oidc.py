@@ -272,6 +272,8 @@ async def _login(request: Request, realm: str, *, step_up: bool):
         raise HTTPException(503,'Identity provider unavailable') from None
     now = datetime.now(UTC)
     material = {'nonce': nonce, 'verifier': verifier}
+    if realm=='employee' and request.query_params.getlist('worktime')==['1']:
+        material['worktime_ad_switch']=True
     if step_up: material['require_mfa'] = True
     if realm == 'employee' and all(len(request.query_params.getlist(key)) == 1 for key in ('day', 'request_id')):
         day, request_id = request.query_params['day'], request.query_params['request_id']
@@ -326,13 +328,23 @@ async def callback(request: Request, realm: str):
         raise _denied() from None
     now = datetime.now(UTC)
     async with request.app.state.session_provider() as session:
+        from endpoint_server.identity.worktime_identity import lock_person_identity
+        await lock_person_identity(session,resolved.person_id)
         identity = await session.scalar(select(ConfirmedIdentity).where(ConfirmedIdentity.issuer==issuer, ConfirmedIdentity.subject==subject).with_for_update())
         if identity is None:
             if realm == 'admin':
                 raise _denied()
-            identity = ConfirmedIdentity(id=uuid4(),person_id=resolved.person_id,department_id=resolved.department_id,
-                issuer=issuer,subject=subject,ad_object_guid=guid,state='active',confirmed_at=now,revoked_at=None)
-            session.add(identity)
+            local=await session.scalar(select(ConfirmedIdentity).where(ConfirmedIdentity.person_id==resolved.person_id).with_for_update())
+            if local is not None:
+                if local.authority_kind!='helpdesk' or local.state!='active' or local.revoked_at is not None or local.admin_user_id is not None:
+                    raise _denied()
+                # Only exact externally resolved AD proof adopts this same person.
+                local.issuer=issuer;local.subject=subject;local.ad_object_guid=guid;local.authority_kind='oidc'
+                identity=local
+            else:
+                identity = ConfirmedIdentity(id=uuid4(),person_id=resolved.person_id,department_id=resolved.department_id,
+                    issuer=issuer,subject=subject,ad_object_guid=guid,authority_kind='oidc',state='active',confirmed_at=now,revoked_at=None)
+                session.add(identity)
             await session.flush()
         if identity.state != 'active' or identity.revoked_at is not None or identity.person_id != resolved.person_id or identity.ad_object_guid != guid:
             raise _denied()
@@ -383,4 +395,7 @@ async def callback(request: Request, realm: str):
             action='sso_session.created',object_kind='identity',object_identifier=str(identity.id),request_id=audit_request_id(request),details={'realm':realm})
         await session.commit()
     response.delete_cookie(FLOW_COOKIES[realm],path='/auth/'+realm,secure=True,httponly=True,samesite='lax')
+    if realm=='employee' and material.get('worktime_ad_switch') is True:
+        from endpoint_server.auth.worktime_protocol import WORKTIME_COOKIE
+        response.delete_cookie(WORKTIME_COOKIE,path='/',secure=True,httponly=True,samesite='strict')
     return response

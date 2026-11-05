@@ -7,7 +7,8 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from endpoint_server.auth.employee_sessions import require_employee, EmployeePrincipal
+from endpoint_server.auth.employee_sessions import EmployeePrincipal
+from endpoint_server.auth.worktime_sessions import require_worktime_employee as require_employee
 from endpoint_server.db.base import Base
 from endpoint_server.db.models import ConfirmedIdentity, ScopedRoleGrant
 from endpoint_server.worktime.router import router

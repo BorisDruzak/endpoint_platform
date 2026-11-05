@@ -20,9 +20,12 @@ class EmployeePrincipal:
     authority_client: object | None = None
     achieved_acr: str = ''
     required_acr: str = ''
+    auth_source: str = 'oidc'
 
 
 def require_privileged_assurance(principal):
+    if getattr(principal,'auth_source','oidc')=='helpdesk':
+        raise HTTPException(403,'Helpdesk WorkTime authority is self-only')
     if not getattr(principal,'required_acr','') or getattr(principal,'achieved_acr','') != principal.required_acr:
         raise HTTPException(403,detail={'code':'mfa_step_up_required','login_url':'/auth/employee/step-up'})
 

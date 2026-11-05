@@ -5,9 +5,17 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from endpoint_server.db.models.identity import ConfirmedIdentity, ScopedRoleGrant
 from endpoint_server.auth.employee_sessions import require_privileged_assurance
+from endpoint_server.identity.worktime_client import WorktimeAuthorityError
 
 
 async def authorize_person(session, principal, person_id: UUID, action: str) -> ConfirmedIdentity:
+    if getattr(principal,'auth_source','oidc')=='helpdesk':
+        if action not in {'worktime.read','worktime.write'} or principal.identity.person_id!=person_id:
+            raise HTTPException(403,'Helpdesk WorkTime authority is self-only')
+        target=await session.scalar(select(ConfirmedIdentity).where(ConfirmedIdentity.person_id==person_id,ConfirmedIdentity.state=='active',ConfirmedIdentity.revoked_at.is_(None)))
+        if target is None or principal.identity.state!='active' or principal.identity.revoked_at is not None:
+            raise HTTPException(403,'Personnel permission required')
+        return target
     target = await session.scalar(select(ConfirmedIdentity).where(ConfirmedIdentity.person_id == person_id, ConfirmedIdentity.state == 'active', ConfirmedIdentity.revoked_at.is_(None)))
     if target is None or principal.identity.state != 'active' or principal.identity.revoked_at is not None:
         raise HTTPException(403, 'Personnel permission required')
@@ -15,10 +23,13 @@ async def authorize_person(session, principal, person_id: UUID, action: str) -> 
     if client is None:
         raise HTTPException(503,'Personnel identity authority unavailable')
     try:
-        current=await client.resolve(target.issuer,target.subject,target.ad_object_guid)
+        if getattr(target,'authority_kind','oidc')=='helpdesk':current=await client.resolve_worktime_person(target.person_id)
+        else:current=await client.resolve(target.issuer,target.subject,target.ad_object_guid)
         if current.person_id!=target.person_id:
             raise ValueError('Person binding changed')
         target.department_id=current.department_id
+    except WorktimeAuthorityError as error:
+        raise HTTPException(403 if error.status in {401,403} else 503,'Personnel identity authority unavailable') from None
     except Exception:
         raise HTTPException(503,'Personnel identity authority unavailable') from None
     if action in {'worktime.read','worktime.write'} and principal.identity.person_id == person_id:

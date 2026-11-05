@@ -50,6 +50,13 @@ async def bounded_json(response: httpx.Response, limit: int = 65536) -> dict:
 
 
 class HelpdeskIdentityClient:
+    async def resolve_worktime_person(self,person_id):
+        from endpoint_server.identity.worktime_client import WorktimeIdentityClient
+        if not hasattr(self,'_worktime_consumer'):
+            self._worktime_consumer=WorktimeIdentityClient(self.base_url,self.credential,transport=self.transport)
+            self._worktime_consumer.tls_context=self.tls_context
+        return await self._worktime_consumer.resolve_person(person_id)
+
     def __init__(self, base_url: str, credential: str, *, transport=None, ca_file: str | None=None):
         self.base_url = https_origin(base_url)
         if urlsplit(base_url).path not in ('', '/') or len(credential) < 43 or not credential.isascii() or any(c.isspace() for c in credential):

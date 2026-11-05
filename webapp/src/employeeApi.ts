@@ -48,6 +48,10 @@ export function getEmployeeSession(signal?: AbortSignal) {
   return employeeFetch<EmployeeSession>('/api/employee/session', { signal })
 }
 
+export function getWorktimeSession(signal?: AbortSignal) {
+  return employeeFetch<EmployeeSession>('/api/employee/worktime/session', { signal })
+}
+
 /** A client belongs to one rendered identity; it cannot inherit another realm's CSRF. */
 export function employeeClient(session: EmployeeSession, signal: AbortSignal, unauthorized: () => void) {
   return async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
