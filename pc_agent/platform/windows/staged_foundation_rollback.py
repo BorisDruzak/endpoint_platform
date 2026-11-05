@@ -510,6 +510,8 @@ def execute_rollback_control_phase(client, paths):
     else:
         with durable_state.installer_mutation_checkpoints(client.checkpoint):
             if client.phase == 'prepare-foundation-rollback':
+                from .native_setup_continuation import release_preaccept_hold
+                release_preaccept_hold(paths, cap, record)
                 plan = prepare_foundation_rollback(paths, operation)
                 result = {'result': 'rollback-prepared', 'operation_id': operation, 'plan': plan,
                           'plan_sha256': plan_identity_sha256(plan),

@@ -27,7 +27,7 @@ PHASES = frozenset({'inspect','inspect-compound','prepare','stage-online','seal-
     'restore-staged-companions','inspect-staged-recovery','recover-staged-owner','record-staged-native-start','record-staged-native-success','record-staged-reboot-3010','record-staged-reboot-1641',
     'inspect-staged-state','prepare-foundation-rollback','bind-foundation-rollback-roles',
     'rollback-candidate-removed','rollback-native-committed','verify-foundation-rollback',
-    'foundation-config','msi-complete','reconcile','finish','verify-settled','native-continuation',
+    'foundation-config','msi-complete','reconcile','finish','verify-settled','native-continuation','recover-native-continuation',
     'uninstall-finalize-preflight','uninstall-finalize-enter','uninstall-finalize-complete',
     'compound-old-returned','compound-new-returned','compound-commit','compound-retire','compound-complete','compound-finalize',
     'compound-repair-returned','compound-repair-commit'})
@@ -465,19 +465,29 @@ def _advance_fence(paths,client,expected,phase):
     expected_fence=_public_fence(expected,client.capability)
     if fence is None or any(fence[key]!=expected_fence[key] for key in ('transaction_id','package','operation','selected','previous','service_states')):
         raise ValueError('PROVENANCE_CONFLICT')
+    before = json.loads(json.dumps(fence))
     fence['phase']=phase
     fence['sequence']+=1
     peer=client.identity.value
     if len(fence['helpers'])>=64: _failed()
     fence['helpers'].append({'pid':peer['pid'],'creation_time':peer['created'],'image_sha256':peer['hash'],
         'phase':phase,'complete':True})
+    if phase == 'complete' and client.capability['operation'] == 'install' and 'staged_rollback' not in client.capability:
+        from .native_setup_continuation import reserve_native_continuation
+        fence['startup_restored'] = True
+        reserve_native_continuation(paths, client.capability, fence, before)
     publish_fence(paths,fence)
     return fence
 
 
-def _settled(paths):
+def _settled(paths, *, continuation=None):
     from .update_transaction import active_update_state
-    if active_update_state(paths) is not None:
+    active = active_update_state(paths)
+    if active == 'native-continuation-pending' and continuation is not None:
+        from .native_setup_continuation import read_continuation_grant
+        read_continuation_grant(paths, continuation)
+        return
+    if active is not None:
         raise ValueError('UPDATE_IN_PROGRESS')
 
 
@@ -513,6 +523,9 @@ def execute_authorized_phase(client,paths,*,feature_states=None,rollback_disable
     if client.phase == 'native-continuation':
         from .native_setup_continuation import execute_native_continuation
         return execute_native_continuation(client, paths)
+    if client.phase == 'recover-native-continuation':
+        from .native_setup_continuation import recover_native_continuation
+        return recover_native_continuation(client, paths)
     if client.phase in {'restore-staged-companions','inspect-staged-recovery','recover-staged-owner','record-staged-native-start','record-staged-native-success','record-staged-reboot-3010','record-staged-reboot-1641'}:
         from .staged_recovery import execute_staged_recovery_phase
         return execute_staged_recovery_phase(client, paths)
@@ -755,7 +768,7 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
                     from .legacy_foundation_upgrade import canonical_release
                     if canonical_release(foundation) is not None:result['foundation_kind']='canonical-legacy'
     elif phase=='verify-settled':
-        _settled(paths)
+        _settled(paths, continuation=capability)
         from .compound_upgrade_plan import has_active_upgrade
         if has_active_upgrade(paths) or read_fence(paths) is not None: raise ValueError('UPDATE_IN_PROGRESS')
         inspected=provenance.inspect_installed_core(paths,resulting_foundation=expected.package.version)

@@ -90,6 +90,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--preflight", action="store_true")
     parser.add_argument("--recover-staged-update", type=_canonical_operation)
+    parser.add_argument("--recover-native-continuation", type=_canonical_operation)
     return parser
 
 
@@ -271,6 +272,48 @@ def _run_staged_recovery(operation_id):
             check=False, shell=False, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL, creationflags=_windowless_creation_flags())
         return result.returncode if result.returncode in (0,67,3010,1641) else EXIT_REPAIR_REQUIRED
+    except Exception:
+        return EXIT_REPAIR_REQUIRED
+
+
+def _run_native_continuation_recovery(operation_id):
+    """Only the retained signed Setup may request scoped continuation recovery."""
+    try:
+        if not getattr(sys, 'frozen', False):
+            raise SetupInstallError('RECOVERY_REQUIRED')
+        from pc_agent.platform.windows import native_setup_continuation as continuation
+        from pc_agent.platform.windows import installer_fence
+        from pc_agent.platform.windows.update_paths import _native_folder
+        paths = WindowsUpdatePaths.production()
+        hold = continuation.pending_continuation(paths)
+        if hold is None:
+            grant = continuation.recovery._read(continuation._grant_path(paths, operation_id))
+            continuation.state._release(grant['package'])
+            if grant['transaction_id'] != operation_id:
+                raise SetupInstallError('RECOVERY_REQUIRED')
+            hold = {'transaction_id': operation_id, 'package': grant['package']}
+        if hold is None or hold['transaction_id'] != operation_id:
+            raise SetupInstallError('RECOVERY_REQUIRED')
+        cache = paths.install_root.parent / 'installer-cache' / ('msi-' + hold['package']['package_sha256'])
+        if Path(sys.executable).resolve() != (cache / 'EndpointAgentSetup.exe').resolve():
+            raise SetupInstallError('RECOVERY_REQUIRED')
+        grant_path = continuation._grant_path(paths, operation_id)
+        installer_fence.assert_state_security(grant_path, secret=True)
+        # The authenticated helper reopens and validates the complete grant,
+        # capture, native inventory, current payload and original owner death.
+        manifest, wrapper = _verify_embedded_msi(_resource_root() / 'EndpointAgent.msi')
+        for embedded, cached in ((manifest, cache / manifest.name), (wrapper, cache / wrapper.name)):
+            if embedded.read_bytes() != cached.read_bytes():
+                raise SetupInstallError('RECOVERY_REQUIRED')
+        powershell = str(_native_folder(0x25) / 'WindowsPowerShell/v1.0/powershell.exe')
+        result = subprocess.run([powershell, '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
+            '-ExecutionPolicy', 'Bypass', '-File', str(cache / wrapper.name),
+            '-MsiPath', str(cache / 'EndpointAgent.msi'), '-ReleaseManifest', str(cache / manifest.name),
+            '-Operation', 'RecoverNativeContinuation', '-StagedOperationId', operation_id,
+            '-SetupImagePath', str(cache / 'EndpointAgentSetup.exe')],
+            check=False, shell=False, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, creationflags=_windowless_creation_flags())
+        return result.returncode if result.returncode in (0, 67, 3010, 1641) else EXIT_REPAIR_REQUIRED
     except Exception:
         return EXIT_REPAIR_REQUIRED
 
@@ -1056,6 +1099,8 @@ def _emit_preflight(value: dict[str, object]) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.recover_native_continuation:
+        return _run_native_continuation_recovery(args.recover_native_continuation)
     if args.recover_staged_update:
         return _run_staged_recovery(args.recover_staged_update)
     if args.preflight:

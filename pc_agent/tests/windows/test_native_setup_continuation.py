@@ -192,7 +192,8 @@ def test_actual_interactive_task_registration_uses_resolved_account_without_trig
     folder=real.GetFolder('\\')
     calls=[]; errors=[]
     class Task:
-        def __init__(self,registered): self.Xml=registered.Xml
+        def __init__(self,registered): self.registered=registered;self.Xml=registered.Xml
+        def __getattr__(self,key): return getattr(self.registered,key)
         def RunEx(self,*args): calls.append(args)  # Intentionally never run a process.
     class Folder:
         def RegisterTaskDefinition(self,name,definition,flags,account,password,logon,security):
@@ -248,6 +249,7 @@ def test_native_failure_retains_hold_and_truth_then_exact_retry_only_finishes_co
          'session_id':str(uuid4()),'selected':None,'previous':None,'recovery':False,'uninstall_finalization':False}
     client=SimpleNamespace(capability=cap,checkpoint=lambda:None,request=lambda *args:None)
     monkeypatch.setattr(continuation,'accepted_native_record',lambda *_:record)
+    monkeypatch.setattr(continuation,'mark_continuation_finished',lambda *_:None)
     monkeypatch.setattr(msi_inventory,'read_expected_package',lambda *_:SimpleNamespace(package=SimpleNamespace(version=binding.new_release['version'])))
     monkeypatch.setattr(continuation.provenance,'verified_foundation_release',lambda _:binding.new_release)
     monkeypatch.setattr(continuation.provenance,'inspect_installed_core',lambda *a,**kw:SimpleNamespace(current=object()))
@@ -281,16 +283,11 @@ def test_native_hold_is_visible_to_readonly_core_and_fleet_gate(staged,monkeypat
     assert update_transaction.active_update_state(paths)=='native-continuation-pending'
 
 @pytest.mark.parametrize('defect',['owner','helper','transaction','package'])
-def test_fresh_continuation_cannot_recreate_an_unrelated_native_owner(monkeypatch,defect):
-    from pc_agent.platform.windows import native_setup_continuation as continuation, installer_transaction_bridge as bridge, installer_data_security as security
-    cap={'owner':{'pid':1},'helper_sha256':'a'*64,'transaction_id':str(uuid4()),'package':{'version':'3.2.166'},'session_id':str(uuid4())}
-    original={**cap,'operation':'install'}
-    original[{'owner':'owner','helper':'helper_sha256','transaction':'transaction_id','package':'package'}[defect]]=None
-    monkeypatch.setattr(bridge,'_request_data',lambda *_:{})
-    monkeypatch.setattr(security,'_read',lambda *_:{'binding':{'session_id':str(uuid4())}})
-    monkeypatch.setattr(bridge,'_read_capability',lambda *_:original)
-    with pytest.raises(ValueError,match='RECOVERY_REQUIRED'):
-        continuation.assert_original_native_owner(SimpleNamespace(),cap)
+def test_fresh_continuation_cannot_recreate_an_unrelated_native_owner(reserved_native,defect):
+    c,paths,cap,completed,before=reserved_native
+    changed={**cap,{'owner':'owner','helper':'helper_sha256','transaction':'transaction_id','package':'package'}[defect]:None}
+    if defect=='transaction':changed['transaction_id']=str(uuid4())
+    with pytest.raises(ValueError):c.assert_original_native_owner(paths,changed)
 
 
 @pytest.mark.skipif(os.name != 'nt', reason='compiled Windows owner policy')
@@ -312,8 +309,10 @@ foreach($mode in @('fresh','exit-zero','recovery','uninstall')){
  $p.MarkQuiescent()
  if($mode -ceq 'exit-zero'){$p.MarkMsiExited(0)}
  if($mode -ceq 'recovery'){$p.Recovery=$true}
- $rejected=$false;try{$p.RegisterHelper($peer,'native-continuation')}catch{$rejected=$true}
- if(!$rejected){throw 'unauthorized native continuation'}
+ foreach($phase in @('native-continuation','recover-native-continuation')){
+  $rejected=$false;try{$p.RegisterHelper($peer,$phase)}catch{$rejected=$true}
+  if(!$rejected){throw 'unauthorized native continuation'}
+ }
 }
 'passed'
 ''')
@@ -368,3 +367,281 @@ def test_native_provision_accepts_existing_signed_observer_inherited_admin_file_
     descriptor=win32security.GetNamedSecurityInfo(str(asset),win32security.SE_FILE_OBJECT,win32security.DACL_SECURITY_INFORMATION)
     assert not descriptor.GetSecurityDescriptorControl()[0]&win32security.SE_DACL_PROTECTED
     observer._assert_administrative_file(asset)
+
+
+def test_completion_reserves_exclusion_before_native_fence_publication(staged,monkeypatch):
+    from pc_agent.platform.windows import installer_transaction_bridge as bridge, installer_fence as fence, native_setup_continuation as continuation, durable_state
+    from pc_agent.tests.windows.test_installer_fence import state as native_fence
+    _,paths,binding,owner=staged
+    cap={'transaction_id':binding.operation_id,'package':binding.new_release,'operation':'install','owner':owner,
+         'helper_sha256':'f'*64,'session_id':str(uuid4()),'selected':'c'*64,'previous':None,
+         'service_states':{'EndpointAgent':'running','EndpointAgentUpdater':'stopped'}}
+    current=native_fence();current.update(transaction_id=cap['transaction_id'],phase='reconciling')
+    current['package'].update(sha256=cap['package']['package_sha256'],version=cap['package']['version'],source_revision=cap['package']['source_revision'],product_code=cap['package']['product_code'])
+    fence.protect_state(paths.install_root)
+    with durable_state.installer_mutation_checkpoints(lambda:None):fence.publish_fence(paths,current)
+    expected=SimpleNamespace(package=SimpleNamespace(sha256=current['package']['sha256'],product_code=current['package']['product_code'],package_code=current['package']['package_code'],version=current['package']['version']),identity=SimpleNamespace(source_revision=current['package']['source_revision']))
+    client=SimpleNamespace(capability=cap,identity=SimpleNamespace(value={'pid':1,'created':1,'hash':'f'*64}))
+    events=[]
+    def reserve(*a,**kw):events.append('reserved');raise KeyboardInterrupt()
+    monkeypatch.setattr(continuation,'reserve_native_continuation',reserve,raising=False)
+    original=fence.fence_path(paths).read_bytes()
+    with durable_state.installer_mutation_checkpoints(lambda:None):
+        with pytest.raises(KeyboardInterrupt):bridge._advance_fence(paths,client,expected,'complete')
+    assert events==['reserved']
+    assert fence.fence_path(paths).read_bytes()==original
+
+
+def test_fresh_native_recovery_has_explicit_setup_entrypoint():
+    from pc_agent.platform.windows import setup_entry
+    operation=str(uuid4())
+    assert setup_entry._parser().parse_args(['--recover-native-continuation',operation]).recover_native_continuation==operation
+
+
+def test_reserved_grant_precedes_first_continuation_and_authorizes_only_dead_exact_owner(staged,monkeypatch):
+    from pc_agent.platform.windows import native_setup_continuation as c, installer_fence as f, durable_state
+    from pc_agent.tests.windows.test_installer_fence import state as native_fence
+    _,paths,binding,owner=staged
+    cap={'transaction_id':binding.operation_id,'package':binding.new_release,'owner':owner,'helper_sha256':'f'*64,'session_id':str(uuid4()),'operation':'install','recovery':False,'uninstall_finalization':False}
+    completed=native_fence();completed.update(transaction_id=binding.operation_id,phase='complete',startup_restored=True)
+    completed['package'].update(sha256=binding.new_release['package_sha256'],version=binding.new_release['version'],source_revision=binding.new_release['source_revision'],product_code=binding.new_release['product_code'])
+    before={**completed,'phase':'reconciling','startup_restored':False}
+    monkeypatch.setattr(c,'_capture_authority',lambda *_:{'session_id':cap['session_id'],'capture_sha256':'a'*64})
+    monkeypatch.setattr(c,'_selected_scope',lambda *_:{'selected_sha256':'b'*64,'previous_sha256':None,'tree_sha256':'c'*64})
+    with durable_state.installer_mutation_checkpoints(lambda:None): c.reserve_native_continuation(paths,cap,completed,before)
+    assert c.pending_continuation(paths)=={'transaction_id':binding.operation_id,'package':binding.new_release}
+    grant=c.read_continuation_grant(paths,cap)
+    assert grant['owner']==owner and grant['completion']==completed
+    newcap={**cap,'owner':{**owner,'pid':owner['pid']+10,'created':owner['created']+1},'session_id':str(uuid4())}
+    monkeypatch.setattr(c.recovery,'_assert_owner_dead',lambda _:(_ for _ in ()).throw(ValueError('RECOVERY_REQUIRED')))
+    with durable_state.installer_mutation_checkpoints(lambda:None):
+        with pytest.raises(ValueError): c.authorize_continuation_recovery(paths,newcap)
+    monkeypatch.setattr(c.recovery,'_assert_owner_dead',lambda _:None)
+    with durable_state.installer_mutation_checkpoints(lambda:None): c.authorize_continuation_recovery(paths,newcap)
+    c.assert_original_native_owner(paths,newcap)
+    monkeypatch.setattr(c,'_selected_scope',lambda *_:{'selected_sha256':'d'*64,'previous_sha256':None,'tree_sha256':'c'*64})
+    with pytest.raises(ValueError):c.assert_original_native_owner(paths,newcap)
+
+
+@pytest.mark.skipif(os.name!='nt',reason='real no-trigger Scheduler interruption boundary')
+@pytest.mark.parametrize('foreign',[False,True])
+def test_real_interrupted_companion_launcher_retry_reuses_only_exact_owned_task(staged,monkeypatch,foreign):
+    import win32api,win32con,win32security,win32ts,win32com.client
+    from pc_agent.platform.windows import durable_state
+    _,paths,binding,owner=staged
+    token=win32security.OpenProcessToken(win32api.GetCurrentProcess(),win32con.TOKEN_QUERY)
+    try:sid=win32security.ConvertSidToStringSid(win32security.GetTokenInformation(token,win32security.TokenUser)[0])
+    finally:token.Close()
+    session=win32ts.ProcessIdToSessionId(os.getpid())
+    if session<=0:pytest.skip('interactive operator session')
+    item={'role':'sensor','sid':sid,'session_id':session}
+    dispatch=win32com.client.Dispatch;real=dispatch('Schedule.Service');real.Connect();folder=real.GetFolder('\\')
+    name='EndpointCompanionRestore-'+binding.operation_id+'-sensor-'+str(session)
+    attempts=[]; checkpoints=[]
+    class Task:
+        def __init__(self,task):self.task=task
+        def __getattr__(self,key):return getattr(self.task,key)
+        def RunEx(self,*args):
+            attempts.append(args)
+            if len(attempts)==1:raise KeyboardInterrupt()
+    class Folder:
+        def RegisterTaskDefinition(self,*args):return Task(folder.RegisterTaskDefinition(*args))
+        def GetTask(self,*args):return Task(folder.GetTask(*args))
+        def DeleteTask(self,*args):return folder.DeleteTask(*args)
+    class Scheduler:
+        def Connect(self):pass
+        def GetFolder(self,_):return Folder()
+        def NewTask(self,n):return real.NewTask(n)
+    monkeypatch.setattr(win32com.client,'Dispatch',lambda value,*args,**kwargs:Scheduler() if value=='Schedule.Service' else dispatch(value,*args,**kwargs))
+    monkeypatch.setattr(recovery,'_active_sessions',lambda:[{'sid':sid,'session_id':session}])
+    def interrupted_checkpoint():
+        checkpoints.append(1)
+        if len(checkpoints)==3:raise ValueError('owner-gone')
+    try:
+        with durable_state.installer_mutation_checkpoints(interrupted_checkpoint):
+            with pytest.raises(ValueError,match='owner-gone'):recovery._restore_companion_task(paths,binding.operation_id,item)
+        assert folder.GetTask(name).Definition.Triggers.Count==0
+        if foreign:
+            definition=folder.GetTask(name).Definition;definition.Actions.Item(1).Path='C:\\Windows\\System32\\cmd.exe'
+            account=win32security.LookupAccountSid(None,win32security.ConvertStringSidToSid(sid))
+            folder.RegisterTaskDefinition(name,definition,6,account[1]+'\\'+account[0],None,3,'O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;GRGX;;;'+sid+')')
+            foreign_xml=folder.GetTask(name).Xml
+        with durable_state.installer_mutation_checkpoints(lambda:None):
+            if foreign:
+                with pytest.raises(ValueError,match='RECOVERY_REQUIRED'):recovery._restore_companion_task(paths,binding.operation_id,item)
+                assert folder.GetTask(name).Xml==foreign_xml and len(attempts)==1
+            else:assert recovery._restore_companion_task(paths,binding.operation_id,item) is True
+        if not foreign:assert len(attempts)==2
+    finally:
+        try:folder.DeleteTask(name,0)
+        except Exception:pass
+
+
+@pytest.fixture
+def reserved_native(staged,monkeypatch):
+    from pc_agent.platform.windows import native_setup_continuation as c, durable_state
+    from pc_agent.tests.windows.test_installer_fence import state as native_fence
+    _,paths,binding,owner=staged
+    cap={'transaction_id':binding.operation_id,'package':binding.new_release,'owner':owner,'helper_sha256':'f'*64,
+         'session_id':str(uuid4()),'operation':'install','recovery':False,'uninstall_finalization':False,'selected':None,'previous':None}
+    completed=native_fence();completed.update(transaction_id=binding.operation_id,phase='complete',startup_restored=True)
+    completed['package'].update(sha256=binding.new_release['package_sha256'],version=binding.new_release['version'],source_revision=binding.new_release['source_revision'],product_code=binding.new_release['product_code'])
+    before={**completed,'phase':'reconciling','startup_restored':False}
+    monkeypatch.setattr(c,'_capture_authority',lambda *_:{'session_id':cap['session_id'],'capture_sha256':'a'*64})
+    monkeypatch.setattr(c,'_selected_scope',lambda *_:{'selected_sha256':'b'*64,'previous_sha256':None,'tree_sha256':'c'*64})
+    with durable_state.installer_mutation_checkpoints(lambda:None):c.reserve_native_continuation(paths,cap,completed,before)
+    return c,paths,cap,completed,before
+
+
+@pytest.mark.parametrize('boundary',['before-public-hold','before-completed-receipt','before-first-continuation'])
+@pytest.mark.parametrize('defect',[None,'capture','selection','payload','owner-alive','pending','missing-grant'])
+def test_exact_new_owner_recovers_native_boundaries_without_msi(reserved_native,monkeypatch,boundary,defect):
+    from pc_agent.platform.windows import installer_fence as f, durable_state, msi_inventory, installer_data_security as security
+    from pc_agent.platform.windows import native_setup_observer as observer, update_transaction, compound_upgrade_plan as plan
+    c,paths,cap,completed,before=reserved_native
+    newcap={**cap,'owner':{**cap['owner'],'pid':cap['owner']['pid']+100,'created':cap['owner']['created']+100},'session_id':str(uuid4())}
+    grant=c.read_continuation_grant(paths,cap);completion=f.state_root(paths)/grant['completion_relative']
+    with durable_state.installer_mutation_checkpoints(lambda:None):
+        if boundary in {'before-public-hold','before-completed-receipt'}:f.publish_fence(paths,before)
+        else:durable_state.write_json_atomic(completion,completed,trusted_root=completion.parent,max_bytes=16384,protect=f.protect_state)
+    if boundary=='before-public-hold':(f.state_root(paths)/'native-continuation.json').unlink()
+    original_fence=f.fence_path(paths).read_bytes() if f.fence_path(paths).exists() else None
+    monkeypatch.setattr(update_transaction,'active_update_state',lambda _:'pending' if defect=='pending' else None if boundary=='before-public-hold' else 'native-continuation-pending')
+    monkeypatch.setattr(plan,'has_active_upgrade',lambda _:False)
+    monkeypatch.setattr(c.provenance,'verified_foundation_release',lambda _:{} if defect=='payload' else cap['package'])
+    monkeypatch.setattr(msi_inventory,'read_expected_package',lambda *_:SimpleNamespace(package=SimpleNamespace(version=cap['package']['version'])))
+    monkeypatch.setattr(msi_inventory,'verified_foundation_bytes',lambda *_:nullcontext())
+    monkeypatch.setattr(c.provenance,'inspect_installed_core',lambda *a,**kw:SimpleNamespace(current=object()))
+    monkeypatch.setattr(security,'verify_preserved',lambda *_:None)
+    def dead(_):
+        if defect=='owner-alive':raise ValueError('RECOVERY_REQUIRED')
+    monkeypatch.setattr(c.recovery,'_assert_owner_dead',dead)
+    if defect=='capture':monkeypatch.setattr(c,'_capture_authority',lambda *_:{'session_id':cap['session_id'],'capture_sha256':'9'*64})
+    if defect=='selection':monkeypatch.setattr(c,'_selected_scope',lambda *_:{})
+    if defect=='missing-grant':c._grant_path(paths,cap['transaction_id']).unlink()
+    calls=[]
+    monkeypatch.setattr(observer,'provision_packaged_observer',lambda _:calls.append('observer') or 'provisioned')
+    monkeypatch.setattr(c.recovery,'restore_expected_companions',lambda *a,**kw:calls.append('companions') or 'running')
+    client=SimpleNamespace(capability=newcap,checkpoint=lambda:None,request=lambda *args:None)
+    if defect is None:
+        assert c.recover_native_continuation(client,paths)['users']=='running'
+        assert calls==['observer','companions'] and not f.fence_path(paths).exists()
+        assert c.pending_continuation(paths) is None
+        assert plan._read(completion)==completed
+    else:
+        with pytest.raises(ValueError):c.recover_native_continuation(client,paths)
+        assert not calls
+        assert (c.pending_continuation(paths) is None)==(boundary=='before-public-hold')
+        assert (f.fence_path(paths).read_bytes() if f.fence_path(paths).exists() else None)==original_fence
+    assert not paths.pending_path.exists()
+
+
+from pc_agent.tests.windows.test_compound_upgrade_plan import inputs as compound_inputs
+
+
+@pytest.mark.parametrize('phase',['reconciled','ready'])
+@pytest.mark.parametrize('defect',[None,'old-msi-present','changed-capability','changed-plan'])
+def test_scoped_native_grant_finishes_only_its_committed_compound_plan(staged,compound_inputs,monkeypatch,phase,defect):
+    from pc_agent.platform.windows import native_setup_continuation as c, compound_upgrade_plan as plan, durable_state, msi_inventory, installer_transaction_bridge as bridge
+    _,paths,_,_=staged
+    cap,old,old_fence=compound_inputs
+    record=plan.make_plan(cap,old,old_fence)
+    for target in ('old-script-returned','new-script-returned','committed','retired','reconciled'):
+        record=plan.next_phase(record,cap,target,native_result=0 if target in {'old-script-returned','new-script-returned','committed'} else None)
+    grant={'native_session_id':cap['session_id'],'native_capability_sha256':c._digest(cap),'owner':cap['owner'],'compound_plan_sha256':c._digest(record)}
+    with durable_state.installer_mutation_checkpoints(lambda:None):
+        plan.publish_plan(paths,cap,record)
+        if phase=='ready':plan.ready_receipt(paths,cap)
+    assert plan.has_active_upgrade(paths)
+    original={**cap}
+    if defect=='changed-capability':original={**cap,'helper_sha256':'9'*64}
+    monkeypatch.setattr(bridge,'_read_capability',lambda *_:original)
+    monkeypatch.setattr(msi_inventory,'NativeMsi',lambda:SimpleNamespace(product=lambda _:5 if defect=='old-msi-present' else -1))
+    if defect=='changed-plan':grant['compound_plan_sha256']='0'*64
+    current={**cap,'owner':{**cap['owner'],'pid':200},'session_id':str(uuid4())};current.pop('compound')
+    with durable_state.installer_mutation_checkpoints(lambda:None):
+        if defect is not None:
+            with pytest.raises(ValueError):c._finish_reserved_compound(paths,current,grant)
+            assert plan.has_active_upgrade(paths)
+        else:
+            c._finish_reserved_compound(paths,current,grant)
+            assert not plan.has_active_upgrade(paths)
+            assert plan.committed_marker(paths)['new_transaction_id']==cap['transaction_id']
+
+
+def test_native_recovery_setup_dispatch_never_enters_normal_install(monkeypatch):
+    from pc_agent.platform.windows import setup_entry
+    operation=str(uuid4());seen=[]
+    monkeypatch.setattr(setup_entry,'_run_native_continuation_recovery',lambda value:seen.append(value) or 17)
+    monkeypatch.setattr(setup_entry,'_install_embedded_msi',lambda *_:pytest.fail('native replay'))
+    assert setup_entry.main(['--recover-native-continuation',operation])==17
+    assert seen==[operation]
+
+
+def test_preaccept_hold_release_keeps_staged_exclusion_and_cannot_release_acceptance(reserved_native,staged):
+    from pc_agent.tests.windows.test_staged_update_state import begin,move
+    from pc_agent.platform.windows import durable_state,update_transaction
+    c,paths,cap,completed,before=reserved_native
+    begin(staged)
+    for a,b in [('preparing','prepared'),('prepared','switching'),('switching','native-settled')]:move(staged,a,b)
+    move(staged,'native-settled','trial',attempt_id=str(uuid4()))
+    record=c.state.read_staged_update(paths)
+    with durable_state.installer_mutation_checkpoints(lambda:None):c.release_preaccept_hold(paths,cap,record)
+    assert c.pending_continuation(paths) is None and c.state.read_staged_update(paths).phase=='trial'
+    with pytest.raises(update_transaction.UpdateInProgress):c.state.assert_staged_update_allowed(paths,purpose='setup')
+    move(staged,'trial','accepted')
+    with durable_state.installer_mutation_checkpoints(lambda:None):
+        c.begin_continuation_hold(paths,cap)
+        with pytest.raises(ValueError):c.release_preaccept_hold(paths,cap,c.state.read_staged_update(paths))
+    assert c.pending_continuation(paths) is not None
+
+
+def test_continuation_recovery_cannot_replace_a_still_live_adopted_owner(reserved_native,monkeypatch):
+    from pc_agent.platform.windows import durable_state
+    c,paths,cap,*_=reserved_native
+    first={**cap,'owner':{**cap['owner'],'pid':cap['owner']['pid']+10}}
+    second={**cap,'owner':{**cap['owner'],'pid':cap['owner']['pid']+20}}
+    monkeypatch.setattr(c.recovery,'_assert_owner_dead',lambda _:None)
+    with durable_state.installer_mutation_checkpoints(lambda:None):c.authorize_continuation_recovery(paths,first)
+    receipt=c._owner_receipt(paths,first).read_bytes()
+    def dead(value):
+        if value==first['owner']:raise ValueError('RECOVERY_REQUIRED')
+    monkeypatch.setattr(c.recovery,'_assert_owner_dead',dead)
+    with durable_state.installer_mutation_checkpoints(lambda:None):
+        with pytest.raises(ValueError):c.authorize_continuation_recovery(paths,second)
+    assert c._owner_receipt(paths,first).read_bytes()==receipt
+
+
+def test_successful_continuation_grant_is_not_a_fresh_owner_recreation_capability(reserved_native,monkeypatch):
+    from pc_agent.platform.windows import durable_state
+    c,paths,cap,*_=reserved_native
+    with durable_state.installer_mutation_checkpoints(lambda:None):c.mark_continuation_finished(paths,cap)
+    with durable_state.installer_mutation_checkpoints(lambda:None):c.finish_continuation_hold(paths,cap)
+    called=[]
+    monkeypatch.setattr(c.recovery,'_assert_owner_dead',lambda _:called.append('death'))
+    with durable_state.installer_mutation_checkpoints(lambda:None):
+        with pytest.raises(ValueError):c.authorize_continuation_recovery(paths,{**cap,'owner':{**cap['owner'],'pid':cap['owner']['pid']+100}})
+    assert not called
+
+
+@pytest.mark.parametrize('operation,reserved,denied',[('RecoverInterruptedInstall',True,True),('RecoverInterruptedInstall',False,False),('RecoverNativeContinuation',True,False),('RecoverStagedUpdate',True,False)])
+def test_wrapper_refuses_ordinary_msi_recovery_after_scoped_native_reservation(tmp_path,operation,reserved,denied):
+    import subprocess
+    from pathlib import Path
+    powershell=shutil.which('powershell.exe') or shutil.which('pwsh')
+    if powershell is None:pytest.skip('PowerShell')
+    source=Path(__file__).resolve().parents[3]/'packaging/windows/Install-EndpointAgentCanary.ps1'
+    script=tmp_path/'no-replay.ps1'
+    script.write_text(r'''param($Source,$Operation,$Reserved,$Denied)
+$ErrorActionPreference='Stop';$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($Source,[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'parse'}
+$node=$ast.Find({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Assert-NoReservedNativeReplay'},$true)
+Invoke-Expression $node.Extent.Text
+function Read-UpdateGateState {param($Path,$Limit);if($Limit -ne 32768){throw 'scope bound'};if($Reserved -ceq 'True'){return [pscustomobject]@{Value=@{schema_version=1}}};return $null}
+$failed=$false;try{Assert-NoReservedNativeReplay -Operation $Operation -Fence ([pscustomobject]@{transaction_id='11111111-1111-4111-8111-111111111111'}) -StateRoot $env:TEMP}catch{$failed=$true}
+if($failed -ne ($Denied -ceq 'True')){throw 'replay guard'}
+'passed'
+''')
+    result=subprocess.run([powershell,'-NoProfile','-NonInteractive','-File',str(script),str(source),operation,str(reserved),str(denied)],capture_output=True,text=True,timeout=15)
+    assert result.returncode==0,result.stderr

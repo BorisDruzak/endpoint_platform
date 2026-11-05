@@ -187,7 +187,7 @@ def execute_compound_phase(client,paths,*,feature_states=None,rollback_disabled=
     data_request=_data_request(paths,cap)
     expected=msi_inventory.read_expected_package(request['package_path'],cap['package'])
     if phase=='verify-settled':
-        bridge._settled(paths)
+        bridge._settled(paths, continuation=cap)
         record=plan.read_plan(paths,cap)
         marker=plan.committed_marker(paths)
         if record['phase']!='ready' or marker is None or any(marker[key]!=value for key,value in plan._barrier(record).items()):_fail()
@@ -206,7 +206,10 @@ def execute_compound_phase(client,paths,*,feature_states=None,rollback_disabled=
                 rollback_disabled=rollback_disabled,uninstall_finalization=uninstall_finalization)
     result={}
     with durable_state.installer_mutation_checkpoints(client.checkpoint):
-        bridge._settled(paths)
+        if phase == 'compound-complete':
+            bridge._settled(paths, continuation=cap)
+        else:
+            bridge._settled(paths)
         if phase=='prepare':
             if cap['recovery']:
                 result=_prepare_recovery(client,paths,expected)

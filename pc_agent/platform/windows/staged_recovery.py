@@ -500,25 +500,23 @@ def _restore_companion_task(paths, operation_id, item):
     definition.Settings.DisallowStartIfOnBatteries = False
     definition.Settings.StopIfGoingOnBatteries = False
     definition.Settings.ExecutionTimeLimit = 'PT0S'
+    definition.Settings.MultipleInstances = 2  # IgnoreNew also bounds retained launcher retries.
     action = definition.Actions.Create(0)
     action.Path = str(paths.install_root / _COMPANIONS[item['role']])
     action.Arguments = ''
     security = 'O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;GRGX;;;' + item['sid'] + ')'
+    durable_state.installer_mutation_checkpoint(required=True)
     try:
-        # No update/replace flag: a pre-existing foreign task is a conflict.
-        durable_state.installer_mutation_checkpoint(required=True)
+        # Never replace a task by name. A crash may leave our exact protected
+        # registration; only full readback below authorizes its reuse.
         task = folder.RegisterTaskDefinition(name, definition, 2, account, None, 3, security)
     except Exception:
-        return False
+        try:
+            task = folder.GetTask(name)
+        except Exception:
+            return False
+    _validate_companion_launcher(task, paths, item)
     try:
-        from xml.etree import ElementTree as ET
-        xml = ET.fromstring(task.Xml)
-        actions = xml.findall('{*}Actions/{*}Exec')
-        if (xml.findtext('{*}Principals/{*}Principal/{*}UserId') != item['sid']
-                or len(actions) != 1 or len(xml.findall('{*}Actions/*')) != 1
-                or actions[0].findtext('{*}Command') != str(paths.install_root / _COMPANIONS[item['role']])
-                or actions[0].findtext('{*}Arguments') not in (None, '')):
-            _fail()
         if item not in companion_restore_decisions([item], _active_sessions()):
             return False
         durable_state.installer_mutation_checkpoint(required=True)
@@ -528,6 +526,33 @@ def _restore_companion_task(paths, operation_id, item):
         # Deleting the launcher registration does not stop its interactive process.
         durable_state.installer_mutation_checkpoint(required=True)
         folder.DeleteTask(name, 0)
+
+
+def _validate_companion_launcher(task, paths, item):
+    from xml.etree import ElementTree as ET
+    import win32security
+    xml = ET.fromstring(task.Xml)
+    actions = xml.findall('{*}Actions/{*}Exec')
+    principal = task.Definition.Principal
+    if (len(xml.findall('{*}Principals/{*}Principal')) != 1
+            or xml.findtext('{*}Principals/{*}Principal/{*}UserId') != item['sid']
+            or principal.LogonType != 3 or principal.RunLevel != 0
+            or xml.findall('{*}Triggers/*') or task.Definition.Settings.MultipleInstances != 2
+            or len(actions) != 1 or len(xml.findall('{*}Actions/*')) != 1
+            or actions[0].findtext('{*}Command') != str(paths.install_root / _COMPANIONS[item['role']])
+            or actions[0].findtext('{*}Arguments') not in (None, '')
+            or actions[0].findtext('{*}WorkingDirectory') not in (None, '')):
+        _fail()
+    descriptor = win32security.ConvertStringSecurityDescriptorToSecurityDescriptor(task.GetSecurityDescriptor(7), 1)
+    owner, acl = descriptor.GetSecurityDescriptorOwner(), descriptor.GetSecurityDescriptorDacl()
+    admins = {'S-1-5-18', 'S-1-5-32-544'}
+    if owner is None or acl is None or win32security.ConvertSidToStringSid(owner) not in admins:
+        _fail()
+    for index in range(acl.GetAceCount()):
+        kind, mask, sid = acl.GetAce(index)
+        sid = win32security.ConvertSidToStringSid(sid)
+        if kind[0] != 0 or sid not in admins | {item['sid']} or (sid == item['sid'] and mask & ~0xA01200A9):
+            _fail()
 
 
 def restore_expected_companions(paths, operation_id, *, checkpoint, timeout_seconds=20):
