@@ -1,5 +1,5 @@
 import importlib.util
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import sys
 import types
 
@@ -15,6 +15,7 @@ def module(monkeypatch):
     source=Path(__file__).resolve().parents[2]/'tools/release/worktime_helpdesk_staging.py'
     spec=importlib.util.spec_from_file_location('staging_release_guard',source)
     result=importlib.util.module_from_spec(spec);spec.loader.exec_module(result)
+    result.ENV=PurePosixPath('/etc/endpoint-staging/endpoint-platform.env')
     return result
 
 
