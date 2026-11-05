@@ -19,6 +19,7 @@
 - Existing156 on A2-INFAN-N/101.29 initially failed to bootstrap163: an Administrators-owned updates root denied LocalService the WRITE_DAC required by frozen156 before download. After explicit user authorization, a one-time owner-only repair changed that root to LocalService while preserving its exact DACL/group and private files. The same Endpoint bridge163/return155/full158 chain then applied05.11 at05:25:49Z, native0,181.622 seconds stable, fresh UserSensor/activity and completed health/inventory. This administratively prepared continuation does not qualify unattended historical156 delivery or replace the clean120 evidence; fleet remains disabled. Do not generalize version eligibility to historical ACL readiness or apply this repair elsewhere without authorization. See [`docs/verification/2026-11-05-test29-endpoint-full158.md`](docs/verification/2026-11-05-test29-endpoint-full158.md).
 
 - Current Windows full Setup candidate is **3.2.165**, signed EXE `C:\endpoint-platform-wix-build\setup165-final-ed7f77a\native-setup-build\releases\EndpointAgentSetup-3.2.165-x64.exe`, source binding `packaging/windows/initial-runtime-3.2.165.json`. Its enrollment download is published and the exact Foundation158-source canary120 is qualified, but the first automatic wave stopped on101.146 with `native_observation_unavailable` and stale UserSensor. Policy revision3 is **paused**, all-active/max2 retained;144 applied successfully. Preserve146 recovery ownership and do not replay or resume before diagnosis. This is not general fleet acceptance or a new stable-primary declaration. See [`docs/releases/windows-3.2.165-setup.json`](docs/releases/windows-3.2.165-setup.json) and [`docs/verification/2026-11-05-setup165-web-fleet.md`](docs/verification/2026-11-05-setup165-web-fleet.md). Historical disabled/max1 statements above describe their earlier checkpoints; Linux primary156 remains unchanged.
+- The next registered full-Setup update candidate is **3.2.167**, signed EXE `C:\endpoint-platform-wix-build\setup167-ab31322\native-setup-build\releases\EndpointAgentSetup-3.2.167-x64.exe`, binding `packaging/windows/initial-runtime-3.2.167.json`; see [`docs/releases/windows-3.2.167-setup.json`](docs/releases/windows-3.2.167-setup.json). It includes signed observer1.0.6 and common native companion/observer continuation. It has no native qualification or assignments yet and does not change the current165 enrollment download. Core166 is a distinct upward preparation candidate, not a full installer or primary release: [`docs/releases/core-3.2.166-observer-bootstrap.json`](docs/releases/core-3.2.166-observer-bootstrap.json). Keep existing146 ownership and paused policy; a signed build/registry row is not fleet acceptance.
 
 # Canonical Windows update workflow
 
@@ -46,12 +47,23 @@
   stale or busy modern observers and discordant versions wait for confirmation;
   they must not trigger a legacy bridge, poison a device or pause the whole fleet.
   Preserve the existing controlled legacy preparation/return path.
+- After a three-minute WSS grace, an absent/stale observer on Core163–165 and
+  Foundation158–165 may use only registered upward Core166, then a distinct full
+  Setup newer than166. Require applied child, fresh matching observer1.0.6 and
+  WSS, and recheck exact EXE/source qualification before automatic handoff. Do
+  not replace a recently busy observer or reuse the same staged version slot.
 - Keep exact-source qualification and its expiry visible. Unsupported sources
   remain blocked with a reason. Global slots include manual/recovery chains;
   real failure pauses new work. Never replay MSI or clear an unknown native outcome.
 - Verify actual assignments and fresh telemetry after update; heartbeat/version
   alone is not acceptance. Promote the Windows download only after native canary
   acceptance and verified served bytes. Keep Linux release/version separate.
+- The selected pilot diagnostic-access design is a separate Foundation component
+  using an outbound SSH tunnel through Endpoint, independent of Core/observer,
+  with per-device keys, strict host verification, expiry/revocation and audit.
+  See [`support access spec`](docs/superpowers/specs/2026-11-05-pilot-support-tunnel.md).
+  This channel is not implemented or included in Setup167; never claim that a
+  workstation has service access merely because it runs that agent version.
 
 # Production host
 

@@ -33,11 +33,11 @@ without coordination; its signed bytes are already immutable.
 
 ## Task3: Immutable complete release and live qualification
 
-- [ ] Root freezes Core166 as the upward observer bootstrap and a distinct full
+- [x] Root freezes Core166 as the upward observer bootstrap and a distinct full
   Windows Setup167 after Task2, including power correction/common continuation.
   Same-version166 staged payload takeover is unsupported. Build/sign
   without modifying165/1.0.5 or the already-signed1.0.6 artifact.
-- [ ] Verify actual bytes/signatures, source tree/compatibility contract and
+- [x] Verify actual bytes/signatures, source tree/compatibility contract and
   packaged helper assets. Register candidate through canonical publication.
 - [ ] Through Console qualify source158 and165 with real native success,
   private continuity and180-second active-user telemetry. Prove fresh native

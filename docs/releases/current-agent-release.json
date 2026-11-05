@@ -214,10 +214,13 @@
     "followup_health_warnings": []
   },
   "live_provider": {
-    "commit": "d3459936a25114b56335aaebf5a4d209833cb3aa",
-    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-d3459936a251",
+    "commit": "773f2dbeeee561cc565b124c9f2dcbac553bd48f",
+    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-773f2dbeeee5",
     "migration": "0045_setup_fleet_policy",
-    "scope": "Signed client1.0.5/Core163 preparation, native158 automatic UserSensor, bounded Windows fleet policy deployed disabled; primary download156 preserved"
+    "scope": "Observer1.0.6 and upward Core166 preparation deployed; full Setup167 registered unqualified; fleet paused revision3/all-active/max2; enrollment165 preserved",
+    "verified_utc": "2026-11-05T11:55:35.248225+00:00",
+    "health_http_status": 200,
+    "database": "ok"
   },
   "clean156_full_setup": {
     "status": "qualified_clean156_native_update_applied",
@@ -446,5 +449,18 @@
     "general_fleet_accepted": false,
     "linux_primary_unchanged": true,
     "verification_record": "docs/verification/2026-11-05-setup165-web-fleet.md"
+  },
+  "windows_full_setup167_candidate": {
+    "version": "3.2.167",
+    "status": "registered_update_candidate_not_native_qualified",
+    "record": "docs/releases/windows-3.2.167-setup.json",
+    "runtime_source_commit": "ab313225e04b7cccefc0c30ae17b949d8fdd964d",
+    "windows_packaging_commit": "773f2dbeeee561cc565b124c9f2dcbac553bd48f",
+    "setup_update_release_id": "b3feccd9-ac42-4a86-8c17-9a7fc1509869",
+    "setup_sha256": "7a994993281e0cbbdb2f4f190369968be46e3d142dc2605cf129b9d96803b9ae",
+    "native_qualified": false,
+    "enrollment_download_promoted": false,
+    "fleet_enabled": false,
+    "observer_bootstrap_record": "docs/releases/core-3.2.166-observer-bootstrap.json"
   }
 }

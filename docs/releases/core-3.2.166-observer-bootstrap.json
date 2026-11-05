@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "version": "3.2.166",
-  "status": "built_candidate_not_published",
+  "status": "registered_candidate_not_assigned",
   "build_identifier": "endpoint-windows-core-3.2.166-observer-bootstrap",
   "runtime_source_commit": "9a47844c1db8effcbff311989402d5dadc54bec1",
   "platform": "windows_amd64",
@@ -9,7 +9,8 @@
     "filename": "EndpointCore-3.2.166-9a47844.zip",
     "sha256": "9bfb4ce57434333a3f13c28efce0339b607b9b920a5aff65e27f38353ad698b9",
     "size": 22931793,
-    "operator_path": "C:\\endpoint-platform-wix-build\\core166-observer-9a47844\\EndpointCore-3.2.166-9a47844.zip"
+    "operator_path": "C:\\endpoint-platform-wix-build\\core166-observer-9a47844\\EndpointCore-3.2.166-9a47844.zip",
+    "server_path": "/var/lib/endpoint-platform/artifacts/EndpointCore-3.2.166-9a47844.zip"
   },
   "minimum_foundation_version": "3.2.158",
   "observer": {
@@ -23,10 +24,11 @@
     "frozen_version": "3.2.166"
   },
   "acceptance": {
-    "published": false,
+    "published": true,
     "core_ota_applied": false,
     "native_setup_qualified": false,
     "fleet_enabled": false
   },
-  "purpose": "Upward preparation of missing modern observers before a distinct full Setup newer than166; preserve historical packages."
+  "purpose": "Upward preparation of missing modern observers before a distinct full Setup newer than166; preserve historical packages.",
+  "build_id": "d02d197b-b6b8-45f7-a404-963e2a4660e8"
 }
