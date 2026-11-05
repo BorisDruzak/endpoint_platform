@@ -98,6 +98,32 @@ listener/security spool/USB/print sourcesREADY. Browser processes remained CLOSE
 no browser heartbeat, physical hardware event or WorkTime employee flow is claimed.
 Current source remains connected and collecting telemetry; target158 is not accepted.
 
+## Server-only repair feasibility,04:58Z
+
+The user requested checking existing Endpoint channels before connecting to the
+workstation. Inspected the installed frozen source6ed41cd, not just current source:
+
+| Existing channel | Finding |
+| --- | --- |
+| Core recommendation/rollback | Existing156 still stages through updates and rewrites its DACL before any ZIP download; server version/channel/reason cannot replace this installed code |
+| Endpoint commands and module recipes | All27 frozen built-ins are bounded read-only/diagnostic/network capabilities; unknown capabilities are rejected. Server recipes compose these built-ins. The legacy Python ModuleManager is not a dynamic package execution path in the headless Endpoint CommandExecutor |
+| Privileged EndpointAgentUpdater | Offline worker validates an existing local pending document/archive before extraction and verified candidate execution; it has no independent remote-download or staging-ACL-repair command |
+| Privileged EndpointBrowserPolicy | Closed request schema admits only apply/relinquish for chrome/yandex; no filesystem-repair or code-execution action |
+| New signed Setup-client bootstrap | setup_update_bootstrap.py is absent from the installed156 source. Its later implementation cannot execute before delivery of a newer Core |
+
+No supported existing server-only repair route was identified. No unsupported
+command, recovery journal fabrication, module payload workaround, host permission
+change or rollout resume was attempted. At04:58:43Z source remained156/156 with
+fresh WSS/user telemetry, bridgepaused, no Setup client and no native assignment.
+
+The fallback is a separately recorded one-device administrative repair of the
+verified staging-directory ownership, preserving its exact DACL, private files
+and native journals, followed by resumption of the same audited Endpoint chain.
+That would be an explicit exception to unattended source preparation, not a claim
+that server-only delivery passed. Future source fixes must avoid unnecessary DACL
+replacement when an existing trusted directory already has the required policy;
+shipping that fix alone does not repair immutable156's delivery barrier.
+
 ## Unfulfilled target acceptance
 
 Require applied bridge/return, actual full Setup exit0, exact native/Core158 and
