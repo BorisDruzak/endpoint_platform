@@ -393,3 +393,61 @@ async def test_all_active_policy_includes_later_registrations_and_reconnects_wit
     assert sum(row.job_id is not None for row in decisions) == 2
     assert sum(row.safe_code == 'capacity_full' for row in decisions) == 1
     assert policy.scope == 'all_active' and policy.device_ids == []
+
+async def _modern_source(db, fleet):
+    from endpoint_server.setup_updates.models import SetupClientPresence
+    device, release, policy, instance = fleet
+    release.version = '3.2.165'
+    instance.agent_version, instance.launcher_version = '3.2.164', '3.2.158'
+    qualification = await db.scalar(select(SetupFleetQualification).where(SetupFleetQualification.release_id == release.id))
+    qualification.source_foundation = '3.2.158'
+    client = await db.scalar(select(SetupClientPresence).where(SetupClientPresence.device_id == device.id))
+    client.client_version, client.foundation_version, client.core_version = '1.0.5', '3.2.158', '3.2.164'
+    await db.flush()
+    return device, release, policy, instance, client
+
+
+@pytest.mark.parametrize('client_state', ['missing', 'stale', 'busy'])
+async def test_reconnect_waits_for_setup_hello_without_poisoning_future_admission(db, fleet, client_state):
+    from endpoint_server.setup_updates.service import record_presence
+    device, release, policy, instance, client = await _modern_source(db, fleet)
+    if client_state == 'missing':
+        await db.delete(client)
+    elif client_state == 'stale':
+        client.last_seen_at = NOW-timedelta(minutes=12)
+    else:
+        client.ready = False
+    await db.flush()
+    await schedule_one(db, now=NOW)
+    row = await db.scalar(select(SetupFleetDecision).where(SetupFleetDecision.device_id == device.id))
+    assert (row.status, row.safe_code, row.job_id) == ('waiting', 'waiting_setup_client', None)
+    assert policy.enabled and policy.safe_code is None
+    assert (await db.scalars(select(SetupAssignment).where(SetupAssignment.device_id == device.id))).all() == []
+    await record_presence(db, device.id, dict(client_version='1.0.5', ready=True,
+        foundation_version='3.2.158', core_version='3.2.164'), now=NOW+timedelta(seconds=1))
+    await schedule_one(db, now=NOW+timedelta(seconds=1))
+    job = await db.scalar(select(SetupAssignment).where(SetupAssignment.device_id == device.id))
+    assert job is not None and job.status == 'assigned'
+    assert (job.source_foundation_version, job.source_core_version) == ('3.2.158', '3.2.164')
+    assert policy.enabled
+
+
+@pytest.mark.parametrize('foundation,core', [('3.2.156', '3.2.156'), ('3.2.158', '3.2.163'), (None, None)])
+async def test_fleet_never_uses_a_different_observer_source_than_qualified_wss(db, fleet, foundation, core):
+    from endpoint_server.setup_updates.models import SetupPreparation
+    from endpoint_server.setup_updates.service import record_presence
+    device, release, policy, instance, client = await _modern_source(db, fleet)
+    client.foundation_version, client.core_version = foundation, core
+    await db.flush()
+    await schedule_one(db, now=NOW)
+    row = await db.scalar(select(SetupFleetDecision).where(SetupFleetDecision.device_id == device.id))
+    assert (row.status, row.safe_code, row.job_id) == ('waiting', 'waiting_source_confirmation', None)
+    assert policy.enabled
+    assert (await db.scalars(select(SetupAssignment).where(SetupAssignment.device_id == device.id))).all() == []
+    assert (await db.scalars(select(SetupPreparation).where(SetupPreparation.device_id == device.id))).all() == []
+    await record_presence(db, device.id, dict(client_version='1.0.5', ready=True,
+        foundation_version='3.2.158', core_version='3.2.164'), now=NOW+timedelta(seconds=1))
+    await schedule_one(db, now=NOW+timedelta(seconds=1))
+    job = await db.scalar(select(SetupAssignment).where(SetupAssignment.device_id == device.id))
+    assert job is not None and job.status == 'assigned'
+    assert job.source_foundation_version == '3.2.158'

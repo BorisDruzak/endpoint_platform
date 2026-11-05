@@ -7,14 +7,14 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select, text
 
-from endpoint_contracts.setup_updates import ACTIVE_SETUP_PHASES, SetupProgressV1
+from endpoint_contracts.setup_updates import ACTIVE_SETUP_PHASES, QUALIFIED_SETUP_CLIENT_VERSION, SetupProgressV1
 from endpoint_contracts.update_safety import validate_public_update_prose
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.db.instance_order import latest_instance_order
 from endpoint_server.db.models import Device, DeviceInstance, DeviceSession, UpdateBuild, UpdateTarget
 from .models import (SetupRelease, SetupAssignment, SetupPreparation, SetupClientPresence,
                      SetupFleetPolicy, SetupFleetDecision, SetupFleetQualification)
-from .preparation import ACTIVE_PREPARATIONS
+from .preparation import ACTIVE_PREPARATIONS, BRIDGE_VERSION, ready as setup_client_ready
 from .service import SetupConflict, now_utc, utc, require_new_wss
 
 FLEET_LOCK = 735306158
@@ -239,8 +239,10 @@ async def load_device_facts(session, device_id, release_id, *, now):
     previous_rejection = await session.scalar(select(SetupFleetDecision.id).where(
         SetupFleetDecision.device_id == device_id, SetupFleetDecision.target_sha256 == target_sha256,
         SetupFleetDecision.safe_code == 'canonical_request_rejected'))
+    client = await session.scalar(select(SetupClientPresence).where(
+        SetupClientPresence.device_id == device_id).execution_options(populate_existing=True))
     return dict(device=device, instance=instance, connection=connection, prep=prep, assignment=assignment,
-        core=core, previous=previous or previous_prep or previous_rejection,
+        core=core, client=client, previous=previous or previous_prep or previous_rejection,
         qualifications=await qualifications(session, release_id, now=now))
 
 
@@ -277,6 +279,21 @@ def evaluate_device(policy, release, facts, *, now):
         return Decision('blocked', 'previous_attempt_requires_review')
     if not any(q.source_foundation == instance.launcher_version for q in facts['qualifications']):
         return Decision('blocked', 'source_not_qualified')
+    client = facts['client']
+    client_ready = setup_client_ready(client, now)
+    if client is not None and -timedelta(seconds=30) <= now-utc(client.last_seen_at) <= timedelta(minutes=10):
+        # WSS and Setup hello are independent observations. Never dispatch a
+        # native source different from the one whose Foundation was qualified.
+        if ((client.foundation_version is not None and client.foundation_version != instance.launcher_version)
+                or (client.core_version is not None and client.core_version != instance.agent_version)
+                or (client_ready and (client.foundation_version is None or client.core_version is None))):
+            return Decision('waiting', 'waiting_source_confirmation')
+        if client.client_version == QUALIFIED_SETUP_CLIENT_VERSION and not client.ready:
+            return Decision('waiting', 'waiting_setup_client')
+    # Modern Core already carries the qualified observer. A late/missing hello
+    # cannot be repaired by downgrading it through the legacy preparation bridge.
+    if core >= version(BRIDGE_VERSION) and not client_ready:
+        return Decision('waiting', 'waiting_setup_client')
     if not policy.enabled:
         return Decision('waiting', 'policy_paused')
     return Decision('eligible', 'eligible')
