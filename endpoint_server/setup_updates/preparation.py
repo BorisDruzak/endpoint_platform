@@ -10,10 +10,10 @@ from sqlalchemy import select
 
 from endpoint_contracts.update_safety import validate_public_update_prose
 from endpoint_contracts.setup_updates import QUALIFIED_SETUP_CLIENT_VERSIONS
-from endpoint_server.db.models import DeviceInstance, UpdateBuild, UpdateTarget, UpdateRollout
+from endpoint_server.db.models import DeviceInstance, DeviceSession, UpdateBuild, UpdateTarget, UpdateRollout
 from endpoint_server.db.instance_order import latest_instance_order
 from endpoint_server.updates.service import create_rollout, create_rollback_rollout
-from .models import SetupPreparation, SetupRelease, SetupClientPresence
+from .models import SetupPreparation, SetupRelease, SetupClientPresence, SetupFleetDecision, SetupFleetQualification
 from .service import SetupConflict, assign_setup, lock_device, locked_assignment, now_utc, utc, audit, qualified_presence
 
 ACTIVE_PREPARATIONS = ('preparing_client', 'restoring_core', 'recovering_client', 'recovering_source')
@@ -21,6 +21,48 @@ BRIDGE = 'endpoint-windows-core-3.2.163-setup-client'
 BRIDGE_VERSION = '3.2.163'
 RETURN = 'endpoint-windows-core-3.2.157-setup-source'
 RETURN156 = 'endpoint-windows-core-3.2.155-setup-source-725739f'
+OBSERVER_BOOTSTRAP = 'endpoint-windows-core-3.2.166-observer-bootstrap'
+OBSERVER_BOOTSTRAP_VERSION = '3.2.166'
+
+
+def modern_bootstrap_source(instance, release, bootstrap):
+    """Only an upward bootstrap below a distinct native target is supported.
+
+    Staged native installation cannot take over the bootstrap's same-version
+    directory. Existing 163/return preparations keep their historical strategy.
+    """
+    if instance is None or release is None or bootstrap is None:
+        return False
+    try:
+        return (instance.platform == bootstrap.platform == 'windows_amd64'
+            and bootstrap.build_identifier == OBSERVER_BOOTSTRAP
+            and bootstrap.version == OBSERVER_BOOTSTRAP_VERSION
+            and bootstrap.archive_type == 'zip' and bootstrap.minimum_launcher_version == '3.2.158'
+            and (3, 2, 158) <= parts(instance.launcher_version) < parts(bootstrap.version)
+            and (3, 2, 163) <= parts(instance.agent_version) < parts(bootstrap.version) < parts(release.version))
+    except SetupConflict:
+        return False
+
+
+async def matching_bootstrap_observer(session, device_id, presence, now):
+    if (not ready(presence, now) or presence.client_version != '1.0.6'
+            or presence.core_version != OBSERVER_BOOTSTRAP_VERSION
+            or presence.foundation_version is None
+            or not (3, 2, 158) <= parts(presence.foundation_version) < parts(OBSERVER_BOOTSTRAP_VERSION)
+            or now - utc(presence.last_seen_at) > timedelta(seconds=150)):
+        return False
+    instance = await session.scalar(select(DeviceInstance).where(DeviceInstance.device_id == device_id)
+        .order_by(*latest_instance_order()).limit(1))
+    connection = await session.scalar(select(DeviceSession).where(DeviceSession.device_id == device_id,
+        DeviceSession.closed_at.is_(None), DeviceSession.session_identifier.like('gateway-%'))
+        .order_by(DeviceSession.created_at.desc(), DeviceSession.id.desc()).limit(1))
+    return (instance is not None and connection is not None and connection.closed_at is None
+        and connection.device_instance_id == instance.id and utc(connection.expires_at) > now
+        and instance.platform == 'windows_amd64'
+        and instance.agent_version == presence.core_version and instance.launcher_version == presence.foundation_version
+        and instance.last_seen_at is not None and connection.last_seen_at is not None
+        and -timedelta(seconds=30) <= now - utc(instance.last_seen_at) <= timedelta(seconds=90)
+        and -timedelta(seconds=30) <= now - utc(connection.last_seen_at) <= timedelta(seconds=90))
 
 
 def parts(version):
@@ -84,7 +126,7 @@ async def request_client_recovery(session, assignment_id, reason, *, actor, requ
 
 async def lock_builds(session):
     builds = (await session.scalars(select(UpdateBuild).where(
-        UpdateBuild.build_identifier.in_((BRIDGE, RETURN, RETURN156, 'endpoint-windows-core-3.2.159-setup-client', 'endpoint-windows-core-3.2.160-setup-client'))).order_by(UpdateBuild.id).with_for_update())).all()
+        UpdateBuild.build_identifier.in_((BRIDGE, RETURN, RETURN156, OBSERVER_BOOTSTRAP, 'endpoint-windows-core-3.2.159-setup-client', 'endpoint-windows-core-3.2.160-setup-client'))).order_by(UpdateBuild.id).with_for_update())).all()
     return {b.build_identifier: b for b in builds}
 
 
@@ -107,6 +149,18 @@ async def request_setup(session, device_id, release_id, reason, *, actor, reques
         return await assign_setup(session, device_id, release_id, reason, actor=actor, request_id=request_id, now=now)
     instance = await session.scalar(select(DeviceInstance).where(DeviceInstance.device_id == device_id)
         .order_by(*latest_instance_order()).limit(1))
+    bootstrap = builds.get(OBSERVER_BOOTSTRAP)
+    if modern_bootstrap_source(instance, release, bootstrap):
+        if presence is not None and now-utc(presence.last_seen_at) <= timedelta(minutes=10):
+            raise SetupConflict('current observer must settle before bootstrap')
+        child = await create_rollout(session, bootstrap.id, 'canary', [device_id], reason,
+            actor, request_id, now=now)
+        prep = SetupPreparation(id=uuid4(), device_id=device_id, release_id=release_id,
+            bridge_rollout_id=child.id, return_build_id=None, status='preparing_client',
+            reason=reason, requested_by=str(actor), updated_at=now)
+        session.add(prep); await session.flush()
+        await audit(session, prep, 'preparation_requested', actor, request_id, now)
+        return prep
     source_identifier = RETURN156 if instance is not None and parts(instance.launcher_version) == (3, 2, 156) else RETURN
     bridge, source = builds.get(BRIDGE), builds.get(source_identifier)
     if (instance is None or bridge is None or source is None
@@ -155,6 +209,38 @@ async def advance_preparations(session, *, now=None):
             prep.status, prep.safe_code = 'blocked', 'core_preparation_failed'
         elif target.status == 'applied':
             presence = await session.scalar(select(SetupClientPresence).where(SetupClientPresence.device_id == device_id))
+            if prep.return_build_id is None:
+                bootstrap = builds.get(OBSERVER_BOOTSTRAP)
+                bridge_rollout = await session.get(UpdateRollout, prep.bridge_rollout_id)
+                release = await session.get(SetupRelease, prep.release_id)
+                if (prep.status != 'preparing_client' or prep.return_rollout_id is not None
+                        or bootstrap is None or bootstrap.version != OBSERVER_BOOTSTRAP_VERSION
+                        or bootstrap.minimum_launcher_version != '3.2.158' or bootstrap.platform != 'windows_amd64'
+                        or bootstrap.archive_type != 'zip' or bridge_rollout is None or bridge_rollout.build_id != bootstrap.id
+                        or release is None or parts(release.version) <= parts(bootstrap.version)):
+                    prep.status, prep.safe_code = 'blocked', 'immutable_source_unavailable'
+                elif not await matching_bootstrap_observer(session, device_id, presence, now):
+                    continue
+                else:
+                    automatic = await session.scalar(select(SetupFleetDecision.id).where(
+                        SetupFleetDecision.job_id == prep.id, SetupFleetDecision.device_id == device_id,
+                        SetupFleetDecision.release_id == prep.release_id))
+                    qualified = await session.scalar(select(SetupFleetQualification.id).where(
+                        SetupFleetQualification.release_id == release.id,
+                        SetupFleetQualification.sha256 == release.sha256,
+                        SetupFleetQualification.source_foundation == presence.foundation_version,
+                        SetupFleetQualification.qualified_at <= now, SetupFleetQualification.expires_at > now))
+                    if automatic and qualified is None:
+                        prep.status, prep.safe_code = 'blocked', 'source_not_qualified'
+                    else:
+                        prep.status = 'handoff'; await session.flush()
+                        job = await assign_setup(session, device_id, prep.release_id, prep.reason,
+                            actor=prep.requested_by, request_id=f'setup_{prep.id.hex}', now=now, assignment_id=prep.id)
+                        prep.assignment_id, prep.status = job.id, 'completed'
+                prep.updated_at = now
+                await audit(session, prep, 'preparation_' + prep.status, prep.requested_by, f'setup_{prep.id.hex}', now)
+                await session.flush()
+                continue
             source = next((builds[name] for name in (RETURN, RETURN156)
                 if name in builds and builds[name].id == prep.return_build_id), None)
             if source is None:

@@ -14,7 +14,7 @@ from endpoint_server.db.instance_order import latest_instance_order
 from endpoint_server.db.models import Device, DeviceInstance, DeviceSession, UpdateBuild, UpdateTarget
 from .models import (SetupRelease, SetupAssignment, SetupPreparation, SetupClientPresence,
                      SetupFleetPolicy, SetupFleetDecision, SetupFleetQualification)
-from .preparation import ACTIVE_PREPARATIONS, BRIDGE_VERSION, ready as setup_client_ready
+from .preparation import ACTIVE_PREPARATIONS, BRIDGE_VERSION, OBSERVER_BOOTSTRAP, OBSERVER_BOOTSTRAP_VERSION, modern_bootstrap_source, ready as setup_client_ready
 from .service import SetupConflict, now_utc, utc, require_new_wss
 
 FLEET_LOCK = 735306158
@@ -135,23 +135,38 @@ async def qualify_release(session, release_id, evidence_assignment_id, *, actor,
         SetupPreparation.assignment_id == job.id, SetupPreparation.device_id == job.device_id,
         SetupPreparation.release_id == release_id))
     if prep is not None:
-        expected_source = {'3.2.156': SOURCE156_RETURN, '3.2.157': SOURCE157_RETURN,
-                           '3.2.158': SOURCE157_RETURN}.get(job.source_foundation_version)
-        if prep.status != 'completed' or prep.return_rollout_id is None or expected_source is None:
-            raise SetupConflict('Completed supported source preparation evidence required')
         from endpoint_server.db.models import UpdateRollout
-        chain = (await session.execute(select(UpdateRollout.id, UpdateBuild.id, UpdateBuild.build_identifier, UpdateTarget.status)
-            .join(UpdateRollout, UpdateRollout.build_id == UpdateBuild.id)
-            .join(UpdateTarget, UpdateTarget.rollout_id == UpdateRollout.id)
-            .where(UpdateTarget.device_id == job.device_id,
-                UpdateRollout.id.in_([prep.bridge_rollout_id, prep.return_rollout_id])))).all()
-        by_rollout = {rollout_id: (build_id, name, status) for rollout_id, build_id, name, status in chain}
-        bridge = by_rollout.get(prep.bridge_rollout_id)
-        source = by_rollout.get(prep.return_rollout_id)
-        if (len(chain) != 2 or bridge is None or source is None
-                or bridge[1:] != (QUALIFIED_BRIDGE, 'applied')
-                or source != (prep.return_build_id, expected_source, 'applied')):
-            raise SetupConflict('Exact applied bridge and compatible source return required')
+        if prep.return_build_id is None:
+            chain = (await session.execute(select(UpdateBuild, UpdateTarget.status)
+                .join(UpdateRollout, UpdateRollout.build_id == UpdateBuild.id)
+                .join(UpdateTarget, UpdateTarget.rollout_id == UpdateRollout.id)
+                .where(UpdateRollout.id == prep.bridge_rollout_id, UpdateTarget.device_id == job.device_id))).all()
+            bootstrap = chain[0][0] if len(chain) == 1 else None
+            if (prep.status != 'completed' or prep.return_rollout_id is not None
+                    or bootstrap is None or chain[0][1] != 'applied'
+                    or bootstrap.build_identifier != OBSERVER_BOOTSTRAP
+                    or bootstrap.version != OBSERVER_BOOTSTRAP_VERSION or bootstrap.platform != 'windows_amd64'
+                    or bootstrap.archive_type != 'zip' or bootstrap.minimum_launcher_version != '3.2.158'
+                    or job.source_client_version != '1.0.6' or source_core != version(OBSERVER_BOOTSTRAP_VERSION)
+                    or not (3, 2, 158) <= source_foundation < source_core < version(release.version)):
+                raise SetupConflict('Exact applied upward observer preparation required')
+        else:
+            expected_source = {'3.2.156': SOURCE156_RETURN, '3.2.157': SOURCE157_RETURN,
+                               '3.2.158': SOURCE157_RETURN}.get(job.source_foundation_version)
+            if prep.status != 'completed' or prep.return_rollout_id is None or expected_source is None:
+                raise SetupConflict('Completed supported source preparation evidence required')
+            chain = (await session.execute(select(UpdateRollout.id, UpdateBuild.id, UpdateBuild.build_identifier, UpdateTarget.status)
+                .join(UpdateRollout, UpdateRollout.build_id == UpdateBuild.id)
+                .join(UpdateTarget, UpdateTarget.rollout_id == UpdateRollout.id)
+                .where(UpdateTarget.device_id == job.device_id,
+                    UpdateRollout.id.in_([prep.bridge_rollout_id, prep.return_rollout_id])))).all()
+            by_rollout = {rollout_id: (build_id, name, status) for rollout_id, build_id, name, status in chain}
+            bridge = by_rollout.get(prep.bridge_rollout_id)
+            source = by_rollout.get(prep.return_rollout_id)
+            if (len(chain) != 2 or bridge is None or source is None
+                    or bridge[1:] != (QUALIFIED_BRIDGE, 'applied')
+                    or source != (prep.return_build_id, expected_source, 'applied')):
+                raise SetupConflict('Exact applied bridge and compatible source return required')
     row = await session.scalar(select(SetupFleetQualification).where(
         SetupFleetQualification.release_id == release_id, SetupFleetQualification.sha256 == release.sha256,
         SetupFleetQualification.source_foundation == job.source_foundation_version).with_for_update())
@@ -241,8 +256,12 @@ async def load_device_facts(session, device_id, release_id, *, now):
         SetupFleetDecision.safe_code == 'canonical_request_rejected'))
     client = await session.scalar(select(SetupClientPresence).where(
         SetupClientPresence.device_id == device_id).execution_options(populate_existing=True))
+    bootstrap = None
+    if client is None or now-utc(client.last_seen_at) > timedelta(minutes=10):
+        bootstrap = await session.scalar(select(UpdateBuild).where(UpdateBuild.build_identifier == OBSERVER_BOOTSTRAP))
     return dict(device=device, instance=instance, connection=connection, prep=prep, assignment=assignment,
         core=core, client=client, previous=previous or previous_prep or previous_rejection,
+        observer_bootstrap=bootstrap,
         qualifications=await qualifications(session, release_id, now=now))
 
 
@@ -293,7 +312,12 @@ def evaluate_device(policy, release, facts, *, now):
     # Modern Core already carries the qualified observer. A late/missing hello
     # cannot be repaired by downgrading it through the legacy preparation bridge.
     if core >= version(BRIDGE_VERSION) and not client_ready:
-        return Decision('waiting', 'waiting_setup_client')
+        # Wait for a late hello first. A deliberately registered *upward* Core
+        # bootstrap may repair an absent modern observer; never downgrade it
+        # through the historical163 bridge or collide with the native target.
+        if (not modern_bootstrap_source(instance, release, facts.get('observer_bootstrap'))
+                or connection.created_at is None or now-utc(connection.created_at) < timedelta(minutes=3)):
+            return Decision('waiting', 'waiting_setup_client')
     if not policy.enabled:
         return Decision('waiting', 'policy_paused')
     return Decision('eligible', 'eligible')
