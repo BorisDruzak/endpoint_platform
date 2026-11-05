@@ -169,7 +169,12 @@ async def test_assignment_change_before_ack_keeps_connection_and_marks_old_ack_s
 @pytest.mark.asyncio
 @pytest.mark.parametrize('error,elapsed,retry', [
     ('SENSOR_NOT_READY',0,False),('SENSOR_NOT_READY',31,True),
+    ('BROWSER_POLICY_HELPER_UNAVAILABLE',0,False),
+    ('BROWSER_POLICY_HELPER_UNAVAILABLE',29,False),
+    ('BROWSER_POLICY_HELPER_UNAVAILABLE',31,True),
     ('POLICY_CONFLICT',31,False),
+    ('BROWSER_POLICY_HELPER_FAILED',31,False),
+    ('CACHE_WRITE_FAILED',31,False),('SENSOR_APPLY_FAILED',31,False),
 ])
 @pytest.mark.parametrize('platform,version',[('windows_amd64','3.2.125'),('linux_amd64','3.2.125')])
 async def test_transient_sensor_readiness_is_retried_with_backoff(policy_sessions,error,elapsed,retry,platform,version):
@@ -186,3 +191,63 @@ async def test_transient_sensor_readiness_is_retried_with_backoff(policy_session
         await session.flush()
         repeated=await prepare_policy_delivery(session,hello,only_if_changed=True)
         assert (repeated is not None)==retry
+
+
+@pytest.mark.asyncio
+async def test_recovered_helper_reapplies_exact_policy_and_waits_for_real_ack(policy_sessions):
+    device_id = uuid4()
+    hello = _hello(device_id, features=['endpoint.policy.v1'])
+    async with policy_sessions() as session:
+        original = await prepare_policy_delivery(session, hello)
+        assert original is not None
+        now = datetime.now(UTC)
+        failed_ack = EndpointPolicyAckV1(
+            schema_version='endpoint_policy_ack_v1', policy_id=POLICY_ID,
+            policy_version=1, policy_digest=original.payload.policy_digest,
+            received_at=now, applied_at=None, status='ERROR',
+            error_code='BROWSER_POLICY_HELPER_UNAVAILABLE',
+        )
+        state = await record_policy_ack(session, device_id, failed_ack)
+        state.acknowledged_at = now - timedelta(seconds=31)
+        await session.flush()
+
+        repeated = await prepare_policy_delivery(session, hello, only_if_changed=True)
+        assert repeated is not None
+        assert repeated.payload.policy_version_id == original.payload.policy_version_id
+        assert repeated.payload.policy_digest == original.payload.policy_digest
+        assert repeated.payload.policy == original.payload.policy
+        assert state.status == 'PENDING'
+        assert state.error_code is None
+        assert state.received_at is None
+        assert state.applied_at is None
+        assert state.acknowledged_at is None
+        assert (await session.scalars(select(PolicyApplication))).all() == []
+
+        for mismatched_binding in (
+            {'policy_id': uuid4()}, {'policy_version': 2}, {'policy_digest': '0' * 64},
+        ):
+            with pytest.raises(PolicyAcknowledgementRejected):
+                await record_policy_ack(
+                    session, device_id, failed_ack.model_copy(update=mismatched_binding),
+                )
+        assert state.status == 'PENDING'
+        assert (await session.scalars(select(PolicyApplication))).all() == []
+
+        # Another failure must restart the backoff rather than retry every heartbeat.
+        state = await record_policy_ack(session, device_id, failed_ack)
+        assert await prepare_policy_delivery(session, hello, only_if_changed=True) is None
+        assert state.status == 'ERROR'
+        assert state.applied_at is None
+        state.acknowledged_at = datetime.now(UTC) - timedelta(seconds=31)
+        assert await prepare_policy_delivery(session, hello, only_if_changed=True) is not None
+
+        applied_at = datetime.now(UTC)
+        state = await record_policy_ack(session, device_id, failed_ack.model_copy(update={
+            'status': 'APPLIED', 'error_code': None, 'applied_at': applied_at,
+        }))
+        assert state.status == 'APPLIED'
+        applications = (await session.scalars(select(PolicyApplication))).all()
+        assert len(applications) == 1
+        assert applications[0].policy_version_id == original.payload.policy_version_id
+        assert applications[0].policy_digest == original.payload.policy_digest
+        assert await prepare_policy_delivery(session, hello, only_if_changed=True) is None
