@@ -14,3 +14,9 @@
 
 No Agent release archive, native package, selector or live server is a target of
 the server archive normalizer. Historical qualified bytes remain immutable.
+
+- `worktime_helpdesk_staging.py`: fixed .118 server-only preparation/activation
+  adapter for the reviewed runbook. Requires exact old selector/schema, frozen
+  archive/digests, private capsule, fresh request, no in-flight operations, verified
+  DB backup and unchanged personnel/grants. Additive migration44 stays applied on
+  selector rollback. It never targets production or enables the feature flag.

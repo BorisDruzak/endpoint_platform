@@ -481,3 +481,24 @@ it verifies 502 callback path/status/metrics and zero synthetic code/state/
 Referer sentinel occurrences. It never reads private historical logs or touches
 the live nginx service. Keep existing private log retention/access controls;
 this procedure does not print, copy or delete historical credential-bearing logs.
+
+
+## WorkTime Helpdesk staging adapter
+
+For this explicitly approved .118 upgrade only, use
+`tools/release/worktime_helpdesk_staging.py` with a reviewed immutable server
+archive from section1, installed as release.py with the archive in a root-owned
+0700 `/root/worktime-helpdesk-20261105-<commit12>` capsule; regular inputs0600.
+JSON stdin requires mode prepare|activate, absolute archive path, full commit,
+archive sha256 and expiry epoch within15min. Run with `/usr/bin/python3.12 -I -B
+<root>/release.py --run` through the approved staging transport. Preserve each
+phase's receipt. Prepare keeps current services running; activation follows the
+stop/verified-backup/switch/migrate/start sequence above, with self-only auth
+features still disabled. Old schema43/current1b6ce5a83dd1 are fixed guards.
+Failure restores the old selector/services, retaining additive migration44;
+never rerun a consumed activation or downgrade local identities/history.
+Enable `ENDPOINT_WORKTIME_HELPDESK_ENABLED=true` and Helpdesk
+`WORKTIME_HANDOFF_ENABLED=true` only after both exact releases pass staging
+health/TLS and credential-protected provider checks. Back up exact environment
+bytes privately, change only these flags, then use separate systemd services.
+Leave the staging services running as requested. Production is outside scope.
