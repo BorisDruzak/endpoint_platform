@@ -77,8 +77,8 @@ native_exit21, native_stageaccepted and phase recovery_required.
 At17:07Z the server independently saw observer1.0.6/ready, Core/Foundation168,
 policyAPPLIED, fresh UserSensor17:06:01Z and real Activity17:06:46Z on27.
 120 remained fresh: UserSensor17:06:50Z and Activity17:06:50Z. API/worker
-configuration was not changed by the workstation repairs. Both original server
-chains remain held pending authenticated FAILED/native21 target-recovery proof.
+configuration was not changed by the workstation repairs. At this snapshot both
+original server chains were held pending authenticated FAILED/native21 proof.
 No manual UserSensor launch, MSI replay, grant/capture rewrite or private-data
 replacement occurred.
 
@@ -109,4 +109,61 @@ passed. New regressions were observed failing before correction. GitNexus was
 consulted but its indexed committed baseline has no record_progress symbol yet;
 the current route/service source and authenticated API regressions verify this
 project-specific path. No cross-repository API route or schema was added, no
-database migration is required and deployment is still pending at this record.
+database migration is required.
+
+## Deployed server and authenticated completion
+
+The canonical Console archive for280d5c2e3005f58c350885744c393af4eeaeeb7d
+has SHA39e10099ec8887019936468c7e49f2c0da1514966ab68c1fc55173ce0b0e1b69,
+465900bytes. npmci/typecheck/build passed (existing bundle-size warning).
+Immutable candidate preparation preserved pinned dependencies; pipcheck,
+configured application import and Alembic0045 current passed. Production was
+promoted from75adbf4b414f with the old release retained for rollback. API/worker
+are active; real HTTPS health returned200/databaseok with hostname and CA
+verification. No schema migration or fleet enablement occurred.
+
+The independently reviewed proof-only helper has reviewed source SHA
+6d165164186d139cee7305a916bcc148597b4617cc1cb3eb91acf3ed8b6a2c71 and signed
+SHA7e7383eafd79a80c9a27bf24c4a7d771f10bfc5dbab09d40c665b91f167b71fb,
+33159bytes, valid timestamped publisher4D signature. Artifact:
+`C:\endpoint-platform-wix-build\native-canary-completion-r1-20261105\Complete-EndpointNativeCanaries.ps1`.
+Its exact signed1.0.6/R4 function imports do not expose installer, recovery,
+service or companion launch operations. Both update mutexes are held in canonical
+client-to-native order. CheckOnly writes no job/observation/API state. Apply
+requires original job/attempt/source/native-ended pins, immutable grant and
+finished marker, accepted stage, actual target preflight/private preservation,
+fresh target companion processes and an actual WTSActive Sensor with matching
+SID before and after a new observation. Canonical signed1.0.6 supplies the new
+180second/6sample observation, native21 proof, authenticated hello and failed
+report/journal acknowledgement. The helper never changes native21 into0.
+
+Root and implementer PS5.1 fixture runs passed: healthy proof and21 negatives,
+original job binding, immutable marker, source/private preservation, CheckOnly
+zero writes/API/observation, fresh observation rather than cached soak, canonical
+failed payload/ack, post-native process creation, disconnected-session and
+changed-SID denial. The read-only WTS state wrapper was checked against current
+Microsoft Win32 documentation after Context7 had no matching WTS API reference.
+Independent final review cleared the helper. Both hosts passed CheckOnly before
+Apply.120's initial CheckOnly rejected without writes; the pinned read-only
+diagnostic rerun passed, so no cause is assigned to that first transient refusal.
+
+| Host | Server finished UTC | Fresh soak | Sensor max CPU | Original outcome |
+| --- | --- | --- | --- | --- |
+|120 |17:20:47.924399Z |183.392s,6samples,1sensor |0.0064% |FAILED/accepted/native21, target167 recovered |
+|27 |17:20:51.368817Z |182.023s,6samples,1sensor |0.0032% |FAILED/accepted/native21, target168 recovered |
+
+Both canonical reports were accepted with safe_code
+native_failed_target_recovered. Local phase is failed, no pending report;
+server finished_at is set, original attempts/source Core/Foundation/client1.0.5
+are preserved. Services/companions/connected are stable; all four private proof
+flags are true and pending is false. Exactly one setup_updates.failed audit event
+exists per original job. Server active native chains dropped from2 to0. At17:21Z
+both clients1.0.6 remain ready with fresh UserSensor and real Activity; all source
+health channels report READY. This is recovered failure history, not APPLIED or
+release qualification.
+
+Full169 remains registered/unqualified with no assignment. Fleet revision3 is
+still disabled/max_parallel2. The operator Console session is now at the login
+form; a repeat user login was requested before the next canary and fleet actions
+through the web UI. No credential reset or administrative authentication bypass
+was performed. The outgoing support tunnel remains design-only.
