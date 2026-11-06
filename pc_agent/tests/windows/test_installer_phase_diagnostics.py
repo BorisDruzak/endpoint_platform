@@ -94,7 +94,7 @@ def test_error_string_failure_does_not_escape_diagnostic(event_sink):
     assert value["exceptions"][0]["safe_code"] == "UNKNOWN"
 
 
-@pytest.mark.parametrize('invariant', ['path_identity', 'handle_identity', 'change_time'])
+@pytest.mark.parametrize('invariant', ['path_identity', 'handle_identity', 'change_time', 'execution_metadata'])
 def test_foundation_event_includes_only_allowlisted_invariant_and_slot(event_sink, invariant):
     from endpoint_contracts.runtime_payload import PayloadConflict
     error = PayloadConflict()

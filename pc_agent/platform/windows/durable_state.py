@@ -202,6 +202,26 @@ def _copy_identity(details):
     return (details.st_dev, details.st_ino, details.st_size, details.st_mtime_ns, timestamp)
 
 
+def execution_metadata_identity(descriptor, details):
+    """Bind actual image security/attributes, not Windows loader ChangeTime.
+
+    The caller must retain its deny-write/delete pin and separately validate
+    path/handle identity and authenticated bytes throughout execution.
+    """
+    if not _WINDOWS:
+        return details.st_ctime_ns
+    import msvcrt
+    import win32security
+    flags = (win32security.OWNER_SECURITY_INFORMATION |
+             win32security.GROUP_SECURITY_INFORMATION |
+             win32security.DACL_SECURITY_INFORMATION)
+    security = win32security.GetSecurityInfo(
+        msvcrt.get_osfhandle(descriptor), win32security.SE_FILE_OBJECT, flags)
+    return (details.st_file_attributes,
+            win32security.ConvertSecurityDescriptorToStringSecurityDescriptor(
+                security, win32security.SDDL_REVISION_1, flags))
+
+
 @contextmanager
 def _pinned_copy_source(path: Path):
     if _WINDOWS:

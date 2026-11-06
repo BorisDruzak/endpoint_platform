@@ -599,6 +599,16 @@ live owner. Windows execution metadata binds the retained handle owner, group,
 DACL and file attributes; loader-updated ChangeTime is not a content identity.
 This offline executability check grants no Native or trial proof.
 
+The accepted-native companion continuation uses the same retained-handle metadata
+identity from `durable_state.execution_metadata_identity`. Only that execution
+scope opts into `verified_foundation_bytes(..., allow_execution_metadata=True)`.
+It snapshots security before hashing and rechecks it before any launch, keeps all
+Foundation deny-write/delete pins through execution and authenticates bytes again
+when Windows changes timestamps. Exact path/handle identity, attributes and
+owner/group/DACL must still match; a read error or changed metadata fails closed.
+Ordinary Foundation reads retain strict ChangeTime checks. Execution is rejected
+inside the separate immutable-Foundation read cache; no cache is rebaselined.
+
 ALT native distribution assembly lives in `tools/build_alt_pilot_kit.py` and
 `packaging/alt/pilot/`. It pins already qualified Core/User Sensor/runtime and
 separate CUPS repair/rollback/source RPM bytes, adds a deterministic manifest,

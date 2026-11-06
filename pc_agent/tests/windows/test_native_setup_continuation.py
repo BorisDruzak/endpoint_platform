@@ -323,7 +323,7 @@ def test_native_failure_retains_hold_and_truth_then_exact_retry_only_finishes_co
     monkeypatch.setattr(continuation.provenance,'verified_foundation_release',lambda _:binding.new_release)
     monkeypatch.setattr(continuation.provenance,'inspect_installed_core',lambda *a,**kw:SimpleNamespace(current=object()))
     monkeypatch.setattr(installer_data_security,'verify_preserved',lambda *_:None)
-    monkeypatch.setattr(msi_inventory,'verified_foundation_bytes',lambda *_:nullcontext())
+    monkeypatch.setattr(msi_inventory,'verified_foundation_bytes',lambda *_,**_kw:nullcontext())
     monkeypatch.setattr(recovery,'_service_outcomes',lambda *_:{})
     def fail(*a,**kw):
         if failure=='interrupt': raise KeyboardInterrupt()
@@ -749,7 +749,7 @@ def test_accepted_staged_trial_preserves_native_grant_selection_and_continues(ac
                                   'previous_sha256': '6138efe66a5cbed3583130b74db5f173f9d7d531e545a25a29c91fc297d3d863',
                                   'tree_sha256': '5d81e12d78d07c2caca984c5ee3614299825c454befeb44a2eb35629be74f9ce'}
     assert c._selected_scope(paths, cap) == grant['selection']
-    monkeypatch.setattr(msi_inventory, 'verified_foundation_bytes', lambda *_: nullcontext())
+    monkeypatch.setattr(msi_inventory, 'verified_foundation_bytes', lambda *_, **_kw: nullcontext())
     monkeypatch.setattr(security, 'verify_preserved', lambda *_: None)
     monkeypatch.setattr(observer, 'provision_packaged_observer', lambda _: 'provisioned')
     monkeypatch.setattr(c.recovery, 'restore_expected_companions', lambda *a, **kw: 'running')
@@ -785,7 +785,7 @@ def test_accepted_staged_trial_preserves_fresh_recovery_only_after_owner_death(a
              'owner': {**cap['owner'], 'pid': cap['owner']['pid'] + 100, 'created': cap['owner']['created'] + 100}}
     leaf = c._grant_path(paths, cap['transaction_id'])
     original = leaf.read_bytes()
-    monkeypatch.setattr(msi_inventory, 'verified_foundation_bytes', lambda *_: nullcontext())
+    monkeypatch.setattr(msi_inventory, 'verified_foundation_bytes', lambda *_, **_kw: nullcontext())
     monkeypatch.setattr(security, 'verify_preserved', lambda *_: None)
     def death(owner):
         assert owner == cap['owner']
@@ -824,7 +824,7 @@ def test_exact_new_owner_recovers_native_boundaries_without_msi(reserved_native,
     monkeypatch.setattr(plan,'has_active_upgrade',lambda _:False)
     monkeypatch.setattr(c.provenance,'verified_foundation_release',lambda _:{} if defect=='payload' else cap['package'])
     monkeypatch.setattr(msi_inventory,'read_expected_package',lambda *_:SimpleNamespace(package=SimpleNamespace(version=cap['package']['version'])))
-    monkeypatch.setattr(msi_inventory,'verified_foundation_bytes',lambda *_:nullcontext())
+    monkeypatch.setattr(msi_inventory,'verified_foundation_bytes',lambda *_,**_kw:nullcontext())
     monkeypatch.setattr(c.provenance,'inspect_installed_core',lambda *a,**kw:SimpleNamespace(current=object()))
     monkeypatch.setattr(security,'verify_preserved',lambda *_:None)
     def dead(_):
@@ -959,3 +959,18 @@ if($failed -ne ($Denied -ceq 'True')){throw 'replay guard'}
 ''')
     result=subprocess.run([powershell,'-NoProfile','-NonInteractive','-File',str(script),str(source),operation,str(reserved),str(denied)],capture_output=True,text=True,timeout=15)
     assert result.returncode==0,result.stderr
+
+
+def test_native_companion_launch_uses_execution_proof(accepted_candidate_grant, monkeypatch):
+    from pc_agent.platform.windows import installer_data_security, native_setup_observer, msi_inventory as msi
+    continuation, paths, capability, expected, _ = accepted_candidate_grant
+    options = []
+    monkeypatch.setattr(msi, 'verified_foundation_bytes',
+                        lambda *args, **kwargs: (options.append(kwargs) or nullcontext()))
+    monkeypatch.setattr(installer_data_security, 'verify_preserved', lambda *_: None)
+    monkeypatch.setattr(native_setup_observer, 'provision_packaged_observer', lambda _: 'provisioned')
+    monkeypatch.setattr(continuation.recovery, 'restore_expected_companions', lambda *a, **k: 'running')
+    monkeypatch.setattr(continuation.recovery, '_service_outcomes', lambda *_: {'EndpointAgent': 'running'})
+    client = SimpleNamespace(capability=capability, checkpoint=lambda: None, request=lambda *_: None)
+    continuation.execute_native_continuation(client, paths)
+    assert options == [{'allow_execution_metadata': True}]

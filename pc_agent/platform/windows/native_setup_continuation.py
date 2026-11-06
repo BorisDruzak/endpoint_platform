@@ -382,7 +382,7 @@ def execute_native_continuation(client, paths):
     data_request = {**request, 'session_id': cap['session_id'], 'recovery': True}
     installer_data_security.verify_preserved(paths, data_request)
     with durable_state.installer_mutation_checkpoints(client.checkpoint):
-        with msi_inventory.verified_foundation_bytes(expected, paths.install_root):
+        with msi_inventory.verified_foundation_bytes(expected, paths.install_root, allow_execution_metadata=True):
             observer = provision_packaged_observer(paths)
             users = recovery.restore_expected_companions(paths, cap['transaction_id'], checkpoint=client.checkpoint)
         # Recheck accepted/private/native authority after all external work.

@@ -13,7 +13,7 @@ _CODES = frozenset({"UPDATE_IN_PROGRESS", "UPDATE_STATE_INVALID", "PROVENANCE_CO
 _TYPES = frozenset({"OSError", "PermissionError", "TimeoutError", "ValueError", "RuntimeError",
                     "error", "AttributeError", "TypeError", "ImportError", "ModuleNotFoundError",
                     "FileNotFoundError"})
-_FOUNDATION_INVARIANTS = frozenset({'path_identity', 'handle_identity', 'change_time'})
+_FOUNDATION_INVARIANTS = frozenset({'path_identity', 'handle_identity', 'change_time', 'execution_metadata'})
 
 
 def _exception_context(error):

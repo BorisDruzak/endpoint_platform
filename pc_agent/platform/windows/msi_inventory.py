@@ -384,12 +384,22 @@ def immutable_foundation_reads(expected, install_root):
 
 
 @contextmanager
-def verified_foundation_bytes(expected,install_root):
-    """Hold each exact Foundation file against substitution."""
+def verified_foundation_bytes(expected,install_root,*,allow_execution_metadata=False):
+    """Hold exact Foundation bytes, optionally across accepted image execution.
+
+    Ordinary reads keep their strict ChangeTime guard. The accepted-native
+    companion caller also binds actual retained-handle security/attributes;
+    loader-only timestamp drift requires a fresh hash under the same pin.
+    """
     from . import durable_state
     from .update_transaction import _assert_state_security
     from endpoint_contracts.runtime_payload import reject_reparse_ancestors
     schema = getattr(expected, 'foundation_schema', 1)
+    scope = _PHASE_READS.get()
+    if allow_execution_metadata and scope is not None and scope.foundation_inputs:
+        # An immutable read cache deliberately retains its original timestamp
+        # proof. Never rebaseline it or silently turn cached reads into launches.
+        raise ProvenanceConflict()
     rows=_foundation_records(expected.foundation_files, schema=schema)
     reject_reparse_ancestors(install_root)
     _assert_state_security(install_root)
@@ -404,6 +414,10 @@ def verified_foundation_bytes(expected,install_root):
             descriptor=stack.enter_context(durable_state._pinned_copy_source(path))
             opened=os.fstat(descriptor)
             if durable_state._copy_identity(opened)!=before: raise ProvenanceConflict()
+            # Snapshot before hashing: a metadata mutation during the first
+            # byte read must not become the authority for a subsequent launch.
+            metadata = (durable_state.execution_metadata_identity(descriptor, opened)
+                        if allow_execution_metadata else None)
             scope = _PHASE_READS.get()
             identity = row['size'], row['sha256']
             if scope is not None and scope.foundation_inputs.get(path) == identity:
@@ -411,17 +425,42 @@ def verified_foundation_bytes(expected,install_root):
                            lambda: durable_state._verify_copy_bytes(descriptor, *identity))
             else:
                 durable_state._verify_copy_bytes(descriptor, *identity)
-            identities.append((path,descriptor,before,opened.st_ctime_ns,row['path']))
+            if allow_execution_metadata:
+                _assert_state_security(path)
+                verified = os.fstat(descriptor)
+                if (durable_state._copy_identity(path.lstat()) != before
+                        or durable_state._copy_identity(verified) != before):
+                    _foundation_pin_failure('handle_identity',row['path'])
+                if durable_state.execution_metadata_identity(descriptor, verified) != metadata:
+                    _foundation_pin_failure('execution_metadata',row['path'])
+            identities.append((path,descriptor,before,opened.st_ctime_ns,row,metadata))
         yield
         if schema == 2:
             _verify_shared_namespace(rows, install_root)
-        for path,descriptor,before,changed,slot in identities:
+        for path,descriptor,before,changed,row,metadata in identities:
+            slot = row['path']
             after=os.fstat(descriptor)
             if durable_state._copy_identity(path.lstat())!=before:
                 _foundation_pin_failure('path_identity',slot)
             if durable_state._copy_identity(after)!=before:
                 _foundation_pin_failure('handle_identity',slot)
-            if after.st_ctime_ns!=changed:
+            if allow_execution_metadata:
+                if durable_state.execution_metadata_identity(descriptor, after) != metadata:
+                    _foundation_pin_failure('execution_metadata',slot)
+                if after.st_ctime_ns != changed:
+                    # No cached proof or new handle: authenticate the same
+                    # retained bytes again and bind the actual metadata again.
+                    durable_state._verify_copy_bytes(descriptor,row['size'],row['sha256'])
+                    final = os.fstat(descriptor)
+                    if (durable_state._copy_identity(path.lstat()) != before
+                            or durable_state._copy_identity(final) != before):
+                        _foundation_pin_failure('handle_identity',slot)
+                    if durable_state.execution_metadata_identity(descriptor, final) != metadata:
+                        _foundation_pin_failure('execution_metadata',slot)
+                    # Windows may update loader timestamps during this read too.
+                    # They are not a substitute for the exact security/attribute
+                    # and retained-byte/identity proof above.
+            elif after.st_ctime_ns!=changed:
                 _foundation_pin_failure('change_time',slot)
 
 
