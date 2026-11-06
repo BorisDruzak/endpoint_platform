@@ -2,7 +2,7 @@
 param([Parameter(Mandatory)][ValidateSet('Install','Run')][string]$Mode)
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
-$script:ClientVersion='1.0.6'
+$script:ClientVersion='1.0.7'
 $script:Publisher='4D4C23389F5FF77BC4EB32044761019EAE8FB776'
 $script:Origin='https://endpoint.sosnadmin.local'
 $script:ProgramFiles=[Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
@@ -459,6 +459,98 @@ function Test-NativeProofHealthy($proof){
  }
  return ($proof.pending -is [bool] -and !$proof.pending)
 }
+function ConvertTo-SetupCanonicalJson($value){
+ if($null -eq $value){return 'null'}
+ if($value -is [string]){
+  $text=[Text.StringBuilder]::new();[void]$text.Append('"')
+  foreach($character in $value.ToCharArray()){$n=[int]$character;if($n -eq 34){[void]$text.Append('\"')}elseif($n -eq 92){[void]$text.Append('\\')}elseif($n -in @(8,9,10,12,13)){$escaped=switch($n){8{'\b'}9{'\t'}10{'\n'}12{'\f'}13{'\r'}};[void]$text.Append($escaped)}elseif($n -lt 32 -or $n -gt 126){[void]$text.Append(('\u{0:x4}' -f $n))}else{[void]$text.Append($character)}}
+  [void]$text.Append('"');return $text.ToString()
+ }
+ if($value -is [bool]){return $(if($value){'true'}else{'false'})}
+ if($value -is [byte] -or $value -is [int] -or $value -is [long] -or $value -is [uint64]){return $value.ToString([Globalization.CultureInfo]::InvariantCulture)}
+ if($value -is [decimal]){if([decimal]::Truncate($value) -ne $value){throw 'nonintegral_native_record'};return $value.ToString('0',[Globalization.CultureInfo]::InvariantCulture)}
+ if($value -is [Collections.IDictionary] -or $value -is [pscustomobject]){
+  $names=[string[]]@($(if($value -is [Collections.IDictionary]){$value.Keys}else{$value.psobject.Properties.Name}));[Array]::Sort($names,[StringComparer]::Ordinal)
+  $parts=@(foreach($name in $names){if($value -is [Collections.IDictionary]){$part=$value[$name]}else{$part=$value.$name};(ConvertTo-SetupCanonicalJson $name)+':'+(ConvertTo-SetupCanonicalJson $part)})
+  return '{'+($parts -join ',')+'}'
+ }
+ if($value -is [Collections.IEnumerable]){return '['+(@(foreach($part in $value){ConvertTo-SetupCanonicalJson $part}) -join ',')+']'}
+ throw 'unsupported_native_record'
+}
+function Get-SetupCanonicalHash($value){
+ $hash=[Security.Cryptography.SHA256]::Create()
+ try{return ([BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes((ConvertTo-SetupCanonicalJson $value))))).Replace('-','').ToLowerInvariant()}finally{$hash.Dispose()}
+}
+function Test-RecoveredTargetBinding($job,$after){
+ try{
+  if($job.native_exit -ne 21 -or $job.native_stage -cne 'accepted' -or $job.native_started -cne $true -or !$job.release -or (Test-CoreOrNativeBusy)){return $false}
+  foreach($part in @($after.foundation,$after.core)){
+   if($part.version -cne $job.release.version -or $part.source_revision -cne $job.release.source_revision -or $part.package_sha256 -cne $job.release.msi_sha256){return $false}
+  }
+  foreach($value in @($after.foundation.native_verified,$after.core.verified,$after.provenance.verified)){if($value -isnot [bool] -or !$value){return $false}}
+  if($after.core.origin -cne 'msi' -or $after.eligibility -cne 'ALREADY_CURRENT' -or $after.provenance.conflict -isnot [bool] -or $after.provenance.conflict -or $after.pending.active_or_degraded -isnot [bool] -or $after.pending.active_or_degraded){return $false}
+  if(Test-Path -LiteralPath (Join-Path $script:InstallerState 'native-continuation.json')){return $false}
+  $stage=Read-BoundedJson (Join-Path $script:InstallerState 'staged-update.json') 262144
+  $operation=[string]$stage.binding.operation_id
+  if($stage.schema_version -cne 'endpoint_windows_staged_update_v1' -or $stage.phase -cne 'accepted' -or $operation -cnotmatch '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$' -or $operation -ceq $job.previous_native_id -or (Get-SetupCanonicalHash $stage.binding) -cne $stage.binding_sha256){return $false}
+  foreach($key in @('version','source_revision','package_sha256')){if(!$job.before.foundation.$key -or $stage.binding.old_release.$key -cne $job.before.foundation.$key){return $false}}
+  $start=[DateTimeOffset]::Parse($job.native_created).UtcDateTime;$end=[DateTimeOffset]::Parse($job.native_ended).UtcDateTime
+  $owner=[DateTime]::FromFileTimeUtc([long]$stage.owner.created)
+  if($end -lt $start -or $owner -lt $start -or $owner -gt $end){return $false}
+  $transaction=Join-Path $script:InstallerState ('transactions\'+$operation)
+  $grantPath=Join-Path $transaction 'native-continuation-grant.json';$finishPath=Join-Path $transaction 'native-continuation-finished.json'
+  Assert-AdministrativePath $grantPath;Assert-AdministrativePath $finishPath
+  $grant=Read-BoundedJson $grantPath 32768;$finished=Read-BoundedJson $finishPath 4096
+  if($grant.schema_version -ne 1 -or $grant.transaction_id -cne $operation -or $finished.schema_version -ne 1 -or $finished.grant_sha256 -cne (Get-SetupCanonicalHash $grant) -or (Get-SetupCanonicalHash $grant.owner) -cne (Get-SetupCanonicalHash $stage.owner)){return $false}
+  foreach($package in @($grant.package,$stage.binding.new_release)){
+   if($package.version -cne $job.release.version -or $package.source_revision -cne $job.release.source_revision -or $package.package_sha256 -cne $job.release.msi_sha256){return $false}
+  }
+  if($stage.binding.candidate_version -cne $job.release.version -or $stage.binding.candidate_source_revision -cne $job.release.source_revision -or $grant.selection.tree_sha256 -cne $stage.binding.candidate_tree_sha256){return $false}
+  $selected=Join-Path $script:AgentRoot 'current.json';$previous=Join-Path $script:AgentRoot 'previous.json'
+  Assert-NoReparse $selected;Assert-NoReparse $previous
+  if((Get-FileHash -LiteralPath $selected).Hash.ToLowerInvariant() -cne $grant.selection.selected_sha256){return $false}
+  if(Test-Path -LiteralPath $previous){if((Get-FileHash -LiteralPath $previous).Hash.ToLowerInvariant() -cne $grant.selection.previous_sha256){return $false}}elseif($null -ne $grant.selection.previous_sha256){return $false}
+  if($grant.completion_relative -cnotmatch ('^transactions/'+$operation+'/(attempts/[0-9a-f-]{36}/)?completed\.json$')){return $false}
+  $completion=Read-BoundedJson (Join-Path $script:InstallerState $grant.completion_relative) 16384
+  if((Get-SetupCanonicalHash $completion) -cne (Get-SetupCanonicalHash $grant.completion) -or $completion.transaction_id -cne $operation -or $completion.operation -cne 'install' -or $completion.phase -cne 'complete' -or $completion.startup_restored -cne $true){return $false}
+  if($completion.package.version -cne $job.release.version -or $completion.package.source_revision -cne $job.release.source_revision -or $completion.package.sha256 -cne $job.release.msi_sha256){return $false}
+  return $true
+ }catch{return $false}
+}
+function Test-RecoveredTargetSoak($soak){
+ try{
+  if(!$soak){return $false}
+  foreach($name in @('duration_seconds','samples','sensor_count','sensor_cpu_percent_max')){if($null -eq $soak.$name -or $soak.$name -is [bool] -or [double]::IsNaN([double]$soak.$name) -or [double]::IsInfinity([double]$soak.$name)){return $false}}
+  if($soak.duration_seconds -lt 180 -or $soak.samples -lt 6 -or $soak.sensor_count -lt 1 -or $soak.sensor_cpu_percent_max -lt 0 -or $soak.sensor_cpu_percent_max -gt 100){return $false}
+  foreach($name in @('services_stable','companions_stable','connected')){if($soak.$name -isnot [bool] -or !$soak.$name){return $false}}
+  return $true
+ }catch{return $false}
+}
+function Complete-RecoveredTarget($job,$setup,$after){
+ $context=[pscustomobject]@{assignment_id=$job.assignment_id;native_exit=$job.native_exit;release=$job.release;companions=@(Get-CompanionSessions)}
+ $private=Compare-PrivateSnapshot $job.private_before (Get-PrivateSnapshot)
+ $valid=($context.companions.Count -gt 0)
+ foreach($part in @($private.credential,$private.identity,$private.origin,$private.ca)){if($part -isnot [bool] -or !$part){$valid=$false}}
+ foreach($session in $context.companions){
+  $expected=if($session.name -ceq 'EndpointAgentTray.exe'){$job.release.tray_sha256}elseif($session.name -ceq 'EndpointUserSensor.exe'){$job.release.sensor_sha256}else{$null}
+  if($expected -cnotmatch '^[0-9a-f]{64}$' -or $session.sha256 -cne $expected){$valid=$false}
+ }
+ if(!$valid){Send-Progress $job 'recovery_required' $null 'native_exit_requires_recovery';return}
+ $restored=Restore-Companions $context
+ # Force a new epoch and use current target companions without replacing the
+ # original source companion history in the persisted job.
+ $soak=Observe-InstalledRuntime $job $job.release.version $context
+ $fresh=Read-SetupPreflight $setup
+ $proof=New-NativeProof $job $fresh 'accepted' 21 $restored;$proof.soak=$soak
+ if(!(Test-RecoveredTargetBinding $job $fresh) -or !(Test-NativeProofHealthy $proof) -or !(Test-RecoveredTargetSoak $soak)){Send-Progress $job 'recovery_required' $null 'native_exit_requires_recovery';return}
+ # The initial hello predates the180second soak; refresh authenticated presence
+ # without weakening the server's90second qualified-observer freshness gate.
+ $hello=Get-ClientHello
+ if(!$hello.ready -or $hello.core_version -cne $job.release.version -or $hello.foundation_version -cne $job.release.version){Send-Progress $job 'recovery_required' $null 'native_exit_requires_recovery';return}
+ $accepted=Invoke-EndpointJson 'POST' '/agent/v1/setup-updates/hello' $hello
+ if($accepted.device_id -cne $script:DeviceId -or $accepted.device_id -cne $job.device_id){throw 'setup_hello_device_differs'}
+ Send-Progress $job 'failed' $proof 'native_failed_target_recovered'
+}
 function Invoke-NativeSetup($job,[string]$setup){
  $marker=Join-Path (Get-JobRoot $job.assignment_id) 'native-started.json'
  $bytes=[Text.Encoding]::UTF8.GetBytes((@{assignment_id=$job.assignment_id;attempt_id=$job.attempt_id;sha256=$job.release.sha256;utc=[DateTime]::UtcNow.ToString('o')}|ConvertTo-Json -Compress))
@@ -489,6 +581,7 @@ function Complete-NativeJob($job,[string]$setup){
   if($job.native_exit -ne 21 -or (Test-CoreOrNativeBusy)){Send-Progress $job 'recovery_required' $null 'native_exit_requires_recovery';return}
   if($job.phase -cne 'recovery_required'){Send-Progress $job 'recovery_required' $null 'native_exit_requires_recovery'}
   $after=Read-SetupPreflight $setup
+  if(Test-RecoveredTargetBinding $job $after){Complete-RecoveredTarget $job $setup $after;return}
   foreach($part in @('foundation','core')){
    foreach($field in @('version','source_revision')){
     if(!$job.before.$part.$field -or $after.$part.$field -cne $job.before.$part.$field){Send-Progress $job 'recovery_required' $null 'native_exit_requires_recovery';return}
@@ -526,28 +619,37 @@ function Complete-NativeJob($job,[string]$setup){
   $script:Stage='server_acceptance';Send-Progress $job 'applied' $proof 'setup_post_restart_confirmed'
  }
 }
-function Observe-InstalledRuntime($job,[string]$expectedVersion){
+function Observe-InstalledRuntime($job,[string]$expectedVersion,$companionContext=$null){
  # Source recovery always starts a new observation epoch. A target-version
  # cache from a previous observation cannot stand in for the surviving source.
  if(!$expectedVersion -and $job.soak -and $job.soak.duration_seconds -ge 180 -and $job.soak.samples -ge 6 -and $job.soak.services_stable -and $job.soak.companions_stable -and $job.soak.connected){return $job.soak}
  if(!$expectedVersion){$expectedVersion=$job.release.version}
+ $strictCompanions=($null -ne $companionContext)
+ if($null -eq $companionContext){$companionContext=$job}
  $script:Stage='post_install_observation'
  $processors=[Math]::Max(1,[int](Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors)
  $services=@(Get-CimInstance Win32_Service -Filter "Name='EndpointAgent' OR Name='EndpointBrowserPolicy'"|Sort-Object Name|Select-Object Name,ProcessId)
  $baseline=$services|ConvertTo-Json -Compress;$stable=$true;$connected=$true;$companionsStable=$true;$maximum=0.0;$count=0;$previous=@{}
- $companionBaseline=@(Get-CompanionEvidence $job)
+ $companionBaseline=@(Get-CompanionEvidence $companionContext)
+ if($strictCompanions){
+  foreach($captured in $companionContext.companions){
+   if(!@($companionBaseline|Where-Object {$_.name -ceq $captured.name -and $_.session -eq $captured.session -and $_.sid -ceq $captured.sid}).Count){$companionsStable=$false}
+  }
+ }
  foreach($process in @(Get-Process -Name EndpointUserSensor -ErrorAction SilentlyContinue)){$previous[[string]$process.Id]=@{cpu=$process.CPU;created=$process.StartTime.ToUniversalTime().ToString('o')}}
  $clock=[Diagnostics.Stopwatch]::StartNew();$last=0.0;$samples=@()
  for($index=0;$index -lt 6;$index++){
   Start-Sleep -Seconds 30;$elapsed=$clock.Elapsed.TotalSeconds;$delta=0.0;$next=@{}
   $sensors=@(Get-Process -Name EndpointUserSensor -ErrorAction SilentlyContinue);$count=$sensors.Count
+  if($strictCompanions -and $count -lt 1){$companionsStable=$false}
   foreach($process in $sensors){$id=[string]$process.Id;$created=$process.StartTime.ToUniversalTime().ToString('o');if($previous.ContainsKey($id) -and $previous[$id].created -ceq $created){$delta+=[Math]::Max(0.0,$process.CPU-$previous[$id].cpu)};$next[$id]=@{cpu=$process.CPU;created=$created}}
   $percent=[Math]::Min(100.0,[Math]::Max(0.0,$delta/($elapsed-$last)/$processors*100.0));$maximum=[Math]::Max($maximum,$percent)
   $current=@(Get-CimInstance Win32_Service -Filter "Name='EndpointAgent' OR Name='EndpointBrowserPolicy'"|Sort-Object Name|Select-Object Name,ProcessId)
   if(($current|ConvertTo-Json -Compress) -cne $baseline -or @($current|Where-Object ProcessId -eq 0).Count){$stable=$false}
   try{
    $surviving=@($companionBaseline|Where-Object {(Get-LiveSessionSid ([int]$_.session)) -ceq $_.sid})
-   $companionNow=@(Get-CompanionEvidence $job)
+   if($strictCompanions -and $surviving.Count -ne $companionBaseline.Count){$companionsStable=$false}
+   $companionNow=@(Get-CompanionEvidence $companionContext)
    if(($surviving|ConvertTo-Json -Depth 5 -Compress) -cne ($companionNow|ConvertTo-Json -Depth 5 -Compress)){$companionsStable=$false}
    $companionBaseline=$surviving
   }catch{$companionsStable=$false}
