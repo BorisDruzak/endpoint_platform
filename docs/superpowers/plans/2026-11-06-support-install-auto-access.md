@@ -28,20 +28,22 @@
 
 ## Task1: Backend automatic installation defaults
 
-- [ ] RED tests for config/one-time pending/actual runtime consumption/manual cancellation/replay/expiry/legacy/error/roles/default changes.
-- [ ] Minimal validated Settings, nullable0047 marker, registration/status integration and audit; no wire/client changes.
-- [ ] Targeted/server/config tests, isolated PostgreSQL real routes/races and migration checks.
-- [ ] Independent compliance/security review; fix confirmed issues; root commits exact files.
+- [x] RED tests for config/one-time pending/actual runtime consumption/manual cancellation/replay/expiry/legacy/error/roles/default changes.
+- [x] Minimal validated Settings, nullable0047 marker, registration/status integration and audit; no wire/client changes.
+- [x] Targeted/server/config tests, isolated PostgreSQL real routes/races and migration checks.
+- [x] Independent compliance/security review; fix confirmed issues; root commits exact files.
 
 ## Task2: Rules and connection procedure
 
-- [ ] Update AGENTS/runbook to use reserve access for unresolved authorized agent/updater diagnosis without redundant permission prompts.
-- [ ] Document installation auto-grant8h, manual renewal, actual Console controls, existing principals, strict authenticated host pins and SSH commands.
-- [ ] Check source/UI labels and commands; keep bounds/revocation/native ownership explicit.
+- [x] Update AGENTS/runbook to use reserve access for unresolved authorized agent/updater diagnosis without redundant permission prompts.
+- [x] Document installation auto-grant8h, manual renewal, actual Console controls, existing principals, strict authenticated host pins and SSH commands.
+- [x] Check source/UI labels and commands; keep bounds/revocation/native ownership explicit.
 
 ## Task3: Deploy and verify
 
-- [ ] Fresh backup/capacity/config and six-device policy/identity baseline; exact provider commit and additive migration.
-- [ ] Atomic provider/config update; no gateway restart, no auto-grant to existing manual rows; preserve current valid leases.
-- [ ] Fresh provider/schema/defaults/source audit and actual reserve SSH on120; correlate existing policies/keys/current release unchanged.
-- [ ] Record tested scope and limits; clean isolated tests/task auth; final docs commit/push and report.
+- [x] Fresh backup/capacity/config and six-device policy/identity baseline; exact provider commit and additive migration.
+- [x] Atomic provider/config update; no gateway restart, no auto-grant to existing manual rows; preserve current valid leases.
+- [x] Fresh provider/schema/defaults/source audit and actual reserve SSH on120; correlate existing policies/keys/current release unchanged.
+- [x] Record tested scope and limits; clean isolated tests/task auth; final docs commit/push and report.
+
+Implementation/deployed provider: `783cc21589e80115d395c4be8b89e710687804e6`. Final evidence: `docs/verification/2026-11-07-support-install-auto-access.md`. Windows176 and Linux156 unchanged.

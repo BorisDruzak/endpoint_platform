@@ -70,7 +70,12 @@
       "default_policy_enabled": false,
       "maximum_lease_hours": 8,
       "domain_identity": "Explicit existing SOSNADM\\admin-2; no account or password creation",
-      "observed_runtime_version_authority": "Fresh running-service status, never installer registration"
+      "observed_runtime_version_authority": "Fresh running-service status, never installer registration",
+      "default_policy_scope": "Registration intent remains disabled; configured provider grants new/pristine installations after healthy independent runtime status",
+      "installation_access_auto_enable": true,
+      "installation_intent_minutes": 15,
+      "automatic_initial_lease_hours": 8,
+      "automatic_renewal": false
     },
     "bundled_openssh": {
       "version": "10.4.0.0p1-Preview",
@@ -139,13 +144,20 @@
     "runtime_source_commit": "6ed41cd01d494e46111a452c2ae3a844f723175b"
   },
   "provider": {
-    "commit": "ce083f336d78f9840b26824da6d95f0d2929008b",
-    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-ce083f336d78",
-    "migration": "0046_support_access",
+    "commit": "783cc21589e80115d395c4be8b89e710687804e6",
+    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-783cc21589e8",
+    "migration": "0047_support_install_access",
     "api_worker_https_health": "verified",
     "required_before_support101_clients": true,
     "exporter_unit_commit": "dec480a8b796c4b474bc294143b2bbe7a887806f",
-    "exporter_runtime_directory_preserve": "restart"
+    "exporter_runtime_directory_preserve": "restart",
+    "installation_access_auto_enable": true,
+    "initial_access_hours": 8,
+    "installation_intent_minutes": 15,
+    "default_windows_admin_username": "sosnadm\\admin-2",
+    "existing_policies_backfilled": false,
+    "verification_record": "docs/verification/2026-11-07-support-install-auto-access.md",
+    "verified_utc": "2026-11-06T19:15:49.572445+00:00"
   },
   "verification": {
     "full_project_command": "C:/Users/admin-2/Documents/endpoint/.venv-device-binding/Scripts/python.exe -m pytest -q with ENDPOINT_TEST_OPENSSH_ZIP pointing to the exact pinned official ZIP",
@@ -224,17 +236,23 @@
     "offline172_waiting": 6
   },
   "live_provider": {
-    "commit": "ce083f336d78f9840b26824da6d95f0d2929008b",
-    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-ce083f336d78",
-    "migration": "0046_support_access",
+    "commit": "783cc21589e80115d395c4be8b89e710687804e6",
+    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-783cc21589e8",
+    "migration": "0047_support_install_access",
     "api_worker_https_health": "verified",
     "required_before_support101_clients": true,
     "exporter_unit_commit": "dec480a8b796c4b474bc294143b2bbe7a887806f",
     "exporter_runtime_directory_preserve": "restart",
-    "scope": "Independent gateway/exporter/broker and domain-capable Support API deployed; existing administrator SSH preserved",
-    "verified_utc": "2026-11-06T18:04:35.4756590Z",
+    "scope": "One-time automatic installation authorization; six existing policies/keys preserved; independent Support API and actual strict SSH verified",
+    "verified_utc": "2026-11-06T19:15:49.572445+00:00",
     "health_http_status": 200,
-    "database": "ok"
+    "database": "ok",
+    "installation_access_auto_enable": true,
+    "initial_access_hours": 8,
+    "installation_intent_minutes": 15,
+    "default_windows_admin_username": "sosnadm\\admin-2",
+    "existing_policies_backfilled": false,
+    "verification_record": "docs/verification/2026-11-07-support-install-auto-access.md"
   },
   "clean156_full_setup": {
     "status": "qualified_clean156_native_update_applied",
@@ -811,5 +829,37 @@
       "3.2.172",
       "3.2.175"
     ]
+  },
+  "historical_provider_before_installation_defaults": {
+    "commit": "ce083f336d78f9840b26824da6d95f0d2929008b",
+    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-ce083f336d78",
+    "migration": "0046_support_access",
+    "api_worker_https_health": "verified",
+    "required_before_support101_clients": true,
+    "exporter_unit_commit": "dec480a8b796c4b474bc294143b2bbe7a887806f",
+    "exporter_runtime_directory_preserve": "restart"
+  },
+  "historical_live_provider_before_installation_defaults": {
+    "commit": "ce083f336d78f9840b26824da6d95f0d2929008b",
+    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-ce083f336d78",
+    "migration": "0046_support_access",
+    "api_worker_https_health": "verified",
+    "required_before_support101_clients": true,
+    "exporter_unit_commit": "dec480a8b796c4b474bc294143b2bbe7a887806f",
+    "exporter_runtime_directory_preserve": "restart",
+    "scope": "Independent gateway/exporter/broker and domain-capable Support API deployed; existing administrator SSH preserved",
+    "verified_utc": "2026-11-06T18:04:35.4756590Z",
+    "health_http_status": 200,
+    "database": "ok"
+  },
+  "provider_verification": {
+    "code_commit": "783cc21589e80115d395c4be8b89e710687804e6",
+    "full_project_result": "6668 passed, 465 skipped, 7 warnings in 824.83 seconds",
+    "real_postgresql_and_installation_result": "52 passed, 2 warnings in 214.35 seconds",
+    "ancillary_result": "127 passed, 2 skipped, 149 deselected in 4.52 seconds",
+    "actual_ssh_test120": true,
+    "six_policies_unchanged": true,
+    "new_physical_windows_installation_tested": false,
+    "report": "docs/verification/2026-11-07-support-install-auto-access.md"
   }
 }
