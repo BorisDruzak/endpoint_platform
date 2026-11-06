@@ -20,6 +20,7 @@ class SupportAccess(OwnershipRecord,Base):
     enabled: Mapped[bool]=mapped_column(Boolean,nullable=False,default=False,server_default='false')
     reset_registration_allowed: Mapped[bool]=mapped_column(Boolean,nullable=False,default=False,server_default='false')
     expires_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    installation_access_pending_until: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     operator_public_keys: Mapped[list]=mapped_column(JSON,nullable=False,default=list)
     windows_admin_username: Mapped[str|None]=mapped_column(String(64))

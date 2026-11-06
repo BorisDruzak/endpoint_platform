@@ -15,6 +15,7 @@ from endpoint_server.device_binding.service import consume_budget,ChallengeThrot
 from .models import SupportAccess
 from .service import register,support_token,authenticate,source_active,SupportConflict,SupportResetRequired,utc,tunnel_user,key_authority_lock
 from .service import domain_principal_available,policy_component_available,record_runtime_status
+from .installation import consume_installation_access,pending_authority_current,cancel_installation_access
 
 agent_router=APIRouter(prefix='/agent/v1/support-access',tags=['agent-support-access'])
 admin_router=APIRouter(prefix='/api/admin/support-access',tags=['admin-support-access'])
@@ -52,7 +53,8 @@ async def registration(body:SupportRegistration,request:Request,response:Respons
         try:
             await consume_budget(session,'support-register:'+str(principal.device.id),limit=12,window_seconds=600)
             lifecycle=[]
-            row=await register(session,principal.device.id,principal.credential.id,body,lifecycle_events=lifecycle)
+            row=await register(session,principal.device.id,principal.credential.id,body,lifecycle_events=lifecycle,
+                settings=request.app.state.settings,request_id=audit_request_id(request))
             await _revalidate_device_principal(session,request,principal)
             result=SupportRegistrationResult(device_id=row.device_id,credential_id=row.id,support_token=support_token(row,request.app.state.settings.device_token_pepper),policy=await policy(session,row,request.app.state.settings))
             await audit(session,request,'registered',row,'device',row.device_id)
@@ -94,7 +96,10 @@ async def get_policy(request:Request,response:Response):
     response.headers['Cache-Control']='no-store'
     async with request.app.state.session_provider() as session:
         row=await support_identity(session,request)
-        return await policy(session,row,request.app.state.settings)
+        await pending_authority_current(session,row,request.app.state.settings,datetime.now(UTC),request_id=audit_request_id(request))
+        result=await policy(session,row,request.app.state.settings)
+        await session.commit()
+        return result
 
 
 @agent_router.post('/status',response_model=SupportPolicy,openapi_extra={'security':[{'SupportBearer':[]}]})
@@ -102,7 +107,11 @@ async def report(body:SupportStatusReport,request:Request,response:Response):
     response.headers['Cache-Control']='no-store'
     async with request.app.state.session_provider() as session:
         row=await support_identity(session,request)
-        changed=record_runtime_status(row,body,datetime.now(UTC))
+        if row.installation_access_pending_until is not None:
+            await key_authority_lock(session)
+        now=datetime.now(UTC)
+        changed=record_runtime_status(row,body,now)
+        await consume_installation_access(session,row,request.app.state.settings,now,request_id=audit_request_id(request))
         result=await policy(session,row,request.app.state.settings)
         if changed:
             await audit(session,request,'status_changed',row,'device',row.device_id)
@@ -115,6 +124,8 @@ async def unregister(request:Request):
     async with request.app.state.session_provider() as session:
         row=await support_identity(session,request)
         row.enabled=False;row.revoked_at=datetime.now(UTC);row.generation+=1;row.revision+=1
+        await cancel_installation_access(session,row,'component_removed',request_id=audit_request_id(request),increment_revision=False,
+            actor_kind='device',actor_identifier=row.device_id)
         row.reset_registration_allowed=False
         row.installed=False;row.tunnel_connected=False;row.reported_at=datetime.now(UTC)
         row.access_verified_at=None;row.access_verified_by=None
@@ -135,7 +146,10 @@ async def admin_status(device_id:UUID,request:Request,response:Response,_:Annota
     response.headers['Cache-Control']='no-store'
     async with request.app.state.session_provider() as session:
         row=await load(session,device_id)
-        return {'policy':await policy(session,row,request.app.state.settings),'component_version':row.component_version,'installed':row.installed,'tunnel_connected':row.tunnel_connected,'reported_at':row.reported_at,'last_error_code':row.last_error_code,'host_public_key':row.host_public_key,'access_verified_at':row.access_verified_at,'access_verified_by':row.access_verified_by,'verification_kind':'operator_attestation','revoked_at':row.revoked_at,'reset_registration_allowed':row.reset_registration_allowed}
+        await pending_authority_current(session,row,request.app.state.settings,datetime.now(UTC),request_id=audit_request_id(request))
+        result={'policy':await policy(session,row,request.app.state.settings),'component_version':row.component_version,'installed':row.installed,'tunnel_connected':row.tunnel_connected,'reported_at':row.reported_at,'last_error_code':row.last_error_code,'host_public_key':row.host_public_key,'access_verified_at':row.access_verified_at,'access_verified_by':row.access_verified_by,'verification_kind':'operator_attestation','revoked_at':row.revoked_at,'reset_registration_allowed':row.reset_registration_allowed}
+        await session.commit()
+        return result
 
 
 @admin_router.put('/devices/{device_id}/policy',response_model=SupportPolicy)
@@ -154,6 +168,8 @@ async def update_policy(device_id:UUID,body:SupportPolicyUpdate,request:Request,
                 (SupportAccess.host_public_key.in_(body.operator_public_keys))).limit(1))
             if role_conflict:
                 raise HTTPException(409,'Support key roles conflict')
+            if request.app.state.settings.support_gateway_host_public_key in body.operator_public_keys:
+                raise HTTPException(409,'Support key roles conflict')
             try:
                 canonical_public_key(request.app.state.settings.support_gateway_host_public_key)
             except ValueError:
@@ -165,6 +181,8 @@ async def update_policy(device_id:UUID,body:SupportPolicyUpdate,request:Request,
             # device bootstrap can obtain the new independent credential.
             row.revoked_at=None
         row.enabled=body.enabled;row.expires_at=body.expires_at if body.enabled else None;row.operator_public_keys=body.operator_public_keys;row.windows_admin_username=body.windows_admin_username;row.revision+=1;row.access_verified_at=None;row.access_verified_by=None
+        await cancel_installation_access(session,row,'manual_policy_changed',request_id=audit_request_id(request),increment_revision=False,
+            actor_kind='admin',actor_identifier=principal.user.id)
         await audit(session,request,'policy_changed',row,'admin',principal.user.id,body.reason)
         await revalidate_admin(request,session,principal)
         result=await policy(session,row,request.app.state.settings)
@@ -177,6 +195,8 @@ async def revoke(device_id:UUID,body:SupportReason,request:Request,principal:Ann
     async with request.app.state.session_provider() as session:
         row=await load(session,device_id)
         row.enabled=False;row.revoked_at=datetime.now(UTC);row.revision+=1;row.generation+=1;row.access_verified_at=None;row.access_verified_by=None
+        await cancel_installation_access(session,row,'manual_revoked',request_id=audit_request_id(request),increment_revision=False,
+            actor_kind='admin',actor_identifier=principal.user.id)
         row.reset_registration_allowed=False
         await audit(session,request,'revoked',row,'admin',principal.user.id,body.reason)
         await revalidate_admin(request,session,principal)
@@ -189,6 +209,8 @@ async def reset_registration(device_id:UUID,body:SupportReason,request:Request,p
     async with request.app.state.session_provider() as session:
         row=await load(session,device_id)
         row.enabled=False;row.revoked_at=datetime.now(UTC);row.generation+=1;row.revision+=1
+        await cancel_installation_access(session,row,'manual_registration_reset',request_id=audit_request_id(request),increment_revision=False,
+            actor_kind='admin',actor_identifier=principal.user.id)
         row.reset_registration_allowed=True;row.expires_at=None
         row.access_verified_at=None;row.access_verified_by=None
         await audit(session,request,'registration_reset_authorized',row,'admin',principal.user.id,body.reason)

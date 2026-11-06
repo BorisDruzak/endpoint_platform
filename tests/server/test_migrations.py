@@ -151,7 +151,7 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0046_support_access"]
+    assert script.get_heads() == ["0047_support_install_access"]
 
 
 def test_launcher_foundation_migration_only_adds_nullable_columns():

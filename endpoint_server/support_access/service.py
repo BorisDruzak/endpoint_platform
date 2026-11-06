@@ -70,7 +70,11 @@ def support_token(row,pepper):
     return 'eps1.'+row.id.hex+'.'+hmac.new(pepper,context.encode(),hashlib.sha256).hexdigest()
 
 
-async def register(session,device_id,credential_id,body,*,lifecycle_events=None):
+async def register(session,device_id,credential_id,body,*,lifecycle_events=None,settings=None,now=None,request_id=None):
+    now=now or datetime.now(UTC)
+    if settings is not None and (body.tunnel_public_key in (*settings.support_install_operator_public_keys,settings.support_gateway_host_public_key) or
+                                body.host_public_key in (*settings.support_install_operator_public_keys,settings.support_gateway_host_public_key)):
+        raise SupportConflict('Support key ownership conflict')
     device=await session.scalar(select(Device).where(Device.id==device_id,Device.retired_at.is_(None)).with_for_update())
     if device is None:
         raise SupportConflict('Support identity unavailable')
@@ -81,6 +85,9 @@ async def register(session,device_id,credential_id,body,*,lifecycle_events=None)
             raise SupportConflict('Support key ownership conflict')
         # Registration is an installer intent. Only running-service status may
         # advance or downgrade observed runtime capability after activation.
+        if settings is not None:
+            from .installation import queue_installation_access
+            await queue_installation_access(session,row,settings,now,request_id=request_id)
         return row
     if replacing and (body.tunnel_public_key in (row.tunnel_public_key,row.host_public_key) or body.host_public_key in (row.tunnel_public_key,row.host_public_key)):
         raise SupportResetRequired(device_id)
@@ -104,6 +111,7 @@ async def register(session,device_id,credential_id,body,*,lifecycle_events=None)
         row.enabled=False;row.revoked_at=None;row.expires_at=None;row.operator_public_keys=[];row.windows_admin_username=None
         row.installed=False;row.tunnel_connected=False;row.reported_at=None;row.last_error_code=None
         row.access_verified_at=None;row.access_verified_by=None;row.revision+=1
+        row.installation_access_pending_until=None
         await session.flush()
         if lifecycle_events is not None:
             lifecycle_events.append('registration_reset_consumed')
@@ -118,7 +126,15 @@ async def register(session,device_id,credential_id,body,*,lifecycle_events=None)
         await session.flush()
     except IntegrityError:
         raise SupportConflict('Support key ownership conflict') from None
+    if settings is not None:
+        from .installation import queue_installation_access
+        await queue_installation_access(session,row,settings,now,request_id=request_id)
     return row
+
+
+async def consume_installation_access(session,row,settings,now,*,request_id=None):
+    from .installation import consume_installation_access as consume
+    await consume(session,row,settings,now,request_id=request_id)
 
 
 async def source_active(session,row,now):

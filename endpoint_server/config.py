@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import math
 import os
 import re
 import stat
@@ -199,6 +200,37 @@ class Settings:
     support_gateway_host: str = 'endpoint.sosnadmin.local'
     support_gateway_port: int = 2222
     support_gateway_host_public_key: str = ''
+    support_install_auto_enable: bool = False
+    support_install_operator_public_keys: tuple[str, ...] = ()
+    support_install_windows_admin_username: str = ''
+    support_install_access_hours: float = 8
+
+    def __post_init__(self):
+        from endpoint_contracts.support_access import canonical_public_key, normalize_windows_support_admin
+
+        if type(self.support_install_auto_enable) is not bool:
+            raise ValueError('SUPPORT_INSTALL_AUTO_ENABLE must be a boolean')
+        keys = self.support_install_operator_public_keys
+        if not isinstance(keys, tuple) or len(keys) > 16:
+            raise ValueError('SUPPORT_INSTALL_OPERATOR_PUBLIC_KEYS must be a tuple of at most 16 keys')
+        for key in keys:
+            canonical_public_key(key)
+        if len(set(keys)) != len(keys) or (keys and self.support_gateway_host_public_key in keys):
+            raise ValueError('SUPPORT_INSTALL_OPERATOR_PUBLIC_KEYS contains conflicting keys')
+        principal = self.support_install_windows_admin_username
+        if principal:
+            if not isinstance(principal, str):
+                raise ValueError('SUPPORT_INSTALL_WINDOWS_ADMIN_USERNAME must be an existing principal')
+            object.__setattr__(self, 'support_install_windows_admin_username', normalize_windows_support_admin(principal))
+        hours = self.support_install_access_hours
+        if isinstance(hours, bool) or not isinstance(hours, (int, float)) or not math.isfinite(hours) or not 0.25 <= hours <= 8:
+            raise ValueError('SUPPORT_INSTALL_ACCESS_HOURS must be finite and between 0.25 and 8')
+        if self.support_install_auto_enable:
+            if not keys or not principal:
+                raise ValueError('SUPPORT_INSTALL requires explicit operator keys and an existing administrator')
+            canonical_public_key(self.support_gateway_host_public_key)
+            if self.support_gateway_host != 'endpoint.sosnadmin.local' or self.support_gateway_port != 2222:
+                raise ValueError('SUPPORT_INSTALL requires the canonical support gateway')
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str] | None = None) -> Settings:
@@ -312,6 +344,10 @@ class Settings:
             support_gateway_host=values.get('SUPPORT_GATEWAY_HOST','endpoint.sosnadmin.local'),
             support_gateway_port=int(values.get('SUPPORT_GATEWAY_PORT','2222')),
             support_gateway_host_public_key=values.get('SUPPORT_GATEWAY_HOST_PUBLIC_KEY',''),
+            support_install_auto_enable=_parse_optional_boolean('SUPPORT_INSTALL_AUTO_ENABLE', values.get('SUPPORT_INSTALL_AUTO_ENABLE', 'false')),
+            support_install_operator_public_keys=tuple(values.get('SUPPORT_INSTALL_OPERATOR_PUBLIC_KEYS', '').split(',')) if values.get('SUPPORT_INSTALL_OPERATOR_PUBLIC_KEYS', '') else (),
+            support_install_windows_admin_username=values.get('SUPPORT_INSTALL_WINDOWS_ADMIN_USERNAME', ''),
+            support_install_access_hours=float(values.get('SUPPORT_INSTALL_ACCESS_HOURS', '8')),
             public_base_url=public_base_url,
             device_token_pepper=device_token_pepper,
             service_token_pepper=service_token_pepper,

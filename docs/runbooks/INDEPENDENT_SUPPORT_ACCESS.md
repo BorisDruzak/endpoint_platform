@@ -6,6 +6,67 @@ software updates still use the signed full Setup workflow. Installing a componen
 enabling policy, establishing a tunnel and verifying administrator access are
 different states; a connected tunnel alone is not successful administrator access.
 
+## Подключение при неработающем агенте или обновляторе
+
+Служба `EndpointSupportAccess` устанавливается и запускается автоматически,
+имеет тип запуска Auto и работает независимо от Core и задачи обновления.
+Она сама обращается к Endpoint; команда включения доступа через сломанный агент
+не требуется. Windows, сеть и сервер Endpoint/SSH-шлюз должны работать.
+
+1. Откройте `https://endpoint.sosnadmin.local/admin/devices`, выберите нужный ПК
+   по имени и Device UUID, затем раздел **Доступ поддержки**. Карточка доступна
+   и при состоянии основного агента «не в сети».
+2. Проверьте компонент, свежесть его собственного отчёта и срок политики.
+   После установки с настроенными серверными defaults разрешение включается
+   автоматически после первого успешного отчёта Support1.0.1, на8часов.
+   Повторная регистрация не продлевает этот срок. Явные настройки, отключение,
+   отзыв или сброс конкретного ПК имеют приоритет. Если срок закончился,
+   задайте срок до8часов, существующего администратора, одобренный публичный
+   Ed25519-ключ и причину, затем нажмите **Включить доступ**. Для доменных ПК
+   используется `SOSNADM\admin-2`; для120 — `test_agent_win`. Для автономного ПК
+   укажите его действующего администратора; аккаунт и пароль не создаются.
+3. Нажмите **Обновить доступ**, дождитесь свежего отчёта и подключения туннеля.
+   Скопируйте из этой же карточки Device UUID, **Порт устройства на шлюзе**
+   и **SSH-ключ устройства, привязанный к Device UUID**. Поля относятся к одному
+   ПК и не должны смешиваться с данными другой карточки.
+4. С операторского Windows-ПК используйте проверенный SSH-ключ и существующий
+   alias `endpoint-platform-server`. Он ведёт на обычный администраторский SSH
+   сервера Endpoint. Порт2222 из карточки используется исходящим соединением
+   самого устройства, а не входом оператора.
+
+Из корня репозитория в PowerShell (пример для тестового120; `$hostKey` копируется
+из актуальной аутентифицированной карточки, не из сканирования порта):
+
+```powershell
+$hostKey = 'ssh-ed25519 <ключ из карточки нужного Device UUID>'
+.\tools\support\Connect-EndpointSupport.ps1 `
+  -DeviceId '943c87ef-f121-40b9-a31f-003e9459e292' `
+  -RemotePort 32000 `
+  -WindowsAdminUsername 'test_agent_win' `
+  -HostPublicKey $hostKey `
+  -RemoteCommand 'whoami /user'
+```
+
+Для доменного ПК замените UUID/порт/ключ на его данные, а имя входа — на
+`'SOSNADM\admin-2'`. Без `-RemoteCommand` открывается PowerShell. Параметр
+`-InspectOnly` проверяет и показывает команду без подключения или записи pin.
+По умолчанию используется операторский `~/.ssh/id_ed25519`; иной уже одобренный
+ключ задаётся через `-OperatorKeyPath`. Операторский публичный ключ в политике
+должен соответствовать этому закрытому ключу; закрытые ключи никуда не копируются.
+
+Скрипт проверяет ключ шлюза строго, сохраняет отдельный pin для Device UUID
+и отказывается подключаться при его изменении. После явного сброса ключей
+сначала подтвердите новую привязку в Endpoint и причину восстановления; не
+перезаписывайте несовпавший pin автоматически. После входа проверьте hostname,
+`whoami /user` и права, затем собирайте нужные службы и журналы. Успешный SSH
+можно отметить как подтверждение оператора; «туннель подключён» не заменяет вход.
+
+Если обычные средства диагностики не позволяют завершить порученную работу,
+Codex использует этот канал и при необходимости продлевает временную политику
+в рамках уже разрешённой задачи, без повторного вопроса о самом подключении.
+Неработающий Core не является основанием ждать его восстановления. При этом
+неизвестный результат MSI, его журналы и владелец восстановления сохраняются.
+
 ## Components and trust boundary
 
 `EndpointSupportAccess` is a signed LocalSystem service with no dependency on
@@ -69,10 +130,13 @@ key-authenticated SSH acceptance for the selected principal.
 
 ## Policy and revocation
 
-New registrations are disabled. An administrator with existing `updates:write`
-scope and valid CSRF sets the exact device, existing Windows login, approved
-operator public keys and an aware future expiry of at most8hours. This is a
-testing access lease; installation does not grant permanent support access.
+With explicit installation defaults, new/pristine registrations queue a disabled
+15minute intent and receive one bounded initial lease after actual installed
+Support1.0.1 status. Without configured defaults they stay disabled. Existing
+manual policies and every disable/revoke/reset retain precedence. An administrator
+with existing `updates:write` scope and valid CSRF can later enable/renew the
+exact device with approved keys/account and an aware expiry of at most8hours.
+There is no permanent authorization or automatic renewal on retry or heartbeat.
 
 The component polls HTTPS with its independent `eps1` credential and the copied
 CA. It requires a fresh policy after every service start. A monotonic60-second

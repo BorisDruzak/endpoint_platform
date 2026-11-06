@@ -74,10 +74,55 @@
   temporary policy, expiry/revocation and audit. Active Support/runtime/state are
   outside MSI/Core/observer ownership. See the [support spec](docs/superpowers/specs/2026-11-05-pilot-support-tunnel.md)
   and [live receipt](docs/verification/2026-11-06-independent-support-access.md).
-  New policies remain disabled; choose an existing verified administrator and
-  approved key for a lease of at most8hours. Actual SSH passed on five devices,
+  Installation defaults may authorize a new/pristine installation automatically
+  after a successful running Support1.0.1 report, using the explicitly configured
+  existing administrator and approved operator keys for at most8hours. Manual
+  disable/revoke/reset and existing per-device policies take precedence; retries
+  never renew an expired or consumed initial grant. Actual SSH passed on five devices,
   including120 with Core/updater stopped; VM registration is not an SSH proof.
   Never infer working administrator access from agent version or tunnel alone.
+
+
+# Reserve connection during agent or updater incidents
+
+- When authorized Endpoint diagnosis/update work cannot be completed using
+  available telemetry, server logs or update receipts, use the independent
+  support channel to inspect the affected Windows PC. Do not stop at an absent
+  heartbeat or treat a stopped Core/updater as proof the PC is unreachable.
+- This diagnostic connection, and bounded policy enable/renewal using the existing
+  approved operator key and verified Windows administrator, are authorized within
+  the user's requested incident scope. Do not ask the user to repeat that
+  authorization solely because Core or the update observer is unavailable.
+- Full Setup must install/start EndpointSupportAccess as an independent Auto
+  LocalSystem service. Production installation defaults authorize first access
+  after a healthy Support1.0.1 report; use existing SOSNADM\admin-2 for domain
+  PCs and preserve explicit local-account policies such as test120/test_agent_win.
+  No guessed account, password creation, permanent grant or automatic lease
+  renewal is implied. Initial grants are at most8hours; subsequent diagnostic
+  access can be enabled centrally without a working Core/updater.
+- Open the exact Device UUID card in Endpoint -> Devices -> Support access,
+  including when ordinary agent state is offline. Check independent installed
+  state, report time, expiry and current approved key/account. If necessary,
+  enable/renew a temporary policy with a diagnosis reason using existing admin
+  scope; do not override an explicit manual refusal/revocation without authority.
+- Read Device UUID, remote loopback port and host public key together from that
+  authenticated card/API. Verify strict gateway and UUID-bound workstation SSH
+  host keys. Use tools/support/Connect-EndpointSupport.ps1; never accept a scan
+  or silently replace a changed host key. The operator uses the gateway's normal
+  existing SSH alias, not the device's outbound2222 tunnel identity.
+- Begin with read-only evidence: hostname/administrator identity, relevant
+  services/tasks/processes and bounded logs. Perform only repairs already within
+  the requested scope, retain before/after proof and restore task-related state.
+  Reserve access does not authorize replaying MSI, clearing unknown native
+  journals/recovery ownership, replacing private identities/keys or rewriting
+  grants/selectors as an access workaround.
+- Registration, a connected tunnel and an actual successful administrator command
+  are separate states. Record the last as an operator attestation only after a
+  real command. If the independent service, Windows/network or gateway is itself
+  unavailable, report that specific blocker rather than claiming access works.
+- Follow docs/runbooks/INDEPENDENT_SUPPORT_ACCESS.md for Console controls,
+  automatic-install bounds, strict SSH commands, expiry and cleanup. Keep secrets
+  out of source/logs/reports; never upload operator/device private keys.
 
 # Production host
 
