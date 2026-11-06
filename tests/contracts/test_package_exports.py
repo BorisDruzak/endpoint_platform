@@ -11,7 +11,7 @@ def test_package_model_exports_are_the_original_defining_objects():
         'commands', 'activity', 'context', 'enrollment', 'gateway_ws',
         'security_events', 'power_events', 'sensor_health', 'endpoint_policy', 'identity',
         'network_primitives', 'read_only_primitives', 'capabilities', 'modules',
-        'operations', 'telemetry', 'updates',
+        'operations', 'telemetry', 'updates', 'installation_lifecycle',
     )]
     for name in endpoint_contracts.__all__:
         value = getattr(endpoint_contracts, name)

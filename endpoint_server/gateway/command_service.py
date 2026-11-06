@@ -734,6 +734,12 @@ async def next_pending_command(
     agent_platform: str | None = None,
 ) -> GatewayCommandV1 | None:
     """Replay only unacknowledged deliveries before creating a new command."""
+    from endpoint_server.installation_lifecycle.service import removed
+    # Serialize native removal against dispatch. Preserve queued/manual records.
+    from endpoint_server.db.models import Device
+    await session.scalar(select(Device).where(Device.id == device_id).with_for_update())
+    if await removed(session, device_id):
+        return None
     if transport not in {"http_pull", "gateway_wss"}:
         raise ValueError("unsupported gateway transport")
     await expire_overdue_collections(session, device_id, now=datetime.now(UTC))

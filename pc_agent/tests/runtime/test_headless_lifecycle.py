@@ -697,6 +697,10 @@ async def test_default_activity_wiring_resets_gate_for_reconnect_and_policy_deli
 async def test_security_feature_pins_browser_identity_and_durable_handoff(
     monkeypatch, tmp_path: Path,
 ) -> None:
+    from pc_agent.platform.windows import browser_policy
+    from pc_agent.tests.windows.test_browser_policy import MemoryRegistry
+    monkeypatch.setattr(browser_policy, "WindowsPolicyRegistry", MemoryRegistry)
+
     from pc_agent.platform.windows import (
         activity_api, browser_bridge_entry, print_sensor, usb_sensor,
     )
@@ -1251,6 +1255,10 @@ async def test_default_wss_composition_binds_bearer_to_stored_server_device_id(
     tmp_path: Path,
 ) -> None:
     """Catches breaking identity loading before the real default WSS boundary."""
+    from pc_agent.platform.windows import browser_policy
+    from pc_agent.tests.windows.test_browser_policy import MemoryRegistry
+    monkeypatch.setattr(browser_policy, "WindowsPolicyRegistry", MemoryRegistry)
+
     from pc_agent.transport.websocket import WebSocketGatewayTransport
     from pc_agent.platform.windows import activity_api
 

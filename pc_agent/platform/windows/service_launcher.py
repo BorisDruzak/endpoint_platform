@@ -192,7 +192,7 @@ def run_agent_service() -> int:
 
 
 def _parser() -> argparse.ArgumentParser:
-    from pc_agent.platform.windows.installer_host_entry import add_installer_arguments
+    from pc_agent.platform.windows.installer_native_entry import add_installer_arguments
     parser = argparse.ArgumentParser()
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--agent-service", action="store_true")
@@ -202,7 +202,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    from pc_agent.platform.windows.installer_host_entry import run_installer_args
+    from pc_agent.platform.windows.installer_native_entry import run_installer_args
     args = _parser().parse_args(argv)
     result = run_installer_args(args)
     if result is not None:

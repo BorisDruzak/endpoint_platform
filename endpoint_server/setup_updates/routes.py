@@ -131,8 +131,12 @@ async def hello(body: SetupClientHelloV1, request: Request):
 
 @agent_router.get('/recommendation', response_model=None)
 async def recommendation(request: Request):
+    from endpoint_server.installation_lifecycle.service import removed
     async with request.app.state.session_provider() as session:
         principal = await _authenticate_device(session, request)
+        await _revalidate_device_principal(session, request, principal)
+        if await removed(session, principal.device.id):
+            return Response(status_code=204)
         presence = await session.scalar(select(SetupClientPresence).where(SetupClientPresence.device_id == principal.device.id))
         if not qualified_presence(presence, datetime.now(UTC)):
             return Response(status_code=204)

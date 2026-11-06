@@ -18,7 +18,7 @@ NOW = datetime(2026, 11, 3, tzinfo=UTC)
 @pytest_asyncio.fixture
 async def db(tmp_path):
     engine = create_async_engine('sqlite+aiosqlite:///:memory:')
-    tables = [Device.__table__, DeviceInstance.__table__, DeviceSession.__table__, DeviceCredential.__table__,
+    tables = [Device.metadata.tables["installation_states"], Device.__table__, DeviceInstance.__table__, DeviceSession.__table__, DeviceCredential.__table__,
               UpdateBuild.__table__, UpdateRollout.__table__, UpdateTarget.__table__,
               AuditEvent.__table__, SetupRelease.__table__, SetupAssignment.__table__, SetupClientPresence.__table__, SetupPreparation.__table__,
               SetupFleetPolicy.__table__, SetupFleetDecision.__table__, SetupFleetQualification.__table__]

@@ -164,6 +164,8 @@ class ConsoleFleetDevice(BaseModel):
     device_identifier: str
     display_name: str
     online: bool
+    installation_state: Literal["installed", "removed", "unknown"] = "unknown"
+    installation_conflict: bool = False
     last_seen_at: datetime | None
     agent_version: str | None
     launcher_version: str | None
@@ -201,6 +203,8 @@ class ConsoleDeviceHeader(BaseModel):
     os_version: str | None
     current_user: str | None
     online: bool
+    installation_state: Literal["installed", "removed", "unknown"] = "unknown"
+    installation_conflict: bool = False
     last_seen_at: datetime | None
     agent_version: str | None
     launcher_version: str | None
@@ -541,6 +545,11 @@ async def console_device_detail(
                 collected = collected.replace(tzinfo=UTC)
             snapshot["fresh"] = isinstance(collected, datetime) and now - CONTEXT_TTL <= collected <= now
         presence = await device_presence(session, device_id)
+        from endpoint_server.installation_lifecycle.service import projection_data, connection_conflicts_with_removal
+        installation = await projection_data(session, device_id)
+        presence["installation_state"] = installation["state"]
+        presence["installation_conflict"] = connection_conflicts_with_removal(
+            installation["state"], presence["last_seen_at"], installation["received_at"])
         if include_power:
             presence['power'] = await power_summary(
                 session, device_id, online=presence['online'], last_seen_at=presence['last_seen_at'],

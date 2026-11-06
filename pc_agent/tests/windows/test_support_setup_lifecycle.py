@@ -8,6 +8,15 @@ from pc_agent.tests.windows.test_setup_entry import literal_msi_costing_boundary
 from pc_agent.tests.windows.test_staged_update_state import staged, native_protected_root
 
 
+@pytest.fixture(autouse=True)
+def isolated_browser_registry(monkeypatch):
+    from pc_agent.platform.windows import browser_policy
+    from pc_agent.tests.windows.test_browser_policy import MemoryRegistry
+    registry = MemoryRegistry()
+    monkeypatch.setattr(browser_policy, 'WindowsPolicyRegistry', lambda: registry)
+    return registry
+
+
 @pytest.mark.parametrize('native', [67, 3010, 1641, 'unknown'])
 def test_failed_or_unaccepted_native_work_never_activates_support(monkeypatch, tmp_path, native):
     _write_public_payload(tmp_path)
@@ -63,6 +72,7 @@ def test_installer_uses_staged_helper_without_passing_device_credential(monkeypa
 def test_known_native_uninstall_finishes_fence_before_reporting_support_cleanup(staged, monkeypatch, schema, status):
     import json
     from pc_agent.platform.windows import installer_transaction_bridge as bridge, installer_fence as fence, msi_inventory
+    from pc_agent.platform.windows import installation_lifecycle as lifecycle, installation_notification, durable_state
     _, paths, binding, _ = staged
     package = SimpleNamespace(sha256='a'*64, product_code=binding.new_release['product_code'],
         package_code='{11111111-1111-4111-8111-111111111111}', version='3.2.122')
@@ -70,6 +80,17 @@ def test_known_native_uninstall_finishes_fence_before_reporting_support_cleanup(
     cap = dict(operation='uninstall', transaction_id=binding.operation_id, selected=None, previous=None,
                service_states={'EndpointAgent': 'stopped', 'EndpointAgentUpdater': 'stopped'})
     events = []
+    device='11111111-1111-4111-8111-111111111111'
+    monkeypatch.setattr(lifecycle, '_identity', lambda _: device)
+    monkeypatch.setattr(installation_notification, '_sender', lambda _: pytest.fail('Network entered authenticated native finish'))
+    unlink=durable_state.durable_unlink
+    def retire_after_receipt(path, **kwargs):
+        if path==fence.fence_path(paths):
+            assert fence.read_fence(paths) is not None
+            assert lifecycle.outbox_for(paths).pending(device)[0]['action']=='removed'
+            events.append('receipt-before-retirement')
+        return unlink(path,**kwargs)
+    monkeypatch.setattr(durable_state,'durable_unlink',retire_after_receipt)
     monkeypatch.setattr(bridge, '_request_data', lambda *_: {'package_path': paths.install_root / 'known.msi'})
     monkeypatch.setattr(msi_inventory, 'read_expected_package', lambda *_: expected)
     cap['package'] = binding.new_release
@@ -92,6 +113,12 @@ def test_known_native_uninstall_finishes_fence_before_reporting_support_cleanup(
     archive = bridge.completion_root(paths, cap)
     completed = json.loads((archive / 'completed.json').read_text())
     assert completed['phase'] == 'complete' and completed['startup_restored'] is True
+    pending = lifecycle.outbox_for(paths).pending(device)
+    assert len(pending)==1 and pending[0]['action']=='removed'
+    assert pending[0]['native']['exit_code']==0
+    assert pending[0]['cleanup']['support']==(status if schema==3 else 'not_applicable')
+    assert 'receipt-before-retirement' in events
+    assert events[-1] == ('complete', result)
     assert events[0] == 'native-absence'
     if schema == 3:
         receipt = json.loads((archive / 'support-cleanup.json').read_text())

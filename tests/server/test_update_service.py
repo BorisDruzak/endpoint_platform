@@ -174,7 +174,7 @@ async def session(tmp_path) -> AsyncIterator[AsyncSession]:
     tables = (
         __import__('endpoint_server.setup_updates.models', fromlist=['SetupAssignment']).SetupAssignment.__table__,
         __import__('endpoint_server.setup_updates.models', fromlist=['SetupPreparation']).SetupPreparation.__table__,
-        Device.__table__,
+        Device.metadata.tables["installation_states"], Device.__table__,
         DeviceInstance.__table__,
         UpdateBuild.__table__,
         UpdateRollout.__table__,

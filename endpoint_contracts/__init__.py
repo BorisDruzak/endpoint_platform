@@ -123,10 +123,12 @@ def _load_models():
         UpdateRolloutCreateV1,
     )
 
+    from .installation_lifecycle import InstallationEventV1, InstallationEventAckV1, InstallationNativeProof, InstallationCleanup
     return locals()
 
 
 __all__ = [
+    "InstallationEventV1", "InstallationEventAckV1", "InstallationNativeProof", "InstallationCleanup",
     "AgentSecurityEventBatchV1",
     "ActivityObservationEnvelopeV1",
     "ActivityObservationV1",

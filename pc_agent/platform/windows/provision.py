@@ -261,6 +261,9 @@ class WindowsProvisioner:
         ):
             raise RuntimeError("permanent enrollment credential proof failed")
         try:
+            from .installation_notification import sync_enrolled_installation
+            if sync_enrolled_installation(data_root) not in {'delivered', 'not_applicable'}:
+                raise RuntimeError('installation_event_pending')
             support = self._support_installer()
             support_status = 'installed' if support.get('installed') is True else 'unavailable'
             support_error = None if support_status=='installed' else safe_support_error_code(support.get('error'))
@@ -360,6 +363,10 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    from pc_agent.platform.windows.installation_notification import notification_main
+    notification = notification_main(argv)
+    if notification is not None:
+        return notification
     args = _parser().parse_args(argv)
     request = ProvisioningRequest(
         endpoint_origin=args.endpoint_origin,

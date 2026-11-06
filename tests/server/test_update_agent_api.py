@@ -59,7 +59,7 @@ async def session_provider() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     from endpoint_server.setup_updates.models import SetupRelease, SetupAssignment, SetupClientPresence, SetupPreparation
     tables = (
         SetupRelease.__table__, SetupAssignment.__table__, SetupClientPresence.__table__, SetupPreparation.__table__,
-        Device.__table__,
+        Device.metadata.tables["installation_states"], Device.__table__,
         DeviceCredential.__table__,
         UpdateBuild.__table__,
         UpdateRollout.__table__,

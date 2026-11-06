@@ -995,6 +995,8 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
                          'native_uninstalled': True, 'support_cleanup': support_cleanup},
                         trusted_root=archive, max_bytes=4096, protect=protect_state)
                     result = {'result': 'native-uninstalled', 'support_cleanup': support_cleanup}
+                from .installation_lifecycle import record_native_finish
+                record_native_finish(paths, capability, expected, support_cleanup=support_cleanup)
                 from .compound_upgrade_plan import record_standalone_completion
                 record_standalone_completion(paths,capability,fence)
                 # Final mutation. The owner waits for this helper's explicit
@@ -1002,6 +1004,8 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
                 from .installer_fence import fence_path
                 finished_fence = fence_path(paths)
                 durable_state.durable_unlink(finished_fence,trusted_root=finished_fence.parent)
+                # No network in this authenticated helper. Its completion and
+                # actual process exit precede the wrapper's notification stage.
             else:
                 _failed()
     if complete: client.request('complete',result)

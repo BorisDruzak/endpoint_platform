@@ -136,6 +136,9 @@ async def request_setup(session, device_id, release_id, reason, *, actor, reques
     await reserve_fleet_admission(session, device_id)
     builds = await lock_builds(session)
     await lock_device(session, device_id)
+    from endpoint_server.installation_lifecycle.service import removed
+    if await removed(session, device_id):
+        raise SetupConflict('installation removed')
     reason = validate_public_update_prose(reason, field_name='reason', max_length=256, required=True)
     release = await session.get(SetupRelease, release_id)
     if release is None:

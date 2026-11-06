@@ -1133,7 +1133,11 @@ def _emit_preflight(value: dict[str, object]) -> None:
 
 def _install_support_after_native(data_root: Path) -> None:
     from pc_agent.platform.windows.provision import install_enrolled_support
+    from pc_agent.platform.windows.installation_notification import sync_enrolled_installation
     try:
+        if sync_enrolled_installation(data_root) not in {'delivered', 'not_applicable'}:
+            _write_support_install_result(False, 'support_install_failed')
+            return
         result=install_enrolled_support(data_root)
         installed = result.get('installed') is True
         support_error=result.get('error')
@@ -1158,6 +1162,10 @@ def _write_support_install_result(installed: bool, error_code=None) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    from pc_agent.platform.windows.installation_notification import notification_main
+    notification = notification_main(argv)
+    if notification is not None:
+        return notification
     args = _parser().parse_args(argv)
     if args.recover_staged_restoration:
         return _run_staged_restoration_recovery(args.recover_staged_restoration)

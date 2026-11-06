@@ -67,7 +67,8 @@ async def pending_authority_current(session, row, settings, now, *, request_id=N
     else:
         events = (await session.scalars(select(AuditEvent).where(
             AuditEvent.action == 'support_access.installation_access_pending',
-            AuditEvent.object_kind == 'support_access', AuditEvent.object_identifier == str(row.id)).limit(2))).all()
+            AuditEvent.object_kind == 'support_access', AuditEvent.object_identifier == str(row.id)).order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc()).limit(1000))).all()
+        events = [event for event in events if event.details.get('revision') == row.revision]
         if len(events) != 1 or events[0].details.get('revision') != row.revision or events[0].details.get('pending_until') != utc(deadline).isoformat() or events[0].details.get('defaults_digest') != defaults_digest(settings):
             reason = 'installation_defaults_unbound_or_changed'
     if reason:

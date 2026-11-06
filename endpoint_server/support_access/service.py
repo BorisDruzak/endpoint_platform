@@ -80,7 +80,11 @@ async def register(session,device_id,credential_id,body,*,lifecycle_events=None,
         raise SupportConflict('Support identity unavailable')
     row=await session.scalar(select(SupportAccess).where(SupportAccess.device_id==device_id).with_for_update())
     replacing=bool(row and row.reset_registration_allowed)
-    if row and not replacing:
+    ticket = None
+    if row and not replacing and (row.revoked_at is not None or row.tunnel_public_key != body.tunnel_public_key or row.host_public_key != body.host_public_key):
+        from .native_rebind import native_ticket
+        ticket = await native_ticket(session,row,credential_id,now)
+    if row and not replacing and ticket is None:
         if row.revoked_at is not None or row.tunnel_public_key!=body.tunnel_public_key or row.host_public_key!=body.host_public_key or row.source_credential_id!=credential_id:
             raise SupportConflict('Support key ownership conflict')
         # Registration is an installer intent. Only running-service status may
@@ -91,19 +95,32 @@ async def register(session,device_id,credential_id,body,*,lifecycle_events=None,
         return row
     if replacing and (body.tunnel_public_key in (row.tunnel_public_key,row.host_public_key) or body.host_public_key in (row.tunnel_public_key,row.host_public_key)):
         raise SupportResetRequired(device_id)
-    conflict=await session.scalar(select(SupportAccess.id).where(or_(SupportAccess.tunnel_public_key.in_([body.tunnel_public_key,body.host_public_key]),SupportAccess.host_public_key.in_([body.tunnel_public_key,body.host_public_key]))).limit(1))
+    conflict=await session.scalar(select(SupportAccess.id).where(or_(SupportAccess.tunnel_public_key.in_([body.tunnel_public_key,body.host_public_key]),SupportAccess.host_public_key.in_([body.tunnel_public_key,body.host_public_key])), SupportAccess.id != (row.id if ticket is not None else UUID(int=0))).limit(1))
     if conflict:
         raise SupportConflict('Support key ownership conflict')
     # Global allocation lock uses existing durable namespace row on PostgreSQL;
     # unique constraints remain final protection on every supported backend.
     if session.bind.dialect.name=='postgresql':
         await key_authority_lock(session)
-        conflict=await session.scalar(select(SupportAccess.id).where(or_(SupportAccess.tunnel_public_key.in_([body.tunnel_public_key,body.host_public_key]),SupportAccess.host_public_key.in_([body.tunnel_public_key,body.host_public_key]))).limit(1))
+        conflict=await session.scalar(select(SupportAccess.id).where(or_(SupportAccess.tunnel_public_key.in_([body.tunnel_public_key,body.host_public_key]),SupportAccess.host_public_key.in_([body.tunnel_public_key,body.host_public_key])), SupportAccess.id != (row.id if ticket is not None else UUID(int=0))).limit(1))
         if conflict:
             raise SupportConflict('Support key ownership conflict')
     operators=(await session.scalars(select(SupportAccess.operator_public_keys).limit(10001))).all()
     if len(operators)>10000 or any(body.tunnel_public_key in keys or body.host_public_key in keys for keys in operators):
         raise SupportConflict('Support key ownership conflict')
+    if ticket is not None:
+        if body.tunnel_public_key == row.host_public_key or body.host_public_key == row.tunnel_public_key:
+            raise SupportConflict('Support key ownership conflict')
+        # The role lock may have waited past the original registration timestamp.
+        # Recheck the one-use deadline immediately before changing any key material.
+        checked_at=max(now,datetime.now(UTC))
+        if ticket.support_rebind_until is None or utc(ticket.support_rebind_until)<=checked_at:
+            raise SupportConflict('Native Support rebind expired')
+        from .native_rebind import consume_native_ticket
+        row.tunnel_public_key=body.tunnel_public_key;row.host_public_key=body.host_public_key
+        await consume_native_ticket(session,row,ticket,settings,checked_at,request_id)
+        await session.flush()
+        return row
     if replacing:
         row.source_credential_id=credential_id
         row.tunnel_public_key=body.tunnel_public_key;row.host_public_key=body.host_public_key

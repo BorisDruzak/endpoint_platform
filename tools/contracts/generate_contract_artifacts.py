@@ -71,6 +71,7 @@ from endpoint_contracts import (  # noqa: E402
     SecurityEventAckV1,
 )
 from endpoint_contracts.telemetry_results import TelemetryResultV1
+from endpoint_contracts.installation_lifecycle import InstallationEventV1, InstallationEventAckV1
 from endpoint_contracts.power_events import PowerEventV1, PowerSourceStatusV1, PowerEventBatchV1, PowerEventAckV1
 from endpoint_server.power.routes import router as power_console_router
 from endpoint_server.auth.admin_sessions import ADMIN_SESSION_COOKIE
@@ -136,6 +137,8 @@ _PUBLIC_BROWSER_RELEASE_PATHS = (
 
 
 PUBLIC_MODELS: dict[str, type[ContractModelV1]] = {
+    "endpoint-installation-event-v1.json": InstallationEventV1,
+    "endpoint-installation-event-ack-v1.json": InstallationEventAckV1,
     'power-event-v1.json': PowerEventV1,
     'power-source-status-v1.json': PowerSourceStatusV1,
     'power-event-batch-v1.json': PowerEventBatchV1,
@@ -206,6 +209,24 @@ GATEWAY_WS_MODELS: dict[str, type[BaseModel]] = {
 }
 
 FIXTURES: dict[str, dict[str, Any]] = {
+    "endpoint-installation-event-v1.json": {
+        "schema_version": "endpoint_installation_event_v1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "event_id": "22222222-2222-4222-8222-222222222222",
+        "generation_id": "33333333-3333-4333-8333-333333333333",
+        "sequence": 1, "previous_event_id": None, "action": "installed",
+        "occurred_at": "2026-11-07T12:00:00Z",
+        "native": {"version": "3.2.177", "product_code": "{44444444-4444-4444-8444-444444444444}",
+            "source_revision": "a" * 40, "msi_sha256": "b" * 64, "exit_code": 0},
+        "cleanup": {"support": "not_applicable", "browser": "not_applicable"},
+    },
+    "endpoint-installation-event-ack-v1.json": {
+        "schema_version": "endpoint_installation_event_ack_v1",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "event_id": "22222222-2222-4222-8222-222222222222",
+        "generation_id": "33333333-3333-4333-8333-333333333333",
+        "sequence": 1, "state": "installed", "received_at": "2026-11-07T12:00:01Z",
+    },
     "module-capability-catalog-v1.json": module_capability_catalog().model_dump(
         mode="json"
     ),
@@ -734,6 +755,8 @@ def _service_operation_openapi() -> dict[str, object]:
     application = FastAPI()
     from endpoint_server.support_access.routes import agent_router as support_agent_router
     application.include_router(support_agent_router)
+    from endpoint_server.installation_lifecycle.routes import router as installation_router
+    application.include_router(installation_router)
     application.include_router(operations_router)
     application.include_router(modules_router)
     application.include_router(device_modules_router)
@@ -748,7 +771,7 @@ def _service_operation_openapi() -> dict[str, object]:
             path: generated["paths"][path]
             for path in (*_SERVICE_OPERATION_PATHS, *_SERVICE_CONTEXT_PATHS, *_PUBLIC_BROWSER_RELEASE_PATHS,
                          "/api/v1/device-binding/challenges", "/api/v1/device-binding/challenges/redeem",
-                         '/agent/v1/support-access/register','/agent/v1/support-access/policy','/agent/v1/support-access/status','/agent/v1/support-access/unregister')
+                         '/agent/v1/installation-events','/agent/v1/support-access/register','/agent/v1/support-access/policy','/agent/v1/support-access/status','/agent/v1/support-access/unregister')
         },
         "components": generated["components"],
     }

@@ -1573,6 +1573,39 @@ function Stop-InstallerLaunchBroker {
     }
 }
 
+function Start-InstallationNotificationProcess {
+    param([string]$HelperPath,[string]$LaunchDirectory)
+    # This mode only launches a contained notification Job; it cannot enter MSI
+    # or obtain an owner capability. It contains the actual HTTPS child for20s.
+    $info=[EndpointInstallerBridge.LaunchDirectory]::StartInfo($HelperPath,'--installation-events-deliver',$LaunchDirectory)
+    return [Diagnostics.Process]::Start($info)
+}
+
+function Invoke-InstallationNotification {
+    param([string]$HelperPath,[string]$HelperHash,[string]$LaunchDirectory)
+    $pin=$null;$process=$null
+    try {
+        Assert-ExistingPathChain $HelperPath
+        Assert-CacheArtifactProtection $HelperPath
+        Assert-ExistingPathChain $LaunchDirectory
+        Assert-InstallerCacheProtection $LaunchDirectory
+        $pin=[IO.File]::Open($HelperPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+        if ((Get-FileHash -LiteralPath $HelperPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $HelperHash) { return 'pending' }
+        # Native helper acknowledgement AND process exit have already completed.
+        # This new foreground coordinator never performs networking itself; its
+        # notification-only child is suspended, Job-assigned, bounded and reaped.
+        $process=Start-InstallationNotificationProcess $HelperPath $LaunchDirectory
+        $process.WaitForExit()
+        if ($process.ExitCode -eq 0) { return 'delivered' }
+    } catch {
+        # An optional notification cannot replace native0 or cleanup68.
+    } finally {
+        if ($null -ne $process) { $process.Dispose() }
+        if ($null -ne $pin) { $pin.Dispose() }
+    }
+    return 'pending'
+}
+
 function Get-SupportCleanupExitCode {
     param([string]$Intent, [int]$NativeExit, $Finish)
     # Finish is returned only after the authenticated helper acknowledgement.
@@ -2959,6 +2992,7 @@ if ($inputHash -ne [string]$manifest.package_sha256) {
 
 $updateMutex = $null
 $transactionOwned = $false
+$installationNotification = $null
 try {
     try {
         $updateMutex = New-UpdateTransaction
@@ -3337,6 +3371,9 @@ try {
     if ($null -ne (Read-InstallerFence -Root $installerStateRoot)) { throw 'RECOVERY_REQUIRED' }
     if ($supportCleanupExit -eq 68) {
         $installationCompleted = $true
+        if (-not $bridge.Capability.recovery -and -not $bridge.Capability.uninstall_finalization) {
+            $installationNotification=@{HelperPath=$helperPath;HelperHash=$helperHash;LaunchDirectory=$bridge.LaunchDirectory}
+        }
         Write-Warning 'SUPPORT_CLEANUP_INCOMPLETE: native uninstall committed; no MSI replay required.'
         exit 68
     }
@@ -3379,6 +3416,10 @@ try {
     }
     if($stagedOnline -and $nativeExit -in @(0,67)){Complete-StagedTerminalCleanup $trialBridge $previousServiceStates $installerStateRoot -RequireServices}
     $installationCompleted = $true
+    if ($nativeExit -eq 0 -and $intent -cin @('install','uninstall') -and
+        -not $bridge.Capability.recovery -and -not $bridge.Capability.uninstall_finalization) {
+        $installationNotification=@{HelperPath=$helperPath;HelperHash=$helperHash;LaunchDirectory=$bridge.LaunchDirectory}
+    }
     if ($nativeExit -in @(67,3010,1641)) { exit (Get-NativeWrapperExitCode -NativeExit $nativeExit) }
 }
 catch {
@@ -3463,4 +3504,10 @@ finally {
 } finally {
     if ($transactionOwned) { $updateMutex.ReleaseMutex() }
     if ($null -ne $updateMutex) { $updateMutex.Dispose() }
+    if ($null -ne $installationNotification) {
+        try {
+            $delivery=Invoke-InstallationNotification @installationNotification
+            if ($delivery -cne 'delivered') { Write-Warning 'INSTALLATION_NOTIFICATION_PENDING: native result unchanged.' }
+        } catch { Write-Warning 'INSTALLATION_NOTIFICATION_PENDING: native result unchanged.' }
+    }
 }

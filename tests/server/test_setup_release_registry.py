@@ -108,8 +108,18 @@ async def test_setup_download_requires_admin_and_matching_digest(tmp_path) -> No
         created_at=datetime.now(UTC) + timedelta(days=1),
         retired_at=datetime.now(UTC),
     )
+    candidate = WindowsSetupRelease(
+        id=uuid4(), version="3.2.177", agent_version="3.2.177",
+        artifact_identifier="EndpointAgentSetup-3.2.177-x64.exe",
+        filename="EndpointAgentSetup-3.2.177-x64.exe",
+        setup_sha256=release.setup_sha256, msi_sha256="b" * 64,
+        source_commit="a" * 40, msi_source_commit="a" * 40,
+        authenticode_status="valid", msi_authenticode_status="valid",
+        created_at=datetime.now(UTC) + timedelta(days=2), download_published=False,
+    )
+    (tmp_path / candidate.filename).write_bytes(artifact.read_bytes())
     async with sessions() as session:
-        session.add_all([release, older_release, retired_release])
+        session.add_all([release, older_release, retired_release, candidate])
         await session.commit()
     settings = Settings(
         database_url="postgresql+asyncpg://unused@localhost/unused",
@@ -136,6 +146,8 @@ async def test_setup_download_requires_admin_and_matching_digest(tmp_path) -> No
         second_page = await client.get("/api/admin/console/installer/releases?active_only=true&limit=1&offset=1")
         too_large = await client.get("/api/admin/console/installer/releases?limit=101")
         downloaded = await client.get(url)
+        all_releases = await client.get("/api/admin/console/installer/releases")
+        candidate_download = await client.get(f"/api/admin/console/installer/releases/{candidate.id}/download")
         artifact.write_bytes(b"tampered")
         corrupt = await client.get(url)
     await engine.dispose()
@@ -147,3 +159,56 @@ async def test_setup_download_requires_admin_and_matching_digest(tmp_path) -> No
     assert downloaded.status_code == 200 and downloaded.content == b"verified setup"
     assert downloaded.headers["cache-control"] == "private, no-store"
     assert corrupt.status_code == 503
+    assert all_releases.json()["total"] == 4
+    assert all_releases.json()["data"][0]["version"] == "3.2.177"
+    assert candidate_download.status_code == 200
+    assert candidate_download.content == b"verified setup"
+    assert release.download_published is True
+
+def test_lifecycle_publication_binds_inspected_msi_and_expected_publisher(tmp_path):
+    setup=tmp_path/'EndpointAgentSetup-3.2.177-x64.exe';setup.write_bytes(b'signed-setup')
+    msi=tmp_path/'agent.msi';msi.write_bytes(b'signed-msi')
+    sidecar=tmp_path/'setup.json';manifest=tmp_path/'msi.json'
+    values=dict(schema_version='endpoint_windows_setup_release_v1',version='3.2.177',agent_version='3.2.177',
+        source_commit='a'*40,msi_source_commit='b'*40,filename=setup.name,
+        setup_sha256=hashlib.sha256(setup.read_bytes()).hexdigest(),msi_sha256=hashlib.sha256(msi.read_bytes()).hexdigest(),
+        authenticode_status='valid',msi_authenticode_status='valid',authenticode_publisher='CN=Trusted',msi_authenticode_publisher='CN=Trusted')
+    sidecar.write_text(json.dumps(values),encoding='utf-8')
+    native=dict(schema_version='endpoint_windows_release_v1',version='3.2.177',source_revision='b'*40,
+        package_sha256=values['msi_sha256'],product_code='{12345678-1234-1234-1234-123456789ABC}')
+    manifest.write_text(json.dumps(native),encoding='utf-8')
+    assert validate_release_inputs(sidecar,setup,msi).product_code is None
+    assert validate_release_inputs(sidecar,setup,msi,manifest,'CN=Trusted').product_code==native['product_code']
+    assert validate_release_inputs(sidecar,setup,msi,manifest,'CN=Trusted',candidate_only=True).product_code==native['product_code']
+    with pytest.raises(ValueError, match='manifest'):
+        validate_release_inputs(sidecar,setup,msi,candidate_only=True)
+    with pytest.raises(ValueError): validate_release_inputs(sidecar,setup,msi,manifest,'CN=Other')
+    for name,value in [('version','3.2.176'),('source_revision','c'*40),('package_sha256','d'*64),('product_code','bad')]:
+        manifest.write_text(json.dumps({**native,name:value}),encoding='utf-8')
+        with pytest.raises(ValueError): validate_release_inputs(sidecar,setup,msi,manifest,'CN=Trusted')
+    manifest.write_text(json.dumps(native),encoding='utf-8')
+    for name,value in [('authenticode_status','unsigned'),('msi_authenticode_status','invalid'),('msi_authenticode_publisher','CN=Other')]:
+        sidecar.write_text(json.dumps({**values,name:value}),encoding='utf-8')
+        with pytest.raises(ValueError): validate_release_inputs(sidecar,setup,msi,manifest,'CN=Trusted',candidate_only=True)
+    sidecar.write_text(json.dumps({**values,'product_code':native['product_code']}),encoding='utf-8')
+    with pytest.raises(ValueError): validate_release_inputs(sidecar,setup,msi)
+
+
+@pytest.mark.parametrize('mutation', [
+    {'product_code': None}, {'authenticode_status': 'unsigned'},
+    {'msi_authenticode_status': 'invalid'}, {'authenticode_publisher': None},
+    {'msi_authenticode_publisher': 'CN=Other'},
+])
+async def test_diagnostic_candidate_cannot_bypass_native_trust(tmp_path, mutation):
+    from tools.register_windows_setup_release import SetupSidecar, register_release
+    metadata = SetupSidecar(
+        schema_version='endpoint_windows_setup_release_v1', version='3.2.177', agent_version='3.2.177',
+        source_commit='a' * 40, msi_source_commit='b' * 40, filename='EndpointAgentSetup-3.2.177-x64.exe',
+        setup_sha256='c' * 64, msi_sha256='d' * 64,
+        product_code='{12345678-1234-1234-1234-123456789ABC}',
+        authenticode_status='valid', msi_authenticode_status='valid',
+        authenticode_publisher='CN=Trusted', msi_authenticode_publisher='CN=Trusted',
+    ).model_copy(update=mutation)
+    with pytest.raises(ValueError, match='Candidate registration requires'):
+        await register_release(metadata, tmp_path / metadata.filename, database_url='unused',
+            artifact_root=tmp_path, candidate_only=True, include_in_auto_campaign=False)

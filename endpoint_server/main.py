@@ -186,6 +186,8 @@ def create_app(
 
     app.include_router(health_router)
     app.include_router(device_binding_router)
+    from endpoint_server.installation_lifecycle.routes import router as installation_router
+    app.include_router(installation_router)
     app.include_router(support_agent_router)
     app.include_router(support_admin_router)
     app.include_router(browser_sensor_public_router)

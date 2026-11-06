@@ -230,6 +230,8 @@ class Decision:
 
 
 async def load_device_facts(session, device_id, release_id, *, now):
+    from endpoint_server.installation_lifecycle.service import removed
+    installation_removed = await removed(session, device_id)
     device = await session.get(Device, device_id)
     release = await session.get(SetupRelease, release_id)
     target_sha256 = release.sha256 if release else ''
@@ -259,7 +261,7 @@ async def load_device_facts(session, device_id, release_id, *, now):
     bootstrap = None
     if client is None or now-utc(client.last_seen_at) > timedelta(minutes=10):
         bootstrap = await session.scalar(select(UpdateBuild).where(UpdateBuild.build_identifier == OBSERVER_BOOTSTRAP))
-    return dict(device=device, instance=instance, connection=connection, prep=prep, assignment=assignment,
+    return dict(installation_removed=installation_removed, device=device, instance=instance, connection=connection, prep=prep, assignment=assignment,
         core=core, client=client, previous=previous or previous_prep or previous_rejection,
         observer_bootstrap=bootstrap,
         qualifications=await qualifications(session, release_id, now=now))
@@ -268,6 +270,8 @@ async def load_device_facts(session, device_id, release_id, *, now):
 def evaluate_device(policy, release, facts, *, now):
     """Pure: an eligible result is admission permission, never native success."""
     device, instance, connection = facts['device'], facts['instance'], facts['connection']
+    if facts.get('installation_removed'):
+        return Decision('blocked', 'installation_removed')
     if device is None or device.retired_at is not None:
         return Decision('blocked', 'device_retired')
     if policy.scope == 'selected' and str(device.id) not in policy.device_ids:

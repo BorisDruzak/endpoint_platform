@@ -116,6 +116,9 @@ async def record_presence(session, device_id, hello, *, now=None):
 async def assign_setup(session, device_id, release_id, reason, *, actor, request_id, now=None, assignment_id=None):
     now = now_utc(now)
     await lock_device(session, device_id)
+    from endpoint_server.installation_lifecycle.service import removed
+    if await removed(session, device_id):
+        raise SetupConflict('installation removed')
     release = await session.get(SetupRelease, release_id)
     if release is None:
         raise SetupConflict('Setup release unavailable')

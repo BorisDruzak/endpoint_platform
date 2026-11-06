@@ -48,6 +48,11 @@ class EnrollmentRequestQueueResponse(BaseModel):
     requests: list[EnrollmentRequestQueueItem]
 
 
+class ApproveEnrollmentRequestBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    previous_device_id: UUID | None = None
+
+
 class DenyEnrollmentRequestBody(BaseModel):
     """Bounded operator decision reason without arbitrary free text."""
 
@@ -137,6 +142,7 @@ async def approve_request(
     request_id: UUID,
     request: Request,
     principal: Annotated[AdminPrincipal, Depends(require_admin)],
+    body: ApproveEnrollmentRequestBody | None = None,
 ) -> None:
     """Approve only the persisted campaign selected at request creation time."""
     now = datetime.now(UTC)
@@ -193,6 +199,9 @@ async def approve_request(
                     )
                     await session.commit()
                 raise _conflict()
+            if body is not None and body.previous_device_id is not None:
+                from endpoint_server.installation_lifecycle.parent import link_previous_installation
+                await link_previous_installation(session,record,body.previous_device_id,principal,request)
             record.decided_by = principal.user.id
             await _append_decision_audit(
                 session,

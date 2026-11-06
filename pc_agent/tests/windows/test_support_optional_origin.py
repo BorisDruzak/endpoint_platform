@@ -72,7 +72,8 @@ def test_staged_helper_failure_is_bounded_and_preserved(monkeypatch,tmp_path,cod
 
 
 def test_setup_result_retains_safe_code_and_drops_untrusted_text(monkeypatch,tmp_path):
-    from pc_agent.platform.windows import setup_entry as setup,provision
+    from pc_agent.platform.windows import setup_entry as setup,provision,installation_notification
+    monkeypatch.setattr(installation_notification,'sync_enrolled_installation',lambda _: 'delivered')
     monkeypatch.setattr(setup,'_prepare_diagnostics_root',lambda:tmp_path)
     for code in ('support_dependency_reboot_required','secret bearer token'):
         monkeypatch.setattr(provision,'install_enrolled_support',lambda _,code=code:{'installed':False,'error':code})
@@ -86,8 +87,10 @@ def test_missing_origin_parent_is_not_optional(tmp_path):
     with pytest.raises(FileNotFoundError):service._enrollment_origin(tmp_path/'missing-agent')
 
 
-def test_fresh_provisioning_preserves_safe_error_without_replaying_enrollment(tmp_path):
+def test_fresh_provisioning_preserves_safe_error_without_replaying_enrollment(tmp_path,monkeypatch):
     import io
+    from pc_agent.platform.windows import installation_notification
+    monkeypatch.setattr(installation_notification,'sync_enrolled_installation',lambda _: 'delivered')
     from pc_agent.platform.windows.provision import WindowsProvisioner
     from pc_agent.tests.windows.test_provisioning_contract import _request,_Enrollment,_Service,_Acl,_CLAIM
     events=[];request=_request(tmp_path)

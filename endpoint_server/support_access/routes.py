@@ -35,6 +35,8 @@ async def policy(session,row,settings):
 
 async def audit(session,request,action,row,actor_kind,actor,reason=None):
     details={'device_id':str(row.device_id),'revision':row.revision}
+    if action=='policy_changed':
+        details['enabled']=row.enabled
     if action=='status_changed':
         details.update(component_version=row.component_version,installed=row.installed,
                        tunnel_connected=row.tunnel_connected,last_error_code=row.last_error_code)

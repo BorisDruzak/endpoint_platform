@@ -104,6 +104,7 @@ export function EnrollmentPage() {
   const [loaded, setLoaded] = useState(false)
   const [revision, setRevision] = useState(0)
   const [selected, setSelected] = useState<EnrollmentRequest | null>(null)
+  const [previousDeviceId, setPreviousDeviceId] = useState('')
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<Campaign | null>(null)
   const [label, setLabel] = useState('')
@@ -202,13 +203,13 @@ export function EnrollmentPage() {
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Кампанию отозвать не удалось') }
     finally { setBusy(false) }
   }
-  async function decide(item: EnrollmentRequest, decision: 'approve' | 'deny') {
+  async function decide(item: EnrollmentRequest, decision: 'approve' | 'deny', previousId?: string) {
     const action = decision === 'approve' ? 'Одобрить' : 'Отклонить'
     if (!window.confirm(`${action} регистрацию ${item.hostname}?`)) return
     setBusy(true); setError('')
     try {
       await request(`/api/admin/enrollment/requests/${item.id}/${decision}`, {
-        method: 'POST', ...(decision === 'deny' ? { body: JSON.stringify({ reason: 'OPERATOR_DENIED' }) } : {}),
+        method: 'POST', ...(decision === 'deny' ? { body: JSON.stringify({ reason: 'OPERATOR_DENIED' }) } : previousId ? { body: JSON.stringify({ previous_device_id: previousId }) } : {}),
       })
       setRevision(value => value + 1); setSelected(null)
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Решение не сохранено') }
@@ -218,7 +219,7 @@ export function EnrollmentPage() {
     setError('')
     try {
       const detail = await request<{ data: EnrollmentRequest }>(`/api/admin/console/enrollment/requests/${item.id}`)
-      setSelected(detail.data)
+      setPreviousDeviceId(''); setSelected(detail.data)
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Запрос не удалось открыть') }
   }
   const knownVersions = [...new Set(releases.filter(item => !item.retired_at && item.authenticode_status === 'valid' && item.msi_authenticode_status === 'valid').map(item => item.version))]
@@ -252,6 +253,11 @@ export function EnrollmentPage() {
           {stage.label}{selectedStageIndex === index && <strong> · Текущий этап</strong>}
         </li>)}</ol>
         <h3>Решение оператора</h3>
+        {['waiting_approval', 'review_required'].includes(selected.status) && <div>
+          <label>Предыдущая карточка после полной очистки (необязательно)<input value={previousDeviceId} maxLength={36} onChange={event => setPreviousDeviceId(event.target.value.trim())} placeholder="UUID предыдущего устройства" /></label>
+          <p className="muted">Связь сохранит историю переустановки. Сервер проверит подтверждённое удаление и совпадение устройства; права и ключи остаются раздельными.</p>
+          <button disabled={busy || (!!previousDeviceId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(previousDeviceId))} onClick={() => decide(selected, 'approve', previousDeviceId || undefined)}>{previousDeviceId ? 'Одобрить со связью с предыдущей карточкой' : 'Одобрить регистрацию'}</button>
+        </div>}
         <p>{selected.status === 'denied' ? 'Регистрация отклонена' : selected.decided_at ? 'Решение принято' : selected.status === 'auto_approved' ? 'Одобрено автоматически' : 'Ожидается'}</p>
         <dl className="simple-facts"><dt>Производитель</dt><dd>{selected.manufacturer ?? '—'}</dd><dt>Модель</dt><dd>{selected.model ?? '—'}</dd><dt>Серийный номер</dt><dd>{selected.serial ?? '—'}</dd><dt>MAC</dt><dd>{selected.macs.join(', ') || '—'}</dd><dt>IP</dt><dd>{selected.source_address}</dd><dt>Установщик</dt><dd>{selected.installer_release_id}</dd><dt>Кампания</dt><dd>{selected.selected_campaign_id ?? '—'}</dd><dt>Причина</dt><dd>{selected.reason ?? '—'}</dd><dt>Создан</dt><dd>{dateText(selected.created_at)}</dd><dt>Решение принято</dt><dd>{dateText(selected.decided_at ?? null)}</dd><dt>ID устройства</dt><dd>{selected.device_id ?? '—'}</dd></dl>
         {selected.device_id && <Link to={`/admin/devices/${selected.device_id}`}>Открыть зарегистрированное устройство</Link>}

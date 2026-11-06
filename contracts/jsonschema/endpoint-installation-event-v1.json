@@ -1,0 +1,154 @@
+{
+  "$defs": {
+    "InstallationCleanup": {
+      "additionalProperties": false,
+      "properties": {
+        "browser": {
+          "enum": [
+            "complete",
+            "external_preserved",
+            "conflict",
+            "failed",
+            "not_applicable"
+          ],
+          "title": "Browser",
+          "type": "string"
+        },
+        "support": {
+          "enum": [
+            "complete",
+            "incomplete",
+            "not_applicable"
+          ],
+          "title": "Support",
+          "type": "string"
+        }
+      },
+      "required": [
+        "support",
+        "browser"
+      ],
+      "title": "InstallationCleanup",
+      "type": "object"
+    },
+    "InstallationNativeProof": {
+      "additionalProperties": false,
+      "properties": {
+        "exit_code": {
+          "maximum": 0,
+          "minimum": 0,
+          "title": "Exit Code",
+          "type": "integer"
+        },
+        "msi_sha256": {
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Msi Sha256",
+          "type": "string"
+        },
+        "product_code": {
+          "maxLength": 38,
+          "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+          "title": "Product Code",
+          "type": "string"
+        },
+        "source_revision": {
+          "maxLength": 40,
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Source Revision",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 17,
+          "pattern": "^(0|[1-9][0-9]{0,4})\\.(0|[1-9][0-9]{0,4})\\.(0|[1-9][0-9]{0,4})$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "product_code",
+        "source_revision",
+        "msi_sha256",
+        "exit_code"
+      ],
+      "title": "InstallationNativeProof",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "installed",
+        "removed"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "cleanup": {
+      "$ref": "#/$defs/InstallationCleanup"
+    },
+    "device_id": {
+      "format": "uuid",
+      "title": "Device Id",
+      "type": "string"
+    },
+    "event_id": {
+      "format": "uuid",
+      "title": "Event Id",
+      "type": "string"
+    },
+    "generation_id": {
+      "format": "uuid",
+      "title": "Generation Id",
+      "type": "string"
+    },
+    "native": {
+      "$ref": "#/$defs/InstallationNativeProof"
+    },
+    "occurred_at": {
+      "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC.",
+      "format": "date-time",
+      "title": "Occurred At",
+      "type": "string"
+    },
+    "previous_event_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Previous Event Id"
+    },
+    "schema_version": {
+      "const": "endpoint_installation_event_v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sequence": {
+      "maximum": 2147483647,
+      "minimum": 1,
+      "title": "Sequence",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "device_id",
+    "event_id",
+    "generation_id",
+    "sequence",
+    "previous_event_id",
+    "action",
+    "occurred_at",
+    "native",
+    "cleanup"
+  ],
+  "title": "InstallationEventV1",
+  "type": "object"
+}

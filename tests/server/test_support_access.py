@@ -12,7 +12,7 @@ async def sessions():
     from endpoint_server.support_access.models import SupportAccess
     engine = create_async_engine('sqlite+aiosqlite:///:memory:')
     async with engine.begin() as conn:
-        await conn.run_sync(lambda sync: Device.metadata.create_all(sync,tables=[Device.__table__,DeviceCredential.__table__,SupportAccess.__table__]))
+        await conn.run_sync(lambda sync: Device.metadata.create_all(sync,tables=[Device.metadata.tables["installation_states"], Device.__table__,DeviceCredential.__table__,SupportAccess.__table__]))
     yield async_sessionmaker(engine,expire_on_commit=False)
     await engine.dispose()
 
