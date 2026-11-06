@@ -2,8 +2,8 @@
   "schema_version": 5,
   "version": "3.2.173",
   "agent_version": "3.2.173",
-  "component_guid": "415F186F-97A9-477D-9B0B-064C6E8FA677",
-  "source_revision": "64cc8481b594a30b5f9b4ce26f73fde7095804b7",
+  "component_guid": "B1F29472-2183-4A5A-9866-68E520741E9A",
+  "source_revision": "88897ea057d8f33da3896853771baf91f65110ea",
   "source_files": [
     {
       "path": "browser_sensor/extension-id.txt",
@@ -151,11 +151,11 @@
     },
     {
       "path": "packaging/windows/Install-EndpointAgentCanary.ps1",
-      "sha256": "919f78a1c8e0170f7ebf53b4547977d385ab6c960e06a2e86d675718da99ed66"
+      "sha256": "d5f622eef6ce657d77a421b3d172d60547e379bb318bf1c7cf5881d13e3d3bbc"
     },
     {
       "path": "packaging/windows/build-msi.ps1",
-      "sha256": "f153f493aacd332b03476da0f94ab3acab1842974db0021a652f7ff4bb7e600c"
+      "sha256": "703ca9bbd9460b09adc5dbb3c81580aee9b3de18faacf9eb20c3a35b37c286f3"
     },
     {
       "path": "packaging/windows/build-setup.ps1",
@@ -171,7 +171,7 @@
     },
     {
       "path": "packaging/windows/wix/Directories.wxs",
-      "sha256": "525e28ff4c022b4b19a4c863c3efadde7fea6aac19fa621f2cb19c33555e1d60"
+      "sha256": "f4ac09d54ba42055fd1b539709076eb3bdecba5f42dd5077d5e0ec92615f6220"
     },
     {
       "path": "packaging/windows/wix/Package.wxs",
@@ -179,7 +179,7 @@
     },
     {
       "path": "packaging/windows/wix/Services.wxs",
-      "sha256": "a7121190d1293713c96793c4c89d555b205fa6165d32f2a641e795710d4a4e69"
+      "sha256": "a5fc3ca304b89a7a2beaec7cfd00ecb76aa8a32f3979c0dc2bb22b02258fef6b"
     },
     {
       "path": "packaging/windows/wix/Upgrade.wxs",
@@ -587,7 +587,7 @@
     },
     {
       "path": "pc_agent/platform/windows/installer_host_entry.py",
-      "sha256": "67242a15e9a4c32256b32e615072d6c146c0565b243b6a871f6c73f1bfca7af6"
+      "sha256": "b27ab2d9ecf2e515875271885db14a97e39a28e812e31a685c44aa71b18847d1"
     },
     {
       "path": "pc_agent/platform/windows/installer_launch_broker.py",
@@ -595,11 +595,11 @@
     },
     {
       "path": "pc_agent/platform/windows/installer_phase_diagnostics.py",
-      "sha256": "8420a10f6d82c319e88a86051d6c84938b9ac783453873589dfe6c1c464762dd"
+      "sha256": "000aa4ff270eca5aea789256cbdf25ebdb927b929aa20bd85de5a1b27e925bc5"
     },
     {
       "path": "pc_agent/platform/windows/installer_transaction_bridge.py",
-      "sha256": "aca3e73ca10489b8bf033c391aa2836ad5e497126f983fdfedcb674240635932"
+      "sha256": "ed1061dc379b8aaf90df770c9edc9246d0b13d812d35fc8c3bfd98fd1b38f5b3"
     },
     {
       "path": "pc_agent/platform/windows/legacy_foundation_upgrade.py",
@@ -619,7 +619,7 @@
     },
     {
       "path": "pc_agent/platform/windows/msi_inventory.py",
-      "sha256": "9e7da19ce967cd41cbd3f2deda9e032537859d015b426ba93b23cb4953961a9f"
+      "sha256": "19b73795ebdb8452d4bd67284ca51ab3f4681ccabb4e5df1c9bc08e6a875d4ba"
     },
     {
       "path": "pc_agent/platform/windows/native_setup_continuation.py",
@@ -647,7 +647,7 @@
     },
     {
       "path": "pc_agent/platform/windows/provision.py",
-      "sha256": "b177760c11008295878f7294d663aa2fe49d305aea960aadad64be565641fc75"
+      "sha256": "dee14cf172835d6c7c716ed79f0477105e90b1e78b00ef8f81119a1e076c4d51"
     },
     {
       "path": "pc_agent/platform/windows/provision_entry.py",
@@ -683,7 +683,7 @@
     },
     {
       "path": "pc_agent/platform/windows/setup_entry.py",
-      "sha256": "c884f074989c0d72fc6e8f4c030156fa1daec9deb39364eebd577540078d6e86"
+      "sha256": "62eb0a3071c5e35795e3807e3dd1afb97447fc393784d4f5af94895310d0709f"
     },
     {
       "path": "pc_agent/platform/windows/setup_update_bootstrap.py",
@@ -731,11 +731,11 @@
     },
     {
       "path": "pc_agent/platform/windows/support_access.py",
-      "sha256": "ed949c87eea84da9facd141843002d4864fa8ef1b64782b6fd7963b659c317ed"
+      "sha256": "bcfa8f51bbb8e32d1599f3439f73337100215280ca879666081c4db98844d4bf"
     },
     {
       "path": "pc_agent/platform/windows/support_access_native.py",
-      "sha256": "e2b95ee9b5309edbc27a3903730670e7e73ae4ffcdb8b231ab06c225255477b1"
+      "sha256": "1bc935a4d724145e90dada24abe540a93b64355cc57fa6f215b86efb7676d4c1"
     },
     {
       "path": "pc_agent/platform/windows/support_access_service.py",
@@ -1163,19 +1163,19 @@
     },
     {
       "path": "tools/canary/verify_msi_payload.py",
-      "sha256": "d5b41f5aac14221ba1dcc97b9dd101ff1b55eff0bf377ef23f9df260d89669a8"
+      "sha256": "b2fb95eb0a21c27fc8a26da5edb9583f33a6d144f957136b724de4ba89f9ad3e"
     }
   ],
   "artifact": {
     "file_count": 119,
-    "tree_sha256": "c373b065ca5059be672145771686ca72b980a9899d3751bdd474e5f79b508d7d"
+    "tree_sha256": "7d35a7800decbdeda9cedc17e017529134979c718fc7e6962440ada2f7f3a5e0"
   },
   "toolchain": {
     "implementation": "CPython",
     "platform": "win-amd64",
     "pyinstaller_version": "6.22.3",
     "python_version": "3.12.14",
-    "source_date_epoch": 1793968003,
+    "source_date_epoch": 1793973511,
     "python_hash_seed": "0",
     "pyinstaller_hooks_contrib_version": "2026.8"
   }
