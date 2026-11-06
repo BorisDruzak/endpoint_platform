@@ -416,12 +416,42 @@ def execute_staged_recovery_phase(client, paths):
 _COMPANIONS = {'sensor': 'EndpointUserSensor.exe', 'tray': 'EndpointAgentTray.exe'}
 
 
+def _tray_bootloader_pair(processes):
+    """Only one observed parent/child pair is one PyInstaller Tray instance.
+
+    WMI parent PIDs can be reused. Compare complete creation timestamps as well;
+    incomplete WMI dates or an ambiguous tree must retain duplicate evidence.
+    The caller groups only identical executable, session and owner SID records.
+    """
+    from datetime import datetime, timedelta
+    if (len(processes) != 2 or len({row['pid'] for row in processes}) != 2
+            or any(row['pid'] <= 0 or row['parent'] < 0 or row['parent'] == row['pid'] for row in processes)):
+        return False
+    children = [row for row in processes if any(
+        row['parent'] == other['pid'] for other in processes if other is not row)]
+    if len(children) != 1:
+        return False
+    child = children[0]
+    parent = next(row for row in processes if row is not child)
+    def created(row):
+        value = row['created']
+        if not isinstance(value, str) or not re.fullmatch(r'[0-9]{14}\.[0-9]{6}[+-][0-9]{3}', value):
+            raise ValueError('incomplete WMI birth time')
+        local = datetime.strptime(value[:21], '%Y%m%d%H%M%S.%f')
+        return local - timedelta(minutes=int(value[21:]))
+    try:
+        return parent['pid'] > 0 and child['pid'] > 0 and created(parent) <= created(child)
+    except (ValueError, OverflowError):
+        return False
+
+
 def _probe_companions(paths):
     import win32com.client
     service = win32com.client.GetObject('winmgmts:root\\cimv2')
     rows = service.ExecQuery("SELECT * FROM Win32_Process WHERE Name='EndpointUserSensor.exe' OR Name='EndpointAgentTray.exe'")
     expected = {os.path.normcase(str(paths.install_root / filename)): role for role, filename in _COMPANIONS.items()}
     result = []
+    groups = {}
     for process in rows:
         if not process.ExecutablePath or os.path.normcase(process.ExecutablePath) not in expected:
             continue
@@ -434,8 +464,15 @@ def _probe_companions(paths):
         sid = str(output.Properties_('Sid').Value)
         item = {'role': expected[os.path.normcase(process.ExecutablePath)], 'session_id': session, 'sid': sid}
         result.append(item)
+        key = item['role'], session, sid
+        groups.setdefault(key, []).append({'pid': int(process.ProcessId),
+            'parent': int(process.ParentProcessId), 'created': process.CreationDate})
     companion_restore_decisions(result, [])  # validate strict bounded records
-    return result
+    logical = []
+    for (role, session, sid), processes in groups.items():
+        count = 1 if role == 'tray' and _tray_bootloader_pair(processes) else len(processes)
+        logical.extend({'role': role, 'session_id': session, 'sid': sid} for _ in range(count))
+    return logical
 
 
 def prepare_staged_companions(paths, binding):

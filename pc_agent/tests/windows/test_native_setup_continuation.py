@@ -230,6 +230,75 @@ def test_native_continuation_rejects_duplicate_companion_processes(monkeypatch):
     with pytest.raises(ValueError,match='RECOVERY_REQUIRED'):
         recovery.restore_expected_companions(SimpleNamespace(),str(uuid4()),checkpoint=lambda:None,timeout_seconds=0)
 
+
+def _wmi_companion(monkeypatch, root, rows):
+    """Exercise the native WMI adapter, not a replacement liveness probe."""
+    import win32com.client
+    def process(role, pid, parent, created, *, sid='S-1-5-21-100', session=2):
+        values = {'ReturnValue': 0, 'Sid': sid}
+        return SimpleNamespace(
+            ExecutablePath=str(root / recovery._COMPANIONS[role]), SessionId=session,
+            ProcessId=pid, ParentProcessId=parent, CreationDate=created,
+            ExecMethod_=lambda _: SimpleNamespace(Properties_=lambda key: SimpleNamespace(Value=values[key])))
+    processes = [process(*row[:4], **(row[4] if len(row) > 4 else {})) for row in rows]
+    monkeypatch.setattr(win32com.client, 'GetObject', lambda _: SimpleNamespace(ExecQuery=lambda _: processes))
+
+
+@pytest.mark.parametrize('reverse', [False, True])
+def test_native_wmi_probe_accepts_one_tray_bootloader_parent_child_pair(monkeypatch, tmp_path, reverse):
+    rows = [
+        ('sensor', 7156, 1560, '20261105175621.770590+000'),
+        ('tray', 9932, 1560, '20261105175624.490940+000'),
+        ('tray', 4712, 9932, '20261105175628.072049+000'),
+    ]
+    _wmi_companion(monkeypatch, tmp_path, list(reversed(rows)) if reverse else rows)
+    paths = SimpleNamespace(install_root=tmp_path)
+    monkeypatch.setattr(recovery, '_active_sessions', lambda: [{'session_id': 2, 'sid': 'S-1-5-21-100'}])
+    monkeypatch.setattr(recovery, '_restore_companion_task', lambda *_: pytest.fail('healthy companions must not relaunch'))
+    assert recovery.restore_expected_companions(paths, str(uuid4()), checkpoint=lambda: None, timeout_seconds=0) == 'running'
+
+
+@pytest.mark.parametrize('defect', ['independent', 'pid-reuse', 'same-pid', 'cycle', 'self-parent',
+    'missing-birth', 'invalid-birth', 'wildcard-birth', 'zero-pid', 'third-process', 'sensor-pair'])
+def test_native_wmi_probe_does_not_hide_duplicate_or_unproven_processes(monkeypatch, tmp_path, defect):
+    rows = [
+        ('sensor', 7156, 1560, '20261105175621.770590+000'),
+        ('tray', 9932, 1560, '20261105175624.490940+000'),
+        ('tray', 4712, 9932, '20261105175628.072049+000'),
+    ]
+    if defect == 'independent': rows[2] = ('tray', 4712, 1560, rows[2][3])
+    elif defect == 'pid-reuse': rows[2] = ('tray', 4712, 9932, '20261105175620.000000+000')
+    elif defect == 'same-pid': rows[2] = ('tray', 9932, 9932, rows[2][3])
+    elif defect == 'cycle': rows[1] = ('tray', 9932, 4712, rows[1][3])
+    elif defect == 'self-parent': rows[1] = ('tray', 9932, 9932, rows[1][3])
+    elif defect == 'missing-birth': rows[2] = ('tray', 4712, 9932, None)
+    elif defect == 'invalid-birth': rows[2] = ('tray', 4712, 9932, '20261305175628.072049+000')
+    elif defect == 'wildcard-birth': rows[2] = ('tray', 4712, 9932, '20261105175628.******+000')
+    elif defect == 'zero-pid': rows[1] = ('tray', 0, 1560, rows[1][3]); rows[2] = ('tray', 4712, 0, rows[2][3])
+    elif defect == 'third-process': rows.append(('tray', 7788, 9932, '20261105175630.000000+000'))
+    elif defect == 'sensor-pair': rows[2] = ('sensor', 4712, 7156, rows[2][3])
+    _wmi_companion(monkeypatch, tmp_path, rows)
+    paths = SimpleNamespace(install_root=tmp_path)
+    monkeypatch.setattr(recovery, '_active_sessions', lambda: [{'session_id': 2, 'sid': 'S-1-5-21-100'}])
+    with pytest.raises(ValueError, match='RECOVERY_REQUIRED'):
+        recovery.restore_expected_companions(paths, str(uuid4()), checkpoint=lambda: None, timeout_seconds=0)
+
+
+@pytest.mark.parametrize('difference', [{'sid': 'S-1-5-21-200'}, {'session': 3}])
+def test_native_wmi_probe_never_collapses_different_owners_or_sessions(monkeypatch, tmp_path, difference):
+    rows = [('tray', 9932, 1560, '20261105175624.490940+000'),
+            ('tray', 4712, 9932, '20261105175628.072049+000', difference)]
+    _wmi_companion(monkeypatch, tmp_path, rows)
+    assert len(recovery._probe_companions(SimpleNamespace(install_root=tmp_path))) == 2
+
+
+@pytest.mark.parametrize('child_birth, valid', [('20261105225628.072049+300', True),
+                                             ('20261105175628.072049+300', False)])
+def test_native_tray_birth_comparison_uses_utc(child_birth, valid):
+    processes = [{'pid': 9932, 'parent': 1560, 'created': '20261105175624.490940+000'},
+                 {'pid': 4712, 'parent': 9932, 'created': child_birth}]
+    assert recovery._tray_bootloader_pair(processes) is valid
+
 @pytest.mark.parametrize('mode', ['fresh','staged'])
 @pytest.mark.parametrize('failure', ['observer','companions','interrupt'])
 def test_native_failure_retains_hold_and_truth_then_exact_retry_only_finishes_continuation(staged, monkeypatch, mode, failure):
