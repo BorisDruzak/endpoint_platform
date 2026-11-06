@@ -2,18 +2,13 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Fragment>
     <ComponentGroup Id="EndpointAgentServiceComponents">
-      <Component Id="cmpSupportAccess" Directory="SUPPORTINSTALLFOLDER"
+      <Component Id="cmpSupportAccess" Directory="INSTALLFOLDER"
                  Guid="C20F6D8B-2DF2-42E6-9C7C-0D033D137F61" Bitness="always64">
-        <CreateFolder>
-          <PermissionEx Id="ProtectSupportDirectory" Sddl="O:SYG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)" />
-        </CreateFolder>
-        <File Id="filSupportAccess" Source="$(var.StagingDir)\Support\EndpointSupportAccess.exe"
+        <File Id="filSupportAccess" Source="$(var.StagingDir)\ProgramFiles\EndpointSupportAccess.exe"
               Name="EndpointSupportAccess.exe" KeyPath="yes" />
-        <!-- Standalone signed component registers SCM only after enrollment.
-             MSI owns stopping/replacing/removing this exact payload. -->
-        <ServiceControl Id="ctlEndpointSupportAccess" Name="EndpointSupportAccess"
-                        Stop="both" Remove="uninstall" Wait="yes" />
-        <RemoveFolder Id="RemoveSupportDirectory" On="uninstall" />
+        <!-- MSI owns only this staged signed helper. Active Support is a
+             separate sibling, activated after accepted health or enrollment.
+             Native UNKNOWN and reverse MSI must never stop/delete it. -->
       </Component>
       <Component Id="cmpServiceEntrypoints" Directory="INSTALLFOLDER"
                  Guid="A10A61A1-B511-4A07-9D37-C592515D217E" Bitness="always64">

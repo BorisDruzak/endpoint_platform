@@ -729,6 +729,23 @@ def execute_staged_trial_phase(client, paths):
     return result
 
 
+def _verify_normal_support_uninstall(expected, paths, capability):
+    # Replacement children retain the independent channel. Their bound native
+    # return/commit phases do not represent ordinary whole-product uninstall.
+    if (capability['operation'] == 'uninstall'
+            and 'staged_rollback' not in capability and 'compound' not in capability
+            and getattr(expected, 'foundation_schema', 1) == 3):
+        from .msi_inventory import verify_support_uninstalled
+        try:
+            verify_support_uninstalled(expected, paths.install_root)
+        except ValueError as error:
+            if str(error) != 'SUPPORT_CLEANUP_INCOMPLETE':
+                raise
+            return 'incomplete'
+        return 'complete'
+    return None
+
+
 def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabled='',uninstall_finalization='',upgrade_detected=None,complete=True):
     """One fixed phase after native peer authentication; no mutex reacquisition."""
     from . import durable_state,installation_provenance as provenance,msi_inventory,installer_data_security
@@ -739,6 +756,7 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
     expected=msi_inventory.read_expected_package(request['package_path'],capability['package'])
     phase=client.phase
     result={}
+    support_cleanup = None
     if phase=='inspect':
         _settled(paths)
         if capability['recovery']:
@@ -921,6 +939,7 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
                     result={'result':'retired_initial_runtime'}
                 else:
                     absence=msi_inventory.verify_uninstalled(expected.package,paths.install_root)
+                    support_cleanup = _verify_normal_support_uninstall(expected, paths, capability)
                     if capability.get('uninstall_finalization'):
                         barrier=state_root(paths)/'transactions'/capability['transaction_id']/('barrier-'+capability['session_id']+'.json')
                         assert_state_security(barrier)
@@ -929,7 +948,8 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
                             'package_sha256':expected.package.sha256,'result':'uninstall-finalization-barrier-passed','postconditions':absence}:
                             raise ValueError('PROVENANCE_CONFLICT')
                     provenance.retire_maintenance_authority(paths,request,capability['operation'])
-                    result={'result':'uninstalled'}
+                    result=({'result':'native-uninstalled','support_cleanup':'incomplete'}
+                            if support_cleanup == 'incomplete' else {'result':'uninstalled'})
             elif phase=='finish':
                 if capability['operation']=='install':
                     if 'compound' not in capability:
@@ -945,11 +965,22 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
                     _matching_inspection(paths,expected,capability)
                 else:
                     msi_inventory.verify_uninstalled(expected.package,paths.install_root)
+                    support_cleanup = _verify_normal_support_uninstall(expected, paths, capability)
                 fence=_advance_fence(paths,client,expected,'complete')
                 fence['startup_restored']=True
                 publish_fence(paths,fence)
                 archive=completion_root(paths,capability,create=True)
                 durable_state.write_json_atomic(archive/'completed.json',fence,trusted_root=archive,max_bytes=16384,protect=protect_state)
+                if support_cleanup is not None:
+                    # Keep known native commit separate from optional component
+                    # cleanup. A leftover Support service must not manufacture
+                    # unresolved native ownership or cause another MSI run.
+                    durable_state.write_json_atomic(archive/'support-cleanup.json',
+                        {'schema_version': 1, 'transaction_id': capability['transaction_id'],
+                         'package_sha256': expected.package.sha256, 'native_result': 0,
+                         'native_uninstalled': True, 'support_cleanup': support_cleanup},
+                        trusted_root=archive, max_bytes=4096, protect=protect_state)
+                    result = {'result': 'native-uninstalled', 'support_cleanup': support_cleanup}
                 from .compound_upgrade_plan import record_standalone_completion
                 record_standalone_completion(paths,capability,fence)
                 # Final mutation. The owner waits for this helper's explicit

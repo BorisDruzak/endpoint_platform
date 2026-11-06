@@ -270,6 +270,17 @@ directory/file ACL, hash and descriptor checks surround shared use; post-commit
 pins grow only with that explicit bounded inventory. Installed performance and
 matrix acceptance are recorded separately in the Task 8 report.
 
+Independent Windows support access uses `support_access.py`,
+`support_access_native.py` and `support_access_service.py`. Its LocalSystem
+service and active executable live in the protected Support sibling, outside
+Core, observer, updater and MSI resource control. MSI inventory schema 3 pins
+the signed staged `Agent/EndpointSupportAccess.exe` and identical embedded
+uninstall helper. Setup activates it after native acceptance; fresh enrollment
+does so after durable identity and before Core starts. The service renews its
+own HTTPS policy and outbound SSH tunnel. Native failure and staged rollback
+do not stop the active service. See `docs/runbooks/INDEPENDENT_SUPPORT_ACCESS.md`
+for policy, ownership, installation and live qualification boundaries.
+
 `tools/canary/ssl_payload.py` preserves an interpreter's required adjacent TLS
 policy resource in every Windows analysis containing `ssl`. It binds the
 unmodified stdlib source/resource bytes, rejects missing or ambiguous inputs,

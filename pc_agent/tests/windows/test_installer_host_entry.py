@@ -59,7 +59,7 @@ def test_installer_keeps_owner_scope_and_all_native_inputs(monkeypatch, tmp_path
 
 
 @pytest.mark.parametrize('finalization',['','1'])
-def test_installer_preflight_rejects_support_service_collision_before_native_phase(monkeypatch,tmp_path,finalization):
+def test_installer_preflight_does_not_touch_independent_support_service(monkeypatch,tmp_path,finalization):
     from pc_agent.platform.windows import installer_host_entry as entry
     from pc_agent.platform.windows import installer_transaction_bridge as bridge
     from pc_agent.platform.windows import installer_phase_diagnostics as diagnostics
@@ -77,10 +77,10 @@ def test_installer_preflight_rejects_support_service_collision_before_native_pha
     monkeypatch.setattr(diagnostics,'report_installer_phase_failure',lambda *args:None)
     calls=[]
     service=types.SimpleNamespace(SC_MANAGER_CONNECT=1,SERVICE_QUERY_CONFIG=1,
-        OpenSCManager=lambda *a:'manager',OpenService=lambda *a:'service',
+        OpenSCManager=lambda *a:pytest.fail('native worker touched independent Support SCM'),OpenService=lambda *a:'service',
         QueryServiceConfig=lambda *a:(16,2,1,'"C:\\Other\\unrelated.exe"','',0,[],'LocalSystem','display'),
         CloseServiceHandle=lambda *a:None)
     monkeypatch.setitem(sys.modules,'win32service',service)
     monkeypatch.setattr(bridge,'execute_authorized_phase',lambda *a,**k:calls.append('native'))
-    assert entry.main(['--installer-phase','msi-preflight','--installer-session','session','--uninstall-finalization',finalization]) == 1
-    assert calls==[]
+    assert entry.main(['--installer-phase','msi-preflight','--installer-session','session','--uninstall-finalization',finalization]) == 0
+    assert calls==['native']

@@ -5,32 +5,6 @@ from typing import Sequence
 from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
 
 
-def _assert_support_service_identity(executable):
-    """Offline-only SCM read, before name-based native MSI ServiceControl.
-
-    Keep this predicate aligned with the standalone component without importing
-    its HTTPS registration/runtime closure into the privileged offline worker.
-    """
-    import win32service
-    manager=win32service.OpenSCManager(None,None,win32service.SC_MANAGER_CONNECT)
-    service=None
-    try:
-        try:
-            service=win32service.OpenService(manager,'EndpointSupportAccess',win32service.SERVICE_QUERY_CONFIG)
-        except Exception as error:
-            if getattr(error,'winerror',None)==1060:
-                return
-            raise
-        config=win32service.QueryServiceConfig(service)
-        expected='"'+str(executable).replace('/','\\')+'"'
-        if (config[0]!=16 or config[3].replace('/','\\').casefold()!=expected.casefold()
-                or config[7].casefold() not in {'localsystem','nt authority\\system'}):
-            raise ValueError('support_service_conflict')
-    finally:
-        if service is not None: win32service.CloseServiceHandle(service)
-        win32service.CloseServiceHandle(manager)
-
-
 def add_installer_arguments(parser, modes):
     modes.add_argument("--installer-launcher")
     parser.add_argument("--installer-launch-nonce")
@@ -77,11 +51,6 @@ def run_installer_args(args):
             from pc_agent.platform.windows.installer_phase_diagnostics import profile_installer_phase
             with owner_authorized_phase(args.installer_session,args.installer_phase) as client:
                 paths = WindowsUpdatePaths.production()
-                if args.installer_phase == 'msi-preflight':
-                    # MSI ServiceControl acts by name. Reject a collision before
-                    # StopServices can affect any unrelated same-name service.
-                    _assert_support_service_identity(
-                        paths.install_root.parent/'Support'/'EndpointSupportAccess.exe')
                 media_roots = immutable_installer_media_roots(paths, client.capability, args.installer_phase)
                 prefetch = args.installer_phase in {
                     'inspect', 'prepare', 'seal-staged-switch', 'compound-finalize',

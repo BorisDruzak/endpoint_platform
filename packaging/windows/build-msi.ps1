@@ -369,6 +369,7 @@ function Export-MsiInspection {
             files = Read-MsiTable $database 'SELECT `File`, `Component_`, `FileName`, `FileSize` FROM `File`' @('file', 'component', 'name', 'size')
             components = Read-MsiTable $database 'SELECT `Component`, `ComponentId`, `Directory_`, `Attributes`, `KeyPath` FROM `Component`' @('component', 'guid', 'directory', 'attributes', 'key_path')
             services = Read-MsiTable $database 'SELECT `ServiceInstall`, `Name`, `DisplayName`, `ServiceType`, `StartType`, `ErrorControl`, `LoadOrderGroup`, `Dependencies`, `StartName`, `Password`, `Arguments`, `Component_` FROM `ServiceInstall`' @('id', 'name', 'display_name', 'service_type', 'start_type', 'error_control', 'load_order_group', 'dependencies', 'account', 'password', 'arguments', 'component')
+            service_controls = Read-MsiTable $database 'SELECT `ServiceControl`, `Name`, `Event`, `Component_` FROM `ServiceControl`' @('id', 'name', 'event', 'component')
             properties = Read-MsiTable $database 'SELECT `Property`, `Value` FROM `Property`' @('property', 'value')
             features = Read-MsiTable $database 'SELECT `Feature`, `Feature_Parent`, `Level`, `Attributes` FROM `Feature`' @('feature', 'parent', 'level', 'attributes')
             feature_components = Read-MsiTable $database 'SELECT `Feature_`, `Component_` FROM `FeatureComponents`' @('feature', 'component')
@@ -390,11 +391,11 @@ function Export-MsiInspection {
         }
         $inspection.binary_directory_security = @(Read-MsiTable $database 'SELECT `MsiLockPermissionsEx`, `LockObject`, `Table`, `SDDLText`, `Condition` FROM `MsiLockPermissionsEx`' @('id','object','table','sddl','condition'))
         $folderRows = @(Read-MsiTable $database 'SELECT `Directory_`, `Component_` FROM `CreateFolder`' @('directory','component'))
-        $expectedFolders = @{ INSTALLFOLDER = 'cmpInstallRootCleanup'; VERSIONSFOLDER = 'cmpInstallRootCleanup'; INITIALRUNTIMEDIR = 'cmpInitialRuntimeAnchor'; SUPPORTINSTALLFOLDER = 'cmpSupportAccess' }
+        $expectedFolders = @{ INSTALLFOLDER = 'cmpInstallRootCleanup'; VERSIONSFOLDER = 'cmpInstallRootCleanup'; INITIALRUNTIMEDIR = 'cmpInitialRuntimeAnchor' }
         $expectedSddl = 'D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FRFX;;;BU)(A;OICI;FRFX;;;S-1-5-80-1102781572-1373263041-1070489469-7526906-1468061691)(A;OICI;FRFX;;;S-1-5-80-327494974-20047353-929432329-1920152597-707704661)'
         if ($inspection.binary_directory_security.Count -ne $expectedFolders.Count) { throw 'Unexpected binary-directory security topology.' }
         foreach ($directory in $expectedFolders.Keys) {
-            $directorySddl = if ($directory -eq 'SUPPORTINSTALLFOLDER') { 'O:SYG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)' } else { $expectedSddl }
+            $directorySddl = $expectedSddl
             $permissions = @($inspection.binary_directory_security | Where-Object object -ceq $directory)
             $folders = @($folderRows | Where-Object directory -ceq $directory)
             if ($permissions.Count -ne 1 -or $folders.Count -ne 1 -or
@@ -431,6 +432,10 @@ function Export-MsiInspection {
 
 function Assert-RootCleanupComposition {
     param([Parameter(Mandatory)]$Inspection)
+    if (@($Inspection.service_controls | Where-Object name -ceq 'EndpointSupportAccess').Count -or
+        @($Inspection.services | Where-Object name -ceq 'EndpointSupportAccess').Count) {
+        throw 'Native MSI must not control the independent active Support service.'
+    }
     foreach ($name in @('EndpointAgent','EndpointAgentUpdater')) {
         $service = @($Inspection.services | Where-Object name -eq $name)
         if ($service.Count -ne 1 -or [int]$service[0].start_type -ne 4) { throw 'Canonical update service is not initially quarantined.' }
@@ -696,9 +701,7 @@ Copy-Item -LiteralPath $builtTray -Destination (Join-Path $programFilesStage 'En
 Copy-Item -LiteralPath $builtUserSensor -Destination (Join-Path $programFilesStage 'EndpointUserSensor.exe')
 Copy-Item -LiteralPath $builtBrowserBridge -Destination (Join-Path $programFilesStage 'EndpointBrowserBridge.exe')
 Copy-Item -LiteralPath $builtBrowserPolicy -Destination (Join-Path $programFilesStage 'EndpointBrowserPolicy.exe')
-$supportStage = Join-Path $stagingRoot 'Support'
-New-Item -ItemType Directory -Path $supportStage -Force | Out-Null
-Copy-Item -LiteralPath $builtSupportAccess -Destination (Join-Path $supportStage 'EndpointSupportAccess.exe')
+Copy-Item -LiteralPath $builtSupportAccess -Destination (Join-Path $programFilesStage 'EndpointSupportAccess.exe')
 $foundationBindings = [ordered]@{
     'launcher.exe'=@('filLauncher','cmpLauncher')
     'endpoint-agent-service.exe'=@('filServiceHost','cmpServiceEntrypoints')
@@ -708,6 +711,7 @@ $foundationBindings = [ordered]@{
     'EndpointUserSensor.exe'=@('filEndpointUserSensor','cmpUserSensor')
     'EndpointBrowserBridge.exe'=@('filEndpointBrowserBridge','cmpBrowserBridge')
     'EndpointBrowserPolicy.exe'=@('filEndpointBrowserPolicy','cmpBrowserPolicyService')
+    'EndpointSupportAccess.exe'=@('filSupportAccess','cmpSupportAccess')
 }
 $foundationInventory = foreach ($name in $foundationBindings.Keys) {
     $path = Join-Path $programFilesStage $name
@@ -732,7 +736,7 @@ Copy-Item -LiteralPath (Join-Path $sharedFoundationRoot '_foundation-runtime') -
 $sharedFoundationInventory = @(Get-Content -LiteralPath $sharedInventoryPath -Raw | ConvertFrom-Json)
 $foundationInventory = @($foundationInventory) + $sharedFoundationInventory
 Write-Utf8NoBom $runtimeInventoryPath (@{
-    schema_version = 2
+    schema_version = 3
     manifest = (Get-Content -LiteralPath (Join-Path $runtimeStage 'endpoint-update-manifest.json') -Raw | ConvertFrom-Json)
     contract_bytes = ([BitConverter]::ToString($contractBytes)).Replace('-', '').ToLowerInvariant()
     foundation_files = @($foundationInventory)
@@ -792,7 +796,7 @@ $binding = [ordered]@{
         service_name = 'EndpointSupportAccess'
         account = 'LocalSystem'
         start_after_durable_registration = 'auto'
-        binary = 'Support/EndpointSupportAccess.exe'
+        binary = 'ProgramFiles/EndpointSupportAccess.exe'
         independent_of_core = $true
         registration_optional_for_native_acceptance = $true
         sha256 = (Get-FileHash -LiteralPath $builtSupportAccess -Algorithm SHA256).Hash.ToLowerInvariant()

@@ -60,7 +60,17 @@ shell command.
 
 ## Installation and operating-system dependencies
 
-Full Setup stages the signed independent executable. `--install` provisions from
+Full Setup stages the signed independent helper at
+`C:\Program Files\Endpoint Platform\Agent\EndpointSupportAccess.exe`.
+Schema3 binds its exact bytes, MSI component/keypath and embedded uninstall
+Binary in the Foundation inventory; historical schemas1/2 are unchanged.
+MSI owns this staged helper, and does not own or control the active Support
+executable, service or sibling directories. A native failure, unknown outcome
+or staged health rollback therefore leaves the active support channel intact.
+The signed Setup activates Support only after its native wrapper returns accepted
+success; rollback67 and reboot results skip activation. A same-version retry
+requires the ordinary no-active-operation gate. Fresh enrollment activates it
+after durable identity proof and before Core starts. `--install` provisions from
 the durable enrolled identity, creates private support state and registers the
 independent service. An absent OS dependency is installed using the Microsoft
 OpenSSH capability; Microsoft signature, version and hashes are recorded. A
@@ -75,8 +85,17 @@ success or silently repaired by arbitrary remote code. Component errors are
 reported separately from authoritative native agent installation receipts.
 
 `--uninstall` unregisters independent authority, stops/removes only its owned
-service and removes only its owned data. Product uninstall must execute cleanup
+service and removes only its owned payload and data. Product uninstall must execute cleanup
 at native commit, so a rolled-back MSI removal cannot erase support private keys.
+After known native commit, ordinary schema3 uninstall separately verifies that
+the active Support executable and service are absent. Leftover or inaccessible
+resources produce a separate durable `support-cleanup.json` receipt with known
+native result0. After native completion and fence retirement, the authenticated
+owner returns Setup68/`SUPPORT_CLEANUP_INCOMPLETE`; this is an independent
+cleanup failure, not an unknown native outcome. It does not authorize another
+MSI transaction or deleting a foreign service. Historical schemas1/2, major
+upgrades and staged reverse removal do not
+apply this independent-channel absence condition.
 Ordinary upgrades retain identity and keys. No historical native UNKNOWN outcome,
 journal or recovery ownership is cleared to install this feature.
 

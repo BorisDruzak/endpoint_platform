@@ -157,9 +157,25 @@ def test_http_origin_requires_canonical_https_hostname_and_no_userinfo_or_path(t
             module().SupportHTTPClient(origin, tmp_path/'ca.pem', 'x'*43)
 
 
+class _PayloadTestOps:
+    def activation_lock(self):
+        import contextlib
+        return contextlib.nullcontext()
+    def private(self,path):pass
+    def inspect_payload(self,path):
+        import hashlib
+        return {'version':(1,0,0,0),'sha256':hashlib.sha256(path.read_bytes()).hexdigest()}
+    def prove_service_ready(self,target):pass
+    def capture_service(self,target):return None
+    def restore_service(self,target,state):pass
+    def prepare_payload(self,source,target):
+        from pc_agent.platform.windows.support_access_native import PayloadActivation
+        return PayloadActivation(self,source,target)
+
+
 def test_registration_reuses_existing_keys_and_persists_only_independent_credential(tmp_path):
     support = module()
-    class Ops:
+    class Ops(_PayloadTestOps):
         def protect(self, p): p.mkdir(parents=True, exist_ok=True) if not p.exists() else None
         def dependencies(self): return {'ssh': 'ssh.exe','sshd': 'sshd.exe','keygen':'ssh-keygen.exe','version':'test'}
         def key(self, root, name):
@@ -351,8 +367,9 @@ def test_support_removal_revokes_then_stops_only_owned_service(tmp_path,monkeypa
     order=[]
     class Client:
         def unregister(self): order.append('revoke'); return {}
-    class Ops:
+    class Ops(_PayloadTestOps):
         def remove_service(self): order.append('stop')
+        def remove_payload(self,program):return False
     monkeypatch.setattr(native,'production_roots',lambda:(root,tmp_path/'ProgramSupport'))
     monkeypatch.setattr(native,'assert_private',lambda p:None)
     result = support.uninstall_support_access(_ops=Ops(),_client=Client())
@@ -500,7 +517,7 @@ def test_registration_rotation_requires_authenticated_own_device_reset_marker(tm
     rotated=[False]
     new_tunnel=KEY[:-4]+'AQID'
     new_host=KEY[:-4]+'BAUG'
-    class Ops:
+    class Ops(_PayloadTestOps):
         def protect(self,p):
             if not p.exists():p.mkdir(parents=True)
         def dependencies(self):return {}
@@ -613,7 +630,7 @@ def test_reset_reply_loss_retains_new_real_keys_for_idempotent_next_install():
     native=importlib.import_module('pc_agent.platform.windows.support_access_native')
     support=module()
     fixture=native.native_folder(0x23)/('EndpointSupportAccessTest-'+uuid.uuid4().hex)
-    class Ops(native.WindowsSupportOps):
+    class Ops(_PayloadTestOps,native.WindowsSupportOps):
         rotations=0
         def dependencies(self):return {}
         def stop_for_update(self,path):pass
@@ -647,3 +664,109 @@ def test_reset_reply_loss_retains_new_real_keys_for_idempotent_next_install():
     finally:
         assert fixture.parent==native.native_folder(0x23) and fixture.name.startswith('EndpointSupportAccessTest-')
         if fixture.exists():shutil.rmtree(fixture)
+
+@pytest.mark.parametrize('failure',[None,'signature','start','readiness'])
+def test_activation_stages_before_stop_and_restores_owned_image_on_failure(tmp_path,failure):
+    import hashlib,contextlib
+    native=importlib.import_module('pc_agent.platform.windows.support_access_native')
+    events=[]
+    class Ops(native.WindowsSupportOps):
+        def activation_lock(self):return contextlib.nullcontext()
+        def private(self,path):pass
+        def protect(self,path):pass
+        def inspect_payload(self,path):
+            if failure=='signature' and 'pending' in path.name:raise ValueError('support_signature_invalid')
+            return {'version':((1,0,0,0) if 'pending' in path.name else (0,0,0,0)),'sha256':hashlib.sha256(path.read_bytes()).hexdigest()}
+        def capture_service(self,target):return {'running':True,'config':('old',)}
+        def stop_for_update(self,target):events.append('stop')
+        def install_service(self,target):
+            events.append('start')
+            if failure=='start':raise RuntimeError('start failed')
+        def prove_service_ready(self,target):
+            if failure=='readiness':raise RuntimeError('accepted start crashed')
+        def restore_service(self,target,state):events.append('restore')
+    source=tmp_path/'offer.exe';source.write_bytes(b'new payload')
+    target=tmp_path/'EndpointSupportAccess.exe';target.write_bytes(b'old payload')
+    def activate():
+        with Ops().prepare_payload(source,target) as activation:
+            assert target.read_bytes()==b'old payload' and events==[]
+            activation.apply(reload=True)
+    if failure:
+        with pytest.raises((RuntimeError,ValueError)):activate()
+        assert target.read_bytes()==b'old payload'
+        assert events==([] if failure=='signature' else ['stop','start','stop','restore'])
+    else:
+        activate();assert target.read_bytes()==b'new payload' and events==['stop','start']
+
+
+def test_activation_preserves_orphan_rollback_image(tmp_path):
+    native=importlib.import_module('pc_agent.platform.windows.support_access_native')
+    class Ops(_PayloadTestOps):
+        def protect(self,path):pass
+    target=tmp_path/'EndpointSupportAccess.exe'
+    backup=target.with_suffix('.previous.exe');backup.write_bytes(b'only prior image')
+    source=tmp_path/'stage.exe';source.write_bytes(b'new')
+    with pytest.raises(RuntimeError,match='recovery_required'):
+        with Ops().prepare_payload(source,target):pytest.fail('orphan must block activation')
+    assert backup.read_bytes()==b'only prior image' and not target.exists()
+
+
+def test_active_payload_removal_waits_exact_images_before_unlink(monkeypatch,tmp_path):
+    native=importlib.import_module('pc_agent.platform.windows.support_access_native')
+    events=[]
+    class Processes:
+        def __init__(self,target):events.append(('capture',target))
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def wait(self,*,timeout):events.append('wait')
+    class Ops(_PayloadTestOps,native.WindowsSupportOps):pass
+    monkeypatch.setattr(native,'OwnedImageProcesses',Processes)
+    program=tmp_path/'Support';program.mkdir()
+    target=program/'EndpointSupportAccess.exe';target.write_bytes(b'owned signed fixture')
+    assert Ops().remove_payload(program) is False
+    assert events==[('capture',target),'wait'] and not program.exists()
+
+
+def test_active_payload_removal_preserves_image_on_exit_timeout(monkeypatch,tmp_path):
+    native=importlib.import_module('pc_agent.platform.windows.support_access_native')
+    class Processes:
+        def __init__(self,target):pass
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def wait(self,*,timeout):raise TimeoutError('still mapped')
+    class Ops(_PayloadTestOps,native.WindowsSupportOps):pass
+    monkeypatch.setattr(native,'OwnedImageProcesses',Processes)
+    target=tmp_path/'EndpointSupportAccess.exe';target.write_bytes(b'owned signed fixture')
+    with pytest.raises(TimeoutError):Ops().remove_payload(tmp_path)
+    assert target.read_bytes()==b'owned signed fixture'
+
+
+def test_native_payload_signature_rejects_unsigned_before_activation(tmp_path):
+    native=importlib.import_module('pc_agent.platform.windows.support_access_native')
+    unsigned=tmp_path/'unsigned.exe';unsigned.write_bytes(b'not a signed PE image')
+    with pytest.raises(ValueError,match='support_signature_invalid'):
+        native.WindowsSupportOps().inspect_payload(unsigned)
+
+
+def test_native_activation_mutex_sdk_boundary():
+    native=importlib.import_module('pc_agent.platform.windows.support_access_native')
+    with native.WindowsSupportOps().activation_lock():pass
+
+
+def test_uninstall_waits_for_activation_mutex(monkeypatch,tmp_path):
+    import threading
+    native=importlib.import_module('pc_agent.platform.windows.support_access_native')
+    entered=threading.Event();errors=[]
+    class Ops(_PayloadTestOps):
+        def activation_lock(self):return native.WindowsSupportOps().activation_lock()
+        def remove_service(self):entered.set()
+        def remove_payload(self,program):return False
+    monkeypatch.setattr(native,'production_roots',lambda:(tmp_path/'absent',tmp_path/'program'))
+    def remove():
+        try:module().uninstall_support_access(_ops=Ops())
+        except BaseException as error:errors.append(error)
+    with native.WindowsSupportOps().activation_lock():
+        thread=threading.Thread(target=remove);thread.start()
+        assert not entered.wait(.15)
+    thread.join(5)
+    assert not thread.is_alive() and entered.is_set() and not errors

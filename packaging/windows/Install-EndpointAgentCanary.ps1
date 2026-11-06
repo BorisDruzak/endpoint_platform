@@ -1573,6 +1573,31 @@ function Stop-InstallerLaunchBroker {
     }
 }
 
+function Get-SupportCleanupExitCode {
+    param([string]$Intent, [int]$NativeExit, $Finish)
+    # Finish is returned only after the authenticated helper acknowledgement.
+    # An arbitrary MSI68, staged install or historical result cannot select68.
+    if ($null -eq $Finish) { return 0 }
+    $keys = if ($Finish -is [Collections.IDictionary]) { @($Finish.Keys) } else {
+        @($Finish.PSObject.Properties | ForEach-Object { $_.Name })
+    }
+    if ('result' -cnotin $keys -or 'support_cleanup' -cnotin $keys) { return 0 }
+    if ($Finish.result -isnot [string] -or $Finish.support_cleanup -isnot [string]) { return 0 }
+    if ($Intent -ceq 'uninstall' -and $NativeExit -eq 0 -and
+        $Finish.result -ceq 'native-uninstalled' -and $Finish.support_cleanup -ceq 'incomplete') {
+        return 68
+    }
+    return 0
+}
+
+function Get-NativeWrapperExitCode {
+    param([int]$NativeExit)
+    # Preserve the actual native result in its journal/policy/log. Reserve the
+    # outer68 exclusively for the acknowledged Support cleanup result above.
+    if ($NativeExit -eq 68) { return 21 }
+    return $NativeExit
+}
+
 function Invoke-InstallerHelper {
     param([Parameter(Mandatory)]$Bridge,[Parameter(Mandatory)][string]$Phase)
     if ($Phase -notin @('inspect','inspect-compound','prepare','stage-online','seal-staged-switch','adopt-staged-switch','begin-staged-trial','observe-staged-trial','accept-staged-trial','inspect-staged-state','prepare-foundation-rollback','bind-foundation-rollback-roles','rollback-candidate-removed','rollback-native-committed','verify-foundation-rollback','restore-staged-companions','inspect-staged-recovery','recover-staged-owner','record-staged-native-start','record-staged-native-success','record-staged-reboot-3010','record-staged-reboot-1641','reconcile','finish','verify-settled','native-continuation','recover-native-continuation','compound-old-returned','compound-new-returned','compound-commit','compound-retire','compound-complete','compound-finalize','compound-repair-returned','compound-repair-commit') -or $Bridge.SessionId -cnotmatch '^[0-9a-f-]{36}$') { throw 'OWNER_AUTH_FAILED' }
@@ -3031,6 +3056,7 @@ $restorePolicy = @{ LateOperation = $false }
 $installationCompleted = $false
 $nativeStarted = $false
 $nativeExit = 0
+$supportCleanupExit = 0
 $stagedOnline = $false
 $recoveredMustRollback = $false
 try {
@@ -3081,7 +3107,7 @@ try {
         $bridge=$stagedRecoveryBridge;$stagedRecoveryBridge=$null
         # The exact fresh bridge is retained for trial/terminal evidence.
         $nativeExit=Invoke-StagedRecovery -Bridge $bridge -Manifest $manifest -HelperPath $helperPath -HelperHash $helperHash -StateRoot $installerStateRoot -CacheRoot $executionCacheRoot -OperationId $StagedOperationId -InstallRoot $gateInstallRoot -CandidateMedia $packagePin
-        $installationCompleted=$true;exit $nativeExit
+        $installationCompleted=$true;exit (Get-NativeWrapperExitCode -NativeExit $nativeExit)
     }
     $intent = switch ($Operation) {
         'RetireInitialRuntime' { 'retire-initial-runtime' }
@@ -3273,12 +3299,21 @@ try {
     $nativeExit = $installer.ExitCode
     if ($nativeExit -in @(3010,1641)) {
         if($null -ne $stagedAttemptBridge){Invoke-InstallerHelper -Bridge $stagedAttemptBridge -Phase ('record-staged-reboot-'+$nativeExit) | Out-Null}
-        exit $nativeExit
+        exit (Get-NativeWrapperExitCode -NativeExit $nativeExit)
     }
     Invoke-InstallerHelper -Bridge $bridge -Phase 'reconcile' | Out-Null
-    Invoke-InstallerHelper -Bridge $bridge -Phase 'finish' | Out-Null
+    $finished = Invoke-InstallerHelper -Bridge $bridge -Phase 'finish'
+    # 68 is an owner result, never an interpretation of arbitrary MSI exit68.
+    # Invoke-InstallerHelper has already verified finish acknowledgement and
+    # successful helper exit; the canonical fence/completion is durable first.
+    $supportCleanupExit = Get-SupportCleanupExitCode -Intent $intent -NativeExit $nativeExit -Finish $finished
     }
     if ($null -ne (Read-InstallerFence -Root $installerStateRoot)) { throw 'RECOVERY_REQUIRED' }
+    if ($supportCleanupExit -eq 68) {
+        $installationCompleted = $true
+        Write-Warning 'SUPPORT_CLEANUP_INCOMPLETE: native uninstall committed; no MSI replay required.'
+        exit 68
+    }
     if ($intent -eq 'install' -and $null -eq $compoundDetails) { Invoke-InstallerHelper -Bridge $bridge -Phase 'verify-settled' | Out-Null }
     if($null -ne $stagedAttemptBridge -and $nativeExit -eq 0){
         $proof=[EndpointInstallerBridge.NativeTransaction]::EstablishSettlement($stagedAttemptBridge.Owner)
@@ -3318,7 +3353,7 @@ try {
     }
     if($stagedOnline -and $nativeExit -in @(0,67)){Complete-StagedTerminalCleanup $trialBridge $previousServiceStates $installerStateRoot -RequireServices}
     $installationCompleted = $true
-    if ($nativeExit -in @(67,3010,1641)) { exit $nativeExit }
+    if ($nativeExit -in @(67,3010,1641)) { exit (Get-NativeWrapperExitCode -NativeExit $nativeExit) }
 }
 catch {
     if ($_.Exception.Message -eq 'UPDATE_IN_PROGRESS') { exit 61 }

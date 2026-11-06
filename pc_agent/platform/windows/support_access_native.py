@@ -193,7 +193,183 @@ def _current_elevated_creator(owner_sid: str) -> bool:
         token.Close()
 
 
+class PayloadActivation:
+    """Prepare authenticated bytes before stopping; compensate only image and SCM."""
+    def __init__(self,ops,source,target):
+        self.ops,self.source,self.target=ops,source,target
+        self.pending=target.with_suffix('.pending.exe')
+        self.previous=target.with_suffix('.previous.exe')
+        self.applied=False
+        self.stopped=False
+        self.compensated=False
+        self.backup_created=False
+
+    def __enter__(self):
+        import shutil
+        self.lock=self.ops.activation_lock();self.lock.__enter__()
+        try:
+            self.state=self.ops.capture_service(self.target)
+            self.old=None
+            if self.target.exists():
+                self.ops.private(self.target)
+                self.old=self.ops.inspect_payload(self.target)
+            if self.previous.exists():
+                self.ops.private(self.previous)
+                raise RuntimeError('support_payload_recovery_required')
+            for path in (self.pending,):
+                if path.exists():
+                    self.ops.private(path);self.ops.inspect_payload(path);path.unlink()
+            # Sharing excludes concurrent writers/deletion while copying the source.
+            import win32file,win32con
+            handle=win32file.CreateFile(str(self.source),win32con.GENERIC_READ,
+                win32con.FILE_SHARE_READ,None,win32con.OPEN_EXISTING,
+                0x00200000,None)
+            try:
+                reject_links(self.source)
+                with self.pending.open('xb') as output:
+                    while True:
+                        _,chunk=win32file.ReadFile(handle,1024*1024)
+                        if not chunk:break
+                        output.write(chunk)
+                    output.flush();os.fsync(output.fileno())
+            finally:handle.Close()
+            self.ops.protect(self.pending)
+            self.candidate=self.ops.inspect_payload(self.pending)
+            if self.old:
+                shutil.copyfile(self.target,self.previous);self.ops.protect(self.previous)
+                self.backup_created=True
+                if self.ops.inspect_payload(self.previous)['sha256']!=self.old['sha256']:
+                    raise ValueError('support_payload_changed')
+            self.changed=bool(not self.old or self.old['sha256']!=self.candidate['sha256'])
+            return self
+        except BaseException:
+            self.__exit__(None,None,None);raise
+
+    def apply(self,*,reload):
+        if not self.changed and not reload:return
+        self.stop()
+        moved=False
+        try:
+            if self.changed:
+                os.replace(self.pending,self.target);moved=True
+            self.ops.install_service(self.target)
+            self.ops.prove_service_ready(self.target)
+            self.applied=True
+            if self.previous.exists():self.previous.unlink()
+        except BaseException:
+            try:self.ops.stop_for_update(self.target)
+            except BaseException:
+                # Keep the authenticated rollback image if exact process exit
+                # cannot be proved. Never overwrite a possibly mapped image.
+                self.compensated=True
+                raise
+            if moved:
+                if self.old:os.replace(self.previous,self.target)
+                elif self.target.exists():self.target.unlink()
+            elif self.previous.exists():os.replace(self.previous,self.target)
+            self.ops.restore_service(self.target,self.state)
+            self.compensated=True
+            raise
+
+    def stop(self):
+        self.ops.stop_for_update(self.target)
+        self.stopped=True
+
+    def __exit__(self,*exc):
+        if self.pending.exists():self.pending.unlink()
+        try:
+            if exc[0] is not None and self.stopped and not self.compensated:
+                self.ops.restore_service(self.target,self.state)
+            if self.backup_created and not self.applied and self.previous.exists() and not self.compensated:
+                self.previous.unlink()
+        finally:self.lock.__exit__(*exc)
+
+
 class WindowsSupportOps:
+    def private(self, path):
+        assert_private(path)
+
+    def activation_lock(self):
+        from contextlib import contextmanager
+        @contextmanager
+        def locked():
+            import win32event, win32api, win32security, pywintypes
+            attributes=pywintypes.SECURITY_ATTRIBUTES()
+            attributes.SECURITY_DESCRIPTOR=win32security.ConvertStringSecurityDescriptorToSecurityDescriptor(
+                'D:P(A;;GA;;;SY)(A;;GA;;;BA)',1)
+            handle=win32event.CreateMutex(attributes,False,'Global\\EndpointPlatform.SupportAccess.Install')
+            acquired=False
+            try:
+                result=win32event.WaitForSingleObject(handle,30000)
+                if result not in (0,128):raise RuntimeError('support_install_busy')
+                acquired=True
+                yield
+            finally:
+                if acquired:win32event.ReleaseMutex(handle)
+                win32api.CloseHandle(handle)
+        return locked()
+
+    def inspect_payload(self,path):
+        reject_links(path)
+        script=r'''
+$ErrorActionPreference='Stop'
+$p=$env:ENDPOINT_SUPPORT_VERIFY_FILE
+$s=Get-AuthenticodeSignature -LiteralPath $p
+if($s.Status -ne 'Valid' -or $s.SignerCertificate.Thumbprint -ne '4D4C23389F5FF77BC4EB32044761019EAE8FB776' -or !$s.TimeStamperCertificate){throw 'support_signature_invalid'}
+$v=(Get-Item -LiteralPath $p).VersionInfo
+@{version=@($v.FileMajorPart,$v.FileMinorPart,$v.FileBuildPart,$v.FilePrivatePart);sha256=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}|ConvertTo-Json -Compress
+'''
+        environment=dict(os.environ,ENDPOINT_SUPPORT_VERIFY_FILE=str(path))
+        result=subprocess.run([str(windows_root()/'System32/WindowsPowerShell/v1.0/powershell.exe'),
+            '-NoProfile','-NonInteractive','-EncodedCommand',base64.b64encode(script.encode('utf-16-le')).decode()],
+            env=environment,capture_output=True,text=True,timeout=30,creationflags=subprocess.CREATE_NO_WINDOW)
+        if result.returncode:raise ValueError('support_signature_invalid')
+        record=json.loads(result.stdout.strip().splitlines()[-1]);record['version']=tuple(record['version'])
+        return record
+
+    def prepare_payload(self,source,target):
+        return PayloadActivation(self,Path(source),Path(target))
+
+    def capture_service(self,target):
+        import win32service,win32serviceutil
+        from .support_access import SERVICE_NAME
+        if not self.assert_owned_service(target):return None
+        manager=win32service.OpenSCManager(None,None,win32service.SC_MANAGER_CONNECT)
+        service=win32service.OpenService(manager,SERVICE_NAME,win32service.SERVICE_QUERY_CONFIG)
+        try:return {'config':win32service.QueryServiceConfig(service),
+            'running':win32serviceutil.QueryServiceStatus(SERVICE_NAME)[1]==win32service.SERVICE_RUNNING}
+        finally:win32service.CloseServiceHandle(service);win32service.CloseServiceHandle(manager)
+
+    def prove_service_ready(self,target):
+        import win32service,win32serviceutil,win32process
+        from .support_access import SERVICE_NAME
+        if not self.assert_owned_service(target):raise RuntimeError('support_service_not_ready')
+        win32serviceutil.WaitForServiceStatus(SERVICE_NAME,win32service.SERVICE_RUNNING,30)
+        with OwnedImageProcesses(target) as processes:
+            if not processes.handles:raise RuntimeError('support_service_not_ready')
+            deadline=time.monotonic()+3
+            while True:
+                if (win32serviceutil.QueryServiceStatus(SERVICE_NAME)[1]!=win32service.SERVICE_RUNNING
+                    or any(win32process.GetExitCodeProcess(handle)!=259 for handle in processes.handles)):
+                    raise RuntimeError('support_service_not_ready')
+                if time.monotonic()>=deadline:return
+                time.sleep(.25)
+
+    def restore_service(self,target,state):
+        import win32service,win32serviceutil
+        from .support_access import SERVICE_NAME
+        if state is None:
+            self.remove_service();return
+        self.install_service(target)
+        manager=win32service.OpenSCManager(None,None,win32service.SC_MANAGER_CONNECT)
+        service=win32service.OpenService(manager,SERVICE_NAME,win32service.SERVICE_CHANGE_CONFIG)
+        try:
+            config=state['config']
+            win32service.ChangeServiceConfig(service,config[0],config[1],config[2],config[3],
+                config[4],0,config[6],config[7],None,config[8])
+        finally:win32service.CloseServiceHandle(service);win32service.CloseServiceHandle(manager)
+        if not state['running']:self.stop_for_update(target)
+
     def rotate_keys(self, root: Path):
         assert_private(root)
         for name in ('tunnel_ed25519','tunnel_ed25519.pub','host_ed25519','host_ed25519.pub'):
@@ -244,17 +420,24 @@ class WindowsSupportOps:
         _,program=production_roots()
         if not self.assert_owned_service(program/'EndpointSupportAccess.exe'):
             return
-        try:
-            win32serviceutil.StopService(SERVICE_NAME)
-            win32serviceutil.WaitForServiceStatus(SERVICE_NAME,win32service.SERVICE_STOPPED,30)
-        except Exception as error:
-            if getattr(error,'winerror',None) not in {1060,1062}:
-                raise
+        self.stop_for_update(program/'EndpointSupportAccess.exe')
         try:
             win32serviceutil.RemoveService(SERVICE_NAME)
         except Exception as error:
             if getattr(error,'winerror',None) != 1060:
                 raise
+
+    def remove_payload(self,program):
+        import sys
+        target=program/'EndpointSupportAccess.exe'
+        if target.exists():
+            self.private(target);self.inspect_payload(target)
+            if Path(sys.executable).resolve()==target.resolve():return True
+            with OwnedImageProcesses(target) as processes:processes.wait(timeout=15)
+            target.unlink()
+        try:program.rmdir()
+        except OSError:pass
+        return False
 
     def protect(self, path: Path):
         reject_links(path)

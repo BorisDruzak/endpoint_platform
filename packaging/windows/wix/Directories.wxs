@@ -3,7 +3,6 @@
   <Fragment>
     <StandardDirectory Id="ProgramFiles6432Folder">
       <Directory Id="VENDORFOLDER" Name="Endpoint Platform">
-        <Directory Id="SUPPORTINSTALLFOLDER" Name="Support" />
         <Directory Id="INSTALLFOLDER" Name="Agent">
           <Directory Id="CONFIGFOLDER" Name="config" />
           <Directory Id="DOCSFOLDER" Name="docs" />

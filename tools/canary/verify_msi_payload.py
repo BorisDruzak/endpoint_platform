@@ -15,7 +15,8 @@ def verify_package(msi_path, release_path):
     return {'version': expected.identity.version,
             'source_revision': expected.identity.source_revision,
             'foundation_schema': expected.foundation_schema,
-            'foundation_file_count': len(expected.foundation_files)}
+            'foundation_file_count': len(expected.foundation_files),
+            'staged_support_bound': expected.foundation_schema == 3}
 
 
 def main():

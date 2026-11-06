@@ -113,6 +113,7 @@ Export-MsiInspection $Msi $Output
     cleanup=next(row for row in rows if row['action']=='ScheduleEndpointRootCleanup')
     assert cleanup['condition']=='NOT ENDPOINT_UNINSTALL_FINALIZE'
     compiled=json.loads(inspection.read_text())
+    assert not any(row['name'] == 'EndpointSupportAccess' for row in compiled['service_controls'])
     cleanup_rows = compiled['cleanup_rows']
     if isinstance(cleanup_rows, dict):
         cleanup_rows = [cleanup_rows]  # PowerShell serializes a singleton as an object.
@@ -125,10 +126,8 @@ Export-MsiInspection $Msi $Output
     assert 'LockPermissions' not in compiled['tables']
     security=compiled['binary_directory_security']
     assert {(row['object'],row['table']) for row in security} == {
-        ('INSTALLFOLDER','CreateFolder'),('VERSIONSFOLDER','CreateFolder'),('INITIALRUNTIMEDIR','CreateFolder'),
-        ('SUPPORTINSTALLFOLDER','CreateFolder')}
+        ('INSTALLFOLDER','CreateFolder'),('VERSIONSFOLDER','CreateFolder'),('INITIALRUNTIMEDIR','CreateFolder')}
     assert all(not row['condition'] for row in security)
-    assert next(row for row in security if row['object']=='SUPPORTINSTALLFOLDER')['sddl']=='O:SYG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)'
     action=next(row for row in compiled['custom_actions'] if row['action']=='CommitSupportAccessRemoval')
     assert int(action['type'])==11842
     assert action['source']=='EndpointSupportAccessRemoval' and action['target']=='--uninstall'
@@ -145,8 +144,7 @@ def test_native_directory_permissions_follow_foundation_and_runtime_ownership():
             permission=folder.find(f'{{{WIX_NS}}}PermissionEx')
             if permission is not None:
                 protected[folder.get('Directory',component.get('Directory'))]=(component.get('Id'),permission.get('Sddl'))
-    assert set(protected)=={'INSTALLFOLDER','VERSIONSFOLDER','INITIALRUNTIMEDIR','SUPPORTINSTALLFOLDER'}
-    assert protected.pop('SUPPORTINSTALLFOLDER')==('cmpSupportAccess','O:SYG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)')
+    assert set(protected)=={'INSTALLFOLDER','VERSIONSFOLDER','INITIALRUNTIMEDIR'}
     assert protected['INSTALLFOLDER'][0]==protected['VERSIONSFOLDER'][0]=='cmpInstallRootCleanup'
     assert protected['INITIALRUNTIMEDIR'][0]=='cmpInitialRuntimeAnchor'
     for _component,sddl in protected.values():
@@ -410,7 +408,6 @@ def test_service_components_remove_services_and_fail_the_transaction_on_error() 
         "EndpointAgent",
         "EndpointAgentUpdater",
         "EndpointBrowserPolicy",
-        "EndpointSupportAccess",
     }
     core_control = _by_id(controls, "ctlEndpointAgent")
     updater_control = _by_id(controls, "ctlEndpointAgentUpdater")

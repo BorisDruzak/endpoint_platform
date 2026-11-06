@@ -58,6 +58,7 @@ EXIT_WSS_TIMEOUT = 51
 EXIT_CONTEXT_TIMEOUT = 52
 EXIT_REPAIR_REQUIRED = 60
 EXIT_UPDATE_IN_PROGRESS = 61
+EXIT_SUPPORT_CLEANUP_INCOMPLETE = 68
 _SAFE_LOG_DETAIL = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 _INSTALL_RESULT_FILENAME = "install-result.json"
 _PROVISIONER_ERROR = re.compile(
@@ -233,7 +234,7 @@ def _install_embedded_msi(msi_path: Path) -> int:
         raise SetupInstallError("UPDATE_STATE_INVALID")
     if completed.returncode == 63:
         raise SetupInstallError("PROVENANCE_CONFLICT")
-    if completed.returncode not in (0,67,3010,1641):
+    if completed.returncode not in (0,67,68,3010,1641):
         raise SetupInstallError("MSI_EVIDENCE_FAILED")
     return completed.returncode
 
@@ -1237,6 +1238,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             try:
                 native_result = _install_embedded_msi(resources / "EndpointAgent.msi")
+                if native_result == EXIT_SUPPORT_CLEANUP_INCOMPLETE:
+                    return _complete(args, data_root, status='SUPPORT_CLEANUP_INCOMPLETE', code=68,
+                        stage='SUPPORT', detail='NATIVE_UNINSTALLED_SUPPORT_CLEANUP_INCOMPLETE')
                 if native_result == 67:
                     return _complete(args,data_root,status='ROLLED_BACK',code=67,stage='MSI',detail='CANDIDATE_ROLLED_BACK')
                 if native_result in (3010,1641):
@@ -1303,6 +1307,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     try:
         native_result = _install_embedded_msi(resources / "EndpointAgent.msi")
+        if native_result == EXIT_SUPPORT_CLEANUP_INCOMPLETE:
+            return _complete(args, data_root, status='SUPPORT_CLEANUP_INCOMPLETE', code=68,
+                stage='SUPPORT', detail='NATIVE_UNINSTALLED_SUPPORT_CLEANUP_INCOMPLETE')
         if native_result == 67:
             return _complete(args,data_root,status="ROLLED_BACK",code=67,stage="MSI",detail="CANDIDATE_ROLLED_BACK")
         if native_result in (3010,1641):

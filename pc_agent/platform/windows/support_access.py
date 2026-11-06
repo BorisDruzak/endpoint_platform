@@ -288,7 +288,6 @@ def install_support_access(data_root: Path, install_root: Path, *, origin: str,
     Existing private keys are retained on retry/upgrade. Registration is idempotent.
     """
     import json
-    import shutil
     from .support_access_native import WindowsSupportOps, atomic_write
     if str(uuid.UUID(device_id)) != device_id:
         raise ValueError('invalid_support_identity')
@@ -298,58 +297,55 @@ def install_support_access(data_root: Path, install_root: Path, *, origin: str,
     program = Path(install_root).parent/'Support'
     ops.protect(root)
     ops.protect(program)
-    dependencies = ops.dependencies()
-    tunnel_key = public_key(ops.key(root, 'tunnel_ed25519'))
-    host_key = public_key(ops.key(root, 'host_ed25519'))
-    if tunnel_key == host_key:
-        raise ValueError('support_key_role_conflict')
-    config_path = root/'support.json'
-    if config_path.exists():
-        current = json.loads(config_path.read_text(encoding='utf-8'))
-        if current.get('device_id') != device_id or current.get('origin') != origin:
-            raise ValueError('support_identity_conflict')
-    atomic_write(root/'ca.pem', ca_pem)
-    ops.protect(root/'ca.pem')
-    client = _client or SupportHTTPClient(origin, root/'ca.pem', device_token, bootstrap=True)
     target = program/'EndpointSupportAccess.exe'
-    def register():
-        return client.register(dict(tunnel_public_key=tunnel_key,host_public_key=host_key,component_version=COMPONENT_VERSION))
-    try:
-        result=register()
-    except SupportHTTPError as error:
-        if error.status!=409 or error.reset_device_id!=device_id:
-            raise
-        # Only an explicit authenticated central reset grant permits rotation.
-        # Never restore revoked keys if the second registration reply is lost.
-        ops.stop_for_update(target)
-        ops.rotate_keys(root)
-        tunnel_key=public_key(ops.key(root,'tunnel_ed25519'))
-        host_key=public_key(ops.key(root,'host_ed25519'))
-        if tunnel_key==host_key:raise ValueError('support_key_role_conflict')
-        result=register() # Exactly one retry; new keys remain durable on failure.
-    if result.get('device_id') != device_id or not re.fullmatch(r'eps1\.[0-9a-f]{32}\.[0-9a-f]{64}', result.get('support_token','')):
-        raise ValueError('invalid_support_registration')
-    credential_id = str(uuid.UUID(result['credential_id']))
-    if str(uuid.UUID(result['support_token'].split('.')[1])) != credential_id:
-        raise ValueError('invalid_support_registration')
-    ops.stop_for_update(target)
-    atomic_write(root/'credential', result['support_token'])
-    ops.protect(root/'credential')
-    # No active lease is cached: every service boot requires fresh HTTPS policy.
-    atomic_write(config_path, json.dumps(dict(device_id=device_id,origin=origin,
-        credential_id=credential_id,component_version=COMPONENT_VERSION,dependencies=dependencies)))
-    ops.protect(config_path)
-    if Path(service_executable).resolve() != target.resolve():
-        shutil.copyfile(service_executable, target)
-    ops.protect(target)
-    ops.install_service(target)
-    return dict(installed=True,component_version=COMPONENT_VERSION,device_id=device_id)
+    with ops.prepare_payload(service_executable,target) as activation:
+        dependencies = ops.dependencies()
+        tunnel_key = public_key(ops.key(root, 'tunnel_ed25519'))
+        host_key = public_key(ops.key(root, 'host_ed25519'))
+        if tunnel_key == host_key:
+            raise ValueError('support_key_role_conflict')
+        config_path = root/'support.json'
+        if config_path.exists():
+            current = json.loads(config_path.read_text(encoding='utf-8'))
+            if current.get('device_id') != device_id or current.get('origin') != origin:
+                raise ValueError('support_identity_conflict')
+        atomic_write(root/'ca.pem', ca_pem)
+        ops.protect(root/'ca.pem')
+        client = _client or SupportHTTPClient(origin, root/'ca.pem', device_token, bootstrap=True)
+        def register():
+            return client.register(dict(tunnel_public_key=tunnel_key,host_public_key=host_key,component_version=COMPONENT_VERSION))
+        try:
+            result=register()
+        except SupportHTTPError as error:
+            if error.status!=409 or error.reset_device_id!=device_id:
+                raise
+            # Only an explicit authenticated central reset grant permits rotation.
+            # Never restore revoked keys if the second registration reply is lost.
+            activation.stop()
+            ops.rotate_keys(root)
+            tunnel_key=public_key(ops.key(root,'tunnel_ed25519'))
+            host_key=public_key(ops.key(root,'host_ed25519'))
+            if tunnel_key==host_key:raise ValueError('support_key_role_conflict')
+            result=register() # Exactly one retry; new keys remain durable on failure.
+        if result.get('device_id') != device_id or not re.fullmatch(r'eps1\.[0-9a-f]{32}\.[0-9a-f]{64}', result.get('support_token','')):
+            raise ValueError('invalid_support_registration')
+        credential_id = str(uuid.UUID(result['credential_id']))
+        if str(uuid.UUID(result['support_token'].split('.')[1])) != credential_id:
+            raise ValueError('invalid_support_registration')
+        atomic_write(root/'credential', result['support_token'])
+        ops.protect(root/'credential')
+        # No active lease is cached: every service boot requires fresh HTTPS policy.
+        atomic_write(config_path, json.dumps(dict(device_id=device_id,origin=origin,
+            credential_id=credential_id,component_version=COMPONENT_VERSION,dependencies=dependencies)))
+        ops.protect(config_path)
+        activation.apply(reload=True)
+        return dict(installed=True,component_version=COMPONENT_VERSION,device_id=device_id)
 
 
 def uninstall_support_access(*, _ops=None, _client=None) -> dict:
     """Revoke owned authority, stop the owned service and erase only owned data.
 
-    Native package removal deletes its signed EXE after this command exits.
+    The staged signed helper removes the independently owned active image.
     Transport failure is explicit; local shutdown/removal still fails closed.
     Historical authorization/access audit remains on the server.
     """
@@ -357,31 +353,32 @@ def uninstall_support_access(*, _ops=None, _client=None) -> dict:
     from .support_access_native import WindowsSupportOps, assert_private, production_roots
     root,program = production_roots()
     ops = _ops or WindowsSupportOps()
-    revoked = False
-    if root.exists():
-        assert_private(root)
-        try:
-            if _client is None:
-                for name in ('support.json','credential','ca.pem'):
-                    assert_private(root/name)
-                config = json.loads((root/'support.json').read_text(encoding='utf-8'))
-                _client = SupportHTTPClient(config['origin'],root/'ca.pem',(root/'credential').read_text().strip())
-            _client.unregister()
-            revoked = True
-        except SupportHTTPError as error:
-            revoked = error.status in {401,403,404,410}
-        except Exception:
-            pass
-    ops.remove_service()
-    for name in ('credential','support.json','ca.pem','host_ed25519','host_ed25519.pub',
-                 'tunnel_ed25519','tunnel_ed25519.pub','authorized_keys','known_hosts','sshd_config','sshd.pid','tunnel.log'):
-        path = root/name
-        if path.exists():
-            assert_private(path)
-            path.unlink()
-    if root.exists():
-        try:
-            root.rmdir()
-        except OSError:
-            pass
-    return dict(installed=False,revoked=revoked,payload_removal_required=True)
+    with ops.activation_lock():
+        revoked = False
+        if root.exists():
+            assert_private(root)
+            try:
+                if _client is None:
+                    for name in ('support.json','credential','ca.pem'):
+                        assert_private(root/name)
+                    config = json.loads((root/'support.json').read_text(encoding='utf-8'))
+                    _client = SupportHTTPClient(config['origin'],root/'ca.pem',(root/'credential').read_text().strip())
+                _client.unregister()
+                revoked = True
+            except SupportHTTPError as error:
+                revoked = error.status in {401,403,404,410}
+            except Exception:
+                pass
+        ops.remove_service()
+        for name in ('credential','support.json','ca.pem','host_ed25519','host_ed25519.pub',
+                     'tunnel_ed25519','tunnel_ed25519.pub','authorized_keys','known_hosts','sshd_config','sshd.pid','tunnel.log'):
+            path = root/name
+            if path.exists():
+                assert_private(path)
+                path.unlink()
+        if root.exists():
+            try:
+                root.rmdir()
+            except OSError:
+                pass
+        return dict(installed=False,revoked=revoked,payload_removal_required=ops.remove_payload(program))

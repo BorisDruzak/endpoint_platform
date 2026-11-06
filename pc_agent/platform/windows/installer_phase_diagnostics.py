@@ -9,7 +9,8 @@ from contextlib import contextmanager
 from pc_agent.version import AGENT_VERSION
 
 _CODES = frozenset({"UPDATE_IN_PROGRESS", "UPDATE_STATE_INVALID", "PROVENANCE_CONFLICT",
-                    "OWNER_AUTH_FAILED", "MSI_EVIDENCE_FAILED", "RECOVERY_REQUIRED"})
+                    "OWNER_AUTH_FAILED", "MSI_EVIDENCE_FAILED", "RECOVERY_REQUIRED",
+                    "SUPPORT_CLEANUP_INCOMPLETE"})
 _TYPES = frozenset({"OSError", "PermissionError", "TimeoutError", "ValueError", "RuntimeError",
                     "error", "AttributeError", "TypeError", "ImportError", "ModuleNotFoundError",
                     "FileNotFoundError"})

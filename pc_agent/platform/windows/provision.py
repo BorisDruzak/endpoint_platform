@@ -114,7 +114,7 @@ class ProvisioningResult:
 
 
 def install_enrolled_support(data_root: Path) -> dict:
-    """Run only the MSI-owned signed sibling after durable enrollment exists.
+    """Activate the MSI-owned staged helper after enrollment/native acceptance.
 
     No bearer/claim is passed through arguments. Component readiness is separate
     from enrollment/native success; a missing optional dependency cannot replay
@@ -126,7 +126,7 @@ def install_enrolled_support(data_root: Path) -> dict:
     expected = _native_folder(0x23)/'Endpoint Platform'/'Agent'
     if Path(data_root).resolve() != expected.resolve():
         return {'installed':False,'error':'support_not_installed'}
-    executable = _native_folder(0x26)/'Endpoint Platform'/'Support'/'EndpointSupportAccess.exe'
+    executable = _native_folder(0x26)/'Endpoint Platform'/'Agent'/'EndpointSupportAccess.exe'
     if not executable.is_file():
         return {'installed':False,'error':'support_not_installed'}
     try:
