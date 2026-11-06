@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -66,6 +67,9 @@ class _AdminEnrollmentSession:
         self.added: list[object] = []
         self.commit_calls = 0
         self.rollback_calls = 0
+
+    def get_bind(self):
+        return SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
 
     def add(self, value: object) -> None:
         if self.fail_audit and isinstance(value, AuditEvent):
@@ -371,7 +375,8 @@ async def test_admin_windows_campaign_projection_and_policy_update_are_secret_sa
 
     class _CampaignListSession(_AdminEnrollmentSession):
         async def execute(self, statement: object) -> _Result:
-            entity = statement.column_descriptions[0]["entity"]
+            descriptions = getattr(statement, "column_descriptions", ())
+            entity = descriptions[0]["entity"] if descriptions else None
             return _Result([campaign] if entity is EnrollmentCampaign else campaign)
 
     session = _CampaignListSession(campaign=campaign)

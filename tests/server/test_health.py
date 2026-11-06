@@ -317,8 +317,31 @@ def test_worker_module_fails_closed_when_runtime_settings_are_missing() -> None:
     assert "DATABASE_URL is required" in completed.stderr
 
 
+@pytest.fixture
+def isolated_maintenance_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These transaction-domain tests exercise cleanup, expiry and analytics.
+    # Setup preparation/fleet transactions have their own scheduler tests.
+    from endpoint_server import worker
+
+    async def preparation_noop(session):
+        del session
+
+    async def fleet_noop(provider):
+        del provider
+
+    async def isolated_transaction(provider, job):
+        if job is preparation_noop:
+            return None
+        return await transactional_job(provider, job)
+
+    transactional_job = worker._run_transactional_job
+    monkeypatch.setattr(worker, "advance_preparations", preparation_noop)
+    monkeypatch.setattr(worker, "schedule_fleet", fleet_noop)
+    monkeypatch.setattr(worker, "_run_transactional_job", isolated_transaction)
+
+
 @pytest.mark.asyncio
-async def test_worker_commits_cleanup_and_does_not_close_injected_provider() -> None:
+async def test_worker_commits_cleanup_and_does_not_close_injected_provider(isolated_maintenance_jobs) -> None:
     """The worker must transact each batch without taking ownership of a test provider."""
     provider = WorkerSessionProvider()
     task = asyncio.create_task(
@@ -344,7 +367,7 @@ async def test_worker_commits_cleanup_and_does_not_close_injected_provider() -> 
 
 
 @pytest.mark.asyncio
-async def test_worker_rolls_back_failed_cleanup_and_remains_cancellable() -> None:
+async def test_worker_rolls_back_failed_cleanup_and_remains_cancellable(isolated_maintenance_jobs) -> None:
     """One failed cleanup batch must roll back without preventing graceful shutdown."""
     provider = WorkerSessionProvider(fail_cleanup=True)
     task = asyncio.create_task(
@@ -370,7 +393,7 @@ async def test_worker_rolls_back_failed_cleanup_and_remains_cancellable() -> Non
 
 
 @pytest.mark.asyncio
-async def test_worker_rolls_back_failed_analytics_without_rolling_back_sibling_jobs() -> None:
+async def test_worker_rolls_back_failed_analytics_without_rolling_back_sibling_jobs(isolated_maintenance_jobs) -> None:
     provider = WorkerSessionProvider(fail_analytics=True)
     task = asyncio.create_task(run_worker(_settings(), provider, cleanup_interval_seconds=60))
     await asyncio.wait_for(provider.session.analytics_finished.wait(), timeout=1)
