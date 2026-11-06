@@ -232,20 +232,25 @@ def _read_system(checkpoint, now):
     if cursor < 0:
         raise ValueError("invalid native record cursor")
 
-    def query_one(flags, filter="*"):
+    def query_records(flags, filter="*", limit=1):
         query = win32evtlog.EvtQuery("System", flags, filter)
         try:
-            handles = win32evtlog.EvtNext(query, 1, 1000)
-            if not handles:
-                return None
+            handles = win32evtlog.EvtNext(query, limit, 1000)
             try:
-                return parse_event_xml(
-                    win32evtlog.EvtRender(handles[0], win32evtlog.EvtRenderEventXml)
-                )
+                return [
+                    parse_event_xml(
+                        win32evtlog.EvtRender(handle, win32evtlog.EvtRenderEventXml)
+                    )
+                    for handle in handles
+                ]
             finally:
-                handles[0].Close()
+                for handle in handles:
+                    handle.Close()
         finally:
             query.Close()
+
+    def query_one(flags, filter="*"):
+        return next(iter(query_records(flags, filter)), None)
 
     oldest = query_one(
         win32evtlog.EvtQueryChannelPath | win32evtlog.EvtQueryForwardDirection
@@ -266,10 +271,17 @@ def _read_system(checkpoint, now):
         )
     )
     if cursor and not reset:
-        anchor = query_one(
+        anchors = query_records(
             win32evtlog.EvtQueryChannelPath | win32evtlog.EvtQueryForwardDirection,
-            f"*[System[EventRecordID={cursor}]]",
+            f"*[System[({_FILTER}) and EventRecordID={cursor}]]",
+            limit=2,
         )
+        if len(anchors) > 1:
+            # A reused ID inside the power stream cannot prove continuity.
+            # Preserve its checkpoint and pause history/notifications rather
+            # than resetting and replaying the identical page every poll.
+            return [], checkpoint, False, None
+        anchor = anchors[0] if anchors else None
         # Numeric ranges overlap after a recreated log catches up. Legacy
         # checkpoints also cannot prove continuity: replay the retained window.
         reset = not anchor or state.get("record_anchor") != _record_anchor(anchor)
