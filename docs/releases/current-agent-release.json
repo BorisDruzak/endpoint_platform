@@ -528,14 +528,17 @@
   },
   "windows_full_setup170_candidate": {
     "version": "3.2.170",
-    "status": "preparing_not_built_not_published",
-    "runtime_source_commit": null,
-    "signed_artifacts": false,
+    "status": "signed_registered_console_canaries_in_progress",
+    "runtime_source_commit": "bd2d736f33de5422902adca0f9d07aee40bf2ec7",
+    "signed_artifacts": true,
     "native_qualified": false,
     "fleet_enabled": false,
     "enrollment_download_promoted": false,
     "observer_version": "1.0.7",
     "contains_tray_process_fix": true,
-    "contains_foundation_failure_diagnostics": true
+    "contains_foundation_failure_diagnostics": true,
+    "record": "docs/releases/windows-3.2.170-setup.json",
+    "setup_update_release_id": "eb098f60-615c-4360-afb0-b12542a1d24a",
+    "runtime_source_binding": "packaging/windows/initial-runtime-3.2.170.json"
   }
 }

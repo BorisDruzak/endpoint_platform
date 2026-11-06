@@ -2,7 +2,7 @@
   "schema_version": 1,
   "version": "3.2.169",
   "platform": "windows_amd64",
-  "status": "source168_native_accepted_source158_recovery_required",
+  "status": "source168_native_accepted_source158_failed_target_recovered",
   "runtime_source_commit": "4525435f1345e0d44253948f2867a0a099475f6b",
   "runtime_source_binding": "packaging/windows/initial-runtime-3.2.169.json",
   "producer_root": "C:\\endpoint-platform-wix-build\\setup169-4525435",
@@ -35,9 +35,7 @@
     "enabled": false,
     "policy_revision": 3,
     "max_parallel": 2,
-    "active_recovery_devices": [
-      "192.168.101.187"
-    ]
+    "active_recovery_devices": []
   },
   "existing_native_recovery_authorized_by_this_release": false,
   "independent_support_tunnel_included": false,
@@ -120,12 +118,33 @@
       "source_core": "3.2.164",
       "source_foundation": "3.2.158",
       "source_client": "1.0.5",
-      "status": "recovery_required",
-      "safe_code": "native_exit_requires_recovery",
-      "native_proof": null,
+      "status": "failed",
+      "safe_code": "native_failed_target_recovered",
       "observed_target_core_foundation": "3.2.169",
-      "observer_version": "1.0.6",
-      "manual_preparation": false
+      "observer_version": "1.0.7",
+      "manual_preparation": false,
+      "original_native_exit": 21,
+      "native_hold_active": false,
+      "client_only_administrative_exception": true,
+      "finished_at": "2026-11-06T07:04:07.053379Z",
+      "recovery_followup_record": "docs/verification/2026-11-06-observer107-recovery-proposal.md",
+      "native_proof_at_initial_failure": null,
+      "recovery_proof": {
+        "native_phase": "accepted",
+        "exit_code": 21,
+        "core_version": "3.2.169",
+        "foundation_version": "3.2.169",
+        "private_preserved": true,
+        "soak": {
+          "duration_seconds": 183.588,
+          "samples": 6,
+          "sensor_count": 1,
+          "sensor_cpu_percent_max": 0.0128,
+          "services_stable": true,
+          "companions_stable": true,
+          "connected": true
+        }
+      }
     },
     {
       "address": "192.168.101.146",
