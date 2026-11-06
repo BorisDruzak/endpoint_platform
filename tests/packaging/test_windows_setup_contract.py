@@ -352,7 +352,7 @@ def test_setup_wrapper_owns_transaction_through_service_stop_and_provenance():
     prepare = source.index("Invoke-InstallerHelper -Bridge $bridge -Phase 'prepare'")
     install = source.index("$installer = [Diagnostics.Process]::Start($nativeInfo)")
     reconcile = source.index("Invoke-InstallerHelper -Bridge $bridge -Phase 'reconcile' | Out-Null")
-    publish = source.index("Invoke-InstallerHelper -Bridge $bridge -Phase 'finish' | Out-Null")
+    publish = source.index("$finished = Invoke-InstallerHelper -Bridge $bridge -Phase 'finish'")
     release = source.index("$updateMutex.ReleaseMutex()")
     assert acquire < gate < cache < inspect < stop < prepare < install < reconcile < publish < release
     assert "if (-not $transactionOwned) { exit 61 }" in source
