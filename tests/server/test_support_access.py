@@ -157,3 +157,44 @@ async def test_explicit_reset_allows_one_key_replacement_with_same_device_histor
         assert support_token(fresh,b'pepper')!=token
         with pytest.raises(SupportConflict):
             await register(s,d.id,c.id,old)
+
+
+@pytest.mark.parametrize(('version','supported'), [
+    ('1.0.0',False), ('1.0.1',True), ('1.0.10',True), ('1.1.0',True), ('2.0.0',True),
+    ('0.99.99',False), ('1.0',False), ('1.0.1evil',False), ('1.0.１００',False), ('999999.0.0',False),
+])
+def test_domain_principal_support_is_a_bounded_component_version_feature(version,supported):
+    from endpoint_server.support_access.service import supports_domain_principal
+    assert supports_domain_principal(version) is supported
+
+
+@pytest.mark.asyncio
+async def test_installer_registration_does_not_advance_observed_runtime_version(sessions):
+    from endpoint_contracts.support_access import SupportRegistration
+    from endpoint_server.support_access.service import register
+    async with sessions() as s:
+        device,credential=await identity(s)
+        old=SupportRegistration(tunnel_public_key=key(),host_public_key=key(2),component_version='1.0.0')
+        row=await register(s,device.id,credential.id,old)
+        await register(s,device.id,credential.id,old.model_copy(update={'component_version':'1.0.1'}))
+        assert row.component_version=='1.0.0'
+
+
+@pytest.mark.asyncio
+async def test_broker_filters_domain_policy_after_runtime_downgrade_or_stale_report(sessions):
+    from endpoint_contracts.support_access import SupportRegistration
+    from endpoint_server.support_access.service import register,get_broker_leases
+    now=datetime.now(UTC)
+    async with sessions() as s:
+        device,credential=await identity(s)
+        row=await register(s,device.id,credential.id,SupportRegistration(tunnel_public_key=key(),host_public_key=key(2),component_version='1.0.1'))
+        row.enabled=True;row.expires_at=now+timedelta(hours=1);row.operator_public_keys=[key(3)]
+        row.windows_admin_username=r'sosnadm\admin-2';row.installed=True;row.reported_at=now
+        row.component_version='1.0.1'
+        await s.flush()
+        assert len(await get_broker_leases(s,now))==1
+        row.component_version='1.0.0';await s.flush()
+        assert await get_broker_leases(s,now)==[]
+        assert row.enabled is True
+        row.component_version='1.0.1';row.reported_at=now-timedelta(seconds=91);await s.flush()
+        assert await get_broker_leases(s,now)==[]

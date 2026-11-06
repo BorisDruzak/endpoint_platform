@@ -149,13 +149,41 @@ def assert_bootstrap_file(path: Path):
 
 
 def validate_windows_admin(username: str):
+    import win32api
     import win32net
     import win32netcon
-    info = win32net.NetUserGetInfo(None,username,1)
-    # pywin32311 exposes (server, user, flags); native level0 is implicit.
-    groups = win32net.NetUserGetLocalGroups(None,username,win32netcon.LG_INCLUDE_INDIRECT)
-    if info['flags'] & 2 or administrators_name().casefold() not in {g.casefold() for g in groups}:
-        raise ValueError('support_existing_admin_required')
+    import win32security as security
+    from .support_access import windows_ssh_principal
+    try:
+        windows_ssh_principal(username) # Reject ambiguous/pattern/config syntax.
+        computer=win32api.GetComputerName()
+        supplied_domain,sam=(username.split('\\') if '\\' in username else (computer,username))
+        # Bare names are explicitly local: never inherit Windows' search order.
+        sid,domain,kind=security.LookupAccountName(None,supplied_domain+'\\'+sam)
+        name,reverse_domain,reverse_kind=security.LookupAccountSid(None,sid)
+        if (kind!=security.SidTypeUser or reverse_kind!=security.SidTypeUser
+                or domain.casefold()!=supplied_domain.casefold()
+                or reverse_domain.casefold()!=domain.casefold() or name.casefold()!=sam.casefold()):
+            raise ValueError()
+        local=domain.casefold()==computer.casefold()
+        server=None if local else win32net.NetGetDCName(None,domain)
+        if not local and (not isinstance(server,str) or not server.startswith('\\\\')):
+            raise ValueError()
+        # USER_INFO_4 binds enabled flags and the resolved SID in one response.
+        info=win32net.NetUserGetInfo(server,name,4)
+        if (info['name'].casefold()!=name.casefold()
+                or security.ConvertSidToStringSid(info['user_sid'])!=security.ConvertSidToStringSid(sid)
+                or info['flags']&win32netcon.UF_ACCOUNTDISABLE
+                or not info['flags']&win32netcon.UF_NORMAL_ACCOUNT):
+            raise ValueError()
+        qualified=domain+'\\'+name
+        groups=win32net.NetUserGetLocalGroups(None,qualified,win32netcon.LG_INCLUDE_INDIRECT)
+        if administrators_name().casefold() not in {g.casefold() for g in groups}:
+            raise ValueError()
+        return windows_ssh_principal(name if local else qualified)
+    except Exception:
+        # Unavailable DCs, unknown/disabled users and non-user SIDs all fail closed.
+        raise ValueError('support_existing_admin_required') from None
 
 
 def verify_dependencies(dependencies: dict):
@@ -815,7 +843,8 @@ class SupportChildren:
         self.remote_port = policy.remote_port
         self.confirmation=ForwardConfirmation(policy.remote_port)
         verify_dependencies(self.dependencies)
-        validate_windows_admin(policy.windows_admin_username)
+        from dataclasses import replace
+        policy=replace(policy,windows_admin_username=validate_windows_admin(policy.windows_admin_username))
         assert_private(self.root)
         for name in ('host_ed25519','tunnel_ed25519'):
             assert_private(self.root/name)

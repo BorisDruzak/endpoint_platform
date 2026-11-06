@@ -12,7 +12,7 @@ from pathlib import Path
 import re
 import uuid
 
-COMPONENT_VERSION = '1.0.0'
+COMPONENT_VERSION = '1.0.1'
 SERVICE_NAME = 'EndpointSupportAccess'
 MAX_LEASE_SECONDS = 86400
 LOCAL_PORT = 22222
@@ -89,7 +89,8 @@ class SupportPolicy:
         keys = raw.get('operator_public_keys')
         if not isinstance(keys, list) or not 1 <= len(keys) <= 16:
             raise ValueError('invalid_support_policy')
-        login = _name(raw.get('windows_admin_username'), r'[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}')
+        login = _name(raw.get('windows_admin_username'), r'(?=.{1,64}$)(?:[A-Za-z0-9][A-Za-z0-9_-]{0,14}\\)?[A-Za-z0-9][A-Za-z0-9_.-]{0,63}')
+        login = login.lower() if '\\' in login else login
         local_port = _integer(raw.get('local_port'), LOCAL_PORT, LOCAL_PORT)
         return cls(device_id, True, revision, expiry, host,
                    _integer(raw.get('gateway_port'), 1, 65535), public_key(raw.get('gateway_host_public_key')),
@@ -104,13 +105,18 @@ def _ssh_path(path: Path) -> str:
     return '"' + value + '"'
 
 
+def windows_ssh_principal(value: str) -> str:
+    """Windows OpenSSH matches lowercase short-domain SAM names, without globs."""
+    return _name(value,r'(?=.{1,64}$)(?:[A-Za-z0-9][A-Za-z0-9_-]{0,14}\\)?[A-Za-z0-9][A-Za-z0-9_.-]{0,63}').lower()
+
+
 def sshd_config(root: Path, p: SupportPolicy) -> str:
     return '\n'.join([
         f'Port {p.local_port}', 'AddressFamily inet', 'ListenAddress 127.0.0.1',
         f'HostKey {_ssh_path(root / "host_ed25519")}',
         f'AuthorizedKeysFile {_ssh_path(root / "authorized_keys")}',
         f'PidFile {_ssh_path(root / "sshd.pid")}',
-        f'AllowUsers {p.windows_admin_username}', 'PubkeyAuthentication yes',
+        f'AllowUsers {windows_ssh_principal(p.windows_admin_username)}', 'PubkeyAuthentication yes',
         'PasswordAuthentication no', 'KbdInteractiveAuthentication no',
         'AuthenticationMethods publickey', 'AllowAgentForwarding no', 'AllowTcpForwarding no',
         'GatewayPorts no', 'PermitTunnel no', 'PermitUserEnvironment no',
@@ -275,7 +281,8 @@ class SupportHTTPClient:
         return self.request('unregister', {})
 
     def status(self, *, connected: bool, error: str | None):
-        return self.request('status', dict(installed=True, tunnel_connected=connected,last_error_code=error))
+        return self.request('status', dict(installed=True, tunnel_connected=connected,last_error_code=error,
+            component_version=COMPONENT_VERSION))
 
 
 def install_support_access(data_root: Path, install_root: Path, *, origin: str,

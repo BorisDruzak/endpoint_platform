@@ -11767,9 +11767,12 @@ components:
           anyOf:
             -
               type: "string"
+              maxLength: 64
+              pattern: "^(?:[A-Za-z0-9][A-Za-z0-9_-]{0,14}\\\\)?[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
             -
               type: "null"
           title: "Windows Admin Username"
+          description: "Existing local SAM or explicit NETBIOSDOMAIN\\SAM, ASCII only, at most 64 characters total. The NetBIOS domain is at most 15 characters. Explicit domain principals are normalized to lowercase; local names retain compatibility. The device verifies the exact existing administrator SID. UPN, DNS aliases, spaces, wildcards and SSH configuration characters are not accepted."
         poll_after_seconds:
           type: "integer"
           const: 30
@@ -11868,6 +11871,16 @@ components:
             -
               type: "null"
           title: "Last Error Code"
+        component_version:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 17
+              pattern: "^(0|[1-9][0-9]{0,4})\\.(0|[1-9][0-9]{0,4})\\.(0|[1-9][0-9]{0,4})$"
+            -
+              type: "null"
+          title: "Component Version"
+          description: "Compiled version reported by the running Support service. Omitted legacy reports mean 1.0.0; installer registration is not runtime attestation."
       additionalProperties: false
       type: "object"
       required:

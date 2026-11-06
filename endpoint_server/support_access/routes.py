@@ -14,6 +14,7 @@ from endpoint_server.setup_updates.routes import revalidate_admin
 from endpoint_server.device_binding.service import consume_budget,ChallengeThrottled
 from .models import SupportAccess
 from .service import register,support_token,authenticate,source_active,SupportConflict,SupportResetRequired,utc,tunnel_user,key_authority_lock
+from .service import domain_principal_available,policy_component_available,record_runtime_status
 
 agent_router=APIRouter(prefix='/agent/v1/support-access',tags=['agent-support-access'])
 admin_router=APIRouter(prefix='/api/admin/support-access',tags=['admin-support-access'])
@@ -27,12 +28,15 @@ async def policy(session,row,settings):
         configured=bool(settings.support_gateway_host=='endpoint.sosnadmin.local' and settings.support_gateway_port==2222)
     except ValueError:
         pass
-    enabled=bool(configured and row.enabled and row.revoked_at is None and row.expires_at and utc(row.expires_at)>now and row.operator_public_keys and row.windows_admin_username and await source_active(session,row,now))
+    enabled=bool(configured and row.enabled and row.revoked_at is None and row.expires_at and utc(row.expires_at)>now and row.operator_public_keys and row.windows_admin_username and policy_component_available(row,now) and await source_active(session,row,now))
     return SupportPolicy(device_id=row.device_id,revision=row.revision,enabled=enabled,expires_at=row.expires_at if enabled else None,gateway_host=settings.support_gateway_host,gateway_port=settings.support_gateway_port,gateway_host_public_key=settings.support_gateway_host_public_key,tunnel_user=tunnel_user(row.device_id),remote_port=row.remote_port,operator_public_keys=row.operator_public_keys if enabled else [],windows_admin_username=row.windows_admin_username if enabled else None)
 
 
 async def audit(session,request,action,row,actor_kind,actor,reason=None):
     details={'device_id':str(row.device_id),'revision':row.revision}
+    if action=='status_changed':
+        details.update(component_version=row.component_version,installed=row.installed,
+                       tunnel_connected=row.tunnel_connected,last_error_code=row.last_error_code)
     if reason is not None:
         details['reason']=reason
     await append_audit_event(session,actor_kind=actor_kind,actor_identifier=str(actor),action='support_access.'+action,object_kind='support_access',object_identifier=str(row.id),request_id=audit_request_id(request),details=details)
@@ -98,8 +102,7 @@ async def report(body:SupportStatusReport,request:Request,response:Response):
     response.headers['Cache-Control']='no-store'
     async with request.app.state.session_provider() as session:
         row=await support_identity(session,request)
-        changed=row.tunnel_connected!=body.tunnel_connected or row.installed!=body.installed
-        row.installed=body.installed;row.tunnel_connected=body.tunnel_connected;row.last_error_code=body.last_error_code;row.reported_at=datetime.now(UTC)
+        changed=record_runtime_status(row,body,datetime.now(UTC))
         result=await policy(session,row,request.app.state.settings)
         if changed:
             await audit(session,request,'status_changed',row,'device',row.device_id)
@@ -141,6 +144,8 @@ async def update_policy(device_id:UUID,body:SupportPolicyUpdate,request:Request,
         row=await load(session,device_id)
         now=datetime.now(UTC)
         if body.enabled:
+            if body.windows_admin_username and '\\' in body.windows_admin_username and not domain_principal_available(row,now):
+                raise HTTPException(409,'Domain administrator requires freshly reported installed Support component 1.0.1 or newer')
             if row.reset_registration_allowed:
                 raise HTTPException(409,'Support registration reset is pending')
             await key_authority_lock(session)

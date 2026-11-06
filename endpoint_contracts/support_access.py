@@ -1,6 +1,7 @@
 """Bounded independent support channel wire contract; no private SSH material."""
 import base64
 import binascii
+import re
 import struct
 from datetime import datetime
 from typing import Literal
@@ -9,6 +10,20 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 SUPPORT_RESET_DEVICE_HEADER = 'X-Support-Reset-Device'
+SUPPORT_COMPONENT_VERSION_PATTERN = r'^(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})$'
+WINDOWS_SUPPORT_ADMIN_PATTERN = r'^(?:[A-Za-z0-9][A-Za-z0-9_-]{0,14}\\)?[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$'
+WINDOWS_SUPPORT_ADMIN_DESCRIPTION = (
+    'Existing local SAM or explicit NETBIOSDOMAIN\\SAM, ASCII only, at most 64 characters total. '
+    'The NetBIOS domain is at most 15 characters. Explicit domain principals are normalized to lowercase; '
+    'local names retain compatibility. The device verifies the exact existing administrator SID. '
+    'UPN, DNS aliases, spaces, wildcards and SSH configuration characters are not accepted.'
+)
+
+
+def normalize_windows_support_admin(value: str) -> str:
+    if len(value)>64 or re.fullmatch(WINDOWS_SUPPORT_ADMIN_PATTERN, value, flags=re.ASCII) is None:
+        raise ValueError('Invalid existing Windows administrator principal')
+    return value.lower() if '\\' in value else value
 
 
 def canonical_public_key(value: str) -> str:
@@ -62,7 +77,8 @@ class SupportPolicy(StrictModel):
     remote_port: int
     local_port: Literal[22222] = 22222
     operator_public_keys: list[str]
-    windows_admin_username: str | None
+    windows_admin_username: str | None = Field(max_length=64,pattern=WINDOWS_SUPPORT_ADMIN_PATTERN,
+                                               description=WINDOWS_SUPPORT_ADMIN_DESCRIPTION)
     poll_after_seconds: Literal[30] = 30
 
 
@@ -77,6 +93,15 @@ class SupportStatusReport(StrictModel):
     installed: bool
     tunnel_connected: bool
     last_error_code: Literal['dependency_unavailable','configuration_conflict','key_conflict','policy_unavailable','tunnel_failed','host_key_mismatch','service_failed'] | None = None
+    component_version: str | None = Field(default=None,max_length=17,pattern=SUPPORT_COMPONENT_VERSION_PATTERN,
+        description='Compiled version reported by the running Support service. Omitted legacy reports mean 1.0.0; installer registration is not runtime attestation.')
+
+    @field_validator('component_version')
+    @classmethod
+    def runtime_version(cls,value):
+        if value is not None and re.fullmatch(SUPPORT_COMPONENT_VERSION_PATTERN,value,flags=re.ASCII) is None:
+            raise ValueError('Invalid Support runtime version')
+        return value
 
     @model_validator(mode='after')
     def installed_tunnel(self):
@@ -89,7 +114,8 @@ class SupportPolicyUpdate(StrictModel):
     enabled: bool
     expires_at: datetime | None = None
     operator_public_keys: list[str] = Field(default_factory=list,max_length=16)
-    windows_admin_username: str | None = Field(default=None,pattern=r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$')
+    windows_admin_username: str | None = Field(default=None,max_length=64,pattern=WINDOWS_SUPPORT_ADMIN_PATTERN,
+                                               description=WINDOWS_SUPPORT_ADMIN_DESCRIPTION)
     reason: str = Field(min_length=3,max_length=256,pattern=r'^[^\x00-\x1f\x7f]+$')
 
     @field_validator('operator_public_keys')
@@ -99,6 +125,11 @@ class SupportPolicyUpdate(StrictModel):
         if len(set(parsed)) != len(parsed):
             raise ValueError('Duplicate operator key')
         return parsed
+
+    @field_validator('windows_admin_username')
+    @classmethod
+    def existing_principal(cls, value):
+        return None if value is None else normalize_windows_support_admin(value)
 
 
 class SupportReason(StrictModel):

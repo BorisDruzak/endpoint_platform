@@ -188,9 +188,10 @@ def test_registration_reuses_existing_keys_and_persists_only_independent_credent
             assert self.stopped == executable
             self.installed = executable
     class Client:
+        def status(self,**kwargs):pytest.fail('installer cannot attest runtime version')
         def register(self, body):
             assert 'device_token' not in body
-            assert body['component_version'] == '1.0.0'
+            assert body['component_version'] == '1.0.1'
             return dict(device_id=DEVICE, support_token=TOKEN, credential_id=CREDENTIAL_ID, policy={'enabled':False})
     (tmp_path/'signed.exe').write_bytes(b'signed-fixture')
     ops = Ops()
@@ -256,7 +257,7 @@ def test_job_cleanup_covers_both_children_when_second_launch_fails(tmp_path,monk
         def close(self): closed.append(True)
         def alive(self): return True
     monkeypatch.setattr(native,'NativeProcessJob',Job,raising=False)
-    monkeypatch.setattr(native,'validate_windows_admin',lambda username:None)
+    monkeypatch.setattr(native,'validate_windows_admin',lambda username:username)
     monkeypatch.setattr(native,'verify_dependencies',lambda deps:None)
     monkeypatch.setattr(native,'assert_private',lambda p:None)
     monkeypatch.setattr(native.WindowsSupportOps,'protect',lambda self,p:None)
@@ -499,15 +500,30 @@ def test_real_keygen_under_elevated_admin_becomes_system_owned_private_support_k
         assert root.parent==native.native_folder(0x23) and root.name.startswith('EndpointSupportAccessTest-')
         if root.exists(): shutil.rmtree(root)
 
-def test_real_pywin32_accepts_existing_enabled_local_administrator():
-    import win32net,win32netcon
+def test_real_pywin32_binds_enabled_local_administrator_status_and_sid():
+    import win32api,win32net,win32netcon,win32security
     native=importlib.import_module('pc_agent.platform.windows.support_access_native')
     admin_group=native.administrators_name().casefold()
     admins=[entry['name'] for entry in win32net.NetUserEnum(None,1,0)[0]
             if not entry['flags']&win32netcon.UF_ACCOUNTDISABLE and admin_group in
             {group.casefold() for group in win32net.NetUserGetLocalGroups(None,entry['name'],win32netcon.LG_INCLUDE_INDIRECT)}]
-    assert admins,'A real enabled local administrator is required for this native qualification test'
-    native.validate_windows_admin(admins[0])
+    assert admins,'A real enabled local administrator is required for native API qualification'
+    name=admins[0];qualified=win32api.GetComputerName()+'\\'+name
+    sid,domain,kind=win32security.LookupAccountName(None,qualified)
+    info=win32net.NetUserGetInfo(None,name,4)
+    assert kind==win32security.SidTypeUser
+    assert win32security.ConvertSidToStringSid(info['user_sid'])==win32security.ConvertSidToStringSid(sid)
+    assert not info['flags']&win32netcon.UF_ACCOUNTDISABLE
+    assert admin_group in {group.casefold() for group in win32net.NetUserGetLocalGroups(None,qualified,win32netcon.LG_INCLUDE_INDIRECT)}
+    try:module().windows_ssh_principal(name)
+    except ValueError:
+        # This operator host has only a Unicode/spaced local admin, outside the
+        # policy's existing ASCII SAM grammar; no new test account is created.
+        with pytest.raises(ValueError):native.validate_windows_admin(name)
+    else:
+        assert native.validate_windows_admin(name)==name.lower()
+        assert native.validate_windows_admin(qualified)==name.lower()
+
 
 @pytest.mark.parametrize('marker',[DEVICE,str(uuid.uuid4()),None])
 def test_registration_rotation_requires_authenticated_own_device_reset_marker(tmp_path,marker):

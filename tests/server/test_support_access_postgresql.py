@@ -116,6 +116,37 @@ def test_real_cookie_csrf_scope_independent_policy_and_retirement(update_migrati
                 changed=await client.put(endpoint,json=body,headers={'X-CSRF-Token':issued.csrf_token})
                 assert changed.status_code==200,changed.text
                 assert changed.json()['enabled']
+                from endpoint_server.support_access.models import SupportAccess
+                async with provider() as s:
+                    before=await s.scalar(select(SupportAccess).where(SupportAccess.device_id==device_id))
+                    original=(before.revision,before.enabled,before.windows_admin_username)
+                domain_body={**body,'windows_admin_username':r'SOSNADM\admin-2'}
+                old_domain=await client.put(endpoint,json=domain_body,headers={'X-CSRF-Token':issued.csrf_token})
+                assert old_domain.status_code==409 and '1.0.1' in old_domain.text
+                async with provider() as s:
+                    unchanged=await s.scalar(select(SupportAccess).where(SupportAccess.device_id==device_id))
+                    assert (unchanged.revision,unchanged.enabled,unchanged.windows_admin_username)==original
+                disabled=await client.put(endpoint,json={**domain_body,'enabled':False,'expires_at':None},headers={'X-CSRF-Token':issued.csrf_token})
+                assert disabled.status_code==200 and not disabled.json()['enabled']
+                async with provider() as s:
+                    upgraded=await s.scalar(select(SupportAccess).where(SupportAccess.device_id==device_id))
+                    assert upgraded.component_version=='1.0.0'
+                intent=await client.post('/agent/v1/support-access/register',json={**registration,'component_version':'1.0.1'},headers={'Authorization':'Bearer '+token})
+                assert intent.status_code==200
+                assert (await client.put(endpoint,json=domain_body,headers={'X-CSRF-Token':issued.csrf_token})).status_code==409
+                runtime=await client.post('/agent/v1/support-access/status',headers=headers,json={'installed':True,'tunnel_connected':False,'component_version':'1.0.1'})
+                assert runtime.status_code==200
+                new_domain=await client.put(endpoint,json=domain_body,headers={'X-CSRF-Token':issued.csrf_token})
+                assert new_domain.status_code==200 and new_domain.json()['windows_admin_username']==r'sosnadm\admin-2'
+                legacy=await client.post('/agent/v1/support-access/status',headers=headers,json={'installed':True,'tunnel_connected':False})
+                assert legacy.status_code==200 and not legacy.json()['enabled']
+                async with provider() as s:
+                    from endpoint_server.support_access.service import get_broker_leases
+                    downgraded=await s.scalar(select(SupportAccess).where(SupportAccess.device_id==device_id))
+                    assert downgraded.component_version=='1.0.0' and downgraded.enabled
+                    assert await get_broker_leases(s,datetime.now(UTC))==[]
+                assert (await client.put(endpoint,json=domain_body,headers={'X-CSRF-Token':issued.csrf_token})).status_code==409
+                assert (await client.put(endpoint,json=body,headers={'X-CSRF-Token':issued.csrf_token})).status_code==200
                 async with provider() as s:
                     actor=await s.get(AdminUser,admin.id);actor.scopes=[];await s.commit()
                 assert (await client.put(endpoint,json=body,headers={'X-CSRF-Token':issued.csrf_token})).status_code==403

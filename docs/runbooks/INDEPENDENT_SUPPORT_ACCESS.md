@@ -31,8 +31,41 @@ Host keys, device tunnel keys and approved operator keys have distinct roles.
 The installer generates device private keys locally; private keys and enrollment
 material are never embedded in a release. The Windows login must already exist
 and be an enabled administrator. The pilot uses `test_agent_win` on101.120;
-the user selected existing `admin-2` for subsequent Windows devices. No Windows
+the user selected the existing domain principal `SOSNADM\admin-2` for subsequent
+domain-joined Windows devices. A bare `admin-2` must not be substituted for that
+confirmed domain identity. No Windows
 administrator account is created by this feature.
+
+### Existing Windows principal in policy
+
+`windows_admin_username` accepts an existing local SAM name such as
+`test_agent_win`, or an explicit short-domain SAM principal such as
+`SOSNADM\admin-2`. The bounded ASCII grammar allows letters, digits, underscore,
+dot and hyphen in the SAM name; a short domain allows letters, digits, underscore
+and hyphen, up to 15 characters. Both components start with a letter or digit;
+the complete principal is limited to 64 characters, matching the existing
+database column. Only one backslash separator is allowed. UPN, DNS aliases,
+spaces, controls, wildcards and SSH configuration characters are rejected.
+
+Explicit domain principals are normalized to lowercase in policy. The Windows
+component resolves and validates the exact existing administrator SID before
+configuration, and renders lowercase local or `domain_short_name\user_name`
+rules as required by [Microsoft's OpenSSH configuration documentation](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh-server-configuration#allowgroups-allowusers-denygroups-denyusers).
+The Console preserves a stored account, but leaves new policy account input
+empty so the operator chooses the exact local or domain identity explicitly.
+
+Domain policies require the matching provider contract and domain-capable
+Support component 1.0.1. Existing local-name policies and the local pilot account
+remain compatible; the provider does not globally require component 1.0.1.
+Enabling domain policy requires a fresh independent report from an installed
+running component 1.0.1 or newer. Installer registration does not advance the
+observed runtime version. The running service reports its compiled version in
+the optional status field `component_version`; omitted legacy reports mean
+1.0.0. A stale report or an old runtime makes existing domain policy ineffective
+and removes its broker lease while preserving the administrator's stored policy
+and history. Local policies and disabling access remain compatible.
+Installation, a resolved SID or a policy update does not replace actual
+key-authenticated SSH acceptance for the selected principal.
 
 ## Policy and revocation
 

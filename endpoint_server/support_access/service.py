@@ -7,6 +7,7 @@ import re
 from uuid import UUID,uuid4
 from sqlalchemy import select,or_
 from sqlalchemy.exc import IntegrityError
+from endpoint_contracts.support_access import SUPPORT_COMPONENT_VERSION_PATTERN
 from endpoint_server.db.models.devices import Device,DeviceCredential
 from .models import SupportAccess
 
@@ -20,6 +21,32 @@ class SupportResetRequired(SupportConflict):
     def __init__(self,device_id):
         self.reset_device_id=device_id
         super().__init__('Support reset requires new key roles')
+
+
+def supports_domain_principal(component_version: str) -> bool:
+    """Domain identity validation first shipped in component1.0.1."""
+    if not isinstance(component_version,str) or re.fullmatch(SUPPORT_COMPONENT_VERSION_PATTERN,component_version,flags=re.ASCII) is None:
+        return False
+    return tuple(int(part) for part in component_version.split('.')) >= (1,0,1)
+
+
+def domain_principal_available(row,now) -> bool:
+    return bool(row.installed and row.reported_at is not None and
+        -timedelta(seconds=30) <= now-utc(row.reported_at) <= timedelta(seconds=90) and
+        supports_domain_principal(row.component_version))
+
+
+def policy_component_available(row,now) -> bool:
+    return '\\' not in (row.windows_admin_username or '') or domain_principal_available(row,now)
+
+
+def record_runtime_status(row,body,now) -> bool:
+    version=body.component_version if body.component_version is not None else '1.0.0'
+    changed=(row.installed!=body.installed or row.tunnel_connected!=body.tunnel_connected or
+             row.component_version!=version or row.last_error_code!=body.last_error_code)
+    row.installed=body.installed;row.tunnel_connected=body.tunnel_connected
+    row.component_version=version;row.last_error_code=body.last_error_code;row.reported_at=now
+    return changed
 
 
 async def key_authority_lock(session):
@@ -52,7 +79,8 @@ async def register(session,device_id,credential_id,body,*,lifecycle_events=None)
     if row and not replacing:
         if row.revoked_at is not None or row.tunnel_public_key!=body.tunnel_public_key or row.host_public_key!=body.host_public_key or row.source_credential_id!=credential_id:
             raise SupportConflict('Support key ownership conflict')
-        row.component_version=body.component_version
+        # Registration is an installer intent. Only running-service status may
+        # advance or downgrade observed runtime capability after activation.
         return row
     if replacing and (body.tunnel_public_key in (row.tunnel_public_key,row.host_public_key) or body.host_public_key in (row.tunnel_public_key,row.host_public_key)):
         raise SupportResetRequired(device_id)
@@ -72,7 +100,7 @@ async def register(session,device_id,credential_id,body,*,lifecycle_events=None)
     if replacing:
         row.source_credential_id=credential_id
         row.tunnel_public_key=body.tunnel_public_key;row.host_public_key=body.host_public_key
-        row.component_version=body.component_version;row.reset_registration_allowed=False
+        row.component_version='1.0.0';row.reset_registration_allowed=False
         row.enabled=False;row.revoked_at=None;row.expires_at=None;row.operator_public_keys=[];row.windows_admin_username=None
         row.installed=False;row.tunnel_connected=False;row.reported_at=None;row.last_error_code=None
         row.access_verified_at=None;row.access_verified_by=None;row.revision+=1
@@ -84,7 +112,7 @@ async def register(session,device_id,credential_id,body,*,lifecycle_events=None)
     port=next((p for p in range(32000,42000) if p not in occupied),None)
     if port is None:
         raise SupportConflict('Support capacity unavailable')
-    row=SupportAccess(id=uuid4(),device_id=device_id,source_credential_id=credential_id,tunnel_public_key=body.tunnel_public_key,host_public_key=body.host_public_key,remote_port=port,component_version=body.component_version,enabled=False,revision=1,generation=1,operator_public_keys=[],installed=False,tunnel_connected=False)
+    row=SupportAccess(id=uuid4(),device_id=device_id,source_credential_id=credential_id,tunnel_public_key=body.tunnel_public_key,host_public_key=body.host_public_key,remote_port=port,component_version='1.0.0',enabled=False,revision=1,generation=1,operator_public_keys=[],installed=False,tunnel_connected=False)
     session.add(row)
     try:
         await session.flush()
@@ -126,7 +154,7 @@ async def get_broker_leases(session,now):
         raise SupportConflict('Support lease capacity exceeded')
     result=[]
     for row in rows:
-        if not row.operator_public_keys or not row.windows_admin_username or not await source_active(session,row,now):
+        if not row.operator_public_keys or not row.windows_admin_username or not policy_component_available(row,now) or not await source_active(session,row,now):
             continue
         credential=await session.get(DeviceCredential,row.source_credential_id)
         expiry=min(utc(row.expires_at),now+timedelta(seconds=60))

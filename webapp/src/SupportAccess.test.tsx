@@ -47,11 +47,12 @@ it('saves explicit operator keys, existing username and bounded expiry, then ref
   await screen.findByText('Установлен · 1.0.0')
   fireEvent.change(screen.getByLabelText('Публичные ключи операторов'), { target: { value: publicKey } })
   fireEvent.change(screen.getByLabelText('Причина изменения доступа'), { target: { value: 'Pilot acceptance' } })
+  fireEvent.change(screen.getByLabelText(/Существующий администратор Windows/), { target: { value: 'test_agent_win' } })
   fireEvent.click(screen.getByRole('button', { name: 'Включить доступ' }))
   await waitFor(() => expect(vi.mocked(request)).toHaveBeenCalledWith('/api/admin/support-access/devices/one/policy', expect.objectContaining({ method: 'PUT' })))
   const mutation = vi.mocked(request).mock.calls.find(([, init]) => init?.method === 'PUT')!
   const body = JSON.parse(String(mutation[1]?.body))
-  expect(body.windows_admin_username).toBe('admin-2')
+  expect(body.windows_admin_username).toBe('test_agent_win')
   expect(body.operator_public_keys).toEqual([publicKey])
   expect(Date.parse(body.expires_at) - Date.now()).toBeLessThanOrEqual(8 * 3600 * 1000)
   expect(body.reason).toBe('Pilot acceptance')
@@ -66,4 +67,55 @@ it('requires reason for revoke/reset and reports server conflicts without claimi
   fireEvent.click(screen.getByRole('button', { name: 'Сбросить регистрацию ключей' }))
   expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('конфликт'))
   expect(vi.mocked(request)).toHaveBeenCalledWith('/api/admin/support-access/devices/one/reset-registration', expect.objectContaining({ body: JSON.stringify({ reason: 'Replace lost keys' }) }))
+})
+
+it('accepts an explicit existing domain principal and sends its lowercase canonical form', async () => {
+  vi.mocked(request).mockResolvedValue({ ...status(), component_version: '1.0.1' })
+  render(<SupportAccess deviceId="one" canWrite />)
+  await screen.findByText('Установлен · 1.0.1')
+  const account = screen.getByLabelText(/Существующий администратор Windows/) as HTMLInputElement
+  fireEvent.change(account, { target: { value: 'SOSNADM\\admin-2' } })
+  fireEvent.change(screen.getByLabelText('Публичные ключи операторов'), { target: { value: publicKey } })
+  fireEvent.change(screen.getByLabelText('Причина изменения доступа'), { target: { value: 'Confirmed domain administrator' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Включить доступ' }))
+  await waitFor(() => expect(vi.mocked(request).mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(true))
+  const call = vi.mocked(request).mock.calls.find(([, init]) => init?.method === 'PUT')!
+  expect(JSON.parse(String(call[1]?.body)).windows_admin_username).toBe('sosnadm\\admin-2')
+  expect(account.maxLength).toBe(64)
+  expect(account.pattern).toBeTruthy()
+  expect(new RegExp(account.pattern, 'v').test('SOSNADM\\admin-2')).toBe(true)
+  expect(new RegExp(account.pattern, 'v').test('D'.repeat(15)+'\\'+'s'.repeat(49))).toBe(false)
+})
+
+it.each(['SOSNADM\\admin-2\nMatch all', 'user@domain', 'DOMAIN\\*', 'DOMAIN\\SAM\\extra', 'D'.repeat(16)+'\\sam'])(
+  'refuses unsafe or ambiguous account %s before sending policy', async account => {
+    vi.mocked(request).mockResolvedValue(status())
+    render(<SupportAccess deviceId="one" canWrite />)
+    await screen.findByText('Установлен · 1.0.0')
+    fireEvent.change(screen.getByLabelText(/Существующий администратор Windows/), { target: { value: account } })
+    fireEvent.change(screen.getByLabelText('Публичные ключи операторов'), { target: { value: publicKey } })
+    fireEvent.change(screen.getByLabelText('Причина изменения доступа'), { target: { value: 'Validate account' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Включить доступ' }))
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(vi.mocked(request).mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false)
+  },
+)
+
+it('requires an explicit account for a new policy instead of guessing a local principal', async () => {
+  vi.mocked(request).mockResolvedValue(status())
+  render(<SupportAccess deviceId="one" canWrite />)
+  await screen.findByText('Установлен · 1.0.0')
+  expect((screen.getByLabelText(/Существующий администратор Windows/) as HTMLInputElement).value).toBe('')
+})
+
+it('keeps old components local-compatible and refuses enabling domain policy before sending a write', async () => {
+  vi.mocked(request).mockResolvedValue(status())
+  render(<SupportAccess deviceId="one" canWrite />)
+  await screen.findByText('Установлен · 1.0.0')
+  fireEvent.change(screen.getByLabelText(/Существующий администратор Windows/), { target: { value: 'SOSNADM\\admin-2' } })
+  fireEvent.change(screen.getByLabelText('Публичные ключи операторов'), { target: { value: publicKey } })
+  fireEvent.change(screen.getByLabelText('Причина изменения доступа'), { target: { value: 'Check feature compatibility' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Включить доступ' }))
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('1.0.1'))
+  expect(vi.mocked(request).mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false)
 })

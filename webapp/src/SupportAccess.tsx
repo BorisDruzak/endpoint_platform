@@ -9,6 +9,12 @@ const failures: Record<string, string> = {
   key_conflict: 'Конфликт ключей', policy_unavailable: 'Политика недоступна', tunnel_failed: 'Не удалось подключить туннель',
   host_key_mismatch: 'Ключ SSH-сервера не совпадает с доверенным', service_failed: 'Ошибка службы доступа',
 }
+const windowsAdminPattern = /^(?=.{1,64}$)(?:[A-Za-z0-9][A-Za-z0-9_\-]{0,14}\\)?[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}$/
+function supportsDomainPrincipal(version: string) {
+  if (version.match(/^(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})$/)?.[0] !== version) return false
+  const [major, minor, patch] = version.split('.').map(Number)
+  return major > 1 || (major === 1 && (minor > 0 || patch >= 1))
+}
 function operatorKeys(text: string): string[] | null {
   const values = text.split(/\r?\n/).map(value => value.trim()).filter(Boolean)
   if (!values.length || values.length > 16 || new Set(values).size !== values.length) return null
@@ -37,7 +43,7 @@ function SupportAccessView({ deviceId, canWrite }: { deviceId: string; canWrite:
   const [busy, setBusy] = useState(false)
   const [reason, setReason] = useState('')
   const [keys, setKeys] = useState('')
-  const [username, setUsername] = useState('admin-2')
+  const [username, setUsername] = useState('')
   const [hours, setHours] = useState('1')
   const [now, setNow] = useState(Date.now())
   const generation = useRef(0)
@@ -48,7 +54,7 @@ function SupportAccessView({ deviceId, canWrite }: { deviceId: string; canWrite:
     getSupportAccess(deviceId).then(value => {
       if (generation.current !== current) return
       setState(value); setKeys(value.policy.operator_public_keys.join('\n'))
-      setUsername(value.policy.windows_admin_username ?? 'admin-2'); setLoading(false)
+      setUsername(value.policy.windows_admin_username ?? ''); setLoading(false)
     }).catch(cause => {
       if (generation.current !== current) return
       setState(null); setLoading(false)
@@ -66,8 +72,13 @@ function SupportAccessView({ deviceId, canWrite }: { deviceId: string; canWrite:
     if (!state || !canWrite || busy || reason.trim().length < 3) return
     const approvedKeys = operatorKeys(keys)
     const duration = Number(hours)
-    if (action === 'enable' && (!approvedKeys || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(username) || !Number.isFinite(duration) || duration <= 0 || duration > 8)) {
-      setError('Укажите публичные ключи Ed25519, существующее имя администратора и срок от 0 до 8 часов.'); return
+    if (action === 'enable' && (!approvedKeys || username.match(windowsAdminPattern)?.[0] !== username || !Number.isFinite(duration) || duration <= 0 || duration > 8)) {
+      setError('Укажите публичные ключи Ed25519, существующую локальную учётную запись или ДОМЕН\\пользователь и срок от 0 до 8 часов.'); return
+    }
+    const reportAge = state.reported_at ? Date.now() - Date.parse(state.reported_at) : NaN
+    const domainReady = state.installed && reportAge >= -30000 && reportAge <= 90000 && supportsDomainPrincipal(state.component_version)
+    if (action === 'enable' && username.includes('\\') && !domainReady) {
+      setError('Для доменной учётной записи требуется свежий отчёт установленного компонента доступа поддержки 1.0.1 или новее. Обновите компонент и его состояние.'); return
     }
     const current = generation.current
     setBusy(true); setError(''); setNotice('')
@@ -76,7 +87,7 @@ function SupportAccessView({ deviceId, canWrite }: { deviceId: string; canWrite:
         await saveSupportPolicy(deviceId, { enabled: action === 'enable',
           expires_at: action === 'enable' ? new Date(Date.now() + duration * 3600000).toISOString() : null,
           operator_public_keys: action === 'enable' ? approvedKeys! : state.policy.operator_public_keys,
-          windows_admin_username: action === 'enable' ? username : state.policy.windows_admin_username,
+          windows_admin_username: action === 'enable' ? (username.includes('\\') ? username.toLowerCase() : username) : state.policy.windows_admin_username,
           reason: reason.trim() })
       } else await revokeSupportAccess(deviceId, action, reason.trim())
       if (generation.current !== current) return
@@ -114,8 +125,9 @@ function SupportAccessView({ deviceId, canWrite }: { deviceId: string; canWrite:
       {state.revoked_at && <p>Доступ отозван · {dateText(state.revoked_at)}</p>}
       {state.reset_registration_allowed && <p>Ожидается повторная регистрация с новыми ключами. Доступ выключен до завершения регистрации и отдельного включения политики.</p>}
       {state.last_error_code && <p>{failures[state.last_error_code] ?? 'Компонент сообщил об ошибке'}</p>}
+      {!supportsDomainPrincipal(state.component_version) && <p className="muted">Этот компонент поддерживает локальные учётные записи. Для ДОМЕН\пользователь требуется версия компонента 1.0.1 или новее.</p>}
       {canWrite ? <div className="form-grid">
-        <label>Существующий администратор Windows<input value={username} maxLength={64} onChange={event => setUsername(event.target.value)} /></label>
+        <label>Существующий администратор Windows (локальный или ДОМЕН\пользователь)<input value={username} maxLength={64} pattern={windowsAdminPattern.source} placeholder="test_agent_win или SOSNADM\admin-2" onChange={event => setUsername(event.target.value)} /></label>
         <label>Срок доступа, часов<input type="number" min="0.25" max="8" step="0.25" value={hours} onChange={event => setHours(event.target.value)} /></label>
         <label>Публичные ключи операторов<textarea rows={4} maxLength={2200} value={keys} placeholder="ssh-ed25519 … (один публичный ключ в строке)" onChange={event => setKeys(event.target.value)} /></label>
         <label>Причина изменения доступа<input value={reason} minLength={3} maxLength={256} onChange={event => setReason(event.target.value)} /></label>
