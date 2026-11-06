@@ -44,7 +44,7 @@ SetupProgressV1 and existing Authenticode packaging. No dependency or schema cha
 - [x] Review source diffs independently and run observer/native/server contracts.
   Sign a new immutable107 payload; do not overwrite106. Prepare a narrow187
   install proposal that preserves Core169/Foundation169/job/attempt/native21.
-- [ ] After the client-only exception is authorized, install107 through the
+- [x] After the client-only exception is authorized, install107 through the
   reviewed scoped task-action/metadata replacement, observe the original assignment and user telemetry,
   and preserve FAILED history. No hand-edited job/native receipt or MSI replay.
 - [ ] Build a distinct full-Setup candidate with Tray fix and diagnostic fields
@@ -72,8 +72,10 @@ Signed10777427bytes SHA256
 timestamped Valid, same pinned publisher. Native packaged-payload/source binding
 was checked. The scoped helper is prepared, reviewed and signed. Six isolated
 integration fixtures and13namespace fixtures passed, including independent
-metadata rollback after task rollback failure. Neither script has been
-uploaded/executed on187; live client-only authorization is still pending.
+metadata rollback after task rollback failure. At the signing checkpoint neither
+script had been uploaded/executed on187. The later explicit client-only
+authorization has now been executed and verified; see the recovery proposal's
+execution section.
 
 Ruling: do not use ordinary Core170/return ZIP169 delivery. Active Setup ownership
 blocks it, and changing the MSI-owned169 Core would invalidate the original
@@ -87,3 +89,9 @@ finished receipt present; jobnative_exit21 remains. UserSensor/Activity were
 fresh again at06:25Z after ordinary login. This is recovery, not source158
 unattended qualification or APPLIED. The earlier Foundation invariant cause is
 still unknown; source9aade90 adds safe detail for the next full Setup candidate.
+
+Final107 evidence: original job closed FAILED/native_failed_target_recovered at
+2026-11-06T07:04:07Z with native21 preserved,183.588seconds/6samples/1Sensor,
+maxCPU0.0128%, all private/native/service/companion checks verified. Exactly one
+failed audit; active chains0. New full Setup170 remains the next independent
+qualification stage; no fleet policy or enrollment promotion occurred.

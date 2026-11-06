@@ -214,14 +214,14 @@
     "followup_health_warnings": []
   },
   "live_provider": {
-    "commit": "280d5c2e3005f58c350885744c393af4eeaeeb7d",
-    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-280d5c2e3005",
+    "commit": "ce46fd47a3a929a2fe104f01fac2bc8cc619559d",
+    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-ce46fd47a3a9",
     "migration": "0045_setup_fleet_policy",
-    "scope": "Guarded recovered-target FAILED/native21 reconciliation deployed. Original27/120 continuations recovered and server jobs closed with preserved failure history.169 from168 accepted on146;169 from158/client105 on187 holds recovery. Fleet3 disabled/all-active/max2; enrollment165 unchanged.",
-    "verified_utc": "2026-11-05T17:21:21.464515Z",
+    "scope": "Qualified observer107 deployed. Authorized client-only187 replacement completed; original native21 job closed FAILED/target-recovered with fresh183.588second proof, private data preserved and active chains0. Fleet3 disabled/all-active/max2; enrollment165 unchanged.",
+    "verified_utc": "2026-11-06T07:06:06.927462Z",
     "health_http_status": 200,
     "database": "ok",
-    "state_verified_utc": "2026-11-05T18:08:11.259692Z"
+    "state_verified_utc": "2026-11-06T07:06:06.927462Z"
   },
   "clean156_full_setup": {
     "status": "qualified_clean156_native_update_applied",
@@ -510,6 +510,32 @@
       "3.2.168"
     ],
     "recovery_device": "192.168.101.187",
-    "verification_record": "docs/verification/2026-11-05-setup169-web-fleet.md"
+    "verification_record": "docs/verification/2026-11-05-setup169-web-fleet.md",
+    "native_continuation_recovered_at": "2026-11-06T05:55:22.3352267Z",
+    "native_hold_active": false,
+    "original_native_exit": 21,
+    "original_job_still_recovery_required": false,
+    "original_job_status": "failed",
+    "recovery_safe_code": "native_failed_target_recovered",
+    "recovery_followup_record": "docs/verification/2026-11-06-observer107-recovery-proposal.md"
+  },
+  "windows_setup_observer107_candidate": {
+    "client_version": "1.0.7",
+    "status": "scoped187_recovery_accepted",
+    "record": "docs/releases/windows-setup-client-1.0.7.json",
+    "source_commit": "411b19625e97fd196d84bd1f4cdda28a16c0b614",
+    "installed": true
+  },
+  "windows_full_setup170_candidate": {
+    "version": "3.2.170",
+    "status": "preparing_not_built_not_published",
+    "runtime_source_commit": null,
+    "signed_artifacts": false,
+    "native_qualified": false,
+    "fleet_enabled": false,
+    "enrollment_download_promoted": false,
+    "observer_version": "1.0.7",
+    "contains_tray_process_fix": true,
+    "contains_foundation_failure_diagnostics": true
   }
 }

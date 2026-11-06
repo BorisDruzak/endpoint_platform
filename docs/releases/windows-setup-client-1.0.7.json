@@ -1,6 +1,6 @@
 {
   "client_version": "1.0.7",
-  "status": "signed_candidate_for_scoped_recovery_review",
+  "status": "scoped187_recovery_accepted",
   "source_commit": "411b19625e97fd196d84bd1f4cdda28a16c0b614",
   "server_qualification_commit": "3b91c7a8f485d3ed747c91feaaca6db8ea13df04",
   "artifact": {
@@ -14,13 +14,19 @@
     "native_payload_binding_verified": true
   },
   "installation": {
-    "performed": false,
+    "performed": true,
     "intended_device_id": "d3ed13cd-1b40-4ccc-b035-240a184cf247",
     "intended_assignment_id": "0d4299e7-7c17-495d-8ddb-56b50f03a154",
     "intended_attempt_id": "f0da578b-2234-417a-b625-8b356994123a",
     "core_foundation_preserved": "3.2.169",
     "original_native_exit_preserved": 21,
-    "ssh_write_authorized": false
+    "ssh_write_authorized": true,
+    "administrative_exception": true,
+    "observed_utc": "2026-11-06T07:06:06.927462Z",
+    "original_job_status": "failed",
+    "original_job_preserved": true,
+    "private_preserved": true,
+    "original_safe_code": "native_failed_target_recovered"
   },
   "verification": {
     "packaging_native_bootstrap_passed": 209,
@@ -30,7 +36,21 @@
     "independent_source_review": "approved",
     "isolated_repair_integration_passed": 6,
     "isolated_repair_namespace_passed": 13,
-    "live_acceptance": "pending"
+    "live_acceptance": "failed_native21_target_recovered",
+    "finished_at": "2026-11-06 07:04:07.053379+00:00",
+    "soak": {
+      "duration_seconds": 183.588,
+      "samples": 6,
+      "sensor_count": 1,
+      "sensor_cpu_percent_max": 0.0128,
+      "services_stable": true,
+      "companions_stable": true,
+      "connected": true
+    },
+    "private_preserved": true,
+    "failed_audits": 1,
+    "active_chains": 0,
+    "unattended_source_qualification": false
   },
   "scoped_repair_helper": {
     "operator_path": "C:\\endpoint-platform-wix-build\\setup-client-1.0.7-411b196\\Repair-Observer187-107.ps1",
@@ -39,11 +59,20 @@
     "size": 27798,
     "authenticode_status": "Valid",
     "timestamped": true,
-    "approval": "not_yet_authorized"
+    "approval": "authorized_101.187_only"
   },
   "agent_release_unchanged": true,
   "windows_enrollment_download_unchanged": "3.2.165",
   "immutable_setup169_unchanged": true,
   "fleet_enabled": false,
-  "plan": "docs/superpowers/plans/2026-11-06-setup-target-recovery-client.md"
+  "plan": "docs/superpowers/plans/2026-11-06-setup-target-recovery-client.md",
+  "server_deployment": {
+    "commit": "ce46fd47a3a929a2fe104f01fac2bc8cc619559d",
+    "schema": "0045_setup_fleet_policy",
+    "health_http_status": 200,
+    "no_migration": true,
+    "fleet_revision": 3,
+    "fleet_enabled": false,
+    "max_parallel": 2
+  }
 }
