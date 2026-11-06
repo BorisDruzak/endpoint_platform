@@ -454,3 +454,30 @@ function Get-FileHash {param($LiteralPath,$Algorithm) @{Hash=('a'*64)}}
     monkeypatch.setattr(native,'verify_dependencies',lambda d:None)
     result=native.WindowsSupportOps().dependencies()
     assert result['automatic_inbound_rule_removed'] is (not existing)
+
+def test_real_keygen_under_elevated_admin_becomes_system_owned_private_support_key():
+    import shutil
+    native=importlib.import_module('pc_agent.platform.windows.support_access_native')
+    root=native.native_folder(0x23)/('EndpointSupportAccessTest-'+uuid.uuid4().hex)
+    ops=native.WindowsSupportOps()
+    try:
+        ops.protect(root)
+        key=ops.key(root,'tunnel_ed25519')
+        assert key.startswith('ssh-ed25519 ')
+        native.assert_private(root/'tunnel_ed25519')
+        native.assert_private(root/'tunnel_ed25519.pub')
+        native.atomic_write(root/'credential','eps1.test-fixture')
+        ops.protect(root/'credential')
+        native.assert_private(root/'credential')
+        import win32security
+        foreign=root/'foreign-owner'
+        foreign.write_bytes(b'not adopted')
+        win32security.SetNamedSecurityInfo(str(foreign),win32security.SE_FILE_OBJECT,
+            win32security.OWNER_SECURITY_INFORMATION,
+            win32security.ConvertStringSidToSid('S-1-5-32-545'),None,None,None)
+        with pytest.raises(ValueError,match='unsafe_support_acl'):
+            ops.protect(foreign)
+    finally:
+        # Unique test-created root only, never a product directory.
+        assert root.parent==native.native_folder(0x23) and root.name.startswith('EndpointSupportAccessTest-')
+        if root.exists(): shutil.rmtree(root)

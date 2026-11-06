@@ -170,6 +170,24 @@ def validate_service_config(config, executable: Path):
         raise ValueError('support_service_conflict')
 
 
+def _current_elevated_creator(owner_sid: str) -> bool:
+    """Authorize only this elevated installer token's own newly written leaf.
+
+    OpenSSH keygen/atomic writes use TokenUser ownership even inside the private
+    SYSTEM-owned namespace. This is installation normalization, never a relaxed
+    runtime file-security policy or acceptance of another user's existing file.
+    """
+    import win32api
+    import win32security as security
+    token=security.OpenProcessToken(win32api.GetCurrentProcess(),security.TOKEN_QUERY)
+    try:
+        caller=security.ConvertSidToStringSid(security.GetTokenInformation(token,security.TokenUser)[0])
+        return (owner_sid==caller and bool(security.GetTokenInformation(token,security.TokenElevation))
+                and security.CheckTokenMembership(None,security.ConvertStringSidToSid('S-1-5-32-544')))
+    finally:
+        token.Close()
+
+
 class WindowsSupportOps:
     def assert_owned_service(self, executable: Path) -> bool:
         import win32service
@@ -234,7 +252,8 @@ class WindowsSupportOps:
         assert_namespace(path)
         if existed:
             current = security.GetNamedSecurityInfo(str(path),security.SE_FILE_OBJECT,security.OWNER_SECURITY_INFORMATION)
-            if security.ConvertSidToStringSid(current.GetSecurityDescriptorOwner()) not in TRUSTED_SIDS:
+            owner_sid=security.ConvertSidToStringSid(current.GetSecurityDescriptorOwner())
+            if owner_sid not in TRUSTED_SIDS and not _current_elevated_creator(owner_sid):
                 raise ValueError('unsafe_support_acl')
         token = security.OpenProcessToken(win32api.GetCurrentProcess(),security.TOKEN_ADJUST_PRIVILEGES|security.TOKEN_QUERY)
         for privilege in ('SeRestorePrivilege','SeTakeOwnershipPrivilege'):
