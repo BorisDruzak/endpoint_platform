@@ -94,6 +94,51 @@ def test_error_string_failure_does_not_escape_diagnostic(event_sink):
     assert value["exceptions"][0]["safe_code"] == "UNKNOWN"
 
 
+@pytest.mark.parametrize('invariant', ['path_identity', 'handle_identity', 'change_time'])
+def test_foundation_event_includes_only_allowlisted_invariant_and_slot(event_sink, invariant):
+    from endpoint_contracts.runtime_payload import PayloadConflict
+    error = PayloadConflict()
+    error.foundation_invariant = invariant
+    error.foundation_slot_sha256 = 'a' * 64
+    error.private_path = 'C:/private-sentinel/password'
+    diagnostics.report_installer_phase_failure('restore-staged-companions', error)
+    text = event_sink[0][0][5][0]
+    context = json.loads(text)['exceptions'][0]
+    assert context['safe_code'] == 'PROVENANCE_CONFLICT'
+    assert context['foundation_invariant'] == invariant
+    assert context['foundation_slot_sha256'] == 'a' * 64
+    assert 'private-sentinel' not in text and 'private_path' not in text
+
+
+@pytest.mark.parametrize('invariant,slot,code', [
+    ('private-sentinel', 'a' * 64, 'PROVENANCE_CONFLICT'),
+    ('path_identity', 'private-sentinel', 'PROVENANCE_CONFLICT'),
+    ('path_identity', 'a' * 64, 'RECOVERY_REQUIRED'),
+    (['path_identity'], 'a' * 64, 'PROVENANCE_CONFLICT'),
+])
+def test_foundation_event_omits_unrecognized_diagnostic_values(event_sink, invariant, slot, code):
+    error = ValueError(code)
+    error.foundation_invariant = invariant
+    error.foundation_slot_sha256 = slot
+    diagnostics.report_installer_phase_failure('restore-staged-companions', error)
+    text = event_sink[0][0][5][0]
+    context = json.loads(text)['exceptions'][0]
+    assert 'foundation_invariant' not in context and 'foundation_slot_sha256' not in context
+    assert 'private-sentinel' not in text
+
+
+def test_broken_foundation_attribute_does_not_suppress_original_failure_event(event_sink):
+    class Error(ValueError):
+        @property
+        def foundation_invariant(self):
+            raise RuntimeError('private-sentinel')
+    diagnostics.report_installer_phase_failure('restore-staged-companions', Error('PROVENANCE_CONFLICT'))
+    text = event_sink[0][0][5][0]
+    context = json.loads(text)['exceptions'][0]
+    assert context['safe_code'] == 'PROVENANCE_CONFLICT'
+    assert 'foundation_invariant' not in context and 'private-sentinel' not in text
+
+
 def test_phase_timing_is_disabled_without_protected_opt_in(monkeypatch, event_sink, tmp_path):
     from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
     paths = WindowsUpdatePaths(tmp_path/'Agent', tmp_path/'data/pending.json')

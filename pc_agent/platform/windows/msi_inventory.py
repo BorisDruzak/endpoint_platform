@@ -411,14 +411,26 @@ def verified_foundation_bytes(expected,install_root):
                            lambda: durable_state._verify_copy_bytes(descriptor, *identity))
             else:
                 durable_state._verify_copy_bytes(descriptor, *identity)
-            identities.append((path,descriptor,before,opened.st_ctime_ns))
+            identities.append((path,descriptor,before,opened.st_ctime_ns,row['path']))
         yield
         if schema == 2:
             _verify_shared_namespace(rows, install_root)
-        for path,descriptor,before,changed in identities:
+        for path,descriptor,before,changed,slot in identities:
             after=os.fstat(descriptor)
-            if (durable_state._copy_identity(path.lstat())!=before or durable_state._copy_identity(after)!=before
-                or after.st_ctime_ns!=changed): raise ProvenanceConflict()
+            if durable_state._copy_identity(path.lstat())!=before:
+                _foundation_pin_failure('path_identity',slot)
+            if durable_state._copy_identity(after)!=before:
+                _foundation_pin_failure('handle_identity',slot)
+            if after.st_ctime_ns!=changed:
+                _foundation_pin_failure('change_time',slot)
+
+
+def _foundation_pin_failure(invariant, slot):
+    """Keep the same rejection; attach no raw filename or compared values."""
+    error = ProvenanceConflict()
+    error.foundation_invariant = invariant
+    error.foundation_slot_sha256 = hashlib.sha256(slot.encode('utf-8')).hexdigest()
+    raise error
 
 
 def read_expected_package(path: Path, release: dict) -> ExpectedMsi:
