@@ -1,53 +1,62 @@
 {
   "schema_version": 1,
-  "version": "3.2.156",
-  "status": "published",
-  "verified_utc": "2026-10-26T19:39:41.550861+00:00",
-  "runtime_source_commit": "6ed41cd01d494e46111a452c2ae3a844f723175b",
-  "windows_packaging_commit": "3e3528fbb07aa6abcece61a31adc8b7762048069",
+  "version": "3.2.172",
+  "status": "published_windows_fleet_waves_in_progress",
+  "verified_utc": "2026-11-06 08:58:37.695436+00:00",
+  "runtime_source_commit": "a2b6d6228b6583c6696c19b4e91b2175a2825b4b",
+  "windows_packaging_commit": "5971c4640b8a395537dc2fc0420fcb364c92f19e",
   "linux_kit_metadata_commit": "d007064792caa5f3b94d911c73b13214913a230c",
-  "verified_code_and_tests_commit": "4425321ca687b4788d51818a1234eea5fb95fa7d",
+  "verified_code_and_tests_commit": "5971c4640b8a395537dc2fc0420fcb364c92f19e",
   "canonical_rules": "AGENTS.md#canonical-agent-release",
   "windows": {
     "setup": {
-      "filename": "EndpointAgentSetup-3.2.156-x64.exe",
-      "sha256": "92c17fddab6d1c4a32b322bb5a39855bc876c688f743684129fc4cfc412e4665",
-      "size": 145896304,
+      "filename": "EndpointAgentSetup-3.2.172-x64.exe",
+      "sha256": "f6767cd04def4ef345b660b30c4e082acf065efaf08b0fc1282813517ff18df6",
+      "size": 146278976,
       "authenticode": "Valid with timestamp",
-      "operator_path": "C:\\endpoint-platform-wix-build\\staged-3.2.156-6ed41cd\\native-setup-build\\releases\\EndpointAgentSetup-3.2.156-x64.exe",
-      "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgentSetup-3.2.156-x64.exe",
+      "operator_path": "C:\\endpoint-platform-wix-build\\setup172-a2b6d62\\native-setup-build\\releases\\EndpointAgentSetup-3.2.172-x64.exe",
+      "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgentSetup-3.2.172-x64.exe",
       "console_url": "https://endpoint.sosnadmin.local/admin/enrollment",
-      "download_url": "https://endpoint.sosnadmin.local/api/admin/console/installer/releases/f1f81b7a-7f99-4050-86b6-4fe65fd95365/download"
+      "download_url": "https://endpoint.sosnadmin.local/api/admin/console/installer/releases/80e3b700-c3c1-418f-81d9-d7fc65d62def/download"
     },
     "msi": {
-      "filename": "EndpointAgent-3.2.156-x64.msi",
-      "sha256": "ab6cde32554798a18b446c8e33ce6f0926eba6a85439bc7224a08a88b25a1073",
+      "filename": "EndpointAgent-3.2.172-x64.msi",
+      "sha256": "45bce9f74ef209a279404da3951ddefe7c3e89ceee092a76b0e8283d4f649ce0",
+      "size": 104456192,
       "authenticode": "Valid with timestamp"
     },
-    "runtime_source_binding": "packaging/windows/initial-runtime-3.2.156.json",
-    "installed_core_tree_sha256": "18782bc34c6a58e327df32dead7a8abe0d4cb12bfc7fd46694709e8688e0bca8",
-    "update": {
-      "schema_version": "update_build_manifest_v1",
-      "build_identifier": "agent-windows-unified32156-6ed41cd",
-      "version": "3.2.156",
-      "platform": "windows_amd64",
-      "channel": "stable",
-      "artifact_url": "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/agent-windows-unified32156-6ed41cd",
-      "artifact_name": "endpoint-agent-windows_amd64-3.2.156.zip",
-      "archive_type": "zip",
-      "sha256": "21ca92ede7b18ef35076d10b4c7d2b9dee2507ca0d7e17fb8fc8604e178bcf25",
-      "size": 22866442,
-      "release_notes": "Unified agent with power history, resilient telemetry and installation recovery.",
-      "minimum_launcher_version": "3.2.156"
+    "runtime_source_binding": "packaging/windows/initial-runtime-3.2.172.json",
+    "installed_core_tree_sha256": "ade9b11d5f93e82d4e288e5f4b9aa13d8da6daa4f2ea9d94482d68794a393e2a",
+    "full_setup_update": {
+      "schema_version": "windows_setup_release_v1",
+      "release_identifier": "endpoint-windows-full-setup-3.2.172-a2b6d62",
+      "version": "3.2.172",
+      "artifact_name": "EndpointAgentSetup-3.2.172-x64.exe",
+      "sha256": "f6767cd04def4ef345b660b30c4e082acf065efaf08b0fc1282813517ff18df6",
+      "size": 146278976,
+      "source_revision": "a2b6d6228b6583c6696c19b4e91b2175a2825b4b",
+      "msi_sha256": "45bce9f74ef209a279404da3951ddefe7c3e89ceee092a76b0e8283d4f649ce0",
+      "tray_sha256": "2163a37bc124c0a56204f6f6e43f93878c82d6ad4e86e9cb27336ef0372bb256",
+      "sensor_sha256": "32e91e863eda3d5586fe7da50942f5467089c99a4f2db1c546b19ea5b6c53c76",
+      "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+      "policy": {
+        "revision": 5,
+        "enabled": true,
+        "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+        "scope": "all_active",
+        "device_ids": [],
+        "max_parallel": 2,
+        "reason": "Full Setup172 automatic updates for all active and future Windows agents in waves of two after exact native and user telemetry qualification",
+        "safe_code": null,
+        "updated_at": "2026-11-06 08:49:54.398601+00:00"
+      }
     },
-    "qualified_native_paths": [
-      "154 to 156 with assigned policy",
-      "repeat without file or process mutation",
-      "ordinary authenticated uninstall and reinstall",
-      "real reboot and offline power replay",
-      "original no-proof installer returns 67 and restores verified 154",
-      "154 to 156 with no assigned policy and explicit authenticated not_required; accepted in 73 seconds",
-      "Original affected PC: genuine155 uninstall and preserved negative recovery history, then production156 Setup REPAIRED with verified native MSI/Core, unchanged identity/ACL and one advancing WSS session."
+    "qualification_record": "docs/releases/windows-3.2.172-setup.json",
+    "qualified_source_foundations": [
+      "3.2.158",
+      "3.2.165",
+      "3.2.169",
+      "3.2.170"
     ]
   },
   "linux": {
@@ -96,7 +105,9 @@
       "identity/configuration/credential/CA preservation",
       "fresh policy APPLIED and authenticated TLS connection",
       "180-second quiet observation; stable processes and zero new power-event loss"
-    ]
+    ],
+    "version": "3.2.156",
+    "runtime_source_commit": "6ed41cd01d494e46111a452c2ae3a844f723175b"
   },
   "provider": {
     "commit": "3e3528fbb07aa6abcece61a31adc8b7762048069",
@@ -107,87 +118,32 @@
     "all_provider_python_files_match_main": 223
   },
   "verification": {
-    "windows_full_suite": {
-      "command": "python -m pytest tests pc_agent/tests -q -o faulthandler_timeout=120",
-      "passed": 5601,
-      "skipped": 419
-    },
-    "linux_native_full_suite": {
-      "passed": 4888,
-      "skipped": 1132,
-      "source_commit": "3e3528fbb07aa6abcece61a31adc8b7762048069"
-    },
-    "linux_followup_at_test_commit": {
-      "passed": 71,
-      "skipped": 0
-    },
-    "github_postgresql_full_suite": {
-      "passed": 5109,
-      "skipped": 911,
-      "run_url": "https://github.com/BorisDruzak/endpoint_platform/actions/runs/40373395703",
-      "source_commit": "4425321ca687b4788d51818a1234eea5fb95fa7d"
-    },
-    "contracts": "generated artifacts check passed",
-    "windows_source_bindings": {
-      "source_files": 220,
-      "frozen_entrypoint_closures": 11,
-      "readiness_bytecode_matches_reviewed_source": true
-    },
-    "public_downloads": {
-      "windows_actual_console_click_sha256_and_signature": "verified",
-      "linux_eight_get_head_digests": "verified",
-      "linux_listing_post": 403,
-      "linux_missing_file": 404,
-      "tls_ca_and_hostname": "verified"
-    },
-    "console_qa_identity": "disabled and sessions revoked after verification",
-    "original_affected_pc": {
-      "status": "verified",
-      "verified_utc": "2026-10-26T19:39:41.550861+00:00",
-      "original_failed_trial_result": "preserved; historical native rollback UNKNOWN",
-      "recovery": [
-        "two captured canonical authority leaves restored after full native155 verification",
-        "genuine ordinary155 uninstall; both old/new products, components and three services verified absent",
-        "original failed record archived with native file identity and ACL preserved; exact old recovery task retired; separate abort-after-native-uninstall outcome"
-      ],
-      "installation": {
-        "setup_sha256": "92c17fddab6d1c4a32b322bb5a39855bc876c688f743684129fc4cfc412e4665",
-        "setup_exit_code": 10,
-        "setup_status": "REPAIRED",
-        "service_result": "SERVICE_RUNNING",
-        "version": "3.2.156",
-        "source_revision": "6ed41cd01d494e46111a452c2ae3a844f723175b",
-        "native_msi_sha256": "ab6cde32554798a18b446c8e33ce6f0926eba6a85439bc7224a08a88b25a1073",
-        "foundation_feature_state": "complete",
-        "native_foundation_verified": true,
-        "core_verified": true,
-        "provenance_conflict": false,
-        "active_or_degraded_update": false,
-        "private_files_preserved": 4,
-        "private_hashes_and_sddl_unchanged": true,
-        "recovery_tasks_remaining": 0
-      },
-      "runtime": {
-        "agent_service_account": "LocalService",
-        "one_session_since_installation": true,
-        "session_heartbeat_advance_seconds": 210.04,
-        "recent_authenticated_heartbeat_utc": "2026-10-26T19:39:36.652314+00:00",
-        "service_pid_stable_between_observations": true
-      },
-      "scope": "original affected PC; native fixture tests are distinct from actual product evidence; no historical rollback success or fleet rollout claim"
+    "record": "docs/verification/2026-11-06-setup172-web-fleet.md",
+    "direct_windows_tests": 308,
+    "integration_tests_passed": 338,
+    "integration_tests_skipped": 1,
+    "power_combined_tests_passed": 131,
+    "version_packaging_tests_passed": 85,
+    "full_project_suite_run": false,
+    "independent_reviews_approved": true,
+    "actual_console_download": {
+      "Path": "C:\\Users\\admin-2\\Downloads\\EndpointAgentSetup-3.2.172-x64.exe",
+      "Size": 146278976,
+      "SHA256": "f6767cd04def4ef345b660b30c4e082acf065efaf08b0fc1282813517ff18df6",
+      "Signature": "Valid",
+      "Publisher": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+      "Timestamped": true
     }
   },
   "limits": [
-    "Windows Core-only update requires Foundation 3.2.156; use the full signed Setup to upgrade an older Foundation.",
-    "No fleet update targets were created by this publication.",
-    "The Windows matrix used a staging-configured signed wrapper with production-identical MSI/Core/PowerShell bytes; the original affected PC additionally verified the published production Setup.",
-    "Windows 149 historical rollback matrix and unsupported physical sleep/hibernate states were not newly qualified.",
-    "Linux qualification covers native RPM upgrade/rollback; no new OTA crash-rollback or GUI/hardware acceptance is claimed.",
-    "Incomplete WorkTime, Yandex/Opera and legacy deployment changes are outside this release."
+    "Native fleet admission requires exact172 artifact and qualified source Foundation; active/future scope does not bypass source protocol or telemetry gates.",
+    "Clean156 to172 was not tested; historical156 ACL limitations remain explicit in the fleet runbook.",
+    "Offline devices wait for fresh authenticated reconnect; unsupported pre156 agents need a supported installation path.",
+    "Yandex browser extension remains deferred; no new Linux release, hardware sleep qualification or independent support tunnel is included."
   ],
-  "operator_evidence_directory": "C:\\endpoint-platform-wix-build\\unified-3.2.156",
+  "operator_evidence_directory": "C:\\endpoint-platform-wix-build\\setup172-a2b6d62",
   "update_rule": "For every subsequent agent release, update AGENTS.md version and artifact paths, this record including source/digests/URLs/limits, runtime version, Windows source binding and Linux kit metadata after actual published-download verification. Preserve immutable historical packages.",
-  "record_role": "Primary published agent156; preserve historical publication evidence and source bindings",
+  "record_role": "Current Windows172 primary and full Setup fleet; ALT primary156 remains unchanged",
   "qualified_existing_device_release_record": "docs/releases/agent-3.2.158.json",
   "automatic_full_setup": {
     "status": "qualified_test120_applied",
@@ -564,17 +520,109 @@
   },
   "windows_full_setup172_candidate": {
     "version": "3.2.172",
-    "status": "preparing_not_built_not_published",
+    "status": "published_primary_windows_fleet_waves_in_progress",
     "fix_commits": [
       "d5cfb0daa61aff14f4cd4e9685c716a78300e1c3",
       "d4774f78b3a5e1ea356936171bbc46fbcb5fadc4"
     ],
-    "runtime_source_commit": null,
+    "runtime_source_commit": "a2b6d6228b6583c6696c19b4e91b2175a2825b4b",
+    "windows_packaging_commit": "5971c4640b8a395537dc2fc0420fcb364c92f19e",
+    "runtime_source_binding": "packaging/windows/initial-runtime-3.2.172.json",
     "observer_version": "1.0.7",
-    "signed_artifacts": false,
-    "native_qualified": false,
-    "fleet_enabled": false,
-    "enrollment_download_promoted": false,
-    "plan": "docs/superpowers/plans/2026-11-06-power-stream-anchor.md"
-  }
+    "signed_artifacts": true,
+    "native_qualified": true,
+    "fleet_enabled": true,
+    "policy_revision": 5,
+    "scope": "all_active",
+    "max_parallel": 2,
+    "enrollment_download_promoted": true,
+    "record": "docs/releases/windows-3.2.172-setup.json",
+    "setup_update_release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+    "qualified_source_foundations": [
+      "3.2.158",
+      "3.2.165",
+      "3.2.169",
+      "3.2.170"
+    ]
+  },
+  "historical_3_2_156_verification": {
+    "windows_full_suite": {
+      "command": "python -m pytest tests pc_agent/tests -q -o faulthandler_timeout=120",
+      "passed": 5601,
+      "skipped": 419
+    },
+    "linux_native_full_suite": {
+      "passed": 4888,
+      "skipped": 1132,
+      "source_commit": "3e3528fbb07aa6abcece61a31adc8b7762048069"
+    },
+    "linux_followup_at_test_commit": {
+      "passed": 71,
+      "skipped": 0
+    },
+    "github_postgresql_full_suite": {
+      "passed": 5109,
+      "skipped": 911,
+      "run_url": "https://github.com/BorisDruzak/endpoint_platform/actions/runs/40373395703",
+      "source_commit": "4425321ca687b4788d51818a1234eea5fb95fa7d"
+    },
+    "contracts": "generated artifacts check passed",
+    "windows_source_bindings": {
+      "source_files": 220,
+      "frozen_entrypoint_closures": 11,
+      "readiness_bytecode_matches_reviewed_source": true
+    },
+    "public_downloads": {
+      "windows_actual_console_click_sha256_and_signature": "verified",
+      "linux_eight_get_head_digests": "verified",
+      "linux_listing_post": 403,
+      "linux_missing_file": 404,
+      "tls_ca_and_hostname": "verified"
+    },
+    "console_qa_identity": "disabled and sessions revoked after verification",
+    "original_affected_pc": {
+      "status": "verified",
+      "verified_utc": "2026-10-26T19:39:41.550861+00:00",
+      "original_failed_trial_result": "preserved; historical native rollback UNKNOWN",
+      "recovery": [
+        "two captured canonical authority leaves restored after full native155 verification",
+        "genuine ordinary155 uninstall; both old/new products, components and three services verified absent",
+        "original failed record archived with native file identity and ACL preserved; exact old recovery task retired; separate abort-after-native-uninstall outcome"
+      ],
+      "installation": {
+        "setup_sha256": "92c17fddab6d1c4a32b322bb5a39855bc876c688f743684129fc4cfc412e4665",
+        "setup_exit_code": 10,
+        "setup_status": "REPAIRED",
+        "service_result": "SERVICE_RUNNING",
+        "version": "3.2.156",
+        "source_revision": "6ed41cd01d494e46111a452c2ae3a844f723175b",
+        "native_msi_sha256": "ab6cde32554798a18b446c8e33ce6f0926eba6a85439bc7224a08a88b25a1073",
+        "foundation_feature_state": "complete",
+        "native_foundation_verified": true,
+        "core_verified": true,
+        "provenance_conflict": false,
+        "active_or_degraded_update": false,
+        "private_files_preserved": 4,
+        "private_hashes_and_sddl_unchanged": true,
+        "recovery_tasks_remaining": 0
+      },
+      "runtime": {
+        "agent_service_account": "LocalService",
+        "one_session_since_installation": true,
+        "session_heartbeat_advance_seconds": 210.04,
+        "recent_authenticated_heartbeat_utc": "2026-10-26T19:39:36.652314+00:00",
+        "service_pid_stable_between_observations": true
+      },
+      "scope": "original affected PC; native fixture tests are distinct from actual product evidence; no historical rollback success or fleet rollout claim"
+    }
+  },
+  "historical_3_2_156_limits": [
+    "Windows Core-only update requires Foundation 3.2.156; use the full signed Setup to upgrade an older Foundation.",
+    "No fleet update targets were created by this publication.",
+    "The Windows matrix used a staging-configured signed wrapper with production-identical MSI/Core/PowerShell bytes; the original affected PC additionally verified the published production Setup.",
+    "Windows 149 historical rollback matrix and unsupported physical sleep/hibernate states were not newly qualified.",
+    "Linux qualification covers native RPM upgrade/rollback; no new OTA crash-rollback or GUI/hardware acceptance is claimed.",
+    "Incomplete WorkTime, Yandex/Opera and legacy deployment changes are outside this release."
+  ],
+  "historical_primary_release_record": "docs/releases/agent-3.2.156.json"
 }

@@ -42,3 +42,8 @@ this repair and d5cfb0d Foundation execution metadata repair. Live27 acceptance
 must show freshREADY, stable durable reset count, no duplicate history, native0,
 private preservation and fresh active UserSensor; do not rewrite history/counters
 or qualify a different artifact. Enrollment165 and fleet3/disabled/max2 unchanged.
+
+
+## Live172 receipt
+
+Console assignmentdf7a2b50-5d2d-43b5-a00e-87551b769d99 accepted native0 at08:45:05.429953Z, exact Core/Foundation172 with181.898sec/6samples/1Sensor and private4. Fresh Power samples changed toREADY while durable reset8689/loss0 and all36original server facts remained unchanged. UserSensor/Activity and observer107 are fresh. No manual workstation preparation/restart/reboot/log operation was used for172. Source170 was qualified and fleet policy5/all_active/max2 enabled only after exact172 acceptance; see the172 verification/release records for later rollout. Earlier171/disabled statements above describe the preserved investigation checkpoint.

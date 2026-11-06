@@ -1,0 +1,471 @@
+{
+  "schema_version": 1,
+  "version": "3.2.172",
+  "platform": "windows_amd64",
+  "status": "published_primary_windows_fleet_waves_in_progress",
+  "runtime_source_commit": "a2b6d6228b6583c6696c19b4e91b2175a2825b4b",
+  "windows_packaging_commit": "5971c4640b8a395537dc2fc0420fcb364c92f19e",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.172.json",
+  "producer_root": "C:\\endpoint-platform-wix-build\\setup172-a2b6d62",
+  "initial_runtime": {
+    "file_count": 119,
+    "tree_sha256": "ade9b11d5f93e82d4e288e5f4b9aa13d8da6daa4f2ea9d94482d68794a393e2a",
+    "component_guid": "8E7823D6-91DB-531C-A64D-E707D8D59AB4",
+    "source_file_count": 280,
+    "native_helpers_reuse_allowed": false
+  },
+  "fixes": [
+    "d5cfb0daa61aff14f4cd4e9685c716a78300e1c3",
+    "d4774f78b3a5e1ea356936171bbc46fbcb5fadc4"
+  ],
+  "packaged_observer": {
+    "client_version": "1.0.7",
+    "schema_version": 1,
+    "script_sha256": "8a1a30e7d208fbb431e2f715967d8a21eb82eac43edbfb4e97433a83049a6247",
+    "source_sha256": "8165e3f4f3a71c8552e0234c39e04fa462e775bb460a56cace08b740b38520d7"
+  },
+  "native_helper": {
+    "inspection": {
+      "sha256": "b364f7990289f3bc6cb3aeffb824a408b0aa65988c2b62d54c6594c6fcdae173",
+      "build_tools_absent": true,
+      "python_module_count": 438,
+      "archive_member_count": 112
+    },
+    "observer_payload": {
+      "client_version": "1.0.7",
+      "schema_version": 1,
+      "script_sha256": "8a1a30e7d208fbb431e2f715967d8a21eb82eac43edbfb4e97433a83049a6247",
+      "source_sha256": "8165e3f4f3a71c8552e0234c39e04fa462e775bb460a56cace08b740b38520d7"
+    },
+    "canonical_selector_in_core_and_helper": true,
+    "strict_grant_reader_unchanged": true,
+    "tray_pair_and_foundation_pin_exact_in_core_and_helper": true,
+    "native_phase_diagnostics_exact_in_helper": true,
+    "execution_security_guard_and_native_optin_exact_in_core_helper_wrapper": true,
+    "power_stream_anchor_fix_exact_in_core": true
+  },
+  "setup_update_release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+  "setup_update_manifest": {
+    "schema_version": "windows_setup_release_v1",
+    "release_identifier": "endpoint-windows-full-setup-3.2.172-a2b6d62",
+    "version": "3.2.172",
+    "artifact_name": "EndpointAgentSetup-3.2.172-x64.exe",
+    "sha256": "f6767cd04def4ef345b660b30c4e082acf065efaf08b0fc1282813517ff18df6",
+    "size": 146278976,
+    "source_revision": "a2b6d6228b6583c6696c19b4e91b2175a2825b4b",
+    "msi_sha256": "45bce9f74ef209a279404da3951ddefe7c3e89ceee092a76b0e8283d4f649ce0",
+    "tray_sha256": "2163a37bc124c0a56204f6f6e43f93878c82d6ad4e86e9cb27336ef0372bb256",
+    "sensor_sha256": "32e91e863eda3d5586fe7da50942f5467089c99a4f2db1c546b19ea5b6c53c76"
+  },
+  "signatures": [
+    {
+      "File": "EndpointAgent-3.2.172-x64.msi",
+      "Size": 104456192,
+      "SHA256": "45bce9f74ef209a279404da3951ddefe7c3e89ceee092a76b0e8283d4f649ce0",
+      "Signature": "Valid",
+      "Publisher": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+      "Timestamped": true
+    },
+    {
+      "File": "EndpointAgentSetup-3.2.172-x64.exe",
+      "Size": 146278976,
+      "SHA256": "f6767cd04def4ef345b660b30c4e082acf065efaf08b0fc1282813517ff18df6",
+      "Signature": "Valid",
+      "Publisher": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+      "Timestamped": true
+    }
+  ],
+  "qualification": {
+    "native_applied": true,
+    "active_user_telemetry": true,
+    "accepted_source_foundations": [
+      "3.2.158",
+      "3.2.165",
+      "3.2.169",
+      "3.2.170"
+    ],
+    "server_qualified_source_foundations": [
+      "3.2.158",
+      "3.2.165",
+      "3.2.169",
+      "3.2.170"
+    ],
+    "fleet_eligible": true,
+    "qualifications": [
+      {
+        "id": "5316ec68-edfd-4ade-920e-6b9a4ef88b7d",
+        "source_foundation": "3.2.158",
+        "sha256": "f6767cd04def4ef345b660b30c4e082acf065efaf08b0fc1282813517ff18df6",
+        "qualified_at": "2026-11-06 08:49:26.292897+00:00",
+        "expires_at": "2026-12-06 08:49:26.292897+00:00",
+        "evidence_assignment_id": "cc342a30-c6d7-4de9-805a-d9e7c2b804f0"
+      },
+      {
+        "id": "1e60d9cf-421d-478d-80c3-a06bb5ab07b1",
+        "source_foundation": "3.2.165",
+        "sha256": "f6767cd04def4ef345b660b30c4e082acf065efaf08b0fc1282813517ff18df6",
+        "qualified_at": "2026-11-06 08:57:11.034940+00:00",
+        "expires_at": "2026-12-06 08:57:11.034940+00:00",
+        "evidence_assignment_id": "7a24d863-8492-4f90-921f-cc6f1fd9ad77"
+      },
+      {
+        "id": "2b140c59-0855-47b9-a0c5-ff2a56a3c2f7",
+        "source_foundation": "3.2.169",
+        "sha256": "f6767cd04def4ef345b660b30c4e082acf065efaf08b0fc1282813517ff18df6",
+        "qualified_at": "2026-11-06 08:55:44.167070+00:00",
+        "expires_at": "2026-12-06 08:55:44.167070+00:00",
+        "evidence_assignment_id": "d5356ff3-aba4-403e-b7bd-cb793f404e29"
+      },
+      {
+        "id": "7e756406-0f43-4e3d-8b96-39ed5614ca88",
+        "source_foundation": "3.2.170",
+        "sha256": "f6767cd04def4ef345b660b30c4e082acf065efaf08b0fc1282813517ff18df6",
+        "qualified_at": "2026-11-06 08:46:47.162899+00:00",
+        "expires_at": "2026-12-06 08:46:47.162899+00:00",
+        "evidence_assignment_id": "df7a2b50-5d2d-43b5-a00e-87551b769d99"
+      }
+    ]
+  },
+  "fleet": {
+    "revision": 5,
+    "enabled": true,
+    "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+    "scope": "all_active",
+    "device_ids": [],
+    "max_parallel": 2,
+    "reason": "Full Setup172 automatic updates for all active and future Windows agents in waves of two after exact native and user telemetry qualification",
+    "safe_code": null,
+    "updated_at": "2026-11-06 08:49:54.398601+00:00",
+    "active_chains": 2
+  },
+  "enrollment": {
+    "published": true,
+    "default_version": "3.2.172",
+    "release_id": "80e3b700-c3c1-418f-81d9-d7fc65d62def",
+    "default_campaign_id": "09e62472-a6ae-49ab-aaaa-6613836b4423",
+    "auto_campaign_count": 1,
+    "allowed_installer_count": 10,
+    "source_scope_quota_and_expiry_preserved": true,
+    "actual_download_verified": {
+      "Path": "C:\\Users\\admin-2\\Downloads\\EndpointAgentSetup-3.2.172-x64.exe",
+      "Size": 146278976,
+      "SHA256": "f6767cd04def4ef345b660b30c4e082acf065efaf08b0fc1282813517ff18df6",
+      "Signature": "Valid",
+      "Publisher": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+      "Timestamped": true
+    }
+  },
+  "server_console_commit": "ce46fd47a3a929a2fe104f01fac2bc8cc619559d",
+  "live_canaries": [
+    {
+      "address": "192.168.101.27",
+      "node": "27",
+      "assignment_id": "df7a2b50-5d2d-43b5-a00e-87551b769d99",
+      "attempt_id": "8e6e5777-5879-4221-9b8c-17071babe2c3",
+      "source_core": "3.2.170",
+      "source_foundation": "3.2.170",
+      "source_client": "1.0.7",
+      "assigned_at": "2026-11-06 08:38:14.915313+00:00",
+      "status": "applied",
+      "finished_at": "2026-11-06 08:45:05.429953+00:00",
+      "safe_code": "setup_post_restart_confirmed",
+      "native_exit": 0,
+      "pending": false,
+      "private_preserved": true,
+      "soak": {
+        "duration_seconds": 181.898,
+        "samples": 6,
+        "sensor_count": 1,
+        "sensor_cpu_percent_max": 0.0032,
+        "services_stable": true,
+        "companions_stable": true,
+        "connected": true
+      },
+      "observed_client": {
+        "client_version": "1.0.7",
+        "core_version": "3.2.172",
+        "foundation_version": "3.2.172",
+        "ready": true,
+        "last_seen_at": "2026-11-06 08:58:11.472797+00:00"
+      },
+      "user_sensor": {
+        "received_at": "2026-11-06 08:57:49.756204+00:00",
+        "user_sensor_last_seen_at": "2026-11-06 08:57:42.051425+00:00",
+        "activity_listener_state": "READY",
+        "security_spool_state": "READY",
+        "usb_source_state": "READY",
+        "print_source_state": "READY"
+      },
+      "power": {
+        "availability": "READY",
+        "reported_at": "2026-11-06 08:58:37.336417+00:00",
+        "loss_count": 0,
+        "reset_count": 8689
+      },
+      "activity_latest": "2026-11-06 08:58:27.084345+00:00",
+      "workstation_preparation_for_this_assignment": false
+    },
+    {
+      "address": "192.168.100.1",
+      "node": "1",
+      "assignment_id": "cc342a30-c6d7-4de9-805a-d9e7c2b804f0",
+      "attempt_id": "94a2d422-4d22-4f56-a0c5-934a8f200adb",
+      "source_core": "3.2.164",
+      "source_foundation": "3.2.158",
+      "source_client": "1.0.5",
+      "assigned_at": "2026-11-06 08:38:40.835241+00:00",
+      "status": "applied",
+      "finished_at": "2026-11-06 08:47:40.463099+00:00",
+      "safe_code": "setup_post_restart_confirmed",
+      "native_exit": 0,
+      "pending": false,
+      "private_preserved": true,
+      "soak": {
+        "duration_seconds": 192.569,
+        "samples": 6,
+        "sensor_count": 1,
+        "sensor_cpu_percent_max": 0.004,
+        "services_stable": true,
+        "companions_stable": true,
+        "connected": true
+      },
+      "observed_client": {
+        "client_version": "1.0.7",
+        "core_version": "3.2.172",
+        "foundation_version": "3.2.172",
+        "ready": true,
+        "last_seen_at": "2026-11-06 08:58:30.713144+00:00"
+      },
+      "user_sensor": {
+        "received_at": "2026-11-06 08:58:02.629079+00:00",
+        "user_sensor_last_seen_at": "2026-11-06 08:57:57.215935+00:00",
+        "activity_listener_state": "READY",
+        "security_spool_state": "READY",
+        "usb_source_state": "READY",
+        "print_source_state": "READY"
+      },
+      "power": {
+        "availability": "READY",
+        "reported_at": "2026-11-06 08:58:33.949006+00:00",
+        "loss_count": 0,
+        "reset_count": 1
+      },
+      "activity_latest": "2026-11-06 08:58:27.228477+00:00",
+      "workstation_preparation_for_this_assignment": false
+    },
+    {
+      "address": "192.168.101.144",
+      "node": "144",
+      "assignment_id": "7a24d863-8492-4f90-921f-cc6f1fd9ad77",
+      "attempt_id": "9de85d46-b5cb-48aa-958f-bfc2b85099bd",
+      "source_core": "3.2.165",
+      "source_foundation": "3.2.165",
+      "source_client": "1.0.5",
+      "assigned_at": "2026-11-06 08:47:57.248749+00:00",
+      "status": "applied",
+      "finished_at": "2026-11-06 08:55:25.546559+00:00",
+      "safe_code": "setup_post_restart_confirmed",
+      "native_exit": 0,
+      "pending": false,
+      "private_preserved": true,
+      "soak": {
+        "duration_seconds": 181.615,
+        "samples": 6,
+        "sensor_count": 1,
+        "sensor_cpu_percent_max": 0.0,
+        "services_stable": true,
+        "companions_stable": true,
+        "connected": true
+      },
+      "observed_client": {
+        "client_version": "1.0.7",
+        "core_version": "3.2.172",
+        "foundation_version": "3.2.172",
+        "ready": true,
+        "last_seen_at": "2026-11-06 08:58:24.498149+00:00"
+      },
+      "user_sensor": {
+        "received_at": "2026-11-06 08:58:00.238408+00:00",
+        "user_sensor_last_seen_at": "2026-11-06 08:57:54.528252+00:00",
+        "activity_listener_state": "READY",
+        "security_spool_state": "READY",
+        "usb_source_state": "READY",
+        "print_source_state": "READY"
+      },
+      "power": {
+        "availability": "READY",
+        "reported_at": "2026-11-06 08:58:30.954658+00:00",
+        "loss_count": 0,
+        "reset_count": 1
+      },
+      "activity_latest": "2026-11-06 08:58:24.553300+00:00",
+      "workstation_preparation_for_this_assignment": false
+    },
+    {
+      "address": "192.168.101.146",
+      "node": "146",
+      "assignment_id": "d5356ff3-aba4-403e-b7bd-cb793f404e29",
+      "attempt_id": "6c8c6b51-2fd2-4cc9-90ad-26b38d45a032",
+      "source_core": "3.2.169",
+      "source_foundation": "3.2.169",
+      "source_client": "1.0.6",
+      "assigned_at": "2026-11-06 08:47:13.309712+00:00",
+      "status": "applied",
+      "finished_at": "2026-11-06 08:54:50.728634+00:00",
+      "safe_code": "setup_post_restart_confirmed",
+      "native_exit": 0,
+      "pending": false,
+      "private_preserved": true,
+      "soak": {
+        "duration_seconds": 181.473,
+        "samples": 6,
+        "sensor_count": 1,
+        "sensor_cpu_percent_max": 0.0,
+        "services_stable": true,
+        "companions_stable": true,
+        "connected": true
+      },
+      "observed_client": {
+        "client_version": "1.0.7",
+        "core_version": "3.2.172",
+        "foundation_version": "3.2.172",
+        "ready": true,
+        "last_seen_at": "2026-11-06 08:57:52.309798+00:00"
+      },
+      "user_sensor": {
+        "received_at": "2026-11-06 08:57:37.704135+00:00",
+        "user_sensor_last_seen_at": "2026-11-06 08:57:23.660920+00:00",
+        "activity_listener_state": "READY",
+        "security_spool_state": "READY",
+        "usb_source_state": "READY",
+        "print_source_state": "READY"
+      },
+      "power": {
+        "availability": "READY",
+        "reported_at": "2026-11-06 08:58:35.694256+00:00",
+        "loss_count": 0,
+        "reset_count": 0
+      },
+      "activity_latest": "2026-11-06 08:58:23.715790+00:00",
+      "workstation_preparation_for_this_assignment": false
+    }
+  ],
+  "power_reader_fix_included": true,
+  "power_followup_plan": "docs/superpowers/plans/2026-11-06-power-stream-anchor.md",
+  "independent_support_tunnel_included": false,
+  "verification_record": "docs/verification/2026-11-06-setup172-web-fleet.md",
+  "artifacts": [
+    {
+      "filename": "EndpointAgent-3.2.172-x64.msi",
+      "operator_path": "C:\\endpoint-platform-wix-build\\setup172-a2b6d62\\native-setup-build\\releases\\EndpointAgent-3.2.172-x64.msi",
+      "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgent-3.2.172-x64.msi",
+      "sha256": "45bce9f74ef209a279404da3951ddefe7c3e89ceee092a76b0e8283d4f649ce0",
+      "size": 104456192
+    },
+    {
+      "filename": "EndpointAgentSetup-3.2.172-x64.exe",
+      "operator_path": "C:\\endpoint-platform-wix-build\\setup172-a2b6d62\\native-setup-build\\releases\\EndpointAgentSetup-3.2.172-x64.exe",
+      "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgentSetup-3.2.172-x64.exe",
+      "sha256": "f6767cd04def4ef345b660b30c4e082acf065efaf08b0fc1282813517ff18df6",
+      "size": 146278976
+    }
+  ],
+  "observed_at": "2026-11-06 08:58:37.695436+00:00",
+  "fleet_assignments": [
+    {
+      "address": "192.168.101.22",
+      "node": "22",
+      "assignment_id": "a993d929-e357-4a77-a3b2-66f74dab6cff",
+      "attempt_id": "a6cf8c16-e787-4157-a430-f9070702ab61",
+      "source_core": "3.2.164",
+      "source_foundation": "3.2.158",
+      "source_client": "1.0.5",
+      "assigned_at": "2026-11-06 08:56:00.920521+00:00",
+      "status": "installing",
+      "finished_at": null,
+      "safe_code": "native_switching",
+      "native_exit": null,
+      "pending": null,
+      "private_preserved": null,
+      "soak": null,
+      "observed_client": {
+        "client_version": "1.0.5",
+        "core_version": "3.2.164",
+        "foundation_version": "3.2.158",
+        "ready": true,
+        "last_seen_at": "2026-11-06 08:56:56.901970+00:00"
+      },
+      "user_sensor": {
+        "received_at": "2026-11-06 08:57:01.308131+00:00",
+        "user_sensor_last_seen_at": "2026-11-06 08:56:54.739821+00:00",
+        "activity_listener_state": "READY",
+        "security_spool_state": "READY",
+        "usb_source_state": "READY",
+        "print_source_state": "READY"
+      },
+      "power": {
+        "availability": "READY",
+        "reported_at": "2026-11-06 08:57:54.601723+00:00",
+        "loss_count": 0,
+        "reset_count": 0
+      },
+      "activity_latest": "2026-11-06 08:57:54.780373+00:00",
+      "workstation_preparation_for_this_assignment": false
+    },
+    {
+      "address": "192.168.101.207",
+      "node": "207",
+      "assignment_id": "7bcb9683-7479-4ce6-83c3-45857074fb37",
+      "attempt_id": "6e431ac8-83ef-419d-91d5-908422561bb1",
+      "source_core": "3.2.164",
+      "source_foundation": "3.2.158",
+      "source_client": "1.0.5",
+      "assigned_at": "2026-11-06 08:55:00.107592+00:00",
+      "status": "verifying",
+      "finished_at": null,
+      "safe_code": null,
+      "native_exit": null,
+      "pending": null,
+      "private_preserved": null,
+      "soak": null,
+      "observed_client": {
+        "client_version": "1.0.5",
+        "core_version": "3.2.164",
+        "foundation_version": "3.2.158",
+        "ready": true,
+        "last_seen_at": "2026-11-06 08:55:12.286793+00:00"
+      },
+      "user_sensor": {
+        "received_at": "2026-11-06 08:58:28.144968+00:00",
+        "user_sensor_last_seen_at": "2026-11-06 08:55:53.419762+00:00",
+        "activity_listener_state": "READY",
+        "security_spool_state": "READY",
+        "usb_source_state": "READY",
+        "print_source_state": "READY"
+      },
+      "power": {
+        "availability": "READY",
+        "reported_at": "2026-11-06 08:58:34.096105+00:00",
+        "loss_count": 0,
+        "reset_count": 0
+      },
+      "activity_latest": "2026-11-06 08:58:31.680148+00:00",
+      "workstation_preparation_for_this_assignment": false
+    }
+  ],
+  "power27_live": {
+    "availability": "READY",
+    "reported_at": "2026-11-06 08:58:37.336417+00:00",
+    "loss_count": 0,
+    "reset_count": 8689,
+    "sensor": {
+      "received_at": "2026-11-06 08:57:49.756204+00:00",
+      "user_sensor_last_seen_at": "2026-11-06 08:57:42.051425+00:00",
+      "activity_listener_state": "READY",
+      "security_spool_state": "READY",
+      "usb_source_state": "READY",
+      "print_source_state": "READY"
+    },
+    "activity_latest": "2026-11-06 08:58:27.084345+00:00"
+  }
+}

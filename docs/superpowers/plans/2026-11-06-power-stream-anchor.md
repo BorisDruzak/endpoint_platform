@@ -48,7 +48,7 @@ this narrow local adapter path against current source/tests.
   polls and unchanged event identity/history. Implement the smallest adapter
   change and run related Power tests. Save a local native EVTX regression proof
   with no workstation writes. Parent reviews and commits only related files.
-- [ ] Rebuild/sign distinct full172, verify actual bytes/functions, and canary
+- [x] Rebuild/sign distinct full172, verify actual bytes/functions, and canary
   through Endpoint.27 must report several fresh READY samples with stable durable
   reset count and no duplicate history; installation needs native0/private/fresh
   user proof. Qualify exact sources before enabling all-active/max2 waves.
@@ -67,3 +67,8 @@ Actual Win32 reader against immutable captured EVTX produced4READY polls,
 zeroevents/reset/loss, unchanged checkpoint and original eventUUIDs. Capture
 SHA6596adc263ae1dd35fa12b34fe49e3932660c06bb5cd87f8a8e6159fc07b5e77 stayed
 unchanged. This is local fixture acceptance;27's live acceptance requires172.
+
+
+## Live172 acceptance
+
+Full172 runtimea2b6d6228b6583c6696c19b4e91b2175a2825b4b/native5971c4640b8a395537dc2fc0420fcb364c92f19e was built, signed and exact-function verified. Console27/source170 accepted native0 at08:45:05.429953Z with181.898sec/6samples/1Sensor/private4. Power is freshREADY, reset8689 stable across repeated later observations, loss0 and36original server facts. Local158/client105 accepted native0 at08:47:40.463099Z with192.569sec/6samples/1Sensor and automatically installed107. Both exact sources were qualified through Console before policy5/all_active/max2 was enabled; saved settings survived reload.146/source169 and144/source165 then also accepted native0 and were separately Console-qualified. Automatic worker assignments began after slots released. Enrollment primary172 was transactionally published into the same AUTO campaign and actual Console download digest/signature verified. See docs/verification/2026-11-06-setup172-web-fleet.md for remaining rollout and user-session/offline/legacy limits. No workstation preparation was used for these172 assignments.
