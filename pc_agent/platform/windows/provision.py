@@ -111,6 +111,24 @@ class ProvisioningResult:
     device_id: UUID
     claim_removed: bool
     support_access_status: str = 'unavailable'
+    support_access_error: str | None = None
+
+
+# Only fixed component codes may leave its process boundary. Never forward
+# exception strings, stderr, paths, enrollment identity or bearer material.
+_SUPPORT_ERROR_CODES = frozenset({
+    'support_not_installed','support_install_failed','support_dependency_install_failed',
+    'support_dependency_reboot_required','support_process_identity_unavailable',
+    'support_process_exit_timeout','support_dependency_firewall_conflict',
+    'support_dependency_signature_invalid','support_dependency_changed',
+    'support_identity_conflict','support_key_role_conflict','support_key_generation_failed',
+    'support_key_read_failed','support_enrollment_unavailable','unsafe_support_acl',
+    'unsafe_support_path','invalid_support_origin','support_signature_invalid',
+    'support_payload_recovery_required','support_service_not_ready','support_install_busy'})
+
+
+def safe_support_error_code(value) -> str:
+    return value if isinstance(value,str) and value in _SUPPORT_ERROR_CODES else 'support_install_failed'
 
 
 def install_enrolled_support(data_root: Path) -> dict:
@@ -132,10 +150,12 @@ def install_enrolled_support(data_root: Path) -> dict:
     try:
         result = subprocess.run([str(executable),'--install'],shell=False,capture_output=True,
             text=True,timeout=660,creationflags=subprocess.CREATE_NO_WINDOW)
-        if result.returncode != 0:
+        if not isinstance(result.stdout,str) or len(result.stdout.encode('utf-8'))>4096:
             return {'installed':False,'error':'support_install_failed'}
         value = json.loads(result.stdout)
-        return {'installed':value.get('installed') is True}
+        if result.returncode==0 and value.get('installed') is True:
+            return {'installed':True}
+        return {'installed':False,'error':safe_support_error_code(value.get('error'))}
     except Exception:
         return {'installed':False,'error':'support_install_failed'}
 
@@ -242,12 +262,15 @@ class WindowsProvisioner:
         try:
             support = self._support_installer()
             support_status = 'installed' if support.get('installed') is True else 'unavailable'
+            support_error = None if support_status=='installed' else safe_support_error_code(support.get('error'))
         except Exception:
             support_status = 'unavailable'
+            support_error = 'support_install_failed'
         self._service.start()
         claim_path.unlink()
         _flush_directory(data_root)
-        return ProvisioningResult(device_id=device_id, claim_removed=True,support_access_status=support_status)
+        return ProvisioningResult(device_id=device_id, claim_removed=True,support_access_status=support_status,
+            support_access_error=support_error)
 
 
 def _claim_from_text(raw: str) -> str:
@@ -355,7 +378,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Windows provisioning failed: {type(error).__name__}", file=sys.stderr)
         return 1
     import json
-    print(json.dumps({'support_access_status':result.support_access_status}))
+    print(json.dumps({'support_access_status':result.support_access_status,'support_access_error':result.support_access_error}))
     return 0
 
 

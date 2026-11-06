@@ -1082,10 +1082,13 @@ def _run_provisioner(
             ),
         )
     try:
-        installed=json.loads(str(completed.stdout or ''))['support_access_status']=='installed'
+        support_result=json.loads(str(completed.stdout or ''))
+        installed=support_result['support_access_status']=='installed'
+        support_error=support_result.get('support_access_error')
     except (ValueError,KeyError,TypeError):
         installed=False
-    _write_support_install_result(installed)
+        support_error=None
+    _write_support_install_result(installed,support_error)
 
 
 def _write_inherited_stdout(value: bytes, *, kernel=None) -> None:
@@ -1131,18 +1134,23 @@ def _emit_preflight(value: dict[str, object]) -> None:
 def _install_support_after_native(data_root: Path) -> None:
     from pc_agent.platform.windows.provision import install_enrolled_support
     try:
-        installed = install_enrolled_support(data_root).get('installed') is True
+        result=install_enrolled_support(data_root)
+        installed = result.get('installed') is True
+        support_error=result.get('error')
     except Exception:
         installed = False
-    _write_support_install_result(installed)
+        support_error=None
+    _write_support_install_result(installed,support_error)
 
 
-def _write_support_install_result(installed: bool) -> None:
+def _write_support_install_result(installed: bool, error_code=None) -> None:
+    from pc_agent.platform.windows.provision import safe_support_error_code
     try:
         path = _prepare_diagnostics_root()/'support-install-result.json'
         temporary = path.with_suffix('.tmp')
         temporary.write_text(json.dumps({'schema_version':'endpoint_support_install_result_v1',
             'installed':installed,'status':'installed' if installed else 'unavailable',
+            'error_code':None if installed else safe_support_error_code(error_code),
             'updated_at':datetime.now(UTC).isoformat()}),encoding='utf-8')
         temporary.replace(path)
     except OSError:

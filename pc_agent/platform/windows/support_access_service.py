@@ -12,6 +12,28 @@ import sys
 from pc_agent.platform.windows.support_access import SERVICE_NAME, SupportHTTPClient, SupportHTTPError, SupportSupervisor, install_support_access, uninstall_support_access
 from pc_agent.platform.windows.support_access_native import SupportChildren, assert_private, assert_bootstrap_file, production_roots, verify_dependencies
 
+DEFAULT_ENDPOINT_ORIGIN = 'https://endpoint.sosnadmin.local'
+
+
+def _enrollment_origin(agent: Path) -> str:
+    from pc_agent.platform.windows.support_access import validate_origin
+    from pc_agent.platform.windows.support_access_native import reject_links
+    path=agent/'endpoint-origin'
+    reject_links(path)
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        # Only this optional leaf may be absent. A missing/unreadable parent,
+        # existing reparse point or a failure reading an override is an error.
+        import stat
+        if not stat.S_ISDIR(agent.stat().st_mode):
+            raise ValueError('support_enrollment_unavailable')
+        origin=DEFAULT_ENDPOINT_ORIGIN
+    else:
+        assert_bootstrap_file(path)
+        origin=path.read_text(encoding='ascii').strip()
+    validate_origin(origin)
+    return origin
 
 def run_supervisor(device_id, client, children, stop: Event, *, publish=lambda state: None):
     """Keep the lease cutoff responsive while DNS/TLS/policy requests block."""
@@ -83,10 +105,10 @@ def install_from_enrollment():
     from pc_agent.enrollment_identity import read_enrollment_device_id
     root,program = production_roots()
     agent = root.parent/'Agent'
-    for name in ('device-credential','endpoint-origin','endpoint-ca.crt','enrollment-identity.json'):
+    for name in ('device-credential','endpoint-ca.crt','enrollment-identity.json'):
         assert_bootstrap_file(agent/name)
     return install_support_access(agent,program.parent/'Agent',
-        origin=(agent/'endpoint-origin').read_text(encoding='ascii').strip(),
+        origin=_enrollment_origin(agent),
         ca_pem=(agent/'endpoint-ca.crt').read_text(encoding='ascii'),
         device_id=str(read_enrollment_device_id(agent/'enrollment-identity.json')),
         device_token=read_device_credential(agent/'device-credential'),
@@ -104,6 +126,8 @@ def main():
                      'support_dependency_signature_invalid','support_dependency_changed',
                      'support_identity_conflict','support_key_role_conflict','support_key_generation_failed',
                      'support_key_read_failed','support_enrollment_unavailable','unsafe_support_acl'}
+            known.update({'unsafe_support_path','invalid_support_origin','support_signature_invalid',
+                          'support_payload_recovery_required','support_service_not_ready','support_install_busy'})
             code = str(error) if str(error) in known else 'support_install_failed'
             print(json.dumps({'installed':False,'error':code}))
             return 1
