@@ -1,7 +1,13 @@
 # Full Setup172 publication and fleet acceptance
 
-Observed UTC: 2026-11-06 08:58:37.695436+00:00. This is the current receipt, not a claim that
+Observed UTC: 2026-11-06 09:25:06.371563+00:00. This is the current receipt, not a claim that
 offline, unsupported or user-session-blocked machines have completed.
+
+Eleven172 assignments are APPLIED/native0: five Console canaries and six
+automatic fleet jobs. Final readback verified exact172 Core/Foundation,
+observer107, fresh matching WSS/UserSensor/Activity, Power READY and private
+preservation on all11; active chains0, native172 failures0. The two outstanding
+gates are120/source167 without an active user and69/unsupported source79.
 
 ## Exact immutable artifact
 
@@ -21,12 +27,17 @@ the producer: EXE f6767cd04def4ef345b660b30c4e082acf065efaf08b0fc1282813517ff18d
 
 | Address | Source Core / Foundation / observer | Status | Native exit | Soak seconds / samples / sensors | Assignment |
 | --- | --- | --- | --- | --- | --- |
+| 192.168.101.187 | 3.2.171 / 3.2.171 / 1.0.7 | applied | 0 | 183.653 / 6 / 1 | `7edc7aab-87eb-4339-9320-de2c0822fbb0` |
 | 192.168.101.27 | 3.2.170 / 3.2.170 / 1.0.7 | applied | 0 | 181.898 / 6 / 1 | `df7a2b50-5d2d-43b5-a00e-87551b769d99` |
 | 192.168.100.1 | 3.2.164 / 3.2.158 / 1.0.5 | applied | 0 | 192.569 / 6 / 1 | `cc342a30-c6d7-4de9-805a-d9e7c2b804f0` |
 | 192.168.101.144 | 3.2.165 / 3.2.165 / 1.0.5 | applied | 0 | 181.615 / 6 / 1 | `7a24d863-8492-4f90-921f-cc6f1fd9ad77` |
 | 192.168.101.146 | 3.2.169 / 3.2.169 / 1.0.6 | applied | 0 | 181.473 / 6 / 1 | `d5356ff3-aba4-403e-b7bd-cb793f404e29` |
-| 192.168.101.22 | 3.2.164 / 3.2.158 / 1.0.5 | installing | None | - / - / - | `a993d929-e357-4a77-a3b2-66f74dab6cff` |
-| 192.168.101.207 | 3.2.164 / 3.2.158 / 1.0.5 | verifying | None | - / - / - | `7bcb9683-7479-4ce6-83c3-45857074fb37` |
+| 192.168.101.2 | 3.2.164 / 3.2.158 / 1.0.5 | applied | 0 | 182.143 / 6 / 1 | `aeb7917b-0cdb-4ba5-9df5-f298c3ae9dcc` |
+| 192.168.101.22 | 3.2.164 / 3.2.158 / 1.0.5 | applied | 0 | 182.794 / 6 / 1 | `a993d929-e357-4a77-a3b2-66f74dab6cff` |
+| 192.168.101.29 | 3.2.164 / 3.2.158 / 1.0.5 | applied | 0 | 181.666 / 6 / 1 | `387ee3e7-2c1e-4da3-ac18-cedd3a32f5bc` |
+| 192.168.101.138 | 3.2.164 / 3.2.158 / 1.0.5 | applied | 0 | 182.604 / 6 / 1 | `a2388ba1-d0c4-4ca6-9d35-bf33d1fe1588` |
+| 192.168.101.170 | 3.2.164 / 3.2.158 / 1.0.5 | applied | 0 | 181.531 / 6 / 1 | `7fc059d1-fae4-4e72-8eae-6b190d9d0c7e` |
+| 192.168.101.207 | 3.2.164 / 3.2.158 / 1.0.5 | applied | 0 | 181.528 / 6 / 1 | `7bcb9683-7479-4ce6-83c3-45857074fb37` |
 
 APPLIED rows carry exact172 Core/Foundation/source/MSI, accepted native0,
 verified provenance/services/companions, pendingfalse and private-four preserved.
@@ -50,11 +61,13 @@ The unrelated physical/provider cause of duplicate record IDs is not established
 
 Exact target f867fb0f-d506-47cc-84f7-c147b47fcba9 was selected throughout
 the numbered Console flow. Qualified source Foundations:
-3.2.158, 3.2.165, 3.2.169, 3.2.170.
-Policy revision5, enabled=True,
+3.2.158, 3.2.165, 3.2.169, 3.2.170, 3.2.171.
+Policy revision7, enabled=True,
 all_active, empty frozen device list, max_parallel2; observed active chains
-2. The saved values survived reload. A temporary paused
-revision4 preceded enabled revision5; no concurrency bypass was used.
+0. The saved values survived reload. Temporary paused
+revision4 preceded enabled revision5. Operator pause6 then admitted187 only
+after22 had completed and one chain remained; enabled revision7 resumed
+ordinary waves with two occupied chains. No third chain was introduced.
 The worker automatically assigned fleet jobs after canary slots released;
 all automatic job receipts are distinguished in the172 JSON record.
 
@@ -83,7 +96,24 @@ Yandex extension remains deferred. ALT primary156 is unchanged. The outgoing
 independent support tunnel is design only and is not in this Setup.
 
 120/source167 needs a normal active user session before its source qualification;
-no administrative preparation was performed.170 waits for reconnect. Active
+no administrative preparation was performed.170 returned after the policy was
+enabled and automatically received7fc059d1-fae4-4e72-8eae-6b190d9d0c7e at
+09:17:17.682319Z, with no manual assignment or preparation. Active
 101.69/B2-KDN-S2 is Core/Foundation3.2.79 and source_unsupported; this policy
 does not silently reinterpret its old protocol as supported. Neither condition
 is recorded as success. Historical native21 jobs/attempts/private state remain.
+
+
+## Counter and history preservation
+
+All11 durable Power loss/reset counters match the08:40 baseline.138 already
+had loss_count2 at07:37 and08:28; the final value remains2 withREADY health.
+It was not reset to zero or attributed to this update.27 retains reset8689,
+loss0 and36server facts. Four original recovered native21 failures on27,120
+and187 remain FAILED/native_failed_target_recovered/native21. No older failure
+was rewritten as this release acceptance. Read-only observation recorded23
+samples with maximum2activechains. Final helper/runtime-record checks passed;
+Windows Schannel health probe could not resolve CA revocation status, while
+independent Python TLS verification with the explicit CA and hostname enabled
+returned HTTP200/databaseok. All four server services were active, schema0045
+and about4.08GB artifact filesystem capacity were freshly verified.

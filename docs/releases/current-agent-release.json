@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "version": "3.2.172",
-  "status": "published_windows_fleet_waves_in_progress",
-  "verified_utc": "2026-11-06 08:58:37.695436+00:00",
+  "status": "published_windows_qualified_online_rollout_accepted",
+  "verified_utc": "2026-11-06 09:25:06.371563+00:00",
   "runtime_source_commit": "a2b6d6228b6583c6696c19b4e91b2175a2825b4b",
   "windows_packaging_commit": "5971c4640b8a395537dc2fc0420fcb364c92f19e",
   "linux_kit_metadata_commit": "d007064792caa5f3b94d911c73b13214913a230c",
@@ -40,7 +40,7 @@
       "sensor_sha256": "32e91e863eda3d5586fe7da50942f5467089c99a4f2db1c546b19ea5b6c53c76",
       "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
       "policy": {
-        "revision": 5,
+        "revision": 7,
         "enabled": true,
         "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
         "scope": "all_active",
@@ -48,7 +48,7 @@
         "max_parallel": 2,
         "reason": "Full Setup172 automatic updates for all active and future Windows agents in waves of two after exact native and user telemetry qualification",
         "safe_code": null,
-        "updated_at": "2026-11-06 08:49:54.398601+00:00"
+        "updated_at": "2026-11-06 09:04:17.388829+00:00"
       }
     },
     "qualification_record": "docs/releases/windows-3.2.172-setup.json",
@@ -56,7 +56,8 @@
       "3.2.158",
       "3.2.165",
       "3.2.169",
-      "3.2.170"
+      "3.2.170",
+      "3.2.171"
     ]
   },
   "linux": {
@@ -110,12 +111,11 @@
     "runtime_source_commit": "6ed41cd01d494e46111a452c2ae3a844f723175b"
   },
   "provider": {
-    "commit": "3e3528fbb07aa6abcece61a31adc8b7762048069",
-    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-3e3528fbb07a",
-    "migration": "0039_power_source_state",
-    "compatible_provider_deployed_before_clients": true,
+    "commit": "ce46fd47a3a929a2fe104f01fac2bc8cc619559d",
+    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-ce46fd47a3a9",
+    "migration": "0045_setup_fleet_policy",
     "api_worker_https_health": "verified",
-    "all_provider_python_files_match_main": 223
+    "native172_server_deployment_required": false
   },
   "verification": {
     "record": "docs/verification/2026-11-06-setup172-web-fleet.md",
@@ -520,7 +520,7 @@
   },
   "windows_full_setup172_candidate": {
     "version": "3.2.172",
-    "status": "published_primary_windows_fleet_waves_in_progress",
+    "status": "published_primary_windows_qualified_online_rollout_accepted",
     "fix_commits": [
       "d5cfb0daa61aff14f4cd4e9685c716a78300e1c3",
       "d4774f78b3a5e1ea356936171bbc46fbcb5fadc4"
@@ -532,7 +532,7 @@
     "signed_artifacts": true,
     "native_qualified": true,
     "fleet_enabled": true,
-    "policy_revision": 5,
+    "policy_revision": 7,
     "scope": "all_active",
     "max_parallel": 2,
     "enrollment_download_promoted": true,
@@ -542,7 +542,8 @@
       "3.2.158",
       "3.2.165",
       "3.2.169",
-      "3.2.170"
+      "3.2.170",
+      "3.2.171"
     ]
   },
   "historical_3_2_156_verification": {
@@ -624,5 +625,13 @@
     "Linux qualification covers native RPM upgrade/rollback; no new OTA crash-rollback or GUI/hardware acceptance is claimed.",
     "Incomplete WorkTime, Yandex/Opera and legacy deployment changes are outside this release."
   ],
-  "historical_primary_release_record": "docs/releases/agent-3.2.156.json"
+  "historical_primary_release_record": "docs/releases/agent-3.2.156.json",
+  "historical_3_2_156_provider": {
+    "commit": "3e3528fbb07aa6abcece61a31adc8b7762048069",
+    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-3e3528fbb07a",
+    "migration": "0039_power_source_state",
+    "compatible_provider_deployed_before_clients": true,
+    "api_worker_https_health": "verified",
+    "all_provider_python_files_match_main": 223
+  }
 }

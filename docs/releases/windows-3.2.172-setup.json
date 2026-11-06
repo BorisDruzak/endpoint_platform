@@ -2,7 +2,7 @@
   "schema_version": 1,
   "version": "3.2.172",
   "platform": "windows_amd64",
-  "status": "published_primary_windows_fleet_waves_in_progress",
+  "status": "published_primary_windows_qualified_online_rollout_accepted",
   "runtime_source_commit": "a2b6d6228b6583c6696c19b4e91b2175a2825b4b",
   "windows_packaging_commit": "5971c4640b8a395537dc2fc0420fcb364c92f19e",
   "runtime_source_binding": "packaging/windows/initial-runtime-3.2.172.json",
@@ -82,13 +82,15 @@
       "3.2.158",
       "3.2.165",
       "3.2.169",
-      "3.2.170"
+      "3.2.170",
+      "3.2.171"
     ],
     "server_qualified_source_foundations": [
       "3.2.158",
       "3.2.165",
       "3.2.169",
-      "3.2.170"
+      "3.2.170",
+      "3.2.171"
     ],
     "fleet_eligible": true,
     "qualifications": [
@@ -123,11 +125,19 @@
         "qualified_at": "2026-11-06 08:46:47.162899+00:00",
         "expires_at": "2026-12-06 08:46:47.162899+00:00",
         "evidence_assignment_id": "df7a2b50-5d2d-43b5-a00e-87551b769d99"
+      },
+      {
+        "id": "2e316410-51a1-4f89-a0d7-0f5802d59ffb",
+        "source_foundation": "3.2.171",
+        "sha256": "f6767cd04def4ef345b660b30c4e082acf065efaf08b0fc1282813517ff18df6",
+        "qualified_at": "2026-11-06 09:15:17.068829+00:00",
+        "expires_at": "2026-12-06 09:15:17.068829+00:00",
+        "evidence_assignment_id": "7edc7aab-87eb-4339-9320-de2c0822fbb0"
       }
     ]
   },
   "fleet": {
-    "revision": 5,
+    "revision": 7,
     "enabled": true,
     "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
     "scope": "all_active",
@@ -135,8 +145,8 @@
     "max_parallel": 2,
     "reason": "Full Setup172 automatic updates for all active and future Windows agents in waves of two after exact native and user telemetry qualification",
     "safe_code": null,
-    "updated_at": "2026-11-06 08:49:54.398601+00:00",
-    "active_chains": 2
+    "updated_at": "2026-11-06 09:04:17.388829+00:00",
+    "active_chains": 0
   },
   "enrollment": {
     "published": true,
@@ -157,6 +167,54 @@
   },
   "server_console_commit": "ce46fd47a3a929a2fe104f01fac2bc8cc619559d",
   "live_canaries": [
+    {
+      "address": "192.168.101.187",
+      "node": "187",
+      "assignment_id": "7edc7aab-87eb-4339-9320-de2c0822fbb0",
+      "attempt_id": "b64e6db5-79e1-4187-a8eb-4a5e6cf058b4",
+      "source_core": "3.2.171",
+      "source_foundation": "3.2.171",
+      "source_client": "1.0.7",
+      "assigned_at": "2026-11-06 09:04:01.194643+00:00",
+      "status": "applied",
+      "finished_at": "2026-11-06 09:14:04.588589+00:00",
+      "safe_code": "setup_post_restart_confirmed",
+      "native_exit": 0,
+      "pending": false,
+      "private_preserved": true,
+      "soak": {
+        "duration_seconds": 183.653,
+        "samples": 6,
+        "sensor_count": 1,
+        "sensor_cpu_percent_max": 0.0254,
+        "services_stable": true,
+        "companions_stable": true,
+        "connected": true
+      },
+      "observed_client": {
+        "client_version": "1.0.7",
+        "core_version": "3.2.172",
+        "foundation_version": "3.2.172",
+        "ready": true,
+        "last_seen_at": "2026-11-06 09:24:51.506513+00:00"
+      },
+      "user_sensor": {
+        "received_at": "2026-11-06 09:24:21.207902+00:00",
+        "user_sensor_last_seen_at": "2026-11-06 09:24:07.265163+00:00",
+        "activity_listener_state": "READY",
+        "security_spool_state": "READY",
+        "usb_source_state": "READY",
+        "print_source_state": "READY"
+      },
+      "power": {
+        "availability": "READY",
+        "reported_at": "2026-11-06 09:25:03.418403+00:00",
+        "loss_count": 0,
+        "reset_count": 0
+      },
+      "activity_latest": "2026-11-06 09:24:52.306041+00:00",
+      "workstation_preparation_for_this_assignment": false
+    },
     {
       "address": "192.168.101.27",
       "node": "27",
@@ -186,11 +244,11 @@
         "core_version": "3.2.172",
         "foundation_version": "3.2.172",
         "ready": true,
-        "last_seen_at": "2026-11-06 08:58:11.472797+00:00"
+        "last_seen_at": "2026-11-06 09:24:11.780555+00:00"
       },
       "user_sensor": {
-        "received_at": "2026-11-06 08:57:49.756204+00:00",
-        "user_sensor_last_seen_at": "2026-11-06 08:57:42.051425+00:00",
+        "received_at": "2026-11-06 09:24:49.870632+00:00",
+        "user_sensor_last_seen_at": "2026-11-06 09:24:42.934058+00:00",
         "activity_listener_state": "READY",
         "security_spool_state": "READY",
         "usb_source_state": "READY",
@@ -198,11 +256,11 @@
       },
       "power": {
         "availability": "READY",
-        "reported_at": "2026-11-06 08:58:37.336417+00:00",
+        "reported_at": "2026-11-06 09:25:01.686709+00:00",
         "loss_count": 0,
         "reset_count": 8689
       },
-      "activity_latest": "2026-11-06 08:58:27.084345+00:00",
+      "activity_latest": "2026-11-06 09:24:57.943490+00:00",
       "workstation_preparation_for_this_assignment": false
     },
     {
@@ -234,11 +292,11 @@
         "core_version": "3.2.172",
         "foundation_version": "3.2.172",
         "ready": true,
-        "last_seen_at": "2026-11-06 08:58:30.713144+00:00"
+        "last_seen_at": "2026-11-06 09:24:40.123254+00:00"
       },
       "user_sensor": {
-        "received_at": "2026-11-06 08:58:02.629079+00:00",
-        "user_sensor_last_seen_at": "2026-11-06 08:57:57.215935+00:00",
+        "received_at": "2026-11-06 09:25:03.144670+00:00",
+        "user_sensor_last_seen_at": "2026-11-06 09:24:58.339475+00:00",
         "activity_listener_state": "READY",
         "security_spool_state": "READY",
         "usb_source_state": "READY",
@@ -246,11 +304,11 @@
       },
       "power": {
         "availability": "READY",
-        "reported_at": "2026-11-06 08:58:33.949006+00:00",
+        "reported_at": "2026-11-06 09:25:03.903031+00:00",
         "loss_count": 0,
         "reset_count": 1
       },
-      "activity_latest": "2026-11-06 08:58:27.228477+00:00",
+      "activity_latest": "2026-11-06 09:24:58.339475+00:00",
       "workstation_preparation_for_this_assignment": false
     },
     {
@@ -282,11 +340,11 @@
         "core_version": "3.2.172",
         "foundation_version": "3.2.172",
         "ready": true,
-        "last_seen_at": "2026-11-06 08:58:24.498149+00:00"
+        "last_seen_at": "2026-11-06 09:24:24.673032+00:00"
       },
       "user_sensor": {
-        "received_at": "2026-11-06 08:58:00.238408+00:00",
-        "user_sensor_last_seen_at": "2026-11-06 08:57:54.528252+00:00",
+        "received_at": "2026-11-06 09:25:00.602501+00:00",
+        "user_sensor_last_seen_at": "2026-11-06 09:24:55.777624+00:00",
         "activity_listener_state": "READY",
         "security_spool_state": "READY",
         "usb_source_state": "READY",
@@ -294,11 +352,11 @@
       },
       "power": {
         "availability": "READY",
-        "reported_at": "2026-11-06 08:58:30.954658+00:00",
+        "reported_at": "2026-11-06 09:25:03.213935+00:00",
         "loss_count": 0,
         "reset_count": 1
       },
-      "activity_latest": "2026-11-06 08:58:24.553300+00:00",
+      "activity_latest": "2026-11-06 09:24:55.777624+00:00",
       "workstation_preparation_for_this_assignment": false
     },
     {
@@ -330,11 +388,11 @@
         "core_version": "3.2.172",
         "foundation_version": "3.2.172",
         "ready": true,
-        "last_seen_at": "2026-11-06 08:57:52.309798+00:00"
+        "last_seen_at": "2026-11-06 09:24:52.560955+00:00"
       },
       "user_sensor": {
-        "received_at": "2026-11-06 08:57:37.704135+00:00",
-        "user_sensor_last_seen_at": "2026-11-06 08:57:23.660920+00:00",
+        "received_at": "2026-11-06 09:24:37.878213+00:00",
+        "user_sensor_last_seen_at": "2026-11-06 09:24:25.004738+00:00",
         "activity_listener_state": "READY",
         "security_spool_state": "READY",
         "usb_source_state": "READY",
@@ -342,11 +400,11 @@
       },
       "power": {
         "availability": "READY",
-        "reported_at": "2026-11-06 08:58:35.694256+00:00",
+        "reported_at": "2026-11-06 09:25:02.284848+00:00",
         "loss_count": 0,
         "reset_count": 0
       },
-      "activity_latest": "2026-11-06 08:58:23.715790+00:00",
+      "activity_latest": "2026-11-06 09:24:55.035741+00:00",
       "workstation_preparation_for_this_assignment": false
     }
   ],
@@ -370,8 +428,56 @@
       "size": 146278976
     }
   ],
-  "observed_at": "2026-11-06 08:58:37.695436+00:00",
+  "observed_at": "2026-11-06 09:25:06.371563+00:00",
   "fleet_assignments": [
+    {
+      "address": "192.168.101.2",
+      "node": "2",
+      "assignment_id": "aeb7917b-0cdb-4ba5-9df5-f298c3ae9dcc",
+      "attempt_id": "0ad94ddc-007b-4a15-92fc-8f7419b06df0",
+      "source_core": "3.2.164",
+      "source_foundation": "3.2.158",
+      "source_client": "1.0.5",
+      "assigned_at": "2026-11-06 09:15:15.932419+00:00",
+      "status": "applied",
+      "finished_at": "2026-11-06 09:21:45.045855+00:00",
+      "safe_code": "setup_post_restart_confirmed",
+      "native_exit": 0,
+      "pending": false,
+      "private_preserved": true,
+      "soak": {
+        "duration_seconds": 182.143,
+        "samples": 6,
+        "sensor_count": 1,
+        "sensor_cpu_percent_max": 0.0033,
+        "services_stable": true,
+        "companions_stable": true,
+        "connected": true
+      },
+      "observed_client": {
+        "client_version": "1.0.7",
+        "core_version": "3.2.172",
+        "foundation_version": "3.2.172",
+        "ready": true,
+        "last_seen_at": "2026-11-06 09:24:48.581479+00:00"
+      },
+      "user_sensor": {
+        "received_at": "2026-11-06 09:24:23.522163+00:00",
+        "user_sensor_last_seen_at": "2026-11-06 09:24:17.834101+00:00",
+        "activity_listener_state": "READY",
+        "security_spool_state": "READY",
+        "usb_source_state": "READY",
+        "print_source_state": "READY"
+      },
+      "power": {
+        "availability": "READY",
+        "reported_at": "2026-11-06 09:25:05.001899+00:00",
+        "loss_count": 0,
+        "reset_count": 0
+      },
+      "activity_latest": "2026-11-06 09:25:02.858583+00:00",
+      "workstation_preparation_for_this_assignment": false
+    },
     {
       "address": "192.168.101.22",
       "node": "22",
@@ -381,23 +487,31 @@
       "source_foundation": "3.2.158",
       "source_client": "1.0.5",
       "assigned_at": "2026-11-06 08:56:00.920521+00:00",
-      "status": "installing",
-      "finished_at": null,
-      "safe_code": "native_switching",
-      "native_exit": null,
-      "pending": null,
-      "private_preserved": null,
-      "soak": null,
+      "status": "applied",
+      "finished_at": "2026-11-06 09:03:06.980891+00:00",
+      "safe_code": "setup_post_restart_confirmed",
+      "native_exit": 0,
+      "pending": false,
+      "private_preserved": true,
+      "soak": {
+        "duration_seconds": 182.794,
+        "samples": 6,
+        "sensor_count": 1,
+        "sensor_cpu_percent_max": 0.0032,
+        "services_stable": true,
+        "companions_stable": true,
+        "connected": true
+      },
       "observed_client": {
-        "client_version": "1.0.5",
-        "core_version": "3.2.164",
-        "foundation_version": "3.2.158",
+        "client_version": "1.0.7",
+        "core_version": "3.2.172",
+        "foundation_version": "3.2.172",
         "ready": true,
-        "last_seen_at": "2026-11-06 08:56:56.901970+00:00"
+        "last_seen_at": "2026-11-06 09:24:13.249558+00:00"
       },
       "user_sensor": {
-        "received_at": "2026-11-06 08:57:01.308131+00:00",
-        "user_sensor_last_seen_at": "2026-11-06 08:56:54.739821+00:00",
+        "received_at": "2026-11-06 09:24:50.378647+00:00",
+        "user_sensor_last_seen_at": "2026-11-06 09:24:42.924959+00:00",
         "activity_listener_state": "READY",
         "security_spool_state": "READY",
         "usb_source_state": "READY",
@@ -405,11 +519,155 @@
       },
       "power": {
         "availability": "READY",
-        "reported_at": "2026-11-06 08:57:54.601723+00:00",
+        "reported_at": "2026-11-06 09:25:02.775172+00:00",
         "loss_count": 0,
         "reset_count": 0
       },
-      "activity_latest": "2026-11-06 08:57:54.780373+00:00",
+      "activity_latest": "2026-11-06 09:24:57.929073+00:00",
+      "workstation_preparation_for_this_assignment": false
+    },
+    {
+      "address": "192.168.101.29",
+      "node": "29",
+      "assignment_id": "387ee3e7-2c1e-4da3-ac18-cedd3a32f5bc",
+      "attempt_id": "dc5067d6-1492-42f7-9b47-0f9f5e3c7c88",
+      "source_core": "3.2.164",
+      "source_foundation": "3.2.158",
+      "source_client": "1.0.5",
+      "assigned_at": "2026-11-06 09:10:12.088736+00:00",
+      "status": "applied",
+      "finished_at": "2026-11-06 09:16:52.341444+00:00",
+      "safe_code": "setup_post_restart_confirmed",
+      "native_exit": 0,
+      "pending": false,
+      "private_preserved": true,
+      "soak": {
+        "duration_seconds": 181.666,
+        "samples": 6,
+        "sensor_count": 1,
+        "sensor_cpu_percent_max": 0.0043,
+        "services_stable": true,
+        "companions_stable": true,
+        "connected": true
+      },
+      "observed_client": {
+        "client_version": "1.0.7",
+        "core_version": "3.2.172",
+        "foundation_version": "3.2.172",
+        "ready": true,
+        "last_seen_at": "2026-11-06 09:24:57.848553+00:00"
+      },
+      "user_sensor": {
+        "received_at": "2026-11-06 09:24:38.634170+00:00",
+        "user_sensor_last_seen_at": "2026-11-06 09:24:28.419607+00:00",
+        "activity_listener_state": "READY",
+        "security_spool_state": "READY",
+        "usb_source_state": "READY",
+        "print_source_state": "READY"
+      },
+      "power": {
+        "availability": "READY",
+        "reported_at": "2026-11-06 09:25:04.322766+00:00",
+        "loss_count": 0,
+        "reset_count": 0
+      },
+      "activity_latest": "2026-11-06 09:24:58.432489+00:00",
+      "workstation_preparation_for_this_assignment": false
+    },
+    {
+      "address": "192.168.101.138",
+      "node": "138",
+      "assignment_id": "a2388ba1-d0c4-4ca6-9d35-bf33d1fe1588",
+      "attempt_id": "de913a93-39b6-4a75-91f9-f3b0d362d8e9",
+      "source_core": "3.2.164",
+      "source_foundation": "3.2.158",
+      "source_client": "1.0.5",
+      "assigned_at": "2026-11-06 09:02:06.050349+00:00",
+      "status": "applied",
+      "finished_at": "2026-11-06 09:09:38.504418+00:00",
+      "safe_code": "setup_post_restart_confirmed",
+      "native_exit": 0,
+      "pending": false,
+      "private_preserved": true,
+      "soak": {
+        "duration_seconds": 182.604,
+        "samples": 6,
+        "sensor_count": 1,
+        "sensor_cpu_percent_max": 0.0,
+        "services_stable": true,
+        "companions_stable": true,
+        "connected": true
+      },
+      "observed_client": {
+        "client_version": "1.0.7",
+        "core_version": "3.2.172",
+        "foundation_version": "3.2.172",
+        "ready": true,
+        "last_seen_at": "2026-11-06 09:24:37.470438+00:00"
+      },
+      "user_sensor": {
+        "received_at": "2026-11-06 09:24:19.219188+00:00",
+        "user_sensor_last_seen_at": "2026-11-06 09:24:08.417301+00:00",
+        "activity_listener_state": "READY",
+        "security_spool_state": "READY",
+        "usb_source_state": "READY",
+        "print_source_state": "READY"
+      },
+      "power": {
+        "availability": "READY",
+        "reported_at": "2026-11-06 09:25:04.489649+00:00",
+        "loss_count": 2,
+        "reset_count": 0
+      },
+      "activity_latest": "2026-11-06 09:24:53.450865+00:00",
+      "workstation_preparation_for_this_assignment": false
+    },
+    {
+      "address": "192.168.101.170",
+      "node": "170",
+      "assignment_id": "7fc059d1-fae4-4e72-8eae-6b190d9d0c7e",
+      "attempt_id": "d88fb037-19a4-4c44-a84e-6f0d38570878",
+      "source_core": "3.2.164",
+      "source_foundation": "3.2.158",
+      "source_client": "1.0.5",
+      "assigned_at": "2026-11-06 09:17:17.682319+00:00",
+      "status": "applied",
+      "finished_at": "2026-11-06 09:23:43.934768+00:00",
+      "safe_code": "setup_post_restart_confirmed",
+      "native_exit": 0,
+      "pending": false,
+      "private_preserved": true,
+      "soak": {
+        "duration_seconds": 181.531,
+        "samples": 6,
+        "sensor_count": 1,
+        "sensor_cpu_percent_max": 0.0043,
+        "services_stable": true,
+        "companions_stable": true,
+        "connected": true
+      },
+      "observed_client": {
+        "client_version": "1.0.7",
+        "core_version": "3.2.172",
+        "foundation_version": "3.2.172",
+        "ready": true,
+        "last_seen_at": "2026-11-06 09:24:48.569544+00:00"
+      },
+      "user_sensor": {
+        "received_at": "2026-11-06 09:24:28.115063+00:00",
+        "user_sensor_last_seen_at": "2026-11-06 09:24:19.278722+00:00",
+        "activity_listener_state": "READY",
+        "security_spool_state": "READY",
+        "usb_source_state": "READY",
+        "print_source_state": "READY"
+      },
+      "power": {
+        "availability": "READY",
+        "reported_at": "2026-11-06 09:25:03.403836+00:00",
+        "loss_count": 0,
+        "reset_count": 0
+      },
+      "activity_latest": "2026-11-06 09:25:04.372403+00:00",
       "workstation_preparation_for_this_assignment": false
     },
     {
@@ -421,23 +679,31 @@
       "source_foundation": "3.2.158",
       "source_client": "1.0.5",
       "assigned_at": "2026-11-06 08:55:00.107592+00:00",
-      "status": "verifying",
-      "finished_at": null,
-      "safe_code": null,
-      "native_exit": null,
-      "pending": null,
-      "private_preserved": null,
-      "soak": null,
+      "status": "applied",
+      "finished_at": "2026-11-06 09:01:41.796341+00:00",
+      "safe_code": "setup_post_restart_confirmed",
+      "native_exit": 0,
+      "pending": false,
+      "private_preserved": true,
+      "soak": {
+        "duration_seconds": 181.528,
+        "samples": 6,
+        "sensor_count": 1,
+        "sensor_cpu_percent_max": 0.0043,
+        "services_stable": true,
+        "companions_stable": true,
+        "connected": true
+      },
       "observed_client": {
-        "client_version": "1.0.5",
-        "core_version": "3.2.164",
-        "foundation_version": "3.2.158",
+        "client_version": "1.0.7",
+        "core_version": "3.2.172",
+        "foundation_version": "3.2.172",
         "ready": true,
-        "last_seen_at": "2026-11-06 08:55:12.286793+00:00"
+        "last_seen_at": "2026-11-06 09:24:46.750578+00:00"
       },
       "user_sensor": {
-        "received_at": "2026-11-06 08:58:28.144968+00:00",
-        "user_sensor_last_seen_at": "2026-11-06 08:55:53.419762+00:00",
+        "received_at": "2026-11-06 09:24:28.694105+00:00",
+        "user_sensor_last_seen_at": "2026-11-06 09:24:17.840040+00:00",
         "activity_listener_state": "READY",
         "security_spool_state": "READY",
         "usb_source_state": "READY",
@@ -445,27 +711,162 @@
       },
       "power": {
         "availability": "READY",
-        "reported_at": "2026-11-06 08:58:34.096105+00:00",
+        "reported_at": "2026-11-06 09:25:00.771794+00:00",
         "loss_count": 0,
         "reset_count": 0
       },
-      "activity_latest": "2026-11-06 08:58:31.680148+00:00",
+      "activity_latest": "2026-11-06 09:25:02.879375+00:00",
       "workstation_preparation_for_this_assignment": false
     }
   ],
   "power27_live": {
     "availability": "READY",
-    "reported_at": "2026-11-06 08:58:37.336417+00:00",
+    "reported_at": "2026-11-06 09:25:01.686709+00:00",
     "loss_count": 0,
     "reset_count": 8689,
     "sensor": {
-      "received_at": "2026-11-06 08:57:49.756204+00:00",
-      "user_sensor_last_seen_at": "2026-11-06 08:57:42.051425+00:00",
+      "received_at": "2026-11-06 09:24:49.870632+00:00",
+      "user_sensor_last_seen_at": "2026-11-06 09:24:42.934058+00:00",
       "activity_listener_state": "READY",
       "security_spool_state": "READY",
       "usb_source_state": "READY",
       "print_source_state": "READY"
     },
-    "activity_latest": "2026-11-06 08:58:27.084345+00:00"
+    "activity_latest": "2026-11-06 09:24:57.943490+00:00"
+  },
+  "original_native_failures_preserved": [
+    {
+      "assignment_id": "0d4299e7-7c17-495d-8ddb-56b50f03a154",
+      "status": "failed",
+      "safe_code": "native_failed_target_recovered",
+      "native_exit": 21
+    },
+    {
+      "assignment_id": "7a61bbc2-1270-4517-a1de-92a62e3d6c48",
+      "status": "failed",
+      "safe_code": "native_failed_target_recovered",
+      "native_exit": 21
+    },
+    {
+      "assignment_id": "e41d9fe1-628c-4279-b224-b7a4f55e7b99",
+      "status": "failed",
+      "safe_code": "native_failed_target_recovered",
+      "native_exit": 21
+    },
+    {
+      "assignment_id": "0301db1b-38b2-40f1-91dc-3842e85fc66c",
+      "status": "failed",
+      "safe_code": "native_failed_target_recovered",
+      "native_exit": 21
+    }
+  ],
+  "rollout": {
+    "accepted_assignments": 11,
+    "active_chains": 0,
+    "failed_assignments": 0,
+    "all_registered_windows_agents_updated": false,
+    "pending": [
+      {
+        "address": "192.168.101.120",
+        "hostname": "DESKTOP-9ST5HO2",
+        "source_foundation": "3.2.167",
+        "reason": "active_user_session_required_for_source_canary",
+        "virtual_machine": "QEMU Q35 with Proxmox EDK II",
+        "memory_gb": 8,
+        "disk_gb": 120,
+        "rdp_port3389_reachable": true
+      },
+      {
+        "address": "192.168.101.69",
+        "hostname": "B2-KDN-S2",
+        "source_foundation": "3.2.79",
+        "reason": "source_unsupported"
+      }
+    ],
+    "late_reconnect_assignment": {
+      "address": "192.168.101.170",
+      "job": {
+        "id": "7fc059d1-fae4-4e72-8eae-6b190d9d0c7e",
+        "status": "applied",
+        "source_core_version": "3.2.164",
+        "source_foundation_version": "3.2.158",
+        "source_client_version": "1.0.5",
+        "assigned_at": "2026-11-06 09:17:17.682319+00:00",
+        "started_at": "2026-11-06 09:17:51.010662+00:00",
+        "finished_at": "2026-11-06 09:23:43.934768+00:00",
+        "updated_at": "2026-11-06 09:23:43.934768+00:00",
+        "safe_code": "setup_post_restart_confirmed",
+        "attempt_id": "d88fb037-19a4-4c44-a84e-6f0d38570878",
+        "last_report": {
+          "attempt_id": "d88fb037-19a4-4c44-a84e-6f0d38570878",
+          "phase": "applied",
+          "safe_code": "setup_post_restart_confirmed",
+          "proof": {
+            "foundation_version": "3.2.172",
+            "core_version": "3.2.172",
+            "source_revision": "a2b6d6228b6583c6696c19b4e91b2175a2825b4b",
+            "msi_sha256": "45bce9f74ef209a279404da3951ddefe7c3e89ceee092a76b0e8283d4f649ce0",
+            "native_phase": "accepted",
+            "exit_code": 0,
+            "native_verified": true,
+            "core_verified": true,
+            "provenance_verified": true,
+            "pending": false,
+            "services_verified": true,
+            "companions_restored": true,
+            "private": {
+              "credential": true,
+              "identity": true,
+              "origin": true,
+              "ca": true
+            },
+            "soak": {
+              "duration_seconds": 181.531,
+              "samples": 6,
+              "sensor_count": 1,
+              "sensor_cpu_percent_max": 0.0043,
+              "services_stable": true,
+              "companions_stable": true,
+              "connected": true
+            }
+          }
+        }
+      },
+      "returned_after_policy_enabled": true
+    },
+    "observation": {
+      "samples": 23,
+      "first_utc": "2026-11-06 09:12:11.370198+00:00",
+      "last_utc": "2026-11-06 09:23:58.133507+00:00",
+      "maximum_observed_active_chains": 2
+    },
+    "runtime_verification": {
+      "utc": "2026-11-06 09:25:06.371563+00:00",
+      "native_accepted": 11,
+      "matching_core_foundation": "3.2.172",
+      "observer": "1.0.7",
+      "fresh_user_sensor_and_activity": 11,
+      "power_ready": 11,
+      "power_counters_preserved": 11,
+      "historical_power138_losses_preserved": 2,
+      "private_preserved": 11,
+      "active_chains": 0,
+      "qualification_sources": [
+        "3.2.158",
+        "3.2.165",
+        "3.2.169",
+        "3.2.170",
+        "3.2.171"
+      ],
+      "max_sensor_cpu_percent": 0.0254,
+      "power27_resets_preserved": 8689,
+      "power27_history_facts": 36,
+      "auto_campaigns": 1,
+      "allowed_versions": 10,
+      "pending": [
+        "101.120 active user source167 canary",
+        "101.69 unsupported source3.2.79"
+      ]
+    }
   }
 }
