@@ -11,6 +11,7 @@ EnvironmentFile=/etc/endpoint-platform/endpoint-platform.env
 ExecStart=/opt/endpoint-platform/current/venv/bin/python -m endpoint_server.support_access.exporter
 RuntimeDirectory=endpoint-support
 RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=restart
 Restart=on-failure
 RestartSec=5
 UMask=0027
