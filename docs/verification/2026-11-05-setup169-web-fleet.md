@@ -97,3 +97,11 @@ UserSensor/Activity.169 qualifications are empty and only187 holds a chain.
 The default AUTO campaign is09e62472-a6ae-49ab-aaaa-6613836b4423 with9 published
 installer versions through165, CIDR192.168.101.0/24, expiry2030-09-27T09:04Z,
 quota100 and usage6. These are read-only observations;169 was not included.
+
+Follow-up2026-11-06: the operator authorized read-only SSH, hostname was verified,
+and the safe native events identified two separate failures. A Foundation
+identity/ChangeTime exit check failed first; its exact cause remains unresolved.
+The second failure is a confirmed Tray bootloader parent/child counting bug,
+fixed only in local source with223 passing checks. No workstation repair, new
+Setup build, qualification or rollout occurred. See
+[`authorized diagnosis`](2026-11-06-setup169-187-readonly.md) for evidence and scope.
