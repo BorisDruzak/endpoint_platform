@@ -481,3 +481,13 @@ def test_real_keygen_under_elevated_admin_becomes_system_owned_private_support_k
         # Unique test-created root only, never a product directory.
         assert root.parent==native.native_folder(0x23) and root.name.startswith('EndpointSupportAccessTest-')
         if root.exists(): shutil.rmtree(root)
+
+def test_real_pywin32_accepts_existing_enabled_local_administrator():
+    import win32net,win32netcon
+    native=importlib.import_module('pc_agent.platform.windows.support_access_native')
+    admin_group=native.administrators_name().casefold()
+    admins=[entry['name'] for entry in win32net.NetUserEnum(None,1,0)[0]
+            if not entry['flags']&win32netcon.UF_ACCOUNTDISABLE and admin_group in
+            {group.casefold() for group in win32net.NetUserGetLocalGroups(None,entry['name'],win32netcon.LG_INCLUDE_INDIRECT)}]
+    assert admins,'A real enabled local administrator is required for this native qualification test'
+    native.validate_windows_admin(admins[0])

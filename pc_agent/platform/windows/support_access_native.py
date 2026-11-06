@@ -147,8 +147,10 @@ def assert_bootstrap_file(path: Path):
 
 def validate_windows_admin(username: str):
     import win32net
+    import win32netcon
     info = win32net.NetUserGetInfo(None,username,1)
-    groups = win32net.NetUserGetLocalGroups(None,username,0,1)
+    # pywin32311 exposes (server, user, flags); native level0 is implicit.
+    groups = win32net.NetUserGetLocalGroups(None,username,win32netcon.LG_INCLUDE_INDIRECT)
     if info['flags'] & 2 or administrators_name().casefold() not in {g.casefold() for g in groups}:
         raise ValueError('support_existing_admin_required')
 
