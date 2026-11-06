@@ -1,6 +1,6 @@
 # Independent Windows support access: live verification
 
-Windows primary remains **3.2.172** and ALT remains **3.2.156**. Diagnostic173,174 and175 were not published to enrollment/AUTO. Fleet policy9 remains paused. Signed175 fixed the absent optional-origin bootstrap and was natively accepted on120,22 and27; the27 OS capability timeout exposed a separate dependency gap. Distinct176 source adds domain-capable Support1.0.1 and a pinned private offline SSH bundle. This checkpoint does not assert176 signed-media or fleet acceptance.
+Windows primary is **3.2.176**; ALT remains **3.2.156**. All six currently online Windows devices accepted exact176/native0 with healthy Support1.0.1 and fresh user telemetry. Strict administrator SSH passed on five; test120 also passed with Core/updater stopped. Persistent policy10/all_active/max2 covers later qualified reconnects. Actual served176 bytes/signature and transactional sole AUTO11 publication passed. Six offline172 devices await reconnect; legacy79/unqualified registrations remain unsupported. Diagnostic173/174/175 media and every original failure history remain immutable.
 
 ## Independent access on test120
 
@@ -77,9 +77,9 @@ kill, replay, CBS repair, GPO change or fabricated Agent configuration followed.
 
 The175 clean-checkout full suite passed6517tests with454skips and5warnings in
 834.13seconds before176 edits. Its media, binding and original jobs are immutable.
-176 must independently pass actual signed native acceptance, active-user
+At that checkpoint176 still required actual signed native acceptance, active-user
 telemetry, stopped-Core/updater reserve access on120, domain key login and fresh
-bundle bootstrap before qualification/publication. The bundled upstream Microsoft
+bundle bootstrap before qualification/publication; the final results follow below. The bundled upstream Microsoft
 10.4.0.0p1-Preview is explicitly Preview, not vendor production-ready; its proposed
 qualification is limited to the requested testing-stage channel.
 
@@ -91,7 +91,7 @@ existing domain administrators only after the installed running component itself
 reports fresh1.0.1 capability; installer registration alone cannot advance it.
 Legacy local-name1.0.0 remains compatible. Read-only SID, enabled-account and
 indirect local Administrators proofs confirmed SOSNADM\admin-2 on22,27,ADMIN-2
-and MUNSLU-S2. Actual domain SSH remains a separate176 media gate.
+and MUNSLU-S2. Actual domain SSH through both the OS profile on22 and private bundled profile on ADMIN-2 passed under signed176; see the exact-media evidence below.
 
 The initial provider exporter restart correctly revoked authority when its
 runtime snapshot disappeared; reserve access briefly disconnected and recovered
@@ -105,3 +105,138 @@ forward/gateway PIDs and key/config hashes were unchanged. Root independently
 executed31strict reserve SSH commands from17:03:28.991Z to17:06:25.663Z with
 zero errors and unchanged Support PID7328. This is actual command evidence,
 separate from transport reachability.
+
+
+## Signed176 and three live acceptance cases
+
+Runtime source03143de5005201837c58a2f0955d714e7026a2eb and binding
+be3ea71493af47229320c8f4ee5206b33631ce39 are immutable. Exact signed artifacts,
+component1.0.1 and the Preview bundle limitation are recorded in
+`docs/releases/windows-3.2.176-setup.json`. All297 committed source fingerprints,
+four actual frozen Support modules, the embedded original ZIP/notices and15
+Microsoft PE signatures passed independent review. CAB/staged/uninstallBinary
+and schema3/123 Foundation pins agree; MSI owns no active Support/Runtime service.
+Build-only binding-manifest.json retains descriptive1.0.0; it is written before
+WiX and has no runtime/admission consumer. Actual signed compiled code/status is1.0.1; Windows version resources are
+absent and are not version authority. Sealed bytes are unchanged.
+
+The clean B6 full suite passed6622tests,454skips,6warnings in845.47seconds,
+including the real pinned ZIP tests. Later Git attribute commit
+bcd33d291a28fd7dd9175f3d75fbc885f9b5f296 only fixes fresh Windows checkout line
+endings for the pinned manifest; default autocrlf was proven to change its hash,
+and the explicit LF attribute preserves the sealed C6 bytes. Runtime media were
+not rebuilt or changed.
+
+| Device | Source | Assignment | Native | Stable seconds | Sensors | Independent access |
+|---|---|---|---:|---:|---:|---|
+| DESKTOP-9ST5HO2/120 |175|eb002fc8-f757-47b6-ac1b-8e15f37b46e6|0|185.058|1|Local test_agent_win, new signed224cbee7 payload |
+| A2-IAO/22 |175|22de6798-7f75-4aac-9a5c-1daf760f6e6d|0|182.718|1|Actual SOSNADM\admin-2 key login, OS SSH profile |
+| ADMIN-2 |172|a5ecd83b-2d0d-4229-9a35-ec242387e47d|0|185.557|1|Actual SOSNADM\admin-2 key login, private bundled profile |
+
+All three jobs are APPLIED with six stable samples, exact176/C6/MSI, private-four
+preserved and no pending native result. Fresh matching observer107/WSS and
+accepted user health/activity returned. The first source172 qualification request
+correctly returned409 while the observer still advertised172; its normal next
+hello reported176 and the unchanged canonical qualification then passed. No
+observer repair, bridge or workstation preparation was used.
+
+On120 ordinary native switching,55strict SSH commands passed with zero observed
+errors, including12with CoreStopped and3with Coreabsent. New signed Support
+PID6672/224cbee7 was reached at17:31:29Z. After terminal native acceptance, Core
+was deliberately stopped, updater remained stopped and observer was disabled.
+Actual SSH commands at17:35:15.896Z and17:37:10.494Z passed114.598seconds apart
+through the same new Support PID/bytes. CoreRunning, updaterStopped/Manual and
+observerEnabled/running were restored at17:37:17Z. Private four hashes/SDDL,
+existing direct SSH configuration/firewall and loopback-only22222 were preserved.
+
+Installed Core has121physical files including two MSI provenance manifests and
+the canonical pc_agent.exe filename. All files match signed MSI staging. After
+canonical normalization (exclude those two verified manifests and map
+pc_agent.exe to endpoint_agent_core.exe),119files match frozen tree30d577c243ed567613a5962a9ab84b5f3f9efd986022d8983183bde51979a699.
+The physical tree is f049398b1e22c8c5aa70b058d6ecb5712c3e3c266b19205679b22650c5316e46.
+
+Domain SSH on22 at17:43:29Z/40Z and on ADMIN-2 at17:43:42Z resolved the exact
+SOSNADM\admin-2 SID ending7188 and an administrator token. ADMIN-2 automatically
+published the complete private18-file runtime with validated ACLs/manifest/hash
+pins; System32sshd remained absent. Its Agent private files/SDDL and absent
+optional origin plus global disabled ssh-agent were unchanged.22 also retained
+its absent optional origin. Neither dependency installation nor a global SSH
+configuration change was used.
+
+Exact source175 qualificationb99a29ef-cc41-42d1-9c48-2fc04b5b933b uses120;
+source172 qualificatione3fa36fe-8813-492f-9ebb-6fb713ad5dd2 uses ADMIN-2. Both
+expire2026-12-06 at their recorded qualification times. Neither infers other
+historical source profiles. Read-only publication precheck passed; a fresh
+protected47154679-byte PostgreSQL backup passed restore-list validation, leaving
+1868296192bytes free. All prior backups/native failure histories remain.
+
+Fleetpreview evaluated23historical registrations:3eligible online,3already176,
+7waiting,9platformunknown and1ALT outside scope. Root enabled persistent
+policy10/all_active/max2/emptyselection at17:48:14Z for target176. The next three
+online assignments and final primary/AUTO/served-byte acceptance are recorded
+only after their actual outcomes. Offline and unsupported registrations are not
+counted as installed. No new Linux release is published.
+
+
+## Final online cohort and publication
+
+Automatic policy10 completed three additional assignments without workstation
+preparation: A2-MUNSLU-N3598bb4e-6822-47de-b28e-9a2ad06e495a (source175,
+181.911seconds); DESKTOP-2EVR855f3049146-6350-4fc0-ac86-8a308bdb8aa5 (source172,
+183.179seconds); MUNSLU-S282aa4496-a883-4e63-be11-11149ebd0026 (source172,
+182.080seconds). All are APPLIED/native0 with six samples, one sensor, exact
+C6/MSI/private-four preservation and installed healthy Support1.0.1. Maximum
+observed concurrency2; active chains0. Delayed ordinary observer hello on MUN
+resolved to176 at18:02:42Z without repair, allowing the final read-only gate.
+
+Actual domain-admin reserve SSH additionally passed on27 at17:53:45Z and MUN
+at18:00:36Z. MUN uses the private bundled runtime.27 selected the now-available
+OS server read-only; the old175 DISM settlement is not inferred and no servicing
+replay/repair occurred. No account was guessed for DESKTOP-2EVR855: its component
+is healthy but actual VM administrator SSH is not claimed. Five successful
+accesses were recorded explicitly as operator attestations; arbitrary shell
+command recording is not asserted. Temporary policy expiry remains enforced.
+
+A separate post-fleet guard passed all six exact native/source/bytes/private
+and fresh WSS/observer/user/activity/Support/source-authority checks, policy10,
+chains0 and unchanged primary172/AUTO10 authority before publication. The existing
+canonical publisher then registered WindowsSetupRelease
+1ee38ef2-e811-460c-a71e-e389bcf85a4f at18:03:46Z and appended176 to the same AUTO
+in one transaction. Full Setup candidate1ac9fd1d-1e06-4599-a21a-2e27060156ca is
+a distinct registry identity. CIDR192.168.101.0/24, expiry2030-09-27, quota100,
+used6 and all old ten installer entries/history were preserved; sole AUTO now11.
+
+Trusted canonical HTTPS download at18:04:35Z returned178184640bytes/SHA
+`e0e3289fbdda59a368d01931518a38c6e1003a0be74002cf9e7313491101f6f8`.
+Windows verified Valid timestamped publisher
+`4D4C23389F5FF77BC4EB32044761019EAE8FB776`. Actual catalog C6/B6/MSI agree.
+Postpublication audit confirmed all six fresh176/observer107/ACTIVE user
+telemetry/healthy Support, policy10/max2/chains0, providerce083/schema0046,
+trusted `/healthz`200/databaseok and the exact exporter restart-preserve unit.
+
+Current AGENTS/release records were updated together; Linux156 kit metadata and
+all historical release bytes/native-failure receipts remain unchanged. Six
+qualified offline172 devices await fresh reconnect; the old79 device and nine
+historical platform-unknown registrations are not counted as updated. Existing
+browser/Yandex limitations remain deferred. The Preview SSH bundle qualification
+is for this requested testing-stage channel, not vendor production certification.
+
+
+## Temporary operational cleanup
+
+The exact isolated test PostgreSQL cluster on127.0.0.1:55446 was verified by
+PID/owner/datadir and zero other clients, then stopped normally. Its test data
+and all receipts remain. Production5432, SELECT1 and trusted HTTPS health200
+remained healthy. The task-owned local15446 SSH forward was already absent.
+
+Only the completed SYSTEM174 restoration task on120 was removed after exact
+UUID, original signed174 SHA, no triggers, nonrunning state and last result0
+proof. The normal updater observer remains enabled; Core and Support remain
+running. Native caches, restoration grants/history and original receipts remain.
+
+All task-generated administrative sessions are now inactive. Final R9 was
+canonically revoked/audited at18:14:21.677975Z; exactly six matching inactive
+root0600 remote session files were removed after UUID/inode/ownership checks.
+Local sensitive cookie/CSRF values were redacted while retaining audit metadata.
+Other users' sessions, Support policies/credentials/keys and production services
+were preserved. Existing Support diagnostic leases retain their recorded expiry.

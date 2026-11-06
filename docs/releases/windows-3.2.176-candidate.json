@@ -1,8 +1,7 @@
 {
   "schema_version": 1,
   "version": "3.2.176",
-  "status": "unpublished_candidate_source",
-  "published_windows_primary_unchanged": "3.2.172",
+  "status": "published_primary_windows_six_online_devices_accepted",
   "support_component_version": "1.0.1",
   "baseline_runtime_manifest": "packaging/windows/initial-runtime-3.2.172.json",
   "baseline_source_file_count": 280,
@@ -36,10 +35,10 @@
     "historical172_bytes_immutable": true
   },
   "release_gates": {
-    "candidate176_built": false,
-    "candidate176_console_canary_accepted": false,
-    "candidate176_server_qualified": false,
-    "candidate176_primary_promoted": false
+    "candidate176_built": true,
+    "candidate176_console_canary_accepted": true,
+    "candidate176_server_qualified": true,
+    "candidate176_primary_promoted": true
   },
   "diagnostic_predecessor": {
     "version": "3.2.175",
@@ -66,5 +65,7 @@
     "global_windows_capability_installation": false,
     "existing_valid_os_profile_preserved": true
   },
-  "bundle_source_commit": "715652112262035db4f227c1f62b0ec3167e67b5"
+  "bundle_source_commit": "715652112262035db4f227c1f62b0ec3167e67b5",
+  "actual_release_record": "docs/releases/windows-3.2.176-setup.json",
+  "published_windows_primary": "3.2.176"
 }

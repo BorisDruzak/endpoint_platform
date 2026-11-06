@@ -1,8 +1,12 @@
 # Independent pilot support access
 
-Status: user selected **outbound SSH tunnel through Endpoint** on2026-11-05.
-This is an approved architecture requirement, not an installed/qualified channel.
-No SSH service or tunnel has been installed on101.146 by this work.
+Status: implemented in signed Windows Setup176 with separate Support1.0.1.
+Three exact-media native/access canaries passed on2026-11-06, including stopped
+Core/updater on101.120, explicit domain login and private offline dependencies.
+Fleetpolicy10 and the six-device online cohort are accepted; actual176 download
+and AUTO11 publication/cohort outcomes belong to
+`docs/verification/2026-11-06-independent-support-access.md`. The original
+101.146 incident below is historical and does not assert current device access.
 
 ## Approaches and selected direction
 
@@ -17,8 +21,9 @@ the independent recovery channel requested here.
 The design received a separate builder check; no material architecture
 questions remained. Package/OS qualification, exact existing administrator
 identity and approved public keys are implementation inputs, not claims that
-those dependencies are already provisioned. Product implementation and live
-acceptance remain outstanding.
+those dependencies are already provisioned. At that original design checkpoint,
+product implementation and live acceptance were outstanding; signed176
+implementation and acceptance are recorded above.
 
 ## Required behavior
 
@@ -96,3 +101,28 @@ Observed operator client: OpenSSH_for_Windows9.5p2; existing gateway: Ubuntu
 OpenSSH9.6p1 Ubuntu-3ubuntu13.20. These observations do not select or qualify a
 Windows support package for all workstations. The external workstation connector
 catalog was read: it exposes ALT profiles, not a ready Windows repair operation.
+
+
+## Implemented176 dependency and ownership details
+
+The active signed Support service and its private state are siblings of Agent,
+independent of Core/observer and outside MSI service/resource ownership. MSI
+stages the signed helper and binds the identical uninstall Binary/Foundation
+hash. Native rollback/unknown results preserve the active channel; normal known
+uninstall has separate authenticated cleanup. Key/credential history is retained.
+
+Existing valid Microsoft OS OpenSSH is read-only preferred. Fresh devices lacking
+it use the original pinned Microsoft10.4.0.0p1-Preview ZIP inside signed Support.
+Upstream is explicitly Preview/non-production-ready. Actual qualification here
+is for the requested testing channel. A closed manifest, all15Microsoft PE
+signatures, immutable public-code RX slot and private SYSTEM/Admin keys are
+separate trust boundaries. No Windows capability installation, global SSH
+service/configuration, PATH, registry-default-shell, firewall or GPO change is
+used. Standard transient virtual-account authentication operations still occur.
+
+The exact existing local/domain Windows principal must be verified; no guessed
+account/password is created. Domain authorization requires fresh installed
+running Support1.0.1, not installer intent. Default policy stays disabled, with
+explicit approved operator keys and a maximum8hourlease. Actual SSH is separate
+from registration, policy, version or tunnel state. See the runbook and exact
+release record for expiry/revocation, native source qualifications and limits.
