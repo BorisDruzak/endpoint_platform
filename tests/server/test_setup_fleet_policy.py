@@ -51,7 +51,7 @@ async def decision(db, fleet):
     return evaluate_device(policy, release, facts, now=NOW)
 
 
-@pytest.mark.parametrize('client_version', ['1.0.5', '1.0.6'])
+@pytest.mark.parametrize('client_version', ['1.0.5', '1.0.6', '1.0.7'])
 async def test_companion_fixed_observer_keeps_existing_native_qualification_gates(db, fleet, client_version):
     from endpoint_server.setup_updates.models import SetupClientPresence
     from endpoint_server.setup_updates.preparation import ready
@@ -65,6 +65,20 @@ async def test_companion_fixed_observer_keeps_existing_native_qualification_gate
     qualified = await qualify_release(db, fleet[1].id, job.id,
         actor='test-admin', request_id='observer-compatible', now=NOW)
     assert qualified.evidence_assignment_id == job.id
+
+
+@pytest.mark.parametrize('location', ['source', 'presence'])
+async def test_unqualified_observer_cannot_supply_native_qualification(db, fleet, location):
+    from endpoint_server.setup_updates.models import SetupClientPresence
+    job, _ = await qualification_evidence(db, fleet)
+    if location == 'source':
+        job.source_client_version = '1.0.8'
+    else:
+        presence = await db.scalar(select(SetupClientPresence).where(SetupClientPresence.device_id == job.device_id))
+        presence.client_version = '1.0.8'
+    with pytest.raises(SetupConflict):
+        await qualify_release(db, fleet[1].id, job.id,
+            actor='test-admin', request_id='unqualified-observer', now=NOW)
 
 
 async def test_fleet_requires_exact_authenticated_platform_and_fresh_open_wss(db, fleet):

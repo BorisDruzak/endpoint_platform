@@ -13,7 +13,7 @@ WindowsVersion = Annotated[str, StringConstraints(pattern=r'^(0|[1-9][0-9]*)\.(0
 SourceRevision = Annotated[str, StringConstraints(pattern=r'^[0-9a-f]{40}$')]
 
 QUALIFIED_SETUP_CLIENT_VERSION = '1.0.6'
-QUALIFIED_SETUP_CLIENT_VERSIONS = ('1.0.5', QUALIFIED_SETUP_CLIENT_VERSION)
+QUALIFIED_SETUP_CLIENT_VERSIONS = ('1.0.5', QUALIFIED_SETUP_CLIENT_VERSION, '1.0.7')
 LEGACY_SETUP_CLIENT_VERSION = '1.0.4'
 ACTIVE_SETUP_PHASES = ('assigned', 'downloading', 'verified', 'installing', 'verifying', 'recovery_required')
 TERMINAL_SETUP_PHASES = ('applied', 'failed', 'rolled_back', 'blocked', 'cancelled', 'already_current')

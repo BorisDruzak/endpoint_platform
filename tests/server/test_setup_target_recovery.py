@@ -74,8 +74,10 @@ async def recovered(db, state):
 
 
 @pytest.mark.parametrize('completed_preparation', [False, True])
-async def test_target_recovery_records_failed_once_preserves_source_and_native_21(db, recovered, completed_preparation):
+@pytest.mark.parametrize('observer_version', ['1.0.6', '1.0.7'])
+async def test_target_recovery_records_failed_once_preserves_source_and_native_21(db, recovered, completed_preparation, observer_version):
     r = recovered
+    r.presence.client_version = observer_version
     if completed_preparation:
         core = build('3.2.166', 'completed-bootstrap-' + uuid4().hex)
         rollout = UpdateRollout(id=uuid4(), rollout_identifier=uuid4().hex, build_id=core.id,
@@ -103,6 +105,17 @@ async def test_target_recovery_records_failed_once_preserves_source_and_native_2
         await qualify_release(db, r.release.id, r.job.id, actor='test-admin', request_id='not-qualification', now=r.when)
 
 
+@pytest.mark.parametrize('observer_version', ['1.0.5', '1.0.8', '1.1.0', '2.0.0'])
+async def test_target_recovery_rejects_unqualified_observer_versions(db, recovered, observer_version):
+    r = recovered
+    r.presence.client_version = observer_version
+    await db.flush()
+    with pytest.raises(SetupConflict, match='fresh qualified observer required'):
+        await record_progress(db, r.job.device_id, r.job.id, r.report, now=r.when)
+    assert r.job.status == 'recovery_required' and r.job.finished_at is None
+
+
+@pytest.mark.parametrize('observer_version', ['1.0.6', '1.0.7'])
 @pytest.mark.parametrize('defect', [
     'different-attempt', 'missing-attempt', 'unknown-outcome', 'not-recovery',
     'wrong-core', 'wrong-foundation', 'wrong-source', 'wrong-msi',
@@ -117,8 +130,9 @@ async def test_target_recovery_records_failed_once_preserves_source_and_native_2
     'missing-activity', 'stale-activity', 'future-activity', 'pre-start-activity',
     'missing-activity-observation', 'future-projection-update',
 ])
-async def test_target_recovery_cannot_release_hold_with_unverified_target(db, recovered, defect):
+async def test_target_recovery_cannot_release_hold_with_unverified_target(db, recovered, defect, observer_version):
     r = recovered
+    r.presence.client_version = observer_version
     report = r.report.model_dump()
     if defect == 'different-attempt': report['attempt_id'] = uuid4()
     elif defect == 'missing-attempt': r.job.attempt_id = None
@@ -185,8 +199,10 @@ async def test_target_recovery_cannot_release_hold_with_unverified_target(db, re
 
 
 @pytest.mark.parametrize('kind', ['active-core', 'active-preparation', 'incomplete-linked-preparation'])
-async def test_target_recovery_preserves_other_update_ownership(db, recovered, kind):
+@pytest.mark.parametrize('observer_version', ['1.0.6', '1.0.7'])
+async def test_target_recovery_preserves_other_update_ownership(db, recovered, kind, observer_version):
     r = recovered
+    r.presence.client_version = observer_version
     core = build('3.2.170', 'other-owner-' + uuid4().hex)
     rollout = UpdateRollout(id=uuid4(), rollout_identifier=uuid4().hex, build_id=core.id,
         mode='canary', status='active', reason='Other update ownership')
