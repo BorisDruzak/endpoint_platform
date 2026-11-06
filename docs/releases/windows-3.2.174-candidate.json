@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "version": "3.2.174",
-  "status": "unpublished_candidate_source",
+  "status": "diagnostic_native_qualified_not_primary_support_bootstrap_defect",
   "published_windows_primary_unchanged": "3.2.172",
   "support_component_version": "1.0.0",
   "baseline_runtime_manifest": "packaging/windows/initial-runtime-3.2.172.json",
@@ -30,9 +30,9 @@
     "historical172_bytes_immutable": true
   },
   "release_gates": {
-    "candidate174_built": false,
-    "candidate174_console_canary_accepted": false,
-    "candidate174_server_qualified": false,
+    "candidate174_built": true,
+    "candidate174_console_canary_accepted": true,
+    "candidate174_server_qualified": true,
     "candidate174_primary_promoted": false
   },
   "diagnostic_predecessor": {
@@ -41,5 +41,6 @@
     "setup_sha256": "491b5859af2420d6fad5260f9da8720e048386a28fa3362c4ce5710feb4cddc9",
     "status": "not_published_or_qualified",
     "reason": "Controlled rollback preserved independent support but exposed a restoration continuation hold that must be finalized without changing historical source guards."
-  }
+  },
+  "fleet_delivery_paused": true
 }

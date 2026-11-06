@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "version": "3.2.175",
+  "status": "unpublished_candidate_source",
+  "published_windows_primary_unchanged": "3.2.172",
+  "support_component_version": "1.0.0",
+  "baseline_runtime_manifest": "packaging/windows/initial-runtime-3.2.172.json",
+  "baseline_source_file_count": 280,
+  "additional_reviewed_inputs": [
+    "endpoint_contracts/support_access.py",
+    "packaging/windows/initial_runtime_contract.py",
+    "packaging/windows/wix/Components.wxs",
+    "packaging/windows/wix/Directories.wxs",
+    "packaging/windows/wix/Services.wxs",
+    "packaging/windows/wix/Upgrade.wxs",
+    "pc_agent/platform/windows/support_access.py",
+    "pc_agent/platform/windows/support_access_native.py",
+    "pc_agent/platform/windows/support_access_service.py",
+    "pc_agent/pyinstaller_windows_support_access.spec",
+    "pc_agent/platform/windows/staged_restoration_continuation.py"
+  ],
+  "producer_requirements": {
+    "clean_committed_source_before_freeze": true,
+    "compatibility_contract_authored_before_freeze": true,
+    "fresh_component_guid": true,
+    "independent_stage_evidence": true,
+    "exact_observed_toolchain": true,
+    "native_helpers_reuse_allowed": false,
+    "signed_support_payload_before_msi": true,
+    "historical172_bytes_immutable": true
+  },
+  "release_gates": {
+    "candidate175_built": false,
+    "candidate175_console_canary_accepted": false,
+    "candidate175_server_qualified": false,
+    "candidate175_primary_promoted": false
+  },
+  "diagnostic_predecessor": {
+    "version": "3.2.174",
+    "full_setup_release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+    "setup_sha256": "28c2f4c35a45a16ffca47e8d0d91d836ecb07202dc9ca8d8d3d36de7ee7db41d",
+    "status": "native_qualified_not_primary_support_bootstrap_defect",
+    "reason": "Historical enrollment may omit endpoint-origin and use the canonical compiled endpoint. Support175 preserves this supported profile without materializing any Agent file."
+  },
+  "fix_commit": "6b1bb2cc75f44b2b583d51d27756b596fe303efe",
+  "additional_gates": [
+    "Actual missing-origin enrolled device must bootstrap Support through the new signed installer.",
+    "Keep Microsoft OS dependency checks and native admission unchanged.",
+    "Keep policy9 paused and primary172 until successful175 qualification and actual independent Support readiness."
+  ]
+}
