@@ -2,7 +2,7 @@
   "schema_version": 1,
   "version": "3.2.172",
   "status": "published_windows_qualified_online_rollout_accepted",
-  "verified_utc": "2026-11-06 09:25:06.371563+00:00",
+  "verified_utc": "2026-11-06 09:43:13.113901+00:00",
   "runtime_source_commit": "a2b6d6228b6583c6696c19b4e91b2175a2825b4b",
   "windows_packaging_commit": "5971c4640b8a395537dc2fc0420fcb364c92f19e",
   "linux_kit_metadata_commit": "d007064792caa5f3b94d911c73b13214913a230c",
@@ -55,6 +55,7 @@
     "qualified_source_foundations": [
       "3.2.158",
       "3.2.165",
+      "3.2.167",
       "3.2.169",
       "3.2.170",
       "3.2.171"
@@ -133,6 +134,11 @@
       "Signature": "Valid",
       "Publisher": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
       "Timestamped": true
+    },
+    "source167_full_setup_canary": {
+      "record": "docs/verification/2026-11-06-setup172-120.md",
+      "assignment_id": "a4bc3da5-d254-432f-8455-d03b0844c468",
+      "native_exit": 0
     }
   },
   "limits": [
@@ -541,6 +547,7 @@
     "qualified_source_foundations": [
       "3.2.158",
       "3.2.165",
+      "3.2.167",
       "3.2.169",
       "3.2.170",
       "3.2.171"

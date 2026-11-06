@@ -1,5 +1,17 @@
 # Full Setup172 publication and fleet acceptance
 
+## Latest source167 acceptance
+
+At2026-11-06 09:43:13.113901+00:00,101.120 accepted167 to172 through Endpoint, native0,
+185.09seconds/6samples/1UserSensor, private preserved and fresh telemetry.
+The exact source167 was Console-qualified. Current total12APPLIED/native0,
+six canaries/six automatic fleet jobs, six source qualifications, policy7
+enabled/all_active/max2, active chains0. Only known legacy101.69/source79
+remains unsupported. See [the120 receipt](2026-11-06-setup172-120.md).
+No workstation preparation was used for this assignment.
+
+## Preserved11-machine checkpoint
+
 Observed UTC: 2026-11-06 09:25:06.371563+00:00. This is the current receipt, not a claim that
 offline, unsupported or user-session-blocked machines have completed.
 
