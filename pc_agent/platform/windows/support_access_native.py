@@ -187,6 +187,10 @@ def validate_windows_admin(username: str):
 
 
 def verify_dependencies(dependencies: dict):
+    if 'profile' in dependencies:
+        from .support_access_bundle import verify_profile
+        verify_profile(dependencies)
+        return
     root = windows_root()/'System32'/'OpenSSH'
     for role, filename in [('ssh','ssh.exe'),('sshd','sshd.exe'),('keygen','ssh-keygen.exe')]:
         path = Path(dependencies.get(role,''))
@@ -347,7 +351,8 @@ if($s.Status -ne 'Valid' -or $s.SignerCertificate.Thumbprint -ne '4D4C23389F5FF7
 $v=(Get-Item -LiteralPath $p).VersionInfo
 @{version=@($v.FileMajorPart,$v.FileMinorPart,$v.FileBuildPart,$v.FilePrivatePart);sha256=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}|ConvertTo-Json -Compress
 '''
-        environment=dict(os.environ,ENDPOINT_SUPPORT_VERIFY_FILE=str(path))
+        environment=dict(os.environ,ENDPOINT_SUPPORT_VERIFY_FILE=str(path),
+            PSModulePath=str(windows_root()/'System32/WindowsPowerShell/v1.0/Modules'))
         result=subprocess.run([str(windows_root()/'System32/WindowsPowerShell/v1.0/powershell.exe'),
             '-NoProfile','-NonInteractive','-EncodedCommand',base64.b64encode(script.encode('utf-16-le')).decode()],
             env=environment,capture_output=True,text=True,timeout=30,creationflags=subprocess.CREATE_NO_WINDOW)
@@ -494,61 +499,54 @@ $v=(Get-Item -LiteralPath $p).VersionInfo
             descriptor.GetSecurityDescriptorOwner(),None,descriptor.GetSecurityDescriptorDacl(),None)
         assert_private(path)
 
-    def dependencies(self):
-        # This method is invoked exclusively by native installer, never service boot.
-        powershell = windows_root()/'System32'/'WindowsPowerShell'/'v1.0'/'powershell.exe'
-        script = r'''
+    def dependencies(self, *, previous=None, existing=False):
+        # Read-only OS preference. Never query/install Windows capabilities or
+        # change firewall, global sshd, registry, PATH or vendor installation.
+        from . import support_access_bundle as bundle
+        if isinstance(previous,dict) and 'profile' in previous:
+            if previous.get('profile')!=bundle.PROFILE:
+                raise ValueError('support_dependency_migration_unsupported')
+            result=bundle.verify_profile(previous)
+        else:
+            try:
+                result=self.os_dependencies()
+            except Exception:
+                if existing:
+                    raise ValueError('support_dependency_migration_unsupported') from None
+                result=bundle.install()
+        self._keygen=result['keygen']
+        return result
+
+    def os_dependencies(self):
+        root=windows_root()/'System32'/'OpenSSH'
+        if not all((root/name).is_file() for name in ('ssh.exe','sshd.exe','ssh-keygen.exe')):
+            raise ValueError('support_dependency_unavailable')
+        script=r'''
 $ErrorActionPreference='Stop'
-$restart=$false
-$removedInboundRule=$false
-$existingInboundRule=@(Get-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -ErrorAction SilentlyContinue)
-foreach($name in @('OpenSSH.Client~~~~0.0.1.0','OpenSSH.Server~~~~0.0.1.0')) {
-  $cap=Get-WindowsCapability -Online -Name $name
-  if($cap.State -ne 'Installed') {
-    try {
-      $added=Add-WindowsCapability -Online -Name $name
-      if($added.RestartNeeded){$restart=$true}
-    } finally {
-      if($name -eq 'OpenSSH.Server~~~~0.0.1.0' -and $existingInboundRule.Count -eq 0) {
-        $newRule=@(Get-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -ErrorAction SilentlyContinue)
-        foreach($rule in $newRule){Remove-NetFirewallRule -InputObject $rule -ErrorAction Stop}
-        if(@(Get-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -ErrorAction SilentlyContinue).Count -ne 0) {throw 'support_dependency_firewall_conflict'}
-        $removedInboundRule=$newRule.Count -gt 0
-      }
-    }
-  }
-}
 $items=@()
 foreach($name in @('ssh.exe','sshd.exe','ssh-keygen.exe')) {
-  $path=Join-Path ([Environment]::GetFolderPath('System')) ('OpenSSH\'+$name)
-  $sig=Get-AuthenticodeSignature -LiteralPath $path
-  if($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {throw 'support_dependency_signature_invalid'}
-  $items+=@{name=$name;version=(Get-Item -LiteralPath $path).VersionInfo.FileVersion;sha256=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()}
+ $path=Join-Path ([Environment]::GetFolderPath('System')) ('OpenSSH\'+$name)
+ $sig=Get-AuthenticodeSignature -LiteralPath $path
+ if($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation'){throw 'signature'}
+ $items+=@{name=$name;version=(Get-Item -LiteralPath $path).VersionInfo.FileVersion;sha256=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()}
 }
-@{restart_needed=$restart;automatic_inbound_rule_removed=$removedInboundRule;capability_version='0.0.1.0';items=$items}|ConvertTo-Json -Depth 4 -Compress
+ConvertTo-Json -InputObject @($items) -Compress
 '''
-        encoded = base64.b64encode(script.encode('utf-16-le')).decode('ascii')
-        result = subprocess.run([str(powershell),'-NoProfile','-NonInteractive','-EncodedCommand',encoded],
-            capture_output=True,text=True,timeout=600,creationflags=subprocess.CREATE_NO_WINDOW)
-        if result.returncode:
-            if 'support_dependency_firewall_conflict' in result.stderr:
-                raise RuntimeError('support_dependency_firewall_conflict')
-            if 'support_dependency_signature_invalid' in result.stderr:
-                raise RuntimeError('support_dependency_signature_invalid')
-            raise RuntimeError('support_dependency_install_failed')
-        response = json.loads(result.stdout.strip().splitlines()[-1])
-        if response.get('restart_needed'):
-            raise RuntimeError('support_dependency_reboot_required')
-        records = {item['name']:item for item in response['items']}
-        root = windows_root()/'System32'/'OpenSSH'
-        output = {'capability_version':'0.0.1.0','hashes':{},'versions':{},
-                  'automatic_inbound_rule_removed':response.get('automatic_inbound_rule_removed') is True}
-        for role, filename in [('ssh','ssh.exe'),('sshd','sshd.exe'),('keygen','ssh-keygen.exe')]:
-            output[role] = str(root/filename)
-            output['hashes'][role] = records[filename]['sha256']
-            output['versions'][role] = records[filename]['version']
-        verify_dependencies(output)
-        return output
+        response=subprocess.run([str(windows_root()/'System32/WindowsPowerShell/v1.0/powershell.exe'),
+            '-NoProfile','-NonInteractive','-EncodedCommand',base64.b64encode(script.encode('utf-16-le')).decode()],
+            env=dict(os.environ,PSModulePath=str(windows_root()/'System32/WindowsPowerShell/v1.0/Modules')),
+            capture_output=True,text=True,timeout=30,creationflags=subprocess.CREATE_NO_WINDOW)
+        if response.returncode:raise ValueError('support_dependency_signature_invalid')
+        records={row['name']:row for row in json.loads(response.stdout)}
+        result={'capability_version':'0.0.1.0','automatic_inbound_rule_removed':False,'hashes':{},'versions':{}}
+        for role,name in [('ssh','ssh.exe'),('sshd','sshd.exe'),('keygen','ssh-keygen.exe')]:
+            result[role]=str(root/name);result['hashes'][role]=records[name]['sha256'];result['versions'][role]=records[name]['version']
+        verify_dependencies(result)
+        return result
+
+    def remove_runtime(self):
+        from .support_access_bundle import remove
+        remove()
 
     def key(self, root: Path, name: str):
         from .support_access import public_key
@@ -557,14 +555,14 @@ foreach($name in @('ssh.exe','sshd.exe','ssh-keygen.exe')) {
         path = root/name
         reject_links(path)
         if not path.exists():
-            keygen = windows_root()/'System32'/'OpenSSH'/'ssh-keygen.exe'
+            keygen = Path(getattr(self,'_keygen',windows_root()/'System32'/'OpenSSH'/'ssh-keygen.exe'))
             result = subprocess.run([str(keygen),'-q','-t','ed25519','-N','','-C','endpoint-support','-f',str(path)],
                 capture_output=True,timeout=30,creationflags=subprocess.CREATE_NO_WINDOW)
             if result.returncode:
                 raise RuntimeError('support_key_generation_failed')
         self.protect(path)
         # Derive public bytes from the retained private key, not a stale .pub file.
-        keygen = windows_root()/'System32'/'OpenSSH'/'ssh-keygen.exe'
+        keygen = Path(getattr(self,'_keygen',windows_root()/'System32'/'OpenSSH'/'ssh-keygen.exe'))
         result = subprocess.run([str(keygen),'-y','-f',str(path)],capture_output=True,text=True,timeout=10,creationflags=subprocess.CREATE_NO_WINDOW)
         if result.returncode:
             raise RuntimeError('support_key_read_failed')
@@ -838,7 +836,7 @@ class SupportChildren:
         self.confirmation=None
 
     def start(self, policy):
-        from .support_access import sshd_config, tunnel_command
+        from .support_access import sshd_config, tunnel_command, _ssh_path
         self.stop()
         self.remote_port = policy.remote_port
         self.confirmation=ForwardConfirmation(policy.remote_port)
@@ -848,9 +846,12 @@ class SupportChildren:
         assert_private(self.root)
         for name in ('host_ed25519','tunnel_ed25519'):
             assert_private(self.root/name)
+        config=sshd_config(self.root,policy)
+        if self.dependencies.get('profile')=='bundled-openssh-v1':
+            config+='ModuliFile '+_ssh_path(Path(self.dependencies['sshd']).parent/'moduli')+'\n'
         for name, data in [
             ('authorized_keys','\n'.join(policy.operator_public_keys)+'\n'),
-            ('sshd_config',sshd_config(self.root,policy)),
+            ('sshd_config',config),
             ('known_hosts','endpoint-support-gateway '+policy.gateway_host_public_key+'\n'),
             ('sshd.pid',''),
         ]:

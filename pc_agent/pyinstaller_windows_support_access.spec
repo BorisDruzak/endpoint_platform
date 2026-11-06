@@ -7,6 +7,7 @@ project_root = pc_agent_root.parent
 sys.path.insert(0, str(project_root))
 from tools.canary.ssl_payload import configure_ssl_resources
 from tools.canary.privileged_bootstrap_contract import assert_no_build_modules
+from tools.canary.support_openssh_payload import resource_datas
 
 if sys.version_info[:2] != (3, 12):
     raise RuntimeError('Support service requires the qualified Python 3.12 runtime')
@@ -16,7 +17,7 @@ a = Analysis(
     pathex=[str(project_root),str(pc_agent_root)],
     hiddenimports=['servicemanager','win32service','win32serviceutil','win32security',
                    'win32api','win32net','win32job','win32process','win32con','ntsecuritycon'],
-    datas=[],hookspath=[],hooksconfig={},runtime_hooks=[],
+    datas=resource_datas(project_root),hookspath=[],hooksconfig={},runtime_hooks=[],
     excludes=['PySide6','qasync','pc_agent.ui_gui','pc_agent.ui_bridge','pc_agent.runtime',
               'pc_agent.core','pc_agent.ws_agent','pc_agent.endpoint_gateway',
               'pc_agent.platform.windows.updater_service','pc_agent.platform.windows.native_setup_observer',

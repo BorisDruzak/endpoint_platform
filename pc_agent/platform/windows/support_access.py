@@ -306,16 +306,18 @@ def install_support_access(data_root: Path, install_root: Path, *, origin: str,
     ops.protect(program)
     target = program/'EndpointSupportAccess.exe'
     with ops.prepare_payload(service_executable,target) as activation:
-        dependencies = ops.dependencies()
-        tunnel_key = public_key(ops.key(root, 'tunnel_ed25519'))
-        host_key = public_key(ops.key(root, 'host_ed25519'))
-        if tunnel_key == host_key:
-            raise ValueError('support_key_role_conflict')
         config_path = root/'support.json'
+        current=None
         if config_path.exists():
             current = json.loads(config_path.read_text(encoding='utf-8'))
             if current.get('device_id') != device_id or current.get('origin') != origin:
                 raise ValueError('support_identity_conflict')
+        dependencies = ops.dependencies(previous=current.get('dependencies') if current else None,
+            existing=activation.old is not None or activation.state is not None)
+        tunnel_key = public_key(ops.key(root, 'tunnel_ed25519'))
+        host_key = public_key(ops.key(root, 'host_ed25519'))
+        if tunnel_key == host_key:
+            raise ValueError('support_key_role_conflict')
         atomic_write(root/'ca.pem', ca_pem)
         ops.protect(root/'ca.pem')
         client = _client or SupportHTTPClient(origin, root/'ca.pem', device_token, bootstrap=True)
@@ -377,6 +379,7 @@ def uninstall_support_access(*, _ops=None, _client=None) -> dict:
             except Exception:
                 pass
         ops.remove_service()
+        ops.remove_runtime()
         for name in ('credential','support.json','ca.pem','host_ed25519','host_ed25519.pub',
                      'tunnel_ed25519','tunnel_ed25519.pub','authorized_keys','known_hosts','sshd_config','sshd.pid','tunnel.log'):
             path = root/name

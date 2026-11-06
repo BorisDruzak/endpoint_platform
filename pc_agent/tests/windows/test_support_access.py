@@ -162,6 +162,7 @@ class _PayloadTestOps:
         import contextlib
         return contextlib.nullcontext()
     def private(self,path):pass
+    def remove_runtime(self):pass
     def inspect_payload(self,path):
         import hashlib
         return {'version':(1,0,0,0),'sha256':hashlib.sha256(path.read_bytes()).hexdigest()}
@@ -177,7 +178,7 @@ def test_registration_reuses_existing_keys_and_persists_only_independent_credent
     support = module()
     class Ops(_PayloadTestOps):
         def protect(self, p): p.mkdir(parents=True, exist_ok=True) if not p.exists() else None
-        def dependencies(self): return {'ssh': 'ssh.exe','sshd': 'sshd.exe','keygen':'ssh-keygen.exe','version':'test'}
+        def dependencies(self,**kwargs): return {'ssh': 'ssh.exe','sshd': 'sshd.exe','keygen':'ssh-keygen.exe','version':'test'}
         def key(self, root, name):
             path = root/(name+'.pub')
             if not path.exists():
@@ -370,6 +371,7 @@ def test_support_removal_revokes_then_stops_only_owned_service(tmp_path,monkeypa
         def unregister(self): order.append('revoke'); return {}
     class Ops(_PayloadTestOps):
         def remove_service(self): order.append('stop')
+        def remove_runtime(self):pass
         def remove_payload(self,program):return False
     monkeypatch.setattr(native,'production_roots',lambda:(root,tmp_path/'ProgramSupport'))
     monkeypatch.setattr(native,'assert_private',lambda p:None)
@@ -448,31 +450,6 @@ def test_remove_refuses_unrelated_service_before_any_stop_or_delete(monkeypatch,
 
 
 
-@pytest.mark.parametrize('existing',[False,True])
-def test_capability_install_removes_only_new_automatic_inbound_rule(monkeypatch,existing):
-    import base64,subprocess
-    native=importlib.import_module('pc_agent.platform.windows.support_access_native')
-    original_run=subprocess.run
-    prefix = r'''
-$global:oldRule=EXISTING
-$global:rulePresent=$global:oldRule
-function Get-WindowsCapability {param([switch]$Online,$Name) @{State='NotPresent'}}
-function Add-WindowsCapability {param([switch]$Online,$Name) $global:rulePresent=$true; @{RestartNeeded=$false}}
-function Get-NetFirewallRule {param($Name,$ErrorAction) if($global:rulePresent){[pscustomobject]@{Name='OpenSSH-Server-In-TCP'}}}
-function Remove-NetFirewallRule {param($InputObject,$ErrorAction) if($global:oldRule){throw 'existing rule changed'};$global:rulePresent=$false}
-function Get-AuthenticodeSignature {param($LiteralPath) @{Status='Valid';SignerCertificate=@{Subject='O=Microsoft Corporation'}}}
-function Get-Item {param($LiteralPath) @{VersionInfo=@{FileVersion='9.5.6.4'}}}
-function Get-FileHash {param($LiteralPath,$Algorithm) @{Hash=('a'*64)}}
-'''.replace('EXISTING','$true' if existing else '$false')
-    def execute(args,**kwargs):
-        script=base64.b64decode(args[-1]).decode('utf-16-le')
-        encoded=base64.b64encode((prefix+script).encode('utf-16-le')).decode()
-        return original_run([*args[:-1],encoded],**kwargs)
-    monkeypatch.setattr(native.subprocess,'run',execute)
-    monkeypatch.setattr(native,'verify_dependencies',lambda d:None)
-    result=native.WindowsSupportOps().dependencies()
-    assert result['automatic_inbound_rule_removed'] is (not existing)
-
 def test_real_keygen_under_elevated_admin_becomes_system_owned_private_support_key():
     import shutil
     native=importlib.import_module('pc_agent.platform.windows.support_access_native')
@@ -536,7 +513,7 @@ def test_registration_rotation_requires_authenticated_own_device_reset_marker(tm
     class Ops(_PayloadTestOps):
         def protect(self,p):
             if not p.exists():p.mkdir(parents=True)
-        def dependencies(self):return {}
+        def dependencies(self,**kwargs):return {}
         def key(self,root,name):return (new_tunnel if name=='tunnel_ed25519' else new_host) if rotated[0] else (KEY if name=='tunnel_ed25519' else new_tunnel)
         def stop_for_update(self,path):events.append('stop')
         def rotate_keys(self,root):events.append('rotate');rotated[0]=True
@@ -648,7 +625,7 @@ def test_reset_reply_loss_retains_new_real_keys_for_idempotent_next_install():
     fixture=native.native_folder(0x23)/('EndpointSupportAccessTest-'+uuid.uuid4().hex)
     class Ops(_PayloadTestOps,native.WindowsSupportOps):
         rotations=0
-        def dependencies(self):return {}
+        def dependencies(self,**kwargs):return {}
         def stop_for_update(self,path):pass
         def install_service(self,path):pass
         def rotate_keys(self,root):self.rotations+=1;super().rotate_keys(root)

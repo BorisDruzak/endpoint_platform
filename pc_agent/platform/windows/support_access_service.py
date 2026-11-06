@@ -127,7 +127,8 @@ def main():
                      'support_identity_conflict','support_key_role_conflict','support_key_generation_failed',
                      'support_key_read_failed','support_enrollment_unavailable','unsafe_support_acl'}
             known.update({'unsafe_support_path','invalid_support_origin','support_signature_invalid',
-                          'support_payload_recovery_required','support_service_not_ready','support_install_busy'})
+                          'support_payload_recovery_required','support_service_not_ready','support_install_busy',
+                          'support_bundle_invalid','support_bundle_signature_invalid','support_dependency_migration_unsupported'})
             code = str(error) if str(error) in known else 'support_install_failed'
             print(json.dumps({'installed':False,'error':code}))
             return 1
