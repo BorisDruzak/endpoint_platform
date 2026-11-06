@@ -4,6 +4,7 @@ import { request, type AgentVersions, type UpdateObservability } from './api'
 import { UpdateTimeline } from './UpdatesPage'
 import { DeviceModules } from './ModulesPage'
 import { DevicePolicyStatus } from './PolicyStatus'
+import { SupportAccess } from './SupportAccess'
 import { DeviceActivityStatus } from './ActivityStatus'
 import { DevicePowerHistory, PowerStatus, connectionLabel, powerEventLabels } from './PowerStatus'
 import type { PowerSummary } from './powerApi'
@@ -156,7 +157,7 @@ function SectionRows({ data }: { data: Record<string, unknown> }) {
   return <dl className="detail-grid">{Object.entries(data).map(([key, value]) => <div key={key}><dt>{fieldLabels[key] ?? key.replaceAll('_', ' ')}</dt><dd>{Array.isArray(value) ? value.length ? <ul>{value.map((item, index) => <li key={index}>{typeof item === 'object' && item !== null ? <SectionRows data={item as Record<string, unknown>} /> : valueText(key, item)}</li>)}</ul> : '—' : typeof value === 'object' && value !== null ? <SectionRows data={value as Record<string, unknown>} /> : key.endsWith('_bytes') && typeof value === 'number' ? sizeText(value) : valueText(key, value)}</dd></div>)}</dl>
 }
 
-export function DeviceDetailPage() {
+export function DeviceDetailPage({ canWrite = false }: { canWrite?: boolean }) {
   const { deviceId } = useParams()
   const [detail, setDetail] = useState<Detail | null>(null)
   const [changes, setChanges] = useState<Change[]>([])
@@ -237,7 +238,8 @@ export function DeviceDetailPage() {
   return <>
     <Link className="back-link" to="/admin/devices">← Все устройства</Link>
     <div className="page-heading"><div><p className="eyebrow">УСТРОЙСТВО</p><h1>{detail.device.display_name}</h1><p className="muted">{detail.device.hostname ?? detail.device.device_identifier} · {connectionLabel(detail.device.online)} · Пользователь: {detail.device.current_user ?? '—'} · {detail.device.os_name ?? 'ОС неизвестна'} {detail.device.os_version ?? ''} · Агент · Core Agent {detail.device.agent_version ?? 'Неизвестна'} · Foundation / Launcher {detail.device.launcher_version ?? 'Неизвестна'}{detail.device.core_newer_than_foundation && ' · Core новее Foundation · информационно'} · Последняя связь: {dateText(detail.device.last_seen_at)}</p></div><button onClick={() => setRevision(value => value + 1)}>Обновить</button></div>
-    <nav className="tabs" aria-label="Разделы устройства">{[['overview', 'Обзор'], ['activity', 'Активность'], ['policy', 'Политика и DLP'], ['context', 'Контекст'], ['changes', 'Изменения'], ['operations', 'Операции'], ['updates', 'Обновления'], ['modules', 'Модули'], ['audit', 'Аудит']].map(([key, label]) => <button key={key} className={tab === key ? 'selected' : ''} onClick={() => setTab(key)}>{label}</button>)}</nav>
+    <nav className="tabs" aria-label="Разделы устройства">{[['overview', 'Обзор'], ['activity', 'Активность'], ['policy', 'Политика и DLP'], ['support', 'Доступ поддержки'], ['context', 'Контекст'], ['changes', 'Изменения'], ['operations', 'Операции'], ['updates', 'Обновления'], ['modules', 'Модули'], ['audit', 'Аудит']].map(([key, label]) => <button key={key} className={tab === key ? 'selected' : ''} onClick={() => setTab(key)}>{label}</button>)}</nav>
+    {tab === 'support' && deviceId && <SupportAccess key={`${deviceId}-${revision}`} deviceId={deviceId} canWrite={canWrite} />}
     {tab === 'activity' && deviceId && <DeviceActivityStatus key={`${deviceId}-${revision}`} deviceId={deviceId} />}
     {tab === 'policy' && deviceId && <DevicePolicyStatus key={`${deviceId}-${revision}`} deviceId={deviceId} />}
     {tab === 'modules' && deviceId && <DeviceModules deviceId={deviceId} />}

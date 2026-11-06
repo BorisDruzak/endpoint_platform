@@ -111,7 +111,7 @@ function Console() {
           <Routes>
             <Route path="/admin" element={<DashboardPage />} />
             <Route path="/admin/devices" element={<DevicesPage />} />
-            <Route path="/admin/devices/:deviceId" element={<DeviceDetailPage />} />
+            <Route path="/admin/devices/:deviceId" element={<DeviceDetailPage canWrite={session.scopes.includes('updates:write')} />} />
             <Route path="/admin/enrollment/*" element={<EnrollmentPage />} />
             <Route path="/admin/updates/*" element={<UpdatesPage canWrite={session.scopes.includes('updates:write')} />} />
             <Route path="/admin/operations/*" element={<OperationsPage />} />
