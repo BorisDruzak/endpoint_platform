@@ -92,6 +92,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--preflight", action="store_true")
     parser.add_argument("--recover-staged-update", type=_canonical_operation)
     parser.add_argument("--recover-native-continuation", type=_canonical_operation)
+    parser.add_argument("--recover-staged-restoration", type=_canonical_operation)
     return parser
 
 
@@ -317,6 +318,30 @@ def _run_native_continuation_recovery(operation_id):
         return result.returncode if result.returncode in (0, 67, 3010, 1641) else EXIT_REPAIR_REQUIRED
     except Exception:
         return EXIT_REPAIR_REQUIRED
+
+
+def _run_staged_restoration_recovery(operation_id):
+    """New signed SYSTEM media supplies code, never replacement native authority."""
+    try:
+        if not getattr(sys,'frozen',False):raise SetupInstallError('RECOVERY_REQUIRED')
+        import win32api,win32security
+        token=win32security.OpenProcessToken(win32api.GetCurrentProcess(),win32security.TOKEN_QUERY)
+        try:
+            sid=win32security.GetTokenInformation(token,win32security.TokenUser)[0]
+            if win32security.ConvertSidToStringSid(sid)!='S-1-5-18':raise SetupInstallError('RECOVERY_REQUIRED')
+        finally:token.Close()
+        from pc_agent.platform.windows.update_paths import _native_folder
+        msi=_resource_root()/'EndpointAgent.msi'
+        manifest,wrapper=_verify_embedded_msi(msi)
+        powershell=str(_native_folder(0x25)/'WindowsPowerShell/v1.0/powershell.exe')
+        result=subprocess.run([powershell,'-NoProfile','-NonInteractive','-WindowStyle','Hidden',
+            '-ExecutionPolicy','Bypass','-File',str(wrapper),'-MsiPath',str(msi),
+            '-ReleaseManifest',str(manifest),'-Operation','RecoverStagedRestoration',
+            '-StagedOperationId',operation_id,'-SetupImagePath',str(Path(sys.executable).resolve())],
+            check=False,shell=False,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,creationflags=_windowless_creation_flags())
+        return EXIT_SUCCESS if result.returncode==0 else EXIT_REPAIR_REQUIRED
+    except Exception:return EXIT_REPAIR_REQUIRED
 
 
 def _msi_disk_costs(msi_path: Path, *, recovery_context=None) -> list[tuple[Path, int]]:
@@ -1126,6 +1151,8 @@ def _write_support_install_result(installed: bool) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.recover_staged_restoration:
+        return _run_staged_restoration_recovery(args.recover_staged_restoration)
     if args.recover_native_continuation:
         return _run_native_continuation_recovery(args.recover_native_continuation)
     if args.recover_staged_update:

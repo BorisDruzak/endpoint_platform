@@ -23,6 +23,7 @@ from .installer_fence import assert_state_security, state_root
 from .update_paths import WindowsUpdatePaths
 
 PHASES = frozenset({'inspect','inspect-compound','prepare','stage-online','seal-staged-switch','adopt-staged-switch',
+    'finalize-staged-restoration-continuation',
     'begin-staged-trial','observe-staged-trial','accept-staged-trial','msi-preflight','msi-enter','recover-enter',
     'restore-staged-companions','inspect-staged-recovery','recover-staged-owner','record-staged-native-start','record-staged-native-success','record-staged-reboot-3010','record-staged-reboot-1641',
     'inspect-staged-state','prepare-foundation-rollback','bind-foundation-rollback-roles',
@@ -209,7 +210,7 @@ def _read_capability(paths,session_id):
     after=path.lstat()
     if (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns)!=(after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns):
         _failed()
-    if (set(payload) not in (_CAP_FIELDS,_CAP_FIELDS|{'compound'},_CAP_FIELDS|{'recovery_parent'},_CAP_FIELDS|{'staged_rollback'}) or type(payload['schema_version']) is not int or payload['schema_version']!=1
+    if (set(payload) not in (_CAP_FIELDS,_CAP_FIELDS|{'compound'},_CAP_FIELDS|{'recovery_parent'},_CAP_FIELDS|{'staged_rollback'},_CAP_FIELDS|{'restoration_transaction_id'}) or type(payload['schema_version']) is not int or payload['schema_version']!=1
         or payload['session_id']!=session_id
         or payload['operation'] not in {'install','retire-initial-runtime','uninstall'}
         or type(payload['recovery']) is not bool
@@ -238,6 +239,11 @@ def _read_capability(paths,session_id):
     if 'staged_rollback' in payload:
         from .staged_foundation_rollback import validate_rollback_capability_shape
         validate_rollback_capability_shape(payload)
+    if 'restoration_transaction_id' in payload:
+        _uuid(payload['restoration_transaction_id'])
+        if (payload['restoration_transaction_id']==payload['transaction_id'] or payload['operation']!='install'
+                or payload['recovery'] or payload['uninstall_finalization'] or payload['owner']['sid']!='S-1-5-18'
+                or payload['owner']['elevated'] is not True):_failed()
     return payload
 
 
@@ -514,6 +520,14 @@ def _validate_install_recovery(paths,request):
 
 
 def execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabled='',uninstall_finalization='',upgrade_detected=None,staged_removal=''):
+    if client.phase=='finalize-staged-restoration-continuation':
+        from . import durable_state
+        from .staged_restoration_continuation import finalize_restoration_continuation
+        with durable_state.installer_mutation_checkpoints(client.checkpoint):
+            result=finalize_restoration_continuation(client,paths,client.capability['restoration_transaction_id'])
+        client.request('complete',result)
+        return result
+    if 'restoration_transaction_id' in client.capability:_failed()
     if client.phase in {'msi-preflight','uninstall-finalize-preflight'}:
         extra = client.capability.get('staged_rollback')
         removal = (client.capability['operation']=='uninstall'

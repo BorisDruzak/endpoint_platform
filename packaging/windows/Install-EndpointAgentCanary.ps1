@@ -6,7 +6,7 @@ param(
     [Parameter(Mandatory = $true)]
     [ValidateNotNullOrEmpty()]
     [string]$ReleaseManifest,
-    [ValidateSet('Install','RetireInitialRuntime','RecoverInterruptedInstall','RecoverStagedUpdate','RecoverNativeContinuation','Uninstall')]
+    [ValidateSet('Install','RetireInitialRuntime','RecoverInterruptedInstall','RecoverStagedUpdate','RecoverNativeContinuation','RecoverStagedRestoration','Uninstall')]
     [string]$Operation = 'Install',
     [string]$StagedOperationId,
     [string]$SetupImagePath,
@@ -537,9 +537,9 @@ namespace EndpointInstallerBridge {
             CheckPeer(peer);
             if(phase=="prepare" && nativeRecoverySettlementRequired &&
                 (nativeRecoveryPreparation==null || !nativeRecoveryPreparation.ValidFor(Owner))) Fail();
-            bool recoveryHelper=phase=="recover-native-continuation" || phase=="native-continuation" || phase=="restore-staged-companions" || phase=="inspect-staged-recovery" || phase=="recover-staged-owner" || phase=="record-staged-native-start" || phase=="record-staged-native-success" || phase=="record-staged-reboot-3010" || phase=="record-staged-reboot-1641";
-            if((phase=="recover-native-continuation" || phase=="native-continuation" || phase=="recover-staged-owner" || phase=="record-staged-native-success") && !stagedRecoverySettled) Fail();
-            if((phase=="native-continuation" || phase=="recover-native-continuation") && (Operation!="install" || Recovery || UninstallFinalization || compound!=null || repair!=null || reverse!=null)) Fail();
+            bool recoveryHelper=phase=="finalize-staged-restoration-continuation" || phase=="recover-native-continuation" || phase=="native-continuation" || phase=="restore-staged-companions" || phase=="inspect-staged-recovery" || phase=="recover-staged-owner" || phase=="record-staged-native-start" || phase=="record-staged-native-success" || phase=="record-staged-reboot-3010" || phase=="record-staged-reboot-1641";
+            if((phase=="finalize-staged-restoration-continuation" || phase=="recover-native-continuation" || phase=="native-continuation" || phase=="recover-staged-owner" || phase=="record-staged-native-success") && !stagedRecoverySettled) Fail();
+            if((phase=="finalize-staged-restoration-continuation" || phase=="native-continuation" || phase=="recover-native-continuation") && (Operation!="install" || Recovery || UninstallFinalization || compound!=null || repair!=null || reverse!=null)) Fail();
             bool reverseControl=phase=="inspect-staged-state" || phase=="prepare-foundation-rollback" || phase=="bind-foundation-rollback-roles" ||
                 phase=="rollback-candidate-removed" || phase=="rollback-native-committed" || phase=="verify-foundation-rollback";
             if(reverseControl && (Operation!="install" || Recovery || UninstallFinalization || compound!=null || repair!=null ||
@@ -1600,7 +1600,7 @@ function Get-NativeWrapperExitCode {
 
 function Invoke-InstallerHelper {
     param([Parameter(Mandatory)]$Bridge,[Parameter(Mandatory)][string]$Phase)
-    if ($Phase -notin @('inspect','inspect-compound','prepare','stage-online','seal-staged-switch','adopt-staged-switch','begin-staged-trial','observe-staged-trial','accept-staged-trial','inspect-staged-state','prepare-foundation-rollback','bind-foundation-rollback-roles','rollback-candidate-removed','rollback-native-committed','verify-foundation-rollback','restore-staged-companions','inspect-staged-recovery','recover-staged-owner','record-staged-native-start','record-staged-native-success','record-staged-reboot-3010','record-staged-reboot-1641','reconcile','finish','verify-settled','native-continuation','recover-native-continuation','compound-old-returned','compound-new-returned','compound-commit','compound-retire','compound-complete','compound-finalize','compound-repair-returned','compound-repair-commit') -or $Bridge.SessionId -cnotmatch '^[0-9a-f-]{36}$') { throw 'OWNER_AUTH_FAILED' }
+    if ($Phase -notin @('inspect','inspect-compound','prepare','stage-online','seal-staged-switch','adopt-staged-switch','begin-staged-trial','observe-staged-trial','accept-staged-trial','inspect-staged-state','prepare-foundation-rollback','bind-foundation-rollback-roles','rollback-candidate-removed','rollback-native-committed','verify-foundation-rollback','restore-staged-companions','inspect-staged-recovery','recover-staged-owner','record-staged-native-start','record-staged-native-success','record-staged-reboot-3010','record-staged-reboot-1641','reconcile','finish','verify-settled','native-continuation','recover-native-continuation','finalize-staged-restoration-continuation','compound-old-returned','compound-new-returned','compound-commit','compound-retire','compound-complete','compound-finalize','compound-repair-returned','compound-repair-commit') -or $Bridge.SessionId -cnotmatch '^[0-9a-f-]{36}$') { throw 'OWNER_AUTH_FAILED' }
     $phaseTimer=[Diagnostics.Stopwatch]::StartNew()
     $phaseStarted=[DateTime]::UtcNow.ToString('o')
     $launchSeconds=$null;$warmLaunch=$false;$phaseSucceeded=$false
@@ -2317,7 +2317,7 @@ function Save-PreparedOldRemoval {
 }
 
 function New-InstallerBridge {
-    param($Manifest,[string]$HelperPath,[string]$HelperHash,[string]$StateRoot,[hashtable]$ServiceStates,$Fence,[string]$Intent,[string]$TransactionId,$Selection,$Compound,[string]$RecoveryParent,[string]$BoundSessionId,$StagedRollback)
+    param($Manifest,[string]$HelperPath,[string]$HelperHash,[string]$StateRoot,[hashtable]$ServiceStates,$Fence,[string]$Intent,[string]$TransactionId,$Selection,$Compound,[string]$RecoveryParent,[string]$BoundSessionId,$StagedRollback,[string]$RestorationTransactionId)
     Initialize-InstallerBridgeTypes
     New-InstallerPublicStateRoot $StateRoot
     $capabilities = Join-Path $StateRoot 'capabilities'
@@ -2350,6 +2350,13 @@ function New-InstallerBridge {
         pipe_name=$pipeName; owner=@{pid=$identity.Pid;created=$identity.Created;hash=$identity.Hash;sid=$identity.Sid;elevated=$identity.Elevated};
         helper_sha256=$HelperHash; secret=[EndpointInstallerBridge.Policy]::Hex($secret); selected=$null;previous=$null;
         service_states=$states; recovery=($null -ne $Fence);uninstall_finalization=$false }
+    if ($RestorationTransactionId) {
+        if ($RestorationTransactionId -cnotmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' -or
+            $RestorationTransactionId -ceq $transactionId -or $identity.Sid -cne 'S-1-5-18' -or
+            !$identity.Elevated -or $Intent -cne 'install' -or $null -ne $Fence -or $null -ne $Selection -or
+            $null -ne $Compound -or $RecoveryParent -or $BoundSessionId -or $null -ne $StagedRollback) { throw 'OWNER_AUTH_FAILED' }
+        $capability.restoration_transaction_id=$RestorationTransactionId
+    }
     if ($null -ne $Fence) {
         $capability.selected=$Fence.selected;$capability.previous=$Fence.previous;$capability.service_states=$Fence.service_states
     } elseif ($null -ne $Selection) {
@@ -2962,17 +2969,26 @@ try {
         Assert-UpdateTransactionSecurity -Mutex $updateMutex
         $gateInstallRoot = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)) 'Endpoint Platform\Agent'
         $gateDataRoot = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)) 'Endpoint Platform\Agent'
-        $continuationOperation=if($Operation -cin @('RecoverStagedUpdate','RecoverNativeContinuation')){$StagedOperationId}else{''}
+        $continuationOperation=if($Operation -cin @('RecoverStagedUpdate','RecoverNativeContinuation','RecoverStagedRestoration')){$StagedOperationId}else{''}
         if (Test-ActiveUpdateState -InstallRoot $gateInstallRoot -DataRoot $gateDataRoot -NativeContinuation $continuationOperation) { exit 61 }
         $installerStateRoot = Join-Path (Split-Path -Parent $gateInstallRoot) 'installer-state'
         $interruptedFence = Read-InstallerFence -Root $installerStateRoot
         $recoveryLocator=$null
         Assert-NoReservedNativeReplay -Operation $Operation -Fence $interruptedFence -StateRoot $installerStateRoot
         if ($Operation -eq 'RecoverInterruptedInstall') { $recoveryLocator=Read-CompoundRecoveryLocator $installerStateRoot $manifest }
-        if ($null -ne $interruptedFence -and $Operation -notin @('RecoverInterruptedInstall','RecoverStagedUpdate','RecoverNativeContinuation')) { exit 61 }
+        if ($null -ne $interruptedFence -and $Operation -notin @('RecoverInterruptedInstall','RecoverStagedUpdate','RecoverNativeContinuation','RecoverStagedRestoration')) { exit 61 }
         if ($Operation -eq 'RecoverInterruptedInstall' -and $null -eq $interruptedFence -and $null -eq $recoveryLocator) { exit 61 }
         $nativeContinuationHold=Read-UpdateGateState -Path (Join-Path $installerStateRoot 'native-continuation.json') -Limit 4096
         $nativeContinuationReserved=$false
+        if($Operation -ceq 'RecoverStagedRestoration') {
+            if ([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne 'S-1-5-18' -or
+                $StagedOperationId -cnotmatch '^[0-9a-f-]{36}$' -or $null -ne $interruptedFence -or
+                ($null -ne $nativeContinuationHold -and $nativeContinuationHold.Value.transaction_id -cne $StagedOperationId)) {
+                throw 'RECOVERY_REQUIRED'
+            }
+            $restorationGrant=Read-UpdateGateState -Path (Join-Path $installerStateRoot ('transactions\'+$StagedOperationId+'\native-continuation-grant.json')) -Limit 32768
+            if ($null -eq $restorationGrant -or $restorationGrant.Value.transaction_id -cne $StagedOperationId) { throw 'RECOVERY_REQUIRED' }
+        }
         if($Operation -cin @('RecoverStagedUpdate','RecoverNativeContinuation') -and $StagedOperationId -cmatch '^[0-9a-f-]{36}$'){
             $grant=Read-UpdateGateState -Path (Join-Path $installerStateRoot ('transactions\'+$StagedOperationId+'\native-continuation-grant.json')) -Limit 32768
             $nativeContinuationReserved=$null -ne $grant -and $grant.Value.transaction_id -ceq $StagedOperationId -and $grant.Value.package.package_sha256 -ceq $manifest.package_sha256
@@ -3085,6 +3101,16 @@ try {
     $helperHash = [EndpointInstallerBridge.PackageHelper]::Extract($executionCachePath,$helperPath)
     Assert-CacheArtifactProtection $helperPath
     $helperPin = [IO.File]::Open($helperPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+    if($Operation -ceq 'RecoverStagedRestoration') {
+        $continuationBridge=New-InstallerBridge -Manifest $manifest -HelperPath $helperPath -HelperHash $helperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Intent 'install' -RestorationTransactionId $StagedOperationId
+        $continuationBridge.Policy.MarkQuiescent()
+        $proof=[EndpointInstallerBridge.NativeTransaction]::EstablishSettlement($continuationBridge.Owner)
+        $continuationBridge.Policy.AuthorizeStagedRecovery($proof)
+        $continued=Invoke-InstallerHelper -Bridge $continuationBridge -Phase 'finalize-staged-restoration-continuation'
+        if($continued.operation_id -cne $StagedOperationId -or $continued.result -cne 'staged-restoration-complete') { throw 'RECOVERY_REQUIRED' }
+        $installationCompleted=$true
+        exit 0
+    }
     if($Operation -cin @('RecoverNativeContinuation','RecoverStagedUpdate') -and ($null -ne $nativeContinuationHold -or $nativeContinuationReserved)){
         $continuationBridge=New-InstallerBridge -Manifest $manifest -HelperPath $helperPath -HelperHash $helperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Intent 'install' -TransactionId $StagedOperationId
         $continuationBridge.Policy.MarkQuiescent()
@@ -3363,7 +3389,7 @@ catch {
 }
 finally {
     try {
-    if (-not $installationCompleted -and -not $nativeStarted -and $null -eq $interruptedFence -and $null -eq (Read-InstallerFence -Root $installerStateRoot)) {
+    if ($Operation -cne 'RecoverStagedRestoration' -and -not $installationCompleted -and -not $nativeStarted -and $null -eq $interruptedFence -and $null -eq (Read-InstallerFence -Root $installerStateRoot)) {
         $canRestore = {
             $worker = Get-Service -Name 'EndpointAgentUpdater' -ErrorAction SilentlyContinue
             if ($null -ne $worker -and $worker.Status -ne [ServiceProcess.ServiceControllerStatus]::Stopped) { return $false }

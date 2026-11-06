@@ -143,3 +143,21 @@ installations. Preserve historical172 bytes and every earlier failure receipt.
 Actual command outputs, artifact digests and live device results belong in a
 dated verification receipt. This runbook describes the required workflow and
 does not itself assert that any live check or rollout passed.
+
+## Finalizing a completed restoration
+
+Support remaining available is independent of native update settlement. If a
+completed staged rollback restores an older MSI that reserved post-install work,
+the parent must finish that exact restoration reservation before another update.
+The role-bound finalizer proves terminal rollback, the original private plan and
+role capabilities, native completion, installed bytes, private state, startup
+configuration and exact original selectors. It permits only the proven previous
+selector restored by that parent. A new immutable receipt precedes retirement
+of the matching reservation; historical validation remains strict.
+
+For an interrupted finalization, newly signed SYSTEM Setup provides
+`--recover-staged-restoration <restoration-transaction-uuid>`. Its own media is
+code authority; the target remains bound to the older restoration evidence.
+The protected authenticated owner requires genuine native settlement and death
+of prior owners. It does not reinstall MSI, restart services, change selectors
+or replace grants. A mismatched or unresolved native operation remains blocked.

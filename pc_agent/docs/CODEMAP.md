@@ -281,6 +281,16 @@ own HTTPS policy and outbound SSH tunnel. Native failure and staged rollback
 do not stop the active service. See `docs/runbooks/INDEPENDENT_SUPPORT_ACCESS.md`
 for policy, ownership, installation and live qualification boundaries.
 
+`staged_restoration_continuation.py` finalizes only the old native reservation
+created by a completed staged rollback's restoration role. It binds the private
+plan, three role capabilities, native grant/completion, original payload and
+private state, and exact restored selectors. It records a new derived receipt
+before retiring that reservation; historical grants and selectors stay intact.
+The live rollback owner invokes it automatically. Signed SYSTEM Setup also
+exposes `--recover-staged-restoration` through a fresh authenticated owner,
+genuine native settlement and the same proof path. This executes no MSI replay
+or service changes and does not relax historical continuation validation.
+
 `tools/canary/ssl_payload.py` preserves an interpreter's required adjacent TLS
 policy resource in every Windows analysis containing `ssl`. It binds the
 unmodified stdlib source/resource bytes, rejects missing or ambiguous inputs,

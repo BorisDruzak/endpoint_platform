@@ -530,7 +530,7 @@ def execute_rollback_control_phase(client, paths):
                     result = {'result': 'rollback-native-committed', 'operation_id': operation}
                 elif client.phase == 'verify-foundation-rollback':
                     retire_candidate_removal_fence(paths, cap)
-                    verify_foundation_rollback(paths, operation)
+                    verify_foundation_rollback(paths, operation, continuation_client=client)
                     result = {'result': 'rolled-back', 'operation_id': operation}
                 else:
                     _fail()
@@ -627,7 +627,7 @@ def record_foundation_rollback_commit(paths, operation_id):
     return _write(paths, record, {**plan, 'phase': 'native-committed'})
 
 
-def verify_foundation_rollback(paths, operation_id):
+def verify_foundation_rollback(paths, operation_id, *, continuation_client=None):
     durable_state.installer_mutation_checkpoint(required=True)
     record = _operation(paths, operation_id)
     plan = read_foundation_rollback(paths, operation_id)
@@ -649,3 +649,9 @@ def verify_foundation_rollback(paths, operation_id):
     _verify_original_data(paths, record)
     _write(paths, record, {**plan, 'phase': 'complete'})
     state.advance_staged_update(paths, operation_id, 'rolling-back', 'rolled-back')
+    from .native_setup_continuation import pending_continuation
+    if pending_continuation(paths) is not None:
+        if continuation_client is None:
+            _fail()
+        from .staged_restoration_continuation import finalize_restoration_continuation
+        finalize_restoration_continuation(continuation_client, paths, operation_id)
