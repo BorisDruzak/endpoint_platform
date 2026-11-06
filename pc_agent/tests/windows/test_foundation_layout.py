@@ -163,7 +163,21 @@ def test_foundation_pin_failure_keeps_rejection_and_identifies_safe_slot(tmp_pat
                     before = leaf.stat()
                     os.utime(leaf, ns=(before.st_atime_ns, before.st_mtime_ns + 1_000_000_000))
                 elif invariant == 'change_time':
-                    leaf.chmod(stat.S_IREAD)  # Metadata can change even under a deny-data-write pin.
+                    import time
+                    # NTFS can coalesce immediate metadata writes into the same
+                    # ChangeTime tick. Establish a real descriptor change before
+                    # asking the unchanged production guard to reject it.
+                    with leaf.open('rb') as observed:
+                        before_change = os.fstat(observed.fileno()).st_ctime_ns
+                        deadline = time.monotonic() + 1.0
+                        readonly = True
+                        while True:
+                            leaf.chmod(stat.S_IREAD if readonly else stat.S_IREAD | stat.S_IWRITE)
+                            if os.fstat(observed.fileno()).st_ctime_ns != before_change:
+                                break
+                            assert time.monotonic() < deadline, 'native ChangeTime did not advance'
+                            readonly = not readonly
+                            time.sleep(0.001)
                 else:
                     real_fstat = module.os.fstat
                     def different_handle(descriptor):
