@@ -561,5 +561,20 @@
     "native_canary_applied": true,
     "native_exit": 0,
     "active_chains": 0
+  },
+  "windows_full_setup172_candidate": {
+    "version": "3.2.172",
+    "status": "preparing_not_built_not_published",
+    "fix_commits": [
+      "d5cfb0daa61aff14f4cd4e9685c716a78300e1c3",
+      "d4774f78b3a5e1ea356936171bbc46fbcb5fadc4"
+    ],
+    "runtime_source_commit": null,
+    "observer_version": "1.0.7",
+    "signed_artifacts": false,
+    "native_qualified": false,
+    "fleet_enabled": false,
+    "enrollment_download_promoted": false,
+    "plan": "docs/superpowers/plans/2026-11-06-power-stream-anchor.md"
   }
 }
