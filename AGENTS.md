@@ -25,6 +25,8 @@
 
 # Canonical Windows update workflow
 
+- Source-only Foundation diagnostic improvement `9aade90a33217c483dc11a9c051ae5dacc333d43` distinguishes path/descriptor identity and native ChangeTime failures while retaining the original strict rejection. The122 public Foundation files on187 matched the actual signed169 MSI at2026-11-06T05:16Z; this does not explain the historical metadata failure or authorize recovery. The operator reports a later power outage;187 is QEMU/SeaBIOS by saved inventory and is currently awaiting connectivity. Neither this improvement nor Tray fix888af5a is built or installed; do not imply169 contains them. See `docs/verification/2026-11-06-setup169-187-readonly.md`.
+
 - Use one process for every new Windows full release: immutable signed build,
   candidate publication, Console canary, server qualification, coverage preview,
   persistent fleet policy, observed acceptance and primary-download promotion.
