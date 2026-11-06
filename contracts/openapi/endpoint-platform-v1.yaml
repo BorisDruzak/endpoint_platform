@@ -1868,6 +1868,90 @@ paths:
           ServiceBearer: []
       x-required-scopes:
         - "device-binding.redeem"
+  "/agent/v1/support-access/register":
+    post:
+      tags:
+        - "agent-support-access"
+      summary: "Registration"
+      operationId: "registration_agent_v1_support_access_register_post"
+      requestBody:
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/SupportRegistration"
+        required: true
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/SupportRegistrationResult"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      security:
+        -
+          AgentBearer: []
+  "/agent/v1/support-access/policy":
+    get:
+      tags:
+        - "agent-support-access"
+      summary: "Get Policy"
+      operationId: "get_policy_agent_v1_support_access_policy_get"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/SupportPolicy"
+      security:
+        -
+          SupportBearer: []
+  "/agent/v1/support-access/status":
+    post:
+      tags:
+        - "agent-support-access"
+      summary: "Report"
+      operationId: "report_agent_v1_support_access_status_post"
+      requestBody:
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/SupportStatusReport"
+        required: true
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/SupportPolicy"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      security:
+        -
+          SupportBearer: []
+  "/agent/v1/support-access/unregister":
+    post:
+      tags:
+        - "agent-support-access"
+      summary: "Unregister"
+      operationId: "unregister_agent_v1_support_access_unregister_post"
+      responses:
+        "204":
+          description: "Successful Response"
+      security:
+        -
+          SupportBearer: []
 components:
   schemas:
     PowerEventV1:
@@ -11622,6 +11706,152 @@ components:
         - "status"
         - "collected_at"
       title: "SoftwareListResultV1"
+    SupportPolicy:
+      properties:
+        device_id:
+          type: "string"
+          format: "uuid"
+          title: "Device Id"
+        revision:
+          type: "integer"
+          title: "Revision"
+        enabled:
+          type: "boolean"
+          title: "Enabled"
+        expires_at:
+          anyOf:
+            -
+              type: "string"
+              format: "date-time"
+            -
+              type: "null"
+          title: "Expires At"
+        gateway_host:
+          type: "string"
+          title: "Gateway Host"
+        gateway_port:
+          type: "integer"
+          title: "Gateway Port"
+        gateway_host_public_key:
+          type: "string"
+          title: "Gateway Host Public Key"
+        tunnel_user:
+          type: "string"
+          title: "Tunnel User"
+        remote_port:
+          type: "integer"
+          title: "Remote Port"
+        local_port:
+          type: "integer"
+          const: 22222
+          title: "Local Port"
+          default: 22222
+        operator_public_keys:
+          items:
+            type: "string"
+          type: "array"
+          title: "Operator Public Keys"
+        windows_admin_username:
+          anyOf:
+            -
+              type: "string"
+            -
+              type: "null"
+          title: "Windows Admin Username"
+        poll_after_seconds:
+          type: "integer"
+          const: 30
+          title: "Poll After Seconds"
+          default: 30
+      additionalProperties: false
+      type: "object"
+      required:
+        - "device_id"
+        - "revision"
+        - "enabled"
+        - "expires_at"
+        - "gateway_host"
+        - "gateway_port"
+        - "gateway_host_public_key"
+        - "tunnel_user"
+        - "remote_port"
+        - "operator_public_keys"
+        - "windows_admin_username"
+      title: "SupportPolicy"
+    SupportRegistration:
+      properties:
+        tunnel_public_key:
+          type: "string"
+          maxLength: 128
+          title: "Tunnel Public Key"
+        host_public_key:
+          type: "string"
+          maxLength: 128
+          title: "Host Public Key"
+        component_version:
+          type: "string"
+          maxLength: 20
+          pattern: "^\\d{1,5}\\.\\d{1,5}\\.\\d{1,5}$"
+          title: "Component Version"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "tunnel_public_key"
+        - "host_public_key"
+        - "component_version"
+      title: "SupportRegistration"
+    SupportRegistrationResult:
+      properties:
+        device_id:
+          type: "string"
+          format: "uuid"
+          title: "Device Id"
+        credential_id:
+          type: "string"
+          format: "uuid"
+          title: "Credential Id"
+        support_token:
+          type: "string"
+          title: "Support Token"
+        policy:
+          "$ref": "#/components/schemas/SupportPolicy"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "device_id"
+        - "credential_id"
+        - "support_token"
+        - "policy"
+      title: "SupportRegistrationResult"
+    SupportStatusReport:
+      properties:
+        installed:
+          type: "boolean"
+          title: "Installed"
+        tunnel_connected:
+          type: "boolean"
+          title: "Tunnel Connected"
+        last_error_code:
+          anyOf:
+            -
+              type: "string"
+              enum:
+                - "dependency_unavailable"
+                - "configuration_conflict"
+                - "key_conflict"
+                - "policy_unavailable"
+                - "tunnel_failed"
+                - "host_key_mismatch"
+                - "service_failed"
+            -
+              type: "null"
+          title: "Last Error Code"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "installed"
+        - "tunnel_connected"
+      title: "SupportStatusReport"
     SystemResourceSnapshotResultV1:
       properties:
         schema_version:
@@ -11929,6 +12159,10 @@ components:
     AgentBearer:
       type: "http"
       scheme: "bearer"
+    SupportBearer:
+      type: "http"
+      scheme: "bearer"
+      description: "Independent device-bound support policy bearer"
     ServiceBearer:
       type: "http"
       scheme: "bearer"

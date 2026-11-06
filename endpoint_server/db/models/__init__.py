@@ -1,4 +1,5 @@
 """Import all ownership models so their tables are registered with metadata."""
+from endpoint_server.support_access.models import SupportAccess
 
 from .administration import (
     AdminSession,

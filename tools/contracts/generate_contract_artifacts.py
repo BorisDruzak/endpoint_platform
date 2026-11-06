@@ -732,6 +732,8 @@ def _json_content(component_name: str) -> dict[str, object]:
 def _service_operation_openapi() -> dict[str, object]:
     """Generate published service paths/components from the runtime routers."""
     application = FastAPI()
+    from endpoint_server.support_access.routes import agent_router as support_agent_router
+    application.include_router(support_agent_router)
     application.include_router(operations_router)
     application.include_router(modules_router)
     application.include_router(device_modules_router)
@@ -745,7 +747,8 @@ def _service_operation_openapi() -> dict[str, object]:
         "paths": {
             path: generated["paths"][path]
             for path in (*_SERVICE_OPERATION_PATHS, *_SERVICE_CONTEXT_PATHS, *_PUBLIC_BROWSER_RELEASE_PATHS,
-                         "/api/v1/device-binding/challenges", "/api/v1/device-binding/challenges/redeem")
+                         "/api/v1/device-binding/challenges", "/api/v1/device-binding/challenges/redeem",
+                         '/agent/v1/support-access/register','/agent/v1/support-access/policy','/agent/v1/support-access/status','/agent/v1/support-access/unregister')
         },
         "components": generated["components"],
     }
@@ -971,6 +974,7 @@ def render_artifacts(output_root: Path) -> dict[Path, str]:
                     "type": "http",
                     "scheme": "bearer",
                 },
+                'SupportBearer': {'type':'http','scheme':'bearer','description':'Independent device-bound support policy bearer'},
                 **service_operation_openapi["components"]["securitySchemes"],
             },
         },

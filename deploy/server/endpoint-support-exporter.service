@@ -1,0 +1,24 @@
+[Unit]
+Description=Endpoint independent support lease exporter
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=endpoint-platform
+Group=endpoint-platform
+WorkingDirectory=/opt/endpoint-platform/current
+EnvironmentFile=/etc/endpoint-platform/endpoint-platform.env
+ExecStart=/opt/endpoint-platform/current/venv/bin/python -m endpoint_server.support_access.exporter
+RuntimeDirectory=endpoint-support
+RuntimeDirectoryMode=0750
+Restart=on-failure
+RestartSec=5
+UMask=0027
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/run/endpoint-support
+
+[Install]
+WantedBy=multi-user.target

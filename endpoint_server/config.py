@@ -196,6 +196,9 @@ class Settings:
     activity_analytics: AnalyticsPolicy = AnalyticsPolicy()
     oidc: OIDCSettings = OIDCSettings()
     worktime_enabled: bool = False
+    support_gateway_host: str = 'endpoint.sosnadmin.local'
+    support_gateway_port: int = 2222
+    support_gateway_host_public_key: str = ''
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str] | None = None) -> Settings:
@@ -306,6 +309,9 @@ class Settings:
 
         return cls(
             database_url=database_url,
+            support_gateway_host=values.get('SUPPORT_GATEWAY_HOST','endpoint.sosnadmin.local'),
+            support_gateway_port=int(values.get('SUPPORT_GATEWAY_PORT','2222')),
+            support_gateway_host_public_key=values.get('SUPPORT_GATEWAY_HOST_PUBLIC_KEY',''),
             public_base_url=public_base_url,
             device_token_pepper=device_token_pepper,
             service_token_pepper=service_token_pepper,

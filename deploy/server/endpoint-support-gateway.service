@@ -1,0 +1,22 @@
+[Unit]
+Description=Endpoint support tunnel transport on the internal LAN
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+# Clear persisted authorization before listening; only a fresh exporter
+# snapshot can reopen it through the independently supervised broker timer.
+ExecStartPre=/usr/bin/python3 /usr/local/libexec/endpoint-support-broker.py --clear
+ExecStartPre=/usr/sbin/sshd -t -f /etc/endpoint-support/sshd_config
+ExecStart=/usr/sbin/sshd -D -e -f /etc/endpoint-support/sshd_config
+Restart=on-failure
+RestartSec=5
+UMask=0077
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target
