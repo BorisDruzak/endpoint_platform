@@ -15,9 +15,8 @@ def test_power_source_postgresql_sql_and_single_head():
     config.set_main_option(
         "sqlalchemy.url", "postgresql+asyncpg://unused@127.0.0.1/unused"
     )
-    assert ScriptDirectory.from_config(config).get_heads() == [
-        "0042_worktime_companion"
-    ]
+    # Later unrelated migrations must not invalidate the Power DDL contract.
+    assert len(ScriptDirectory.from_config(config).get_heads()) == 1
     command.upgrade(config, "0038_activity_analytics:0039_power_source_state", sql=True)
     sql = output.getvalue()
     assert "CREATE TABLE power_source_states" in sql
