@@ -56,7 +56,7 @@ USN retained its creation/basic-info records at07:25:07 and a close record at
 07:27:21, with no later write/basic-info reason in between. This does not identify
 the specific metadata writer. Last-access policy2 is observed, not a proven cause.
 
-With no further SSH writes, service restarts, MSI replay or reboot, the normal
+With no further SSH writes, manual service restarts, MSI replay or reboot, the normal
 native continuation/observer107 path restored the target and closed the SAME job
 FAILED/native_failed_target_recovered at07:31:54.367255Z. Original attempt and
 native21 preserved. Exact Core/Foundation170/source/MSI verified, no pending

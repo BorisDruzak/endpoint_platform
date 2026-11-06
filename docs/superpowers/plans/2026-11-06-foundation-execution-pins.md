@@ -78,3 +78,11 @@ This narrow native-local change was verified against current source/tests and
 introduces no external HTTP contract. Context7 was consulted for the pinned
 pywin32 311/PyInstaller6.22.3 environment and existing APIs. No171 build,
 publication, workstation preparation or fleet action yet.
+
+
+171 live installer acceptance:187/source170/client107 APPLIED/native0 at08:26:40Z,
+183.381seconds/6samples/1Sensor, private4 and exact native/Core/source/MSI verified,
+fresh user telemetry,0activechains; no manual preparation. Ruling: final fleet
+qualification moves to distinct172 carrying the independent Power fix, per
+2026-11-06-power-stream-anchor.md.171 remains an installer canary, not the fleet
+or enrollment target. Preserve all earlier failure histories.

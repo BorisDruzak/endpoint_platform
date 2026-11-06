@@ -547,14 +547,19 @@
   },
   "windows_full_setup171_candidate": {
     "version": "3.2.171",
-    "status": "preparing_not_built_not_published",
+    "status": "installer_source170_native_accepted_fleet_deferred_for_power_fix",
     "fix_commit": "d5cfb0daa61aff14f4cd4e9685c716a78300e1c3",
-    "runtime_source_commit": null,
+    "runtime_source_commit": "3f71f5fca8c74eefab52aacc9c1a1c4cdb6a72dd",
     "observer_version": "1.0.7",
-    "signed_artifacts": false,
+    "signed_artifacts": true,
     "native_qualified": false,
     "fleet_enabled": false,
     "enrollment_download_promoted": false,
-    "plan": "docs/superpowers/plans/2026-11-06-foundation-execution-pins.md"
+    "plan": "docs/superpowers/plans/2026-11-06-foundation-execution-pins.md",
+    "record": "docs/releases/windows-3.2.171-setup.json",
+    "setup_update_release_id": "a6cb4f29-48f8-4a97-b396-8d282a1a9d01",
+    "native_canary_applied": true,
+    "native_exit": 0,
+    "active_chains": 0
   }
 }
