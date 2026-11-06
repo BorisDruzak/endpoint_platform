@@ -85,6 +85,15 @@
 
 # Reserve connection during agent or updater incidents
 
+- Corrected clean176 acceptance on120 passed native0, advancing genuine user
+  samples and actual domain SSH with Core/updater/observer stopped; see
+  [cause and repeat receipt](docs/verification/2026-11-07-test120-usersensor-cause-clean176.md).
+  The earlier manual purge removed browser-policy ownership markers while leaving
+  their owned values, causing POLICY_CONFLICT and rejected sensor samples.
+  Never recursively purge product ownership metadata before exact owned-policy
+  cleanup. Preserve foreign values and native recovery evidence; a running sensor
+  or READY listener alone does not prove accepted telemetry.
+
 - When authorized Endpoint diagnosis/update work cannot be completed using
   available telemetry, server logs or update receipts, use the independent
   support channel to inspect the affected Windows PC. Do not stop at an absent

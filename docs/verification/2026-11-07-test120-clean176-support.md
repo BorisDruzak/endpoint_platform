@@ -1,5 +1,11 @@
 # Clean Setup176 and automatic service access on test120
 
+Follow-up: the cause is now confirmed and the corrected repeat passed genuine
+user telemetry before and after the stopped-runtime SSH test. See
+[cause and repeat receipt](2026-11-07-test120-usersensor-cause-clean176.md).
+The original results below remain historical; empty product roots did not prove
+that browser-policy ownership/value cleanup was complete.
+
 Result: **native removal, clean installation and independent administrator access
 passed; complete user telemetry failed**. This is a real workstation test, not the
 earlier API/PostgreSQL fixture. No new Windows release or native-source fleet

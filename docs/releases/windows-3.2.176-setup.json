@@ -367,6 +367,44 @@
     "new_fleet_source_qualification_created": false,
     "other_five_policies_unchanged": true,
     "campaign_use_count": 7,
-    "report": "docs/verification/2026-11-07-test120-clean176-support.md"
+    "report": "docs/verification/2026-11-07-test120-clean176-support.md",
+    "failure_cause_followup": "Confirmed operator purge removed ownership markers while leaving owned browser policy values; corrected repeat separately recorded"
+  },
+  "clean_install_test120_corrected": {
+    "status": "native_user_telemetry_and_independent_support_passed",
+    "verified_utc": "2026-11-06T21:38:30.165852+00:00",
+    "address": "192.168.101.120",
+    "hostname": "DESKTOP-9ST5HO2",
+    "old_device_id": "06143264-1b7b-42e7-990f-7f8e1292491b",
+    "new_device_id": "4231a496-1ab5-4318-b558-2d2e954b5f03",
+    "uninstall_native_exit_code": 0,
+    "owned_browser_policy_cleanup_before_metadata_purge": true,
+    "empty_baseline_verified": true,
+    "setup_exit_code": 0,
+    "actual_user_samples_before_fault": [
+      "2026-11-06T21:31:01.320535+00:00",
+      "2026-11-06T21:32:01.366077+00:00"
+    ],
+    "actual_user_samples_after_restore": [
+      "2026-11-06T21:35:31.504763+00:00",
+      "2026-11-06T21:36:31.544359+00:00"
+    ],
+    "policy_delivery_status": "APPLIED",
+    "activity_sensor": "ACTIVE",
+    "manual_usersensor_restart": false,
+    "support_automatic_initial_grant": true,
+    "support_manual_policy_writes": 0,
+    "support_policy_revision": 2,
+    "support_expires_at": "2026-11-07T05:27:46.758883Z",
+    "windows_admin_username": "sosnadm\\admin-2",
+    "gateway_remote_port": 32007,
+    "strict_domain_administrator_ssh": true,
+    "stopped_core_updater_observer_test": true,
+    "independent_challenge_gap_seconds": 97.320345,
+    "support_same_pid_during_test": 11380,
+    "original_service_and_task_state_restored": true,
+    "os_sshd_pid_preserved": 3564,
+    "new_fleet_source_qualification_created": false,
+    "report": "docs/verification/2026-11-07-test120-usersensor-cause-clean176.md"
   }
 }
