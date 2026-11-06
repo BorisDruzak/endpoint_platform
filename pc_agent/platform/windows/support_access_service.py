@@ -99,6 +99,7 @@ def main():
             result = install_from_enrollment()
         except Exception as error:
             known = {'support_dependency_install_failed','support_dependency_reboot_required',
+                     'support_process_identity_unavailable','support_process_exit_timeout',
                      'support_dependency_firewall_conflict',
                      'support_dependency_signature_invalid','support_dependency_changed',
                      'support_identity_conflict','support_key_role_conflict','support_key_generation_failed',

@@ -148,8 +148,9 @@ async def test_explicit_reset_allows_one_key_replacement_with_same_device_histor
             await register(s,d.id,c.id,replacement)
         row.reset_registration_allowed=True;row.revoked_at=datetime.now(UTC);row.enabled=False;row.generation+=1
         await s.flush()
-        with pytest.raises(SupportConflict):
+        with pytest.raises(SupportConflict) as reset_required:
             await register(s,d.id,c.id,old)
+        assert getattr(reset_required.value,'reset_device_id',None)==d.id
         fresh=await register(s,d.id,c.id,replacement)
         assert fresh.id==identity_id and fresh.remote_port==port
         assert not fresh.reset_registration_allowed and fresh.revoked_at is None and not fresh.enabled

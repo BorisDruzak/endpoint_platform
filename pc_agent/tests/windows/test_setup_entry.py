@@ -1249,3 +1249,21 @@ def test_fresh_provisioner_reports_support_failure_separately_without_changing_s
     result=json.loads((tmp_path/'diagnostics'/'support-install-result.json').read_text())
     assert result['installed'] is False
     assert result['status']=='unavailable'
+
+
+def test_same_version_setup_retries_only_support_without_msi_or_enrollment(monkeypatch,tmp_path):
+    from pc_agent.platform.windows import provision
+    _write_public_payload(tmp_path)
+    monkeypatch.setattr(setup_entry,'_data_root',lambda:tmp_path/'data')
+    monkeypatch.setattr(setup_entry,'_resource_root',lambda:tmp_path)
+    monkeypatch.setattr(setup_entry,'_classify_installation_state',lambda *_a,**_kw:'valid')
+    monkeypatch.setattr(setup_entry,'_installed_msi_version',lambda:'1.0.2')
+    monkeypatch.setattr(setup_entry,'_msi_reconciliation_required',lambda _:False)
+    events=[]
+    monkeypatch.setattr(setup_entry,'_install_embedded_msi',lambda _:events.append('MSI'))
+    monkeypatch.setattr(setup_entry,'_run_provisioner',lambda *a,**k:events.append('enrollment'))
+    monkeypatch.setattr(provision,'install_enrolled_support',lambda root:events.append('support') or {'installed':True})
+    monkeypatch.setattr(setup_entry,'_wait_for_agent_service_running',lambda:events.append('core-health') or True)
+    assert setup_entry.main(['--quiet'])==setup_entry.EXIT_ALREADY_INSTALLED
+    assert events==['support','core-health']
+    assert json.loads((tmp_path/'diagnostics'/'support-install-result.json').read_text())['installed'] is True

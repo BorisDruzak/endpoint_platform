@@ -8,6 +8,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+SUPPORT_RESET_DEVICE_HEADER = 'X-Support-Reset-Device'
+
 
 def canonical_public_key(value: str) -> str:
     """Accept a single Ed25519 SSH key, without options, comments or newlines."""
@@ -28,6 +30,10 @@ def canonical_public_key(value: str) -> str:
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra='forbid', hide_input_in_errors=True)
+
+
+class SupportRegistrationConflict(StrictModel):
+    detail: Literal['Support key ownership conflict'] = 'Support key ownership conflict'
 
 
 class SupportRegistration(StrictModel):

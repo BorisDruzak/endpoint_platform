@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter,Depends,HTTPException,Request,Response
 from sqlalchemy import select
 from endpoint_contracts.support_access import (SupportRegistration,SupportRegistrationResult,SupportPolicy,SupportPolicyUpdate,SupportReason,SupportStatusReport,canonical_public_key)
+from endpoint_contracts.support_access import SUPPORT_RESET_DEVICE_HEADER,SupportRegistrationConflict
 from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.auth.admin_sessions import AdminPrincipal,require_admin,require_admin_update_scope
@@ -12,7 +13,7 @@ from endpoint_server.updates.agent_routes import _authenticate_device,_revalidat
 from endpoint_server.setup_updates.routes import revalidate_admin
 from endpoint_server.device_binding.service import consume_budget,ChallengeThrottled
 from .models import SupportAccess
-from .service import register,support_token,authenticate,source_active,SupportConflict,utc,tunnel_user,key_authority_lock
+from .service import register,support_token,authenticate,source_active,SupportConflict,SupportResetRequired,utc,tunnel_user,key_authority_lock
 
 agent_router=APIRouter(prefix='/agent/v1/support-access',tags=['agent-support-access'])
 admin_router=APIRouter(prefix='/api/admin/support-access',tags=['admin-support-access'])
@@ -37,7 +38,9 @@ async def audit(session,request,action,row,actor_kind,actor,reason=None):
     await append_audit_event(session,actor_kind=actor_kind,actor_identifier=str(actor),action='support_access.'+action,object_kind='support_access',object_identifier=str(row.id),request_id=audit_request_id(request),details=details)
 
 
-@agent_router.post('/register',response_model=SupportRegistrationResult,openapi_extra={'security':[{'AgentBearer':[]}]})
+@agent_router.post('/register',response_model=SupportRegistrationResult,openapi_extra={'security':[{'AgentBearer':[]}]},
+    responses={409:{'model':SupportRegistrationConflict,'description':'Key ownership conflict. Only a durably authenticated device with an explicitly pending administrator reset and overlapping retained keys receives the optional device-bound reset header.',
+        'headers':{SUPPORT_RESET_DEVICE_HEADER:{'description':'Explicit administrator-authorized key replacement required for this exact authenticated device. Absent on ordinary conflicts.','schema':{'type':'string','format':'uuid'}}}}})
 async def registration(body:SupportRegistration,request:Request,response:Response):
     response.headers['Cache-Control']='no-store'
     async with request.app.state.session_provider() as session:
@@ -56,6 +59,19 @@ async def registration(body:SupportRegistration,request:Request,response:Respons
         except ChallengeThrottled:
             await session.commit()
             raise HTTPException(429,'Support registration throttled',headers={'Retry-After':'600'}) from None
+        except SupportResetRequired as error:
+            # register holds this device/registration's locks. Refresh source
+            # authority after the domain wait before revealing a reset grant.
+            await _revalidate_device_principal(session,request,principal)
+            row=await load(session,error.reset_device_id)
+            if row.device_id!=principal.device.id or not row.reset_registration_allowed:
+                await session.rollback()
+                raise HTTPException(409,'Support key ownership conflict') from None
+            await audit(session,request,'registration_key_rotation_granted',row,'device',row.device_id)
+            # Persist the bounded registration budget even though the public
+            # response is409. The one-shot reset remains pending until new keys.
+            await session.commit()
+            raise HTTPException(409,'Support key ownership conflict',headers={SUPPORT_RESET_DEVICE_HEADER:str(row.device_id),'Cache-Control':'no-store'}) from None
         except SupportConflict:
             await session.rollback()
             raise HTTPException(409,'Support key ownership conflict') from None

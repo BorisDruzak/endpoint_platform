@@ -13,6 +13,9 @@ import os
 from pathlib import Path
 import stat
 import subprocess
+import time
+from ctypes import wintypes
+from threading import Event,Thread
 
 TRUSTED_SIDS = {'S-1-5-18', 'S-1-5-32-544'}
 # Exact identities already present in the canonical Agent172 data ACL policy.
@@ -191,6 +194,14 @@ def _current_elevated_creator(owner_sid: str) -> bool:
 
 
 class WindowsSupportOps:
+    def rotate_keys(self, root: Path):
+        assert_private(root)
+        for name in ('tunnel_ed25519','tunnel_ed25519.pub','host_ed25519','host_ed25519.pub'):
+            path=root/name
+            if path.exists():
+                assert_private(path)
+                path.unlink()
+
     def assert_owned_service(self, executable: Path) -> bool:
         import win32service
         from .support_access import SERVICE_NAME
@@ -215,12 +226,16 @@ class WindowsSupportOps:
         from .support_access import SERVICE_NAME
         if not self.assert_owned_service(executable):
             return
-        try:
-            win32serviceutil.StopService(SERVICE_NAME)
-            win32serviceutil.WaitForServiceStatus(SERVICE_NAME,win32service.SERVICE_STOPPED,30)
-        except Exception as error:
-            if getattr(error,'winerror',None)!=1062:
-                raise
+        # SCM STOPPED can precede the onefile bootloader parent's final exit.
+        # Retain exact image handles before stop; never guess by PID afterward.
+        with OwnedImageProcesses(executable) as processes:
+            try:
+                win32serviceutil.StopService(SERVICE_NAME)
+                win32serviceutil.WaitForServiceStatus(SERVICE_NAME,win32service.SERVICE_STOPPED,30)
+            except Exception as error:
+                if getattr(error,'winerror',None)!=1062:
+                    raise
+            processes.wait(timeout=15)
 
     def remove_service(self):
         import win32service
@@ -384,6 +399,169 @@ foreach($name in @('ssh.exe','sshd.exe','ssh-keygen.exe')) {
             win32service.CloseServiceHandle(manager)
 
 
+class _ProcessEntry(ctypes.Structure):
+    _fields_=[('dwSize',wintypes.DWORD),('cntUsage',wintypes.DWORD),
+              ('pid',wintypes.DWORD),('heap',ctypes.c_size_t),('module',wintypes.DWORD),
+              ('threads',wintypes.DWORD),('parent',wintypes.DWORD),('priority',wintypes.LONG),
+              ('flags',wintypes.DWORD),('name',wintypes.WCHAR*260)]
+
+
+class OwnedImageProcesses:
+    """Retained handles to exact installed image instances, including onefile parent."""
+    def __init__(self, executable: Path, *, only_pids=None):
+        self.handles=[]
+        self.kernel=ctypes.WinDLL('kernel32',use_last_error=True)
+        self.kernel.CreateToolhelp32Snapshot.argtypes=[wintypes.DWORD,wintypes.DWORD]
+        self.kernel.CreateToolhelp32Snapshot.restype=wintypes.HANDLE
+        self.kernel.Process32FirstW.argtypes=[wintypes.HANDLE,ctypes.POINTER(_ProcessEntry)]
+        self.kernel.Process32NextW.argtypes=[wintypes.HANDLE,ctypes.POINTER(_ProcessEntry)]
+        self.kernel.OpenProcess.argtypes=[wintypes.DWORD,wintypes.BOOL,wintypes.DWORD]
+        self.kernel.OpenProcess.restype=wintypes.HANDLE
+        self.kernel.QueryFullProcessImageNameW.argtypes=[wintypes.HANDLE,wintypes.DWORD,wintypes.LPWSTR,ctypes.POINTER(wintypes.DWORD)]
+        self.kernel.CloseHandle.argtypes=[wintypes.HANDLE]
+        self.kernel.WaitForSingleObject.argtypes=[wintypes.HANDLE,wintypes.DWORD]
+        snapshot=self.kernel.CreateToolhelp32Snapshot(2,0)
+        if snapshot==wintypes.HANDLE(-1).value:raise ctypes.WinError(ctypes.get_last_error())
+        expected=str(executable).replace('/','\\').casefold()
+        try:
+            entry=_ProcessEntry();entry.dwSize=ctypes.sizeof(entry)
+            more=self.kernel.Process32FirstW(snapshot,ctypes.byref(entry))
+            while more:
+                if (entry.name.casefold()==executable.name.casefold() and entry.pid not in {os.getpid(),os.getppid()}
+                        and (only_pids is None or entry.pid in only_pids)):
+                    handle=self.kernel.OpenProcess(0x1000|0x100000,False,entry.pid)
+                    if handle:
+                        path=ctypes.create_unicode_buffer(32768);length=wintypes.DWORD(len(path))
+                        queried=self.kernel.QueryFullProcessImageNameW(handle,0,path,ctypes.byref(length))
+                        error=ctypes.get_last_error() if not queried else 0
+                        if queried and path.value.casefold()==expected:
+                            self.handles.append(handle)
+                        else:
+                            self.kernel.CloseHandle(handle)
+                            if not queried and error not in {6,87}:raise RuntimeError('support_process_identity_unavailable')
+                    elif ctypes.get_last_error()!=87:
+                        raise RuntimeError('support_process_identity_unavailable')
+                more=self.kernel.Process32NextW(snapshot,ctypes.byref(entry))
+        except BaseException:
+            self.close();raise
+        finally:self.kernel.CloseHandle(snapshot)
+
+    def wait(self, *, timeout: float):
+        deadline=time.monotonic()+timeout
+        for handle in self.handles:
+            result=self.kernel.WaitForSingleObject(handle,max(0,int((deadline-time.monotonic())*1000)))
+            if result!=0:raise RuntimeError('support_process_exit_timeout')
+
+    def close(self):
+        for handle in self.handles:self.kernel.CloseHandle(handle)
+        self.handles.clear()
+
+    def __enter__(self):return self
+    def __exit__(self,*args):self.close()
+
+
+class ForwardConfirmation:
+    """Bounded diagnostic matcher belonging to one exact current SSH child."""
+    def __init__(self, remote_port: int):
+        self.marker=f'remote forward success for: listen 127.0.0.1:{remote_port}, connect 127.0.0.1:22222'.encode()
+        self.tail=b''
+        self.confirmed=False
+
+    def feed(self, data: bytes):
+        combined=self.tail+data
+        if self.marker in combined:self.confirmed=True
+        self.tail=combined[-8192:]
+
+
+class _SecurityAttributes(ctypes.Structure):
+    _fields_=[('length',wintypes.DWORD),('descriptor',wintypes.LPVOID),('inherit',wintypes.BOOL)]
+
+
+class _StartupInfo(ctypes.Structure):
+    _fields_=[('cb',wintypes.DWORD),('reserved',wintypes.LPWSTR),('desktop',wintypes.LPWSTR),
+              ('title',wintypes.LPWSTR),('x',wintypes.DWORD),('y',wintypes.DWORD),
+              ('width',wintypes.DWORD),('height',wintypes.DWORD),('chars_x',wintypes.DWORD),
+              ('chars_y',wintypes.DWORD),('fill',wintypes.DWORD),('flags',wintypes.DWORD),
+              ('show',wintypes.WORD),('reserved_size',wintypes.WORD),('reserved_bytes',ctypes.POINTER(ctypes.c_ubyte)),
+              ('stdin',wintypes.HANDLE),('stdout',wintypes.HANDLE),('stderr',wintypes.HANDLE)]
+
+
+class _StartupInfoEx(ctypes.Structure):
+    _fields_=[('startup',_StartupInfo),('attributes',wintypes.LPVOID)]
+
+
+class _ProcessInfo(ctypes.Structure):
+    _fields_=[('process',wintypes.HANDLE),('thread',wintypes.HANDLE),('pid',wintypes.DWORD),('tid',wintypes.DWORD)]
+
+
+def _captured_suspended_process(arguments):
+    """Create suspended child with exactly stderr/NUL inherited, no other handles."""
+    kernel=ctypes.WinDLL('kernel32',use_last_error=True)
+    kernel.CreatePipe.argtypes=[ctypes.POINTER(wintypes.HANDLE),ctypes.POINTER(wintypes.HANDLE),ctypes.POINTER(_SecurityAttributes),wintypes.DWORD]
+    kernel.SetHandleInformation.argtypes=[wintypes.HANDLE,wintypes.DWORD,wintypes.DWORD]
+    kernel.CreateFileW.argtypes=[wintypes.LPCWSTR,wintypes.DWORD,wintypes.DWORD,ctypes.POINTER(_SecurityAttributes),wintypes.DWORD,wintypes.DWORD,wintypes.HANDLE]
+    kernel.CreateFileW.restype=wintypes.HANDLE
+    kernel.InitializeProcThreadAttributeList.argtypes=[wintypes.LPVOID,wintypes.DWORD,wintypes.DWORD,ctypes.POINTER(ctypes.c_size_t)]
+    kernel.UpdateProcThreadAttribute.argtypes=[wintypes.LPVOID,wintypes.DWORD,ctypes.c_size_t,wintypes.LPVOID,ctypes.c_size_t,wintypes.LPVOID,wintypes.LPVOID]
+    kernel.DeleteProcThreadAttributeList.argtypes=[wintypes.LPVOID]
+    kernel.CreateProcessW.argtypes=[wintypes.LPCWSTR,wintypes.LPWSTR,wintypes.LPVOID,wintypes.LPVOID,wintypes.BOOL,wintypes.DWORD,wintypes.LPVOID,wintypes.LPCWSTR,ctypes.POINTER(_StartupInfoEx),ctypes.POINTER(_ProcessInfo)]
+    kernel.CloseHandle.argtypes=[wintypes.HANDLE]
+    security=_SecurityAttributes(ctypes.sizeof(_SecurityAttributes),None,True)
+    read=wintypes.HANDLE();write=wintypes.HANDLE();nul=None;attribute=None
+    success=False;attribute_initialized=False
+    try:
+        if not kernel.CreatePipe(ctypes.byref(read),ctypes.byref(write),ctypes.byref(security),65536):raise ctypes.WinError(ctypes.get_last_error())
+        if not kernel.SetHandleInformation(read,1,0):raise ctypes.WinError(ctypes.get_last_error())
+        nul=kernel.CreateFileW('NUL',0x80000000|0x40000000,3,ctypes.byref(security),3,0x80,None)
+        if nul==wintypes.HANDLE(-1).value:raise ctypes.WinError(ctypes.get_last_error())
+        size=ctypes.c_size_t()
+        kernel.InitializeProcThreadAttributeList(None,1,0,ctypes.byref(size))
+        attribute=ctypes.create_string_buffer(size.value)
+        if not kernel.InitializeProcThreadAttributeList(attribute,1,0,ctypes.byref(size)):raise ctypes.WinError(ctypes.get_last_error())
+        attribute_initialized=True
+        handles=(wintypes.HANDLE*2)(write.value,nul)
+        if not kernel.UpdateProcThreadAttribute(attribute,0,0x20002,ctypes.cast(handles,wintypes.LPVOID),ctypes.sizeof(handles),None,None):raise ctypes.WinError(ctypes.get_last_error())
+        startup=_StartupInfoEx();startup.startup.cb=ctypes.sizeof(startup)
+        startup.startup.flags=0x100;startup.startup.stdin=nul;startup.startup.stdout=nul;startup.startup.stderr=write.value
+        startup.attributes=ctypes.cast(attribute,wintypes.LPVOID)
+        process=_ProcessInfo()
+        command=ctypes.create_unicode_buffer(subprocess.list2cmdline(arguments))
+        if not kernel.CreateProcessW(arguments[0],command,None,None,True,0x4|0x08000000|0x00080000,
+            None,str(Path(arguments[0]).parent),ctypes.byref(startup),ctypes.byref(process)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        success=True
+        return process.process,process.thread,read.value
+    finally:
+        if attribute_initialized:kernel.DeleteProcThreadAttributeList(attribute)
+        if write.value:kernel.CloseHandle(write)
+        if nul and nul!=wintypes.HANDLE(-1).value:kernel.CloseHandle(nul)
+        if read.value and not success:kernel.CloseHandle(read)
+
+
+class _PipeReader:
+    def __init__(self, handle, collector):
+        self.handle=handle;self.collector=collector;self.stop=Event()
+        self.kernel=ctypes.WinDLL('kernel32',use_last_error=True)
+        self.kernel.PeekNamedPipe.argtypes=[wintypes.HANDLE,wintypes.LPVOID,wintypes.DWORD,wintypes.LPVOID,ctypes.POINTER(wintypes.DWORD),wintypes.LPVOID]
+        self.kernel.ReadFile.argtypes=[wintypes.HANDLE,wintypes.LPVOID,wintypes.DWORD,ctypes.POINTER(wintypes.DWORD),wintypes.LPVOID]
+        self.kernel.CloseHandle.argtypes=[wintypes.HANDLE]
+        self.thread=Thread(target=self.run,name='support-ssh-stderr',daemon=True);self.thread.start()
+
+    def run(self):
+        while not self.stop.is_set():
+            available=wintypes.DWORD()
+            if not self.kernel.PeekNamedPipe(self.handle,None,0,None,ctypes.byref(available),None):return
+            if available.value:
+                buffer=ctypes.create_string_buffer(min(4096,available.value));read=wintypes.DWORD()
+                if not self.kernel.ReadFile(self.handle,buffer,len(buffer),ctypes.byref(read),None):return
+                self.collector.feed(buffer.raw[:read.value])
+            else:self.stop.wait(.02)
+
+    def close(self):
+        self.stop.set();self.thread.join(timeout=2)
+        self.kernel.CloseHandle(self.handle)
+
+
 class NativeProcessJob:
     """Own all sshd/ssh descendants; handle closure/SCM crash kills the whole tree."""
     def __init__(self):
@@ -393,19 +571,25 @@ class NativeProcessJob:
         limits['BasicLimitInformation']['LimitFlags'] |= win32job.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
         win32job.SetInformationJobObject(self.job,win32job.JobObjectExtendedLimitInformation,limits)
         self.processes = []
+        self.readers=[]
 
-    def launch(self, arguments: list[str]):
+    def launch(self, arguments: list[str], *, stderr=None):
         import win32api
         import win32job
         import win32process
         # Suspend before assignment: no sshd/shell descendant can escape its job.
         startup = win32process.STARTUPINFO()
-        process, thread, _, _ = win32process.CreateProcess(arguments[0],subprocess.list2cmdline(arguments),
-            None,None,False,win32process.CREATE_SUSPENDED|win32process.CREATE_NO_WINDOW,
-            None,str(Path(arguments[0]).parent),startup)
+        pipe=None
+        if stderr is None:
+            process, thread, _, _ = win32process.CreateProcess(arguments[0],subprocess.list2cmdline(arguments),
+                None,None,False,win32process.CREATE_SUSPENDED|win32process.CREATE_NO_WINDOW,
+                None,str(Path(arguments[0]).parent),startup)
+        else:process,thread,pipe=_captured_suspended_process(arguments)
         try:
             win32job.AssignProcessToJobObject(self.job,process)
             self.processes.append(process)
+            if pipe is not None:
+                self.readers.append(_PipeReader(pipe,stderr));pipe=None
             win32process.ResumeThread(thread)
         except BaseException:
             win32process.TerminateProcess(process,1)
@@ -414,6 +598,7 @@ class NativeProcessJob:
             raise
         finally:
             win32api.CloseHandle(thread)
+            if pipe is not None:win32api.CloseHandle(pipe)
 
     def alive(self):
         import win32process
@@ -429,6 +614,8 @@ class NativeProcessJob:
         for process in self.processes:
             win32api.CloseHandle(process)
         self.processes.clear()
+        for reader in self.readers:reader.close()
+        self.readers.clear()
 
 
 class SupportChildren:
@@ -437,11 +624,13 @@ class SupportChildren:
         self.dependencies = dependencies
         self.job = None
         self.remote_port = None
+        self.confirmation=None
 
     def start(self, policy):
         from .support_access import sshd_config, tunnel_command
         self.stop()
         self.remote_port = policy.remote_port
+        self.confirmation=ForwardConfirmation(policy.remote_port)
         verify_dependencies(self.dependencies)
         validate_windows_admin(policy.windows_admin_username)
         assert_private(self.root)
@@ -451,7 +640,6 @@ class SupportChildren:
             ('authorized_keys','\n'.join(policy.operator_public_keys)+'\n'),
             ('sshd_config',sshd_config(self.root,policy)),
             ('known_hosts','endpoint-support-gateway '+policy.gateway_host_public_key+'\n'),
-            ('tunnel.log',''),
             ('sshd.pid',''),
         ]:
             atomic_write(self.root/name,data)
@@ -464,7 +652,7 @@ class SupportChildren:
         self.job = NativeProcessJob()
         try:
             self.job.launch(daemon)
-            self.job.launch(tunnel_command(self.dependencies['ssh'],self.root,policy))
+            self.job.launch(tunnel_command(self.dependencies['ssh'],self.root,policy),stderr=self.confirmation)
         except BaseException:
             self.stop()
             raise
@@ -473,20 +661,10 @@ class SupportChildren:
         return self.job is not None and self.job.alive()
 
     def connected(self):
-        if not self.alive() or self.remote_port is None:
-            return False
-        try:
-            log = self.root/'tunnel.log'
-            reject_links(log)
-            with log.open('rb') as stream:
-                stream.seek(max(0,log.stat().st_size-65536))
-                data = stream.read(65536).decode('utf-8',errors='replace')
-        except OSError:
-            return False
-        marker = f'remote forward success for: listen 127.0.0.1:{self.remote_port}, connect 127.0.0.1:22222'
-        return marker in data
+        return bool(self.alive() and self.confirmation and self.confirmation.confirmed)
 
     def stop(self):
+        self.confirmation=None
         if self.job is not None:
             self.job.close()
             self.job = None

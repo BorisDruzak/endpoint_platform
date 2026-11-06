@@ -15,6 +15,13 @@ class SupportConflict(ValueError):
     pass
 
 
+class SupportResetRequired(SupportConflict):
+    """A locked, explicitly reset device must replace its retained SSH keys."""
+    def __init__(self,device_id):
+        self.reset_device_id=device_id
+        super().__init__('Support reset requires new key roles')
+
+
 async def key_authority_lock(session):
     if session.bind.dialect.name=='postgresql':
         from sqlalchemy import text
@@ -48,7 +55,7 @@ async def register(session,device_id,credential_id,body,*,lifecycle_events=None)
         row.component_version=body.component_version
         return row
     if replacing and (body.tunnel_public_key in (row.tunnel_public_key,row.host_public_key) or body.host_public_key in (row.tunnel_public_key,row.host_public_key)):
-        raise SupportConflict('Support reset requires new key roles')
+        raise SupportResetRequired(device_id)
     conflict=await session.scalar(select(SupportAccess.id).where(or_(SupportAccess.tunnel_public_key.in_([body.tunnel_public_key,body.host_public_key]),SupportAccess.host_public_key.in_([body.tunnel_public_key,body.host_public_key]))).limit(1))
     if conflict:
         raise SupportConflict('Support key ownership conflict')

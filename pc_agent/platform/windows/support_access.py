@@ -120,7 +120,7 @@ def sshd_config(root: Path, p: SupportPolicy) -> str:
 
 
 def tunnel_command(ssh: str, root: Path, p: SupportPolicy) -> list[str]:
-    return [ssh, '-F', 'NUL', '-N', '-T', '-v', '-E', str(root/'tunnel.log'), '-i', str(root/'tunnel_ed25519'),
+    return [ssh, '-F', 'NUL', '-N', '-T', '-v', '-i', str(root/'tunnel_ed25519'),
             '-p', str(p.gateway_port), '-l', p.tunnel_user,
             '-R', f'127.0.0.1:{p.remote_port}:127.0.0.1:{p.local_port}',
             '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes',
@@ -193,8 +193,9 @@ class SupportSupervisor:
 
 
 class SupportHTTPError(RuntimeError):
-    def __init__(self, status: int):
+    def __init__(self, status: int, *, reset_device_id: str | None = None):
         self.status = status
+        self.reset_device_id = reset_device_id
         super().__init__('support_http_error')
 
 
@@ -247,7 +248,14 @@ class SupportHTTPClient:
             if suffix == 'unregister' and response.status == 204:
                 return {}
             if response.status != 200:
-                raise SupportHTTPError(response.status)
+                marker=None
+                if self._bootstrap and suffix=='register' and response.status==409:
+                    value=response.getheader('X-Support-Reset-Device')
+                    try:
+                        if str(uuid.UUID(value))==value:marker=value
+                    except (ValueError,TypeError,AttributeError):
+                        pass
+                raise SupportHTTPError(response.status,reset_device_id=marker)
             if len(raw)>65536:
                 raise ValueError('invalid_support_response')
             value = json.loads(raw)
@@ -303,13 +311,27 @@ def install_support_access(data_root: Path, install_root: Path, *, origin: str,
     atomic_write(root/'ca.pem', ca_pem)
     ops.protect(root/'ca.pem')
     client = _client or SupportHTTPClient(origin, root/'ca.pem', device_token, bootstrap=True)
-    result = client.register(dict(tunnel_public_key=tunnel_key,host_public_key=host_key,component_version=COMPONENT_VERSION))
+    target = program/'EndpointSupportAccess.exe'
+    def register():
+        return client.register(dict(tunnel_public_key=tunnel_key,host_public_key=host_key,component_version=COMPONENT_VERSION))
+    try:
+        result=register()
+    except SupportHTTPError as error:
+        if error.status!=409 or error.reset_device_id!=device_id:
+            raise
+        # Only an explicit authenticated central reset grant permits rotation.
+        # Never restore revoked keys if the second registration reply is lost.
+        ops.stop_for_update(target)
+        ops.rotate_keys(root)
+        tunnel_key=public_key(ops.key(root,'tunnel_ed25519'))
+        host_key=public_key(ops.key(root,'host_ed25519'))
+        if tunnel_key==host_key:raise ValueError('support_key_role_conflict')
+        result=register() # Exactly one retry; new keys remain durable on failure.
     if result.get('device_id') != device_id or not re.fullmatch(r'eps1\.[0-9a-f]{32}\.[0-9a-f]{64}', result.get('support_token','')):
         raise ValueError('invalid_support_registration')
     credential_id = str(uuid.UUID(result['credential_id']))
     if str(uuid.UUID(result['support_token'].split('.')[1])) != credential_id:
         raise ValueError('invalid_support_registration')
-    target = program/'EndpointSupportAccess.exe'
     ops.stop_for_update(target)
     atomic_write(root/'credential', result['support_token'])
     ops.protect(root/'credential')

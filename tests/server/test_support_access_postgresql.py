@@ -4,6 +4,7 @@ from datetime import UTC,datetime,timedelta
 from uuid import uuid4
 import pytest
 from alembic import command
+from sqlalchemy import select
 from endpoint_server.db.session import AsyncSessionProvider
 from endpoint_server.db.models import Device,DeviceCredential
 from endpoint_contracts.support_access import SupportRegistration
@@ -85,6 +86,10 @@ def test_real_cookie_csrf_scope_independent_policy_and_retirement(update_migrati
                 admin=AdminUser(username=uuid4().hex,password_digest='test-only',scopes=['updates:write']);s.add(admin);await s.flush()
                 issued=issue_admin_session(admin.id,settings.session_secret);s.add(issued.record);await s.commit()
                 device_id=d.id
+                other=Device(device_identifier=uuid4().hex);s.add(other);await s.flush()
+                other_token='y'*43
+                s.add(DeviceCredential(device_id=other.id,credential_identifier='initial',token_digest=device_token_digest(other_token,settings.device_token_pepper)))
+                await s.commit()
             app=create_app(settings,provider)
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app,client=('127.0.0.1',12345)),base_url=settings.public_base_url) as client:
                 registration={'tunnel_public_key':key(10),'host_public_key':key(11),'component_version':'1.0.0'}
@@ -96,6 +101,8 @@ def test_real_cookie_csrf_scope_independent_policy_and_retirement(update_migrati
                 support=result.json()['support_token'];assert not result.json()['policy']['enabled']
                 again=await client.post('/agent/v1/support-access/register',json=registration,headers={'Authorization':'Bearer '+token})
                 assert again.json()['support_token']==support
+                conflict=await client.post('/agent/v1/support-access/register',json={**registration,'host_public_key':key(13)},headers={'Authorization':'Bearer '+token})
+                assert conflict.status_code==409 and 'x-support-reset-device' not in conflict.headers
                 headers={'Authorization':'Bearer '+support}
                 malformed=b'Bearer eps1.'+result.json()['credential_id'].replace('-','').encode()+b'.'+b'\xe9'*64
                 assert (await client.get('/agent/v1/support-access/policy',headers=[(b'authorization',malformed)])).status_code==401
@@ -129,8 +136,26 @@ def test_real_cookie_csrf_scope_independent_policy_and_retirement(update_migrati
                 assert rebound.json()['support_token']!=support
                 headers={'Authorization':'Bearer '+rebound.json()['support_token']}
                 reset=f'/api/admin/support-access/devices/{device_id}/reset-registration'
-                assert (await client.post(reset,json={'reason':'Reinstall isolated test'})).status_code==403
+                forbidden=await client.post(reset,json={'reason':'Reinstall isolated test'})
+                assert forbidden.status_code==403 and 'x-support-reset-device' not in forbidden.headers
                 assert (await client.post(reset,json={'reason':'Reinstall isolated test'},headers={'X-CSRF-Token':issued.csrf_token})).status_code==204
+                grant=await client.post('/agent/v1/support-access/register',json=registration,headers={'Authorization':'Bearer '+token})
+                assert grant.status_code==409 and grant.headers.get('x-support-reset-device')==str(device_id)
+                other_conflict=await client.post('/agent/v1/support-access/register',json=registration,headers={'Authorization':'Bearer '+other_token})
+                assert other_conflict.status_code==409 and 'x-support-reset-device' not in other_conflict.headers
+                unauthorized=await client.post('/agent/v1/support-access/register',json=registration,headers=headers)
+                assert unauthorized.status_code==401 and 'x-support-reset-device' not in unauthorized.headers
+                async with provider() as s:
+                    device=await s.get(Device,device_id);device.retired_at=datetime.now(UTC);await s.commit()
+                retired=await client.post('/agent/v1/support-access/register',json=registration,headers={'Authorization':'Bearer '+token})
+                assert retired.status_code==401 and 'x-support-reset-device' not in retired.headers
+                async with provider() as s:
+                    device=await s.get(Device,device_id);device.retired_at=None
+                    credential=await s.get(DeviceCredential,c.id);credential.revoked_at=datetime.now(UTC);await s.commit()
+                revoked=await client.post('/agent/v1/support-access/register',json=registration,headers={'Authorization':'Bearer '+token})
+                assert revoked.status_code==401 and 'x-support-reset-device' not in revoked.headers
+                async with provider() as s:
+                    credential=await s.get(DeviceCredential,c.id);credential.revoked_at=None;await s.commit()
                 assert (await client.get('/agent/v1/support-access/policy',headers=headers)).status_code==401
                 assert (await client.put(endpoint,json=body,headers={'X-CSRF-Token':issued.csrf_token})).status_code==409
                 registration={'tunnel_public_key':key(31),'host_public_key':key(32),'component_version':'1.0.1'}
@@ -140,6 +165,25 @@ def test_real_cookie_csrf_scope_independent_policy_and_retirement(update_migrati
                 assert not reinstalled.json()['policy']['enabled']
                 assert reinstalled.json()['support_token']!=rebound.json()['support_token']
                 headers={'Authorization':'Bearer '+reinstalled.json()['support_token']}
+                assert (await client.post(reset,json={'reason':'Verify grant request budget'},headers={'X-CSRF-Token':issued.csrf_token})).status_code==204
+                grant_count=0
+                for _ in range(13):
+                    bounded=await client.post('/agent/v1/support-access/register',json=registration,headers={'Authorization':'Bearer '+token})
+                    if bounded.status_code==429:
+                        assert 'x-support-reset-device' not in bounded.headers
+                        break
+                    assert bounded.status_code==409 and bounded.headers.get('x-support-reset-device')==str(device_id)
+                    grant_count+=1
+                else:
+                    pytest.fail('Reset grants did not consume the durable registration budget')
+                assert 0<grant_count<12
+                async with provider() as s:
+                    from sqlalchemy import func
+                    from endpoint_server.db.models import AuditEvent,DeviceBindingThrottle
+                    budget=await s.scalar(select(DeviceBindingThrottle).where(DeviceBindingThrottle.bucket=='support-register:'+str(device_id)))
+                    assert budget.attempts==12
+                    grants=await s.scalar(select(func.count()).select_from(AuditEvent).where(AuditEvent.object_identifier==result.json()['credential_id'],AuditEvent.action=='support_access.registration_key_rotation_granted'))
+                    assert grants==grant_count+1
                 async with provider() as s:
                     device=await s.get(Device,device_id);device.retired_at=datetime.now(UTC);await s.commit()
                 assert (await client.get('/agent/v1/support-access/policy',headers=headers)).status_code==401

@@ -234,7 +234,7 @@ def test_job_cleanup_covers_both_children_when_second_launch_fails(tmp_path,monk
     closed = []
     class Job:
         def __init__(self): self.count=0
-        def launch(self,args):
+        def launch(self,args,**kwargs):
             self.count += 1
             if self.count == 2: raise OSError('tunnel launch failed')
         def close(self): closed.append(True)
@@ -319,9 +319,9 @@ def test_living_ssh_process_is_not_tunnel_connected_before_remote_forward_confir
     child = native.SupportChildren(tmp_path,{})
     child.job = type('Job',(),{'alive':lambda self:True})()
     child.remote_port = 32001
-    (tmp_path/'tunnel.log').write_text('debug1: Connecting to endpoint.sosnadmin.local\n')
+    child.confirmation = native.ForwardConfirmation(32001)
     assert not child.connected()
-    (tmp_path/'tunnel.log').write_text('debug1: remote forward success for: listen 127.0.0.1:32001, connect 127.0.0.1:22222\n')
+    child.confirmation.feed(b'debug1: remote forward success for: listen 127.0.0.1:32001, connect 127.0.0.1:22222\n')
     assert child.connected()
 
 
@@ -491,3 +491,159 @@ def test_real_pywin32_accepts_existing_enabled_local_administrator():
             {group.casefold() for group in win32net.NetUserGetLocalGroups(None,entry['name'],win32netcon.LG_INCLUDE_INDIRECT)}]
     assert admins,'A real enabled local administrator is required for this native qualification test'
     native.validate_windows_admin(admins[0])
+
+@pytest.mark.parametrize('marker',[DEVICE,str(uuid.uuid4()),None])
+def test_registration_rotation_requires_authenticated_own_device_reset_marker(tmp_path,marker):
+    support=module()
+    native=importlib.import_module('pc_agent.platform.windows.support_access_native')
+    events=[]
+    rotated=[False]
+    new_tunnel=KEY[:-4]+'AQID'
+    new_host=KEY[:-4]+'BAUG'
+    class Ops:
+        def protect(self,p):
+            if not p.exists():p.mkdir(parents=True)
+        def dependencies(self):return {}
+        def key(self,root,name):return (new_tunnel if name=='tunnel_ed25519' else new_host) if rotated[0] else (KEY if name=='tunnel_ed25519' else new_tunnel)
+        def stop_for_update(self,path):events.append('stop')
+        def rotate_keys(self,root):events.append('rotate');rotated[0]=True
+        def install_service(self,path):events.append('install')
+    class Client:
+        calls=0
+        def register(self,body):
+            self.calls+=1
+            if self.calls==1:raise support.SupportHTTPError(409,reset_device_id=marker)
+            assert body['tunnel_public_key']==new_tunnel and body['host_public_key']==new_host
+            return dict(device_id=DEVICE,credential_id=CREDENTIAL_ID,support_token=TOKEN)
+    client=Client()
+    exe=tmp_path/'signed.exe';exe.write_bytes(b'fixture')
+    def install():return support.install_support_access(tmp_path/'data'/'Agent',tmp_path/'program'/'Agent',
+        origin='https://endpoint.sosnadmin.local',ca_pem='CA',device_id=DEVICE,device_token='c'*43,
+        service_executable=exe,_ops=Ops(),_client=client)
+    if marker==DEVICE:
+        assert install()['installed']
+        assert events.index('stop')<events.index('rotate')
+        assert events.count('rotate')==1 and client.calls==2
+    else:
+        with pytest.raises(support.SupportHTTPError):install()
+        assert events==[] and client.calls==1
+
+@pytest.mark.parametrize('status,marker,bootstrap,expected',[(409,DEVICE,True,DEVICE),(409,'bad',True,None),(403,DEVICE,True,None),(409,DEVICE,False,None)])
+def test_http_reset_marker_only_from_authenticated_registration_conflict(monkeypatch,tmp_path,status,marker,bootstrap,expected):
+    import http.client,ssl
+    support=module()
+    class Context:
+        def load_verify_locations(self,**kw):pass
+    class Response:
+        def read(self,n):return b'{}'
+        def getheader(self,name):return marker
+    response=Response();response.status=status
+    class Connection:
+        def __init__(self,*a,**k):pass
+        def request(self,*a,**k):pass
+        def getresponse(self):return response
+        def close(self):pass
+    monkeypatch.setattr(ssl,'SSLContext',lambda *a:Context())
+    monkeypatch.setattr(http.client,'HTTPSConnection',Connection)
+    client=support.SupportHTTPClient('https://endpoint.sosnadmin.local',tmp_path/'ca.pem','c'*43 if bootstrap else TOKEN,bootstrap=bootstrap)
+    with pytest.raises(support.SupportHTTPError) as caught:
+        client.request('register' if bootstrap else 'policy',{} if bootstrap else None)
+    assert caught.value.reset_device_id==expected
+
+
+def test_real_reset_rotation_changes_only_owned_support_keys():
+    import shutil
+    native=importlib.import_module('pc_agent.platform.windows.support_access_native')
+    root=native.native_folder(0x23)/('EndpointSupportAccessTest-'+uuid.uuid4().hex)
+    ops=native.WindowsSupportOps()
+    try:
+        ops.protect(root)
+        old=[ops.key(root,name) for name in ('tunnel_ed25519','host_ed25519')]
+        native.atomic_write(root/'credential','preserve-independent-credential');ops.protect(root/'credential')
+        ops.rotate_keys(root)
+        new=[ops.key(root,name) for name in ('tunnel_ed25519','host_ed25519')]
+        assert all(a!=b for a,b in zip(old,new)) and new[0]!=new[1]
+        assert (root/'credential').read_text()=='preserve-independent-credential'
+    finally:
+        assert root.parent==native.native_folder(0x23) and root.name.startswith('EndpointSupportAccessTest-')
+        if root.exists():shutil.rmtree(root)
+
+def test_owned_image_wait_tracks_real_exit_before_payload_replacement():
+    import sys,subprocess,time
+    native=importlib.import_module('pc_agent.platform.windows.support_access_native')
+    process=subprocess.Popen([sys.executable,'-c','import time;time.sleep(.3)'])
+    try:
+        started=time.monotonic()
+        with native.OwnedImageProcesses(__import__('pathlib').Path(sys.executable),only_pids={process.pid}) as retained:
+            assert len(retained.handles)==1
+            retained.wait(timeout=5)
+            assert process.poll()==0
+        assert time.monotonic()-started>=.15
+    finally:
+        if process.poll() is None:process.terminate();process.wait()
+
+def test_real_captured_job_bounds_diagnostics_and_excludes_unrelated_inheritable_handle():
+    import sys,time,win32event,win32security,win32api
+    native=importlib.import_module('pc_agent.platform.windows.support_access_native')
+    security=win32security.SECURITY_ATTRIBUTES();security.bInheritHandle=True
+    unrelated=win32event.CreateEvent(security,True,False,None)
+    collector=native.ForwardConfirmation(32001)
+    job=native.NativeProcessJob()
+    code=("import ctypes,sys,time;from ctypes import wintypes;"
+          f"leaked=ctypes.windll.kernel32.SetEvent(wintypes.HANDLE({int(unrelated)}));"
+          "sys.stderr.write('x'*20000+'\\n');"
+          "sys.stderr.write('remote forward success for: listen 127.0.0.1:32001, connect 127.0.0.1:22222\\n');"
+          "sys.stderr.flush();time.sleep(30)")
+    try:
+        job.launch([sys.executable,'-c',code],stderr=collector)
+        deadline=time.monotonic()+5
+        while not collector.confirmed and time.monotonic()<deadline:time.sleep(.02)
+        assert collector.confirmed
+        assert len(collector.tail)<=8192
+        assert win32event.WaitForSingleObject(unrelated,0)==win32event.WAIT_TIMEOUT
+        assert job.alive()
+        job.close()
+        assert not job.alive()
+    finally:
+        job.close();win32api.CloseHandle(unrelated)
+
+
+def test_reset_reply_loss_retains_new_real_keys_for_idempotent_next_install():
+    import shutil
+    native=importlib.import_module('pc_agent.platform.windows.support_access_native')
+    support=module()
+    fixture=native.native_folder(0x23)/('EndpointSupportAccessTest-'+uuid.uuid4().hex)
+    class Ops(native.WindowsSupportOps):
+        rotations=0
+        def dependencies(self):return {}
+        def stop_for_update(self,path):pass
+        def install_service(self,path):pass
+        def rotate_keys(self,root):self.rotations+=1;super().rotate_keys(root)
+    class Server:
+        calls=0
+        registered=None
+        def register(self,body):
+            self.calls+=1
+            if self.calls==1:raise support.SupportHTTPError(409,reset_device_id=DEVICE)
+            if self.calls==2:self.registered=dict(body);raise ConnectionError('reply lost after commit')
+            assert body==self.registered
+            return dict(device_id=DEVICE,credential_id=CREDENTIAL_ID,support_token=TOKEN)
+    ops=Ops();server=Server()
+    try:
+        ops.protect(fixture)
+        agent=fixture/'data'/'Agent';agent.mkdir(parents=True)
+        (agent/'device-credential').write_text('preserved-core-private-fixture')
+        executable=fixture/'signed-fixture.exe';executable.write_bytes(b'fixture')
+        def install():return support.install_support_access(agent,fixture/'program'/'Agent',
+            origin='https://endpoint.sosnadmin.local',ca_pem='CA',device_id=DEVICE,device_token='c'*43,
+            service_executable=executable,_ops=ops,_client=server)
+        with pytest.raises(ConnectionError):install()
+        root=agent.parent/'Support'
+        retained=[(root/name).read_bytes() for name in ('tunnel_ed25519','host_ed25519')]
+        assert install()['installed']
+        assert retained==[(root/name).read_bytes() for name in ('tunnel_ed25519','host_ed25519')]
+        assert ops.rotations==1 and server.calls==3
+        assert (agent/'device-credential').read_text()=='preserved-core-private-fixture'
+    finally:
+        assert fixture.parent==native.native_folder(0x23) and fixture.name.startswith('EndpointSupportAccessTest-')
+        if fixture.exists():shutil.rmtree(fixture)

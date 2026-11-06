@@ -1887,6 +1887,18 @@ paths:
             "application/json":
               schema:
                 "$ref": "#/components/schemas/SupportRegistrationResult"
+        "409":
+          description: "Key ownership conflict. Only a durably authenticated device with an explicitly pending administrator reset and overlapping retained keys receives the optional device-bound reset header."
+          headers:
+            X-Support-Reset-Device:
+              description: "Explicit administrator-authorized key replacement required for this exact authenticated device. Absent on ordinary conflicts."
+              schema:
+                type: "string"
+                format: "uuid"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/SupportRegistrationConflict"
         "422":
           description: "Validation Error"
           content:
@@ -11800,6 +11812,16 @@ components:
         - "host_public_key"
         - "component_version"
       title: "SupportRegistration"
+    SupportRegistrationConflict:
+      properties:
+        detail:
+          type: "string"
+          const: "Support key ownership conflict"
+          title: "Detail"
+          default: "Support key ownership conflict"
+      additionalProperties: false
+      type: "object"
+      title: "SupportRegistrationConflict"
     SupportRegistrationResult:
       properties:
         device_id:

@@ -1280,6 +1280,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 stage="SERVICE",
                 detail=detail,
             )
+        _install_support_after_native(data_root)
         if not _wait_for_agent_service_running():
             return _complete(
                 args,
