@@ -116,11 +116,14 @@ def test_revocation_committed_during_authentication_prevents_event(update_migrat
     asyncio.run(scenario())
 
 def test_explicit_full_wipe_link_is_audited_history_only(update_migration_database_urls,tmp_path):
+    from ipaddress import IPv4Address
     from endpoint_server.db.models import EnrollmentClaim,EnrollmentRequest,AdminUser
+    from endpoint_server.enrollment.campaigns import issue_install_claim
+    from endpoint_server.enrollment.requests import CampaignSelection,build_enrollment_request
     from endpoint_server.auth.admin_sessions import ADMIN_SESSION_COOKIE,issue_admin_session
     from endpoint_server.installation_lifecycle.models import InstallationParent
     from endpoint_server.installation_lifecycle.service import accept_event
-    from tests.server.test_enrollment_request_admin_api import _campaign,_request
+    from tests.server.test_enrollment_request_admin_api import _campaign,PEPPER
     url,_=update_migration_database_urls
     command.upgrade(_alembic_config(url),'head')
     async def scenario():
@@ -129,11 +132,22 @@ def test_explicit_full_wipe_link_is_audited_history_only(update_migration_databa
             async with provider() as s:
                 p=await seed(s);previous=p.device.id;cred=p.credential.id
                 campaign=_campaign();campaign.max_uses=10;s.add(campaign);await s.flush()
-                record=_request(campaign);record.installation_id_digest=uuid4().hex;record.request_capability_digest=uuid4().hex
-                record.expires_at=datetime.now(UTC)+timedelta(hours=1);s.add(record);await s.flush();rid=record.id
-                claim=EnrollmentClaim(campaign_id=campaign.id,claim_identifier=uuid4().hex,claim_digest=uuid4().hex,
-                    installation_session_digest=uuid4().hex,fingerprint_digest='wrong',expires_at=datetime.now(UTC)+timedelta(hours=1),
-                    device_id=previous,claimed_at=datetime.now(UTC));s.add(claim)
+                now=datetime.now(UTC);fingerprint='sha256:windows-fingerprint-v1'
+                def request_for(hardware):
+                    return build_enrollment_request(
+                        installation_id=str(uuid4()),hardware_fingerprint=hardware,request_capability=uuid4().hex,
+                        source_address=IPv4Address('192.168.100.10'),installer_version='1.0.0',installer_release_id='1.0.0',
+                        hostname='office-pc-01',selection=CampaignSelection('waiting_approval',campaign,'MANUAL_POLICY'),
+                        pepper=PEPPER,now=now)
+                record=request_for(fingerprint)
+                prior=request_for(fingerprint);prior.status='completed';prior.device_id=previous
+                different=request_for('sha256:different-hardware');different.status='completed';different.device_id=previous
+                s.add_all((record,prior,different));await s.flush();rid=record.id;prior_id=prior.id;different_id=different.id
+                claim=issue_install_claim(campaign,PEPPER,installation_session=str(uuid4()),hardware_fingerprint=fingerprint,
+                    expires_at=now+timedelta(hours=1),now=now).record
+                assert prior.fingerprint_digest==record.fingerprint_digest
+                assert claim.fingerprint_digest!=record.fingerprint_digest
+                claim.device_id=previous;claim.claimed_at=now;claim.enrollment_request_id=prior_id;s.add(claim)
                 admin=AdminUser(username=uuid4().hex,password_digest='test-only',scopes=[]);s.add(admin);await s.flush()
                 issued=issue_admin_session(admin.id,settings.session_secret);s.add(issued.record)
                 native=InstallationEventV1.model_validate(event_data(device_id=str(previous)))
@@ -148,10 +162,25 @@ def test_explicit_full_wipe_link_is_audited_history_only(update_migration_databa
                 async with provider() as s:
                     p=type('Principal',(),{'device':await s.get(Device,previous),'credential':await s.get(DeviceCredential,cred)})()
                     await accept_event(s,p,next_event(native,'removed'),request_id='test');await s.commit()
-                assert (await client.post(path,json=body,headers=headers)).status_code==409
+                # Missing request, different hardware, unconsumed claim and inconsistent
+                # request/device linkage must all fail closed without creating history.
+                for failure in ('missing_request','different_hardware','unconsumed','wrong_device','retired'):
+                    async with provider() as s:
+                        claim=await s.get(EnrollmentClaim,claim_id);prior=await s.get(EnrollmentRequest,prior_id)
+                        old=await s.get(Device,previous)
+                        claim.enrollment_request_id=(None if failure=='missing_request' else different_id if failure=='different_hardware' else prior_id)
+                        claim.claimed_at=None if failure=='unconsumed' else now
+                        prior.device_id=None if failure=='wrong_device' else previous
+                        old.retired_at=now if failure=='retired' else None
+                        await s.commit()
+                    assert (await client.post(path,json=body,headers=headers)).status_code==409,failure
+                    async with provider() as s:
+                        assert await s.scalar(select(InstallationParent).where(InstallationParent.enrollment_request_id==rid)) is None
+                        assert (await s.get(EnrollmentRequest,rid)).status=='waiting_approval'
                 async with provider() as s:
-                    request=await s.get(EnrollmentRequest,rid);claim=await s.get(EnrollmentClaim,claim_id)
-                    claim.fingerprint_digest=request.fingerprint_digest;await s.commit()
+                    claim=await s.get(EnrollmentClaim,claim_id);claim.enrollment_request_id=prior_id;claim.claimed_at=now
+                    prior=await s.get(EnrollmentRequest,prior_id);prior.device_id=previous
+                    (await s.get(Device,previous)).retired_at=None;await s.commit()
                 result=await client.post(path,json=body,headers=headers);assert result.status_code==204,result.text
                 history=await client.get(f'/api/admin/console/devices/{previous}/installation-events');assert history.status_code==200
                 assert history.json()['installation']['state']=='removed' and len(history.json()['data'])==2

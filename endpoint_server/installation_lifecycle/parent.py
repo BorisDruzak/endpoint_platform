@@ -4,15 +4,20 @@ from sqlalchemy import select
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.auth.admin_sessions import _load_admin_principal,ADMIN_SESSION_COOKIE
-from endpoint_server.db.models import Device,EnrollmentClaim,AdminUser,AdminSession
+from endpoint_server.db.models import Device,EnrollmentClaim,EnrollmentRequest,AdminUser,AdminSession
 from .models import InstallationParent,InstallationState
 
 
 async def link_previous_installation(session,record,previous_device_id,principal,request):
     previous=await session.scalar(select(Device).where(Device.id==previous_device_id).with_for_update())
     state=await session.scalar(select(InstallationState).where(InstallationState.device_id==previous_device_id).with_for_update())
-    matching=await session.scalar(select(EnrollmentClaim.id).where(EnrollmentClaim.device_id==previous_device_id,
-        EnrollmentClaim.fingerprint_digest==record.fingerprint_digest,EnrollmentClaim.claimed_at.is_not(None)).limit(1))
+    # Claim and request fingerprints use separate HMAC domains. Compare the
+    # consumed claim's original request fingerprint with this request's fingerprint.
+    matching=await session.scalar(select(EnrollmentClaim.id).join(
+        EnrollmentRequest,EnrollmentClaim.enrollment_request_id==EnrollmentRequest.id,
+    ).where(EnrollmentClaim.device_id==previous_device_id,EnrollmentClaim.claimed_at.is_not(None),
+        EnrollmentRequest.device_id==previous_device_id,
+        EnrollmentRequest.fingerprint_digest==record.fingerprint_digest).limit(1))
     if (record.status != 'approved' or previous is None or previous.retired_at is not None
         or state is None or state.state!='removed' or matching is None or record.device_id==previous_device_id):
         raise HTTPException(409,'Previous installation does not match a committed removal')
