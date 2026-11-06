@@ -71,5 +71,10 @@ continued timestamp-only drift during the final fresh hash must not restore the
 old false positive. Both tests failed before correction and now pass. The shared
 execution identity still rejects changed owner/group/DACL/attributes and every
 byte/identity/read failure. Independent reviewer found no remaining blocker.
-Eight direct Windows suites passed308tests; broader packaging/recovery checks are
-running. No171 build, publication, workstation preparation or fleet action yet.
+Eight direct Windows suites passed308tests; broader packaging/native/bootstrap/
+recovery checks passed338tests with1skip. Source fix d5cfb0daa61aff14f4cd4e9685c716a78300e1c3.
+GitNexus baseline was consulted earlier; its tools are currently unavailable.
+This narrow native-local change was verified against current source/tests and
+introduces no external HTTP contract. Context7 was consulted for the pinned
+pywin32 311/PyInstaller6.22.3 environment and existing APIs. No171 build,
+publication, workstation preparation or fleet action yet.
