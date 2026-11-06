@@ -38,3 +38,45 @@ active UserSensor before server qualification. Other machines remain unchanged.
 Screenshots setup170-187-assigned.png and setup170-27-assigned.png are saved in
 C:\Temp\endpoint-setup165-20261105. Windows download165 and the single AUTO
 campaign remain unchanged. Do not enable fleet after a failed canary.
+
+## Final two-canary result
+
+27 finished APPLIED/nativeaccepted/exit0 at07:29:01.719973Z. Exact Core/Foundation170,
+observer107, private4 preserved, no pending state;181.989seconds/6samples/1Sensor,
+maxCPU0%, services/companions/connection stable. Fresh UserSensor and Activity
+continued at07:36:36Z and07:37:21Z. This confirms168/client106 can automatically
+install107 and complete the full native update without new workstation preparation.
+
+187 first reported recovery_required/native21. Authorized read-only SSH found
+native event3080 at07:27:21Z, restore-staged-companions, PROVENANCE_CONFLICT with
+foundation_invariant change_time and slot65bf2e3c...51dc9c05. That digest maps
+exactly to the signed170 inventory's EndpointAgentTray.exe. The installed file's
+size/hash match the immutable target; path/handle identity guards had passed.
+USN retained its creation/basic-info records at07:25:07 and a close record at
+07:27:21, with no later write/basic-info reason in between. This does not identify
+the specific metadata writer. Last-access policy2 is observed, not a proven cause.
+
+With no further SSH writes, service restarts, MSI replay or reboot, the normal
+native continuation/observer107 path restored the target and closed the SAME job
+FAILED/native_failed_target_recovered at07:31:54.367255Z. Original attempt and
+native21 preserved. Exact Core/Foundation170/source/MSI verified, no pending
+state, private4 preserved;183.629seconds/6samples/1Sensor,maxCPU0%, all stability
+checks true. At07:37Z client107ready and fresh UserSensor/Activity confirmed.
+Exactly0active chains remain. This is automatic recovered failure acceptance,
+not clean169-source APPLIED/native0. Original169 recovery history is preserved too.
+
+The Console displays27 as installed and verified and187 as failed with target
+recovered. Screenshots setup170-27-accepted.png and
+setup170-187-recovered-failure.png are saved in the evidence directory. No170
+qualification, enrollment promotion, campaign change, third assignment or fleet
+enablement followed the failed canary. Policy3 stays disabled/all_active/max2.
+
+Existing committed Core self-check07afaef already compares actual retained-handle
+security/attributes across execution rather than Windows loader ChangeTime.
+The next narrow fix applies that precedent to accepted-native companion launch;
+ordinary Foundation read/cache guards stay strict. See the execution-pins plan.
+Isolated local probes proved metadata-only SetFileTime can cause the same guard
+failure under a deny-write/delete pin. Ordinary reads, minimal frozen execution
+and guarded signed-Tray execution via an isolated interactive-token LUA task did
+not independently reproduce the VM-specific metadata writer; no causal claim
+about GPO, antivirus or last-access configuration is justified.

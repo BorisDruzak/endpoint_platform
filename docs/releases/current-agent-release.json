@@ -528,7 +528,7 @@
   },
   "windows_full_setup170_candidate": {
     "version": "3.2.170",
-    "status": "signed_registered_console_canaries_in_progress",
+    "status": "source168_native_accepted_source169_automatically_recovered_failure",
     "runtime_source_commit": "bd2d736f33de5422902adca0f9d07aee40bf2ec7",
     "signed_artifacts": true,
     "native_qualified": false,
@@ -539,6 +539,10 @@
     "contains_foundation_failure_diagnostics": true,
     "record": "docs/releases/windows-3.2.170-setup.json",
     "setup_update_release_id": "eb098f60-615c-4360-afb0-b12542a1d24a",
-    "runtime_source_binding": "packaging/windows/initial-runtime-3.2.170.json"
+    "runtime_source_binding": "packaging/windows/initial-runtime-3.2.170.json",
+    "active_chains": 0,
+    "source169_native_exit": 21,
+    "automatic_target_recovery": true,
+    "followup_plan": "docs/superpowers/plans/2026-11-06-foundation-execution-pins.md"
   }
 }
