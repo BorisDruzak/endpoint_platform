@@ -80,7 +80,11 @@ freshness deadline bounds access during DNS/TLS/API failure; disable/revoke stop
 owned SSH descendants. The unprivileged server exporter emits60-second snapshots;
 the separately installed root broker reconciles them every5seconds. Missing,
 invalid or stale snapshots remove authorization and terminate owned sessions.
-Gateway startup clears retained keys before accepting connections. Device
+The exporter unit uses `RuntimeDirectoryPreserve=restart` so an actual restart
+retains an already-valid snapshot. Its original60second expiry remains binding;
+a stopped or failed exporter cannot extend authority. An ordinary stop removes
+the runtime directory, and reboot clears `/run`. Missing/stale input still
+revokes access. Gateway startup clears retained keys before accepting connections. Device
 retirement or source-credential revocation also removes support authority.
 
 Disabling a policy preserves the independent credential and permits later
@@ -105,17 +109,42 @@ success; rollback67 and reboot results skip activation. A same-version retry
 requires the ordinary no-active-operation gate. Fresh enrollment activates it
 after durable identity proof and before Core starts. `--install` provisions from
 the durable enrolled identity, creates private support state and registers the
-independent service. An absent OS dependency is installed using the Microsoft
-OpenSSH capability; Microsoft signature, version and hashes are recorded. A
-required reboot or policy failure is reported rather than forced. Existing SSH
-state is preserved. The support listener itself needs no workstation inbound
-firewall exception or GPO change.
+independent service. Existing valid Microsoft OS OpenSSH executables may be
+selected through read-only signature/version/hash checks. Setup176 does not
+install Windows capabilities, run DISM, change Windows Update or change GPOs.
+A fresh device without the OS server receives the exact private offline runtime
+embedded in the signed Support payload.
 
-The service pins the recorded OS executable hashes. If Windows replaces OpenSSH,
-support fails closed until the signed installer revalidates dependencies; this
-is a support-component condition and must not be presented as an agent update
-success or silently repaired by arbitrary remote code. Component errors are
-reported separately from authoritative native agent installation receipts.
+The bundled input is the unchanged official Microsoft Win64 ZIP
+[10.4.0.0p1-Preview](https://github.com/PowerShell/Win32-OpenSSH/releases/tag/10.4.0.0p1-Preview),
+SHA256`b67ff8becd203502190ec42ac7787c24c2cd3325ed7700485fe7a1c83d2a7957`.
+Upstream labels this Preview and not production-ready. Its qualification here is
+for the requested testing-stage reserve channel; it does not imply vendor
+production certification. A closed manifest binds all archive members, selected
+runtime files, imported-library closure, sizes, hashes and Microsoft publishers.
+Installer verification checks every one of its15PE signatures and timestamps
+before publishing an immutable runtime slot.
+
+Public executable code lives under
+`C:\Program Files\Endpoint Platform\SupportRuntime\<version-and-digest>`:
+SYSTEM/Administrators may write, and Authenticated Users have read/execute for
+OpenSSH privilege separation. Private keys, credentials and configuration remain
+in the separate protected Support state directory. The daemon runs directly
+with `-D -e -f` and its own loopback configuration; no global SSH service,
+configuration, host key, registry default shell or inbound firewall rule is
+installed or modified. Normal Windows SSH authentication can create transient
+virtual-account SID mappings and service-logon rights; no custom LSA plugin or
+persistent global LSA configuration is installed.
+
+The running service validates exact selected paths, recorded executable hashes
+and ACLs before launch; it imports neither build helpers nor Core. A changed OS
+binary or tampered bundle fails closed until signed installer revalidation.
+For an existing OS-backed component whose selected OS dependency disappeared,
+installation refuses profile migration before changing keys/configuration or
+stopping the old service, preserving compatibility with its compensation payload.
+Unknown foreign files or interrupted incompatible slot publication remain blocked.
+Component errors are reported separately from native agent receipts. An unknown
+Windows servicing outcome from an earlier release is preserved and never replayed.
 
 `--uninstall` unregisters independent authority, stops/removes only its owned
 service and removes only its owned payload and data. Product uninstall must execute cleanup

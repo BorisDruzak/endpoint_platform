@@ -1,10 +1,10 @@
 # Independent Windows support access: live verification
 
-Windows primary remains **3.2.172** and ALT remains **3.2.156**. Neither diagnostic173 nor174 was published to enrollment/AUTO. Fleet policy9 is paused after the first174 wave exposed an unsupported bootstrap assumption. The source fix is intended for a distinct signed175; this receipt does not claim175 build or acceptance.
+Windows primary remains **3.2.172** and ALT remains **3.2.156**. Diagnostic173,174 and175 were not published to enrollment/AUTO. Fleet policy9 remains paused. Signed175 fixed the absent optional-origin bootstrap and was natively accepted on120,22 and27; the27 OS capability timeout exposed a separate dependency gap. Distinct176 source adds domain-capable Support1.0.1 and a pinned private offline SSH bundle. This checkpoint does not assert176 signed-media or fleet acceptance.
 
 ## Independent access on test120
 
-Target: DESKTOP-9ST5HO2,192.168.101.120, UUID943c87ef-f121-40b9-a31f-003e9459e292. Existing local administrator: test_agent_win. The selected existing administrator for other Windows devices is admin-2; no account or password is created/distributed.
+Target: DESKTOP-9ST5HO2,192.168.101.120, UUID943c87ef-f121-40b9-a31f-003e9459e292. Existing local administrator: test_agent_win. The selected existing administrator for other Windows devices is the freshly resolved domain identity `SOSNADM\admin-2`; local admin-2 was absent on the four reachable domain PCs. No account or password is created/distributed.
 
 Actual strict host-key-verified SSH through the independent gateway passed with Core and updater stopped and the scheduled observer disabled. Initial access survived166seconds of policy renewal without Core. A reboot at12:44:17Z was followed by reserve SSH at12:45:11Z before interactive Windows login. After login, repeated stopped-Core tests passed. Explicit key reset, old-pin rejection, wrong operator/device keys, unused port, disable,80-second expiry, token revocation, service stop and a scoped Support-only HTTPS outage were exercised. Normal restart, reenable and network restoration recovered access. The owned temporary firewall rule was removed.
 
@@ -60,3 +60,48 @@ Fresh full project command: C:/Users/admin-2/Documents/endpoint/.venv-device-bin
 Provider438f8903f11454e2d5abc5a60d25308a88f51d10 runs on192.168.100.19 with additive migration0046_support_access and independently supervised gateway2222/exporter/broker. Existing administrator SSH22 is preserved. Per-device keys, independent bearer, strict host pins, fresh policies, expiry/revocation and audit do not depend on Core/WSS health. New policies are disabled and access requires an explicit lease of at most8hours. All TLS uses the existing CA and endpoint.sosnadmin.local.
 
 GitNexus was unavailable after retries; source/tests verified the architecture without inferring absence of cross-repository dependencies. No Helpdesk code was modified. Linux primary156 is unchanged. Private backups, source/artifact reports, task proof, SSH challenge logs and original failure/rollback histories are retained outside Git; no credential/private key is included here.
+
+
+## Diagnostic175 and next176 gates
+
+Immutable175 is recorded in `docs/releases/windows-3.2.175-setup.json`.
+Test120 assignment d26b5761-3a22-4aa2-ad65-df58902c6f42 was APPLIED/native0
+with185.083seconds, six samples, one active UserSensor and preserved private four.
+The new936d4426 Support payload was reached through strict SSH. A2-IAO/22
+assignment6f1ef542-168d-4bac-bcf0-04ae535cebe4 applied natively and automatically
+installed Support without creating its absent optional endpoint-origin file.
+A2-MUNSLU-N/27 assignment057caf80-c325-47ec-b218-3fee0f1dbabe applied natively,
+but its separate Support installation failed after600seconds of Windows
+capability servicing. This is not independent-channel acceptance. No manual
+kill, replay, CBS repair, GPO change or fabricated Agent configuration followed.
+
+The175 clean-checkout full suite passed6517tests with454skips and5warnings in
+834.13seconds before176 edits. Its media, binding and original jobs are immutable.
+176 must independently pass actual signed native acceptance, active-user
+telemetry, stopped-Core/updater reserve access on120, domain key login and fresh
+bundle bootstrap before qualification/publication. The bundled upstream Microsoft
+10.4.0.0p1-Preview is explicitly Preview, not vendor production-ready; its proposed
+qualification is limited to the requested testing-stage channel.
+
+## Domain provider and exporter restart
+
+Providerce083f336d78f9840b26824da6d95f0d2929008b deployed with schema0046 unchanged,
+a fresh protected PostgreSQL backup and exact built frontend. It admits explicit
+existing domain administrators only after the installed running component itself
+reports fresh1.0.1 capability; installer registration alone cannot advance it.
+Legacy local-name1.0.0 remains compatible. Read-only SID, enabled-account and
+indirect local Administrators proofs confirmed SOSNADM\admin-2 on22,27,ADMIN-2
+and MUNSLU-S2. Actual domain SSH remains a separate176 media gate.
+
+The initial provider exporter restart correctly revoked authority when its
+runtime snapshot disappeared; reserve access briefly disconnected and recovered
+automatically with unchanged Support PID7328/bytes. That was not uninterrupted
+access. Separate commitdec480a8b796c4b474bc294143b2bbe7a887806f preserves only
+already-valid runtime snapshots across actual exporter restarts. Their60second
+expiry, stale/missing rejection, ordinary stop cleanup and cold-boot revocation
+remain unchanged. The exact unit restarted at17:04:31Z: a new snapshot appeared in1.008seconds;
+41server observations found zero missing/expired/malformed snapshots, and the
+forward/gateway PIDs and key/config hashes were unchanged. Root independently
+executed31strict reserve SSH commands from17:03:28.991Z to17:06:25.663Z with
+zero errors and unchanged Support PID7328. This is actual command evidence,
+separate from transport reachability.

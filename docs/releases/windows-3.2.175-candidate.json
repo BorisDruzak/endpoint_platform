@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "version": "3.2.175",
-  "status": "unpublished_candidate_source",
+  "status": "diagnostic_built_native_accepted_not_primary",
   "published_windows_primary_unchanged": "3.2.172",
   "support_component_version": "1.0.0",
   "baseline_runtime_manifest": "packaging/windows/initial-runtime-3.2.172.json",
@@ -30,8 +30,8 @@
     "historical172_bytes_immutable": true
   },
   "release_gates": {
-    "candidate175_built": false,
-    "candidate175_console_canary_accepted": false,
+    "candidate175_built": true,
+    "candidate175_console_canary_accepted": true,
     "candidate175_server_qualified": false,
     "candidate175_primary_promoted": false
   },
@@ -47,5 +47,6 @@
     "Actual missing-origin enrolled device must bootstrap Support through the new signed installer.",
     "Keep Microsoft OS dependency checks and native admission unchanged.",
     "Keep policy9 paused and primary172 until successful175 qualification and actual independent Support readiness."
-  ]
+  ],
+  "actual_release_record": "docs/releases/windows-3.2.175-setup.json"
 }

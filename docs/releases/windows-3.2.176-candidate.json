@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "version": "3.2.176",
+  "status": "unpublished_candidate_source",
+  "published_windows_primary_unchanged": "3.2.172",
+  "support_component_version": "1.0.1",
+  "baseline_runtime_manifest": "packaging/windows/initial-runtime-3.2.172.json",
+  "baseline_source_file_count": 280,
+  "additional_reviewed_inputs": [
+    "endpoint_contracts/support_access.py",
+    "packaging/windows/initial_runtime_contract.py",
+    "packaging/windows/wix/Components.wxs",
+    "packaging/windows/wix/Directories.wxs",
+    "packaging/windows/wix/Services.wxs",
+    "packaging/windows/wix/Upgrade.wxs",
+    "pc_agent/platform/windows/support_access.py",
+    "pc_agent/platform/windows/support_access_native.py",
+    "pc_agent/platform/windows/support_access_service.py",
+    "pc_agent/pyinstaller_windows_support_access.spec",
+    "pc_agent/platform/windows/staged_restoration_continuation.py",
+    "pc_agent/platform/windows/support_access_bundle.py",
+    "tools/canary/support_openssh_payload.py",
+    "packaging/windows/support-openssh/manifest.json",
+    "packaging/windows/support-openssh/LICENSE.txt",
+    "packaging/windows/support-openssh/NOTICE.txt",
+    "packaging/windows/support-openssh/QUALIFICATION.md"
+  ],
+  "producer_requirements": {
+    "clean_committed_source_before_freeze": true,
+    "compatibility_contract_authored_before_freeze": true,
+    "fresh_component_guid": true,
+    "independent_stage_evidence": true,
+    "exact_observed_toolchain": true,
+    "native_helpers_reuse_allowed": false,
+    "signed_support_payload_before_msi": true,
+    "historical172_bytes_immutable": true
+  },
+  "release_gates": {
+    "candidate176_built": false,
+    "candidate176_console_canary_accepted": false,
+    "candidate176_server_qualified": false,
+    "candidate176_primary_promoted": false
+  },
+  "diagnostic_predecessor": {
+    "version": "3.2.175",
+    "full_setup_release_id": "a487ee6b-b5a9-48bd-bba7-bf55450c7d3f",
+    "setup_sha256": "790fd7102f6f0ef37d30a3e23d6bb7242e0cc12f7299ae01cfee6fd9b7f33d93",
+    "status": "native_accepted_not_primary_domain_and_offline_dependency_gates",
+    "reason": "175 proved absent optional origin bootstrap on A2-IAO; A2-MUNSLU-N capability installation timed out. Domain-capable runtime and offline bundled dependencies require new immutable176 media."
+  },
+  "fix_commit": "ce083f336d78f9840b26824da6d95f0d2929008b",
+  "additional_gates": [
+    "Actual176 native and active-user acceptance on test120; actual independent SSH with Core/updater stopped, then restored telemetry.",
+    "Actual explicit SOSNADM\\admin-2 key-authenticated administrator access on a domain-joined canary.",
+    "Actual automatic private bundled OpenSSH bootstrap on an enrolled source172 device without an installed OS sshd; preserve global SSH and Agent private identity.",
+    "Do not replay Windows servicing or alter unknown native outcomes. Keep policy9 paused and primary172 until all native and independent Support gates pass."
+  ],
+  "bundled_openssh": {
+    "version": "10.4.0.0p1-Preview",
+    "upstream_release": "https://github.com/PowerShell/Win32-OpenSSH/releases/tag/10.4.0.0p1-Preview",
+    "zip_sha256": "b67ff8becd203502190ec42ac7787c24c2cd3325ed7700485fe7a1c83d2a7957",
+    "zip_size": 6021393,
+    "upstream_maturity": "Preview; not vendor production-ready",
+    "purpose": "Testing-stage independent LAN support channel",
+    "distribution": "Unchanged pinned official ZIP embedded inside signed Support executable; no vendor binary in Git",
+    "global_windows_capability_installation": false,
+    "existing_valid_os_profile_preserved": true
+  },
+  "bundle_source_commit": "715652112262035db4f227c1f62b0ec3167e67b5"
+}
