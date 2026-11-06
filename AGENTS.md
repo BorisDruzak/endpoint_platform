@@ -96,7 +96,9 @@
 - Full Setup must install/start EndpointSupportAccess as an independent Auto
   LocalSystem service. Production installation defaults authorize first access
   after a healthy Support1.0.1 report; use existing SOSNADM\admin-2 for domain
-  PCs and preserve explicit local-account policies such as test120/test_agent_win.
+  PCs and preserve existing explicit local-account policies. The historical
+  test120/test_agent_win registration was retired during the authorized clean
+  reinstall; current120 uses SOSNADM\admin-2 and Device06143264-1b7b-42e7-990f-7f8e1292491b.
   No guessed account, password creation, permanent grant or automatic lease
   renewal is implied. Initial grants are at most8hours; subsequent diagnostic
   access can be enabled centrally without a working Core/updater.
@@ -125,6 +127,15 @@
   out of source/logs/reports; never upload operator/device private keys.
 
 # Production host
+
+- Clean176/automatic Support acceptance on120 is recorded in
+  `docs/verification/2026-11-07-test120-clean176-support.md`: native0, new identity
+  and keys, automatic eight-hour grant and real domain SSH with Core/updater
+  stopped for96seconds. UserSensor samples were not accepted after the controlled
+  Core restart despite an active session and READY listener; a bounded sensor
+  restart did not resolve it. Do not call complete user telemetry qualified or
+  attribute its cause to initial installation without further evidence. Existing
+  signed176/source172/175 update qualification and Linux156 remain separate.
 
 - Publish every new trusted agent/installer release into the single active default auto-enrollment campaign by default. Use the canonical publisher's transactional campaign inclusion; preserve its CIDRs, expiry, quota and usage. Any explicit diagnostic exclusion must be documented. Never create a separate version-specific campaign or expand network authority merely to publish a version. Historical expired/revoked campaigns retain their audit history.
 

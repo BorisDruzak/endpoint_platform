@@ -23,7 +23,8 @@ different states; a connected tunnel alone is not successful administrator acces
    отзыв или сброс конкретного ПК имеют приоритет. Если срок закончился,
    задайте срок до8часов, существующего администратора, одобренный публичный
    Ed25519-ключ и причину, затем нажмите **Включить доступ**. Для доменных ПК
-   используется `SOSNADM\admin-2`; для120 — `test_agent_win`. Для автономного ПК
+   используется `SOSNADM\admin-2`; после чистой установки176 тестовый120 тоже
+   использует эту доменную учётную запись. Для автономного ПК
    укажите его действующего администратора; аккаунт и пароль не создаются.
 3. Нажмите **Обновить доступ**, дождитесь свежего отчёта и подключения туннеля.
    Скопируйте из этой же карточки Device UUID, **Порт устройства на шлюзе**
@@ -40,9 +41,9 @@ different states; a connected tunnel alone is not successful administrator acces
 ```powershell
 $hostKey = 'ssh-ed25519 <ключ из карточки нужного Device UUID>'
 .\tools\support\Connect-EndpointSupport.ps1 `
-  -DeviceId '943c87ef-f121-40b9-a31f-003e9459e292' `
-  -RemotePort 32000 `
-  -WindowsAdminUsername 'test_agent_win' `
+  -DeviceId '06143264-1b7b-42e7-990f-7f8e1292491b' `
+  -RemotePort 32006 `
+  -WindowsAdminUsername 'SOSNADM\admin-2' `
   -HostPublicKey $hostKey `
   -RemoteCommand 'whoami /user'
 ```
@@ -91,9 +92,9 @@ not inferred from hostname, IP or an unauthenticated scan.
 Host keys, device tunnel keys and approved operator keys have distinct roles.
 The installer generates device private keys locally; private keys and enrollment
 material are never embedded in a release. The Windows login must already exist
-and be an enabled administrator. The pilot uses `test_agent_win` on101.120;
-the user selected the existing domain principal `SOSNADM\admin-2` for subsequent
-domain-joined Windows devices. A bare `admin-2` must not be substituted for that
+and be an enabled administrator. The original pilot used `test_agent_win` on101.120;
+the clean176 reinstall now uses the selected existing domain principal
+`SOSNADM\admin-2`, as do the other tested domain Windows devices. A bare `admin-2` must not be substituted for that
 confirmed domain identity. No Windows
 administrator account is created by this feature.
 
