@@ -56,3 +56,31 @@ def test_installer_keeps_owner_scope_and_all_native_inputs(monkeypatch, tmp_path
                      ('execute', True, {'feature_states': (3, 2, 3, 4), 'rollback_disabled': '0',
                                        'uninstall_finalization': '1', 'upgrade_detected': 'product',
                                        'staged_removal': '1'}), ('owner-exit',)]
+
+
+@pytest.mark.parametrize('finalization',['','1'])
+def test_installer_preflight_rejects_support_service_collision_before_native_phase(monkeypatch,tmp_path,finalization):
+    from pc_agent.platform.windows import installer_host_entry as entry
+    from pc_agent.platform.windows import installer_transaction_bridge as bridge
+    from pc_agent.platform.windows import installer_phase_diagnostics as diagnostics
+    from pc_agent.platform.windows import msi_inventory
+    import types
+    paths=entry.WindowsUpdatePaths(tmp_path/'Agent',tmp_path/'updates/pending.json')
+    monkeypatch.setattr(entry.WindowsUpdatePaths,'production',classmethod(lambda _:paths))
+    client=type('Client',(),{'capability':{}})()
+    @contextlib.contextmanager
+    def owner(*args): yield client
+    monkeypatch.setattr(bridge,'owner_authorized_phase',owner)
+    monkeypatch.setattr(msi_inventory,'immutable_installer_media_roots',lambda *args:())
+    monkeypatch.setattr(msi_inventory,'package_read_scope',lambda **kw:contextlib.nullcontext())
+    monkeypatch.setattr(diagnostics,'profile_installer_phase',lambda *args:contextlib.nullcontext())
+    monkeypatch.setattr(diagnostics,'report_installer_phase_failure',lambda *args:None)
+    calls=[]
+    service=types.SimpleNamespace(SC_MANAGER_CONNECT=1,SERVICE_QUERY_CONFIG=1,
+        OpenSCManager=lambda *a:'manager',OpenService=lambda *a:'service',
+        QueryServiceConfig=lambda *a:(16,2,1,'"C:\\Other\\unrelated.exe"','',0,[],'LocalSystem','display'),
+        CloseServiceHandle=lambda *a:None)
+    monkeypatch.setitem(sys.modules,'win32service',service)
+    monkeypatch.setattr(bridge,'execute_authorized_phase',lambda *a,**k:calls.append('native'))
+    assert entry.main(['--installer-phase','msi-preflight','--installer-session','session','--uninstall-finalization',finalization]) == 1
+    assert calls==[]

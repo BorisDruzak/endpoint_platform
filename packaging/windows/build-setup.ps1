@@ -248,7 +248,9 @@ foreach ($optional in @(
     @{ name = 'InitialRuntimeManifest'; value = $InitialRuntimeManifest },
     @{ name = 'InitialRuntimeStageRoot'; value = $InitialRuntimeStageRoot },
     @{ name = 'InitialRuntimeStageEvidence'; value = $InitialRuntimeStageEvidence },
-    @{ name = 'WixBuildRoot'; value = $WixBuildRoot }
+    @{ name = 'WixBuildRoot'; value = $WixBuildRoot },
+    @{ name = 'CodeSigningCertificateThumbprint'; value = $CodeSigningCertificateThumbprint },
+    @{ name = 'TimestampServer'; value = $TimestampServer }
 )) {
     if ($optional.value) { $msiParameters[$optional.name] = $optional.value }
 }

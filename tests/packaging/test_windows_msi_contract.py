@@ -61,7 +61,8 @@ def test_synthetic_wix4_package_links_with_finalization_audit(tmp_path):
         'InitialRuntimeComponentGuid':str(uuid.uuid4()),'InitialRuntimeTransitionApproved':'0',
         'BaselineInitialRuntimeVersion':'0.0.0','SourceRevision':'a'*40,
         'InitialRuntimeInventoryPath':str(stage/'dummy-inventory.json'),
-        'InstallerHostPath':str(stage/'dummy-installer-host.exe')}
+        'InstallerHostPath':str(stage/'dummy-installer-host.exe'),
+        'SupportAccessPath':str(stage/'dummy-support-access.exe')}
     sources=[]
     fixture_upgrade=str(uuid.uuid4()).upper()
     for name in WIX_FILES:
@@ -124,8 +125,16 @@ Export-MsiInspection $Msi $Output
     assert 'LockPermissions' not in compiled['tables']
     security=compiled['binary_directory_security']
     assert {(row['object'],row['table']) for row in security} == {
-        ('INSTALLFOLDER','CreateFolder'),('VERSIONSFOLDER','CreateFolder'),('INITIALRUNTIMEDIR','CreateFolder')}
-    assert all(row['sddl'].startswith('D:P') and not row['condition'] for row in security)
+        ('INSTALLFOLDER','CreateFolder'),('VERSIONSFOLDER','CreateFolder'),('INITIALRUNTIMEDIR','CreateFolder'),
+        ('SUPPORTINSTALLFOLDER','CreateFolder')}
+    assert all(not row['condition'] for row in security)
+    assert next(row for row in security if row['object']=='SUPPORTINSTALLFOLDER')['sddl']=='O:SYG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)'
+    action=next(row for row in compiled['custom_actions'] if row['action']=='CommitSupportAccessRemoval')
+    assert int(action['type'])==11842
+    assert action['source']=='EndpointSupportAccessRemoval' and action['target']=='--uninstall'
+    removal=next(row for row in rows if row['action']=='CommitSupportAccessRemoval')
+    assert 'NOT UPGRADINGPRODUCTCODE' in removal['condition']
+    assert 'NOT ENDPOINT_UNINSTALL_FINALIZE' in removal['condition']
 
 
 def test_native_directory_permissions_follow_foundation_and_runtime_ownership():
@@ -136,7 +145,8 @@ def test_native_directory_permissions_follow_foundation_and_runtime_ownership():
             permission=folder.find(f'{{{WIX_NS}}}PermissionEx')
             if permission is not None:
                 protected[folder.get('Directory',component.get('Directory'))]=(component.get('Id'),permission.get('Sddl'))
-    assert set(protected)=={'INSTALLFOLDER','VERSIONSFOLDER','INITIALRUNTIMEDIR'}
+    assert set(protected)=={'INSTALLFOLDER','VERSIONSFOLDER','INITIALRUNTIMEDIR','SUPPORTINSTALLFOLDER'}
+    assert protected.pop('SUPPORTINSTALLFOLDER')==('cmpSupportAccess','O:SYG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)')
     assert protected['INSTALLFOLDER'][0]==protected['VERSIONSFOLDER'][0]=='cmpInstallRootCleanup'
     assert protected['INITIALRUNTIMEDIR'][0]=='cmpInitialRuntimeAnchor'
     for _component,sddl in protected.values():
@@ -400,6 +410,7 @@ def test_service_components_remove_services_and_fail_the_transaction_on_error() 
         "EndpointAgent",
         "EndpointAgentUpdater",
         "EndpointBrowserPolicy",
+        "EndpointSupportAccess",
     }
     core_control = _by_id(controls, "ctlEndpointAgent")
     updater_control = _by_id(controls, "ctlEndpointAgentUpdater")

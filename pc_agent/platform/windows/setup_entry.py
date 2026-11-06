@@ -1055,6 +1055,11 @@ def _run_provisioner(
                 str(completed.stdout or ""), str(completed.stderr or "")
             ),
         )
+    try:
+        installed=json.loads(str(completed.stdout or ''))['support_access_status']=='installed'
+    except (ValueError,KeyError,TypeError):
+        installed=False
+    _write_support_install_result(installed)
 
 
 def _write_inherited_stdout(value: bytes, *, kernel=None) -> None:
@@ -1095,6 +1100,27 @@ def _emit_preflight(value: dict[str, object]) -> None:
     else:
         sys.stdout.write(record)
         sys.stdout.flush()
+
+
+def _install_support_after_native(data_root: Path) -> None:
+    from pc_agent.platform.windows.provision import install_enrolled_support
+    try:
+        installed = install_enrolled_support(data_root).get('installed') is True
+    except Exception:
+        installed = False
+    _write_support_install_result(installed)
+
+
+def _write_support_install_result(installed: bool) -> None:
+    try:
+        path = _prepare_diagnostics_root()/'support-install-result.json'
+        temporary = path.with_suffix('.tmp')
+        temporary.write_text(json.dumps({'schema_version':'endpoint_support_install_result_v1',
+            'installed':installed,'status':'installed' if installed else 'unavailable',
+            'updated_at':datetime.now(UTC).isoformat()}),encoding='utf-8')
+        temporary.replace(path)
+    except OSError:
+        pass
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -1235,6 +1261,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     stage="MSI",
                     detail="MSI_INSTALL_FAILED",
                 )
+            _install_support_after_native(data_root)
             if not _wait_for_agent_service_running():
                 return _complete(
                     args,
@@ -1282,6 +1309,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if recovery_operation == 'uninstall':
             return _complete(args,data_root,status='UNINSTALLED',code=EXIT_SUCCESS,stage='MSI',detail='UNINSTALLED')
         if installation_state == "repairable":
+            _install_support_after_native(data_root)
             if not _wait_for_agent_service_running():
                 return _complete(
                     args,

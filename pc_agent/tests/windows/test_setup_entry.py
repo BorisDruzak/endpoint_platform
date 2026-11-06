@@ -1220,3 +1220,32 @@ def test_wrapper_rollback_is_reported_separately(tmp_path, monkeypatch):
     _write_public_payload(tmp_path)
     monkeypatch.setattr(setup_entry.subprocess, 'run', lambda *_a, **_k: SimpleNamespace(returncode=67))
     assert setup_entry._install_embedded_msi(tmp_path / 'EndpointAgent.msi') == 67
+
+
+def test_accepted_native_upgrade_attempts_support_before_core_health_check(monkeypatch,tmp_path):
+    from pc_agent.platform.windows import provision
+    _write_public_payload(tmp_path)
+    monkeypatch.setattr(setup_entry,'_data_root',lambda:tmp_path/'data')
+    monkeypatch.setattr(setup_entry,'_resource_root',lambda:tmp_path)
+    monkeypatch.setattr(setup_entry,'_classify_installation_state',lambda *_a,**_kw:'valid')
+    monkeypatch.setattr(setup_entry,'_installed_msi_version',lambda:'1.0.0')
+    monkeypatch.setattr(setup_entry,'_msi_reconciliation_required',lambda _:True)
+    events=[]
+    monkeypatch.setattr(setup_entry,'_install_embedded_msi',lambda _:events.append('native-accepted') or 0)
+    monkeypatch.setattr(provision,'install_enrolled_support',lambda root:events.append('support') or {'installed':False})
+    monkeypatch.setattr(setup_entry,'_wait_for_agent_service_running',lambda:events.append('core-health') or False)
+    assert setup_entry.main(['--quiet']) == setup_entry.EXIT_SERVICE_FAILED
+    assert events == ['native-accepted','support','core-health']
+    result=json.loads((tmp_path/'diagnostics'/'support-install-result.json').read_text())
+    assert result['installed'] is False
+    assert result['status'] == 'unavailable'
+
+
+def test_fresh_provisioner_reports_support_failure_separately_without_changing_success(tmp_path):
+    config=SetupConfig(endpoint_origin='https://endpoint.sosnadmin.local',ca_file=tmp_path/'ca.pem',
+        installer_version='1.0.0',installer_release_id='1.0.0')
+    setup_entry._run_provisioner(tmp_path/'provision.exe',config,tmp_path/'data','win-test','claim',
+        run=lambda *a,**kw:SimpleNamespace(returncode=0,stdout='{"support_access_status":"unavailable"}',stderr=''))
+    result=json.loads((tmp_path/'diagnostics'/'support-install-result.json').read_text())
+    assert result['installed'] is False
+    assert result['status']=='unavailable'

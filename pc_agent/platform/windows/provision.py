@@ -14,7 +14,7 @@ import tempfile
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol, Sequence, TextIO
+from typing import Callable, Protocol, Sequence, TextIO
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -110,6 +110,34 @@ def _valid_endpoint_host(hostname: str | None) -> bool:
 class ProvisioningResult:
     device_id: UUID
     claim_removed: bool
+    support_access_status: str = 'unavailable'
+
+
+def install_enrolled_support(data_root: Path) -> dict:
+    """Run only the MSI-owned signed sibling after durable enrollment exists.
+
+    No bearer/claim is passed through arguments. Component readiness is separate
+    from enrollment/native success; a missing optional dependency cannot replay
+    enrollment or falsify the accepted MSI receipt.
+    """
+    import json
+    import subprocess
+    from .update_paths import _native_folder
+    expected = _native_folder(0x23)/'Endpoint Platform'/'Agent'
+    if Path(data_root).resolve() != expected.resolve():
+        return {'installed':False,'error':'support_not_installed'}
+    executable = _native_folder(0x26)/'Endpoint Platform'/'Support'/'EndpointSupportAccess.exe'
+    if not executable.is_file():
+        return {'installed':False,'error':'support_not_installed'}
+    try:
+        result = subprocess.run([str(executable),'--install'],shell=False,capture_output=True,
+            text=True,timeout=660,creationflags=subprocess.CREATE_NO_WINDOW)
+        if result.returncode != 0:
+            return {'installed':False,'error':'support_install_failed'}
+        value = json.loads(result.stdout)
+        return {'installed':value.get('installed') is True}
+    except Exception:
+        return {'installed':False,'error':'support_install_failed'}
 
 
 class HttpsWindowsEnrollmentClient:
@@ -152,6 +180,7 @@ class WindowsProvisioner:
         enrollment: EnrollmentClient | None = None,
         service: ServiceControl | None = None,
         acl: AclAdapter | None = None,
+        support_installer: Callable[[], dict] | None = None,
     ) -> None:
         self._request = request
         self._enrollment = enrollment or HttpsWindowsEnrollmentClient(
@@ -159,6 +188,7 @@ class WindowsProvisioner:
         )
         self._service = service or PyWin32ServiceControl()
         self._acl = acl or PyWin32AclAdapter()
+        self._support_installer = support_installer or (lambda: install_enrolled_support(self._request.data_root))
 
     def provision_from_stdin(self, stream: TextIO | None = None) -> ProvisioningResult:
         raw = (sys.stdin if stream is None else stream).read(MAX_CLAIM_BYTES + 1)
@@ -209,10 +239,15 @@ class WindowsProvisioner:
             or read_enrollment_device_id(identity_path) != device_id
         ):
             raise RuntimeError("permanent enrollment credential proof failed")
+        try:
+            support = self._support_installer()
+            support_status = 'installed' if support.get('installed') is True else 'unavailable'
+        except Exception:
+            support_status = 'unavailable'
         self._service.start()
         claim_path.unlink()
         _flush_directory(data_root)
-        return ProvisioningResult(device_id=device_id, claim_removed=True)
+        return ProvisioningResult(device_id=device_id, claim_removed=True,support_access_status=support_status)
 
 
 def _claim_from_text(raw: str) -> str:
@@ -311,14 +346,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     provisioner = WindowsProvisioner(request)
     try:
         if args.material_file:
-            provisioner.provision_from_protected_file(Path(args.material_file))
+            result = provisioner.provision_from_protected_file(Path(args.material_file))
         else:
-            provisioner.provision_from_stdin()
+            result = provisioner.provision_from_stdin()
     except Exception as error:
         # Keep diagnostics bounded to a class name: transport and filesystem
         # exceptions may otherwise contain claims, tokens, or local paths.
         print(f"Windows provisioning failed: {type(error).__name__}", file=sys.stderr)
         return 1
+    import json
+    print(json.dumps({'support_access_status':result.support_access_status}))
     return 0
 
 
