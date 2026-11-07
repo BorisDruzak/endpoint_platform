@@ -185,11 +185,19 @@ def sshd_config(private: Path, public: Path, policy: SupportPolicy, *, port=LOCA
 
 def tunnel_command(private: Path, policy: SupportPolicy):
     root = safe_path(private)
-    return ['/usr/bin/ssh','-F','/dev/null','-N','-T','-i',root+'/tunnel_ed25519',
+    return ['/usr/bin/ssh','-F','/dev/null','-N','-T','-M','-S',root+'/mux',
+        '-o','ControlPersist=no','-i',root+'/tunnel_ed25519',
         '-p','2222','-l',policy.tunnel_user,
-        '-R',f'127.0.0.1:{policy.remote_port}:127.0.0.1:{LOCAL_PORT}',
         '-o','BatchMode=yes','-o','IdentitiesOnly=yes','-o','StrictHostKeyChecking=yes',
         '-o','HostKeyAlias=endpoint-support-gateway','-o',f'UserKnownHostsFile={root}/known_hosts',
         '-o','GlobalKnownHostsFile=/dev/null','-o','ExitOnForwardFailure=yes',
         '-o','ServerAliveInterval=10','-o','ServerAliveCountMax=2','-o','ConnectTimeout=5',
         '-o','ConnectionAttempts=1','-o','ForwardAgent=no','-o','LogLevel=ERROR',policy.gateway]
+
+
+def forward_command(private: Path, policy: SupportPolicy):
+    # Explicit -O requires this existing master; ssh never falls back to a new
+    # network connection if the control socket is absent or rejects the request.
+    return ['/usr/bin/ssh','-F','/dev/null','-S',safe_path(private)+'/mux',
+        '-O','forward','-R',f'127.0.0.1:{policy.remote_port}:127.0.0.1:{LOCAL_PORT}',
+        '-o','BatchMode=yes','-o','LogLevel=ERROR',policy.gateway]

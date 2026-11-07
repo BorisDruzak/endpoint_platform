@@ -14,6 +14,7 @@ import stat
 import subprocess
 import sys
 import time
+from dataclasses import replace
 
 from pc_agent.platform.linux import support_access as s
 from pc_agent.platform.linux import support_access_native as n
@@ -22,7 +23,7 @@ from pc_agent.platform.linux import support_access_native as n
 def harness_child(unit,argv,seconds,parent):
     """Only rename owned units for the harness; lifetime properties are real."""
     assert re.fullmatch(r'endpoint-linux178-harness-[a-f0-9]+\.service',parent)
-    assert unit in [parent.replace('.service','-'+role+'.service') for role in ('sshd','descendant')]
+    assert unit in [parent.replace('.service','-'+role+'.service') for role in ('sshd','descendant','tunnel')]
     command=n.child_command(n.CHILD_UNITS[0],argv,seconds)
     return [arg.replace(n.CHILD_UNITS[0],unit).replace(s.SERVICE_NAME,parent) for arg in command]
 
@@ -134,6 +135,7 @@ def run(root):
         finally:
             for unit in (sshd_unit,child_unit,parent):
                 subprocess.run(['/usr/bin/systemctl','stop',unit],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=5)
+        verify_forward_ack(root,store,policy,parent,evidence)
         try: n.remove_owned_state(store)
         except s.SupportError: pass
         else: raise AssertionError('Foreign sentinel was purged')
@@ -148,6 +150,102 @@ def run(root):
     public.rmdir()
     evidence['checks'].append('exact_temporary_public_auth_removed')
     return evidence
+
+
+def verify_forward_ack(root,store,policy,parent,evidence):
+    """Native mux acceptance/rejection against ONLY an ephemeral local gateway.
+
+    Test adapters change production destination/UID/ports to isolated loopback
+    values; the actual native ack, kernel socket peer and receipt logic run intact.
+    """
+    gateway_unit=parent.replace('.service','-sshd.service')
+    master_unit=parent.replace('.service','-tunnel.service')
+    gateway_key=root/'gateway_ed25519'
+    n.native_command(['/usr/bin/ssh-keygen','-q','-t','ed25519','-N','','-C','','-f',str(gateway_key)])
+    key=s.public_key(gateway_key.with_suffix('.pub').read_text().strip())
+    with socket.socket() as probe:
+        probe.bind(('127.0.0.1',0));gateway_port=probe.getsockname()[1]
+    # Bound remote listener to a distinct unoccupied port; no actual Endpoint
+    # listener or gateway is accessed by this harness.
+    with socket.socket() as probe:
+        probe.bind(('127.0.0.1',0));remote_port=probe.getsockname()[1]
+    with socket.socket() as target:
+        target.bind(('127.0.0.1',0));target.listen(1);target_port=target.getsockname()[1]
+        assert 22222 not in (gateway_port,remote_port,target_port)
+        tunnel_pub=store.read('tunnel_ed25519.pub').decode().strip()
+        store.write('0',(tunnel_pub+'\n').encode(),public=True)
+        gateway_config=s.sshd_config(store.paths.private,store.paths.public,policy,port=gateway_port)
+        gateway_config=gateway_config.replace('HostKey '+str(store.paths.private/'host_ed25519'),
+            'HostKey '+str(gateway_key)).replace('DisableForwarding yes',
+            'DisableForwarding no\nAllowTcpForwarding remote\nPermitListen 127.0.0.1:'+str(remote_port))
+        config=root/'gateway_sshd_config';config.write_text(gateway_config)
+        n.native_command(['/usr/sbin/sshd','-t','-f',str(config)])
+        policy=replace(policy,gateway='127.0.0.1',gateway_key=key,tunnel_user='root',remote_port=remote_port)
+        store.write('known_hosts',('endpoint-support-gateway '+key+'\n').encode())
+        master_command=s.tunnel_command(store.paths.private,policy)
+        master_command[master_command.index('-p')+1]=str(gateway_port)
+        n.native_command(['/usr/bin/systemd-run','--quiet','--collect','--unit='+parent,
+            '--property=KillMode=control-group','--property=RuntimeMaxSec=45',
+            '--property=TimeoutStopSec=1','--','/usr/bin/sleep','45'])
+        original_forward=n.forward_command
+        def isolated_forward(private,p):
+            argv=original_forward(private,p)
+            index=argv.index('-R')+1
+            argv[index]=f'127.0.0.1:{p.remote_port}:127.0.0.1:{target_port}'
+            return argv
+        class HarnessChildren(n.NativeChildren):
+            def master_identity(self):
+                return n.process_identity(int(n.native_command(['/usr/bin/systemctl','show',
+                    '--property=MainPID','--value',master_unit],output=True).strip()))
+            def alive(self):
+                try:return n.native_command(['/usr/bin/systemctl','is-active',gateway_unit,master_unit],output=True).splitlines()==['active','active']
+                except s.SupportError:return False
+        child=HarnessChildren(store)
+        n.forward_command=isolated_forward
+        try:
+            n.native_command(harness_child(gateway_unit,['/usr/sbin/sshd','-D','-e','-f',str(config)],35,parent))
+            n.native_command(harness_child(master_unit,master_command,30,parent))
+            assert not child.connected()
+            child.acknowledge_forward(policy,n.boot_time()+20)
+            assert child.connected()
+            # A successful native -O forward really allocated the remote port
+            # and forwards bytes to our own isolated target, not just exit0.
+            with socket.create_connection(('127.0.0.1',remote_port),timeout=2) as forwarded:
+                forwarded.sendall(b'OWNED_FORWARD_ACK')
+                target.settimeout(2)
+                connection,_=target.accept()
+                with connection:
+                    connection.settimeout(2)
+                    assert connection.recv(100)==b'OWNED_FORWARD_ACK'
+            evidence['checks'].append('native_mux_ack_and_actual_forwarded_bytes')
+            # The same live SSH master cannot assert an explicitly denied port.
+            denied=remote_port+1 if remote_port<65535 else remote_port-1
+            try:child.acknowledge_forward(replace(policy,remote_port=denied),n.boot_time()+10)
+            except s.SupportError:pass
+            else:raise AssertionError('Denied remote forwarding acknowledged')
+            assert child.forward_receipt is None and not child.connected()
+            evidence['checks'].append('native_mux_rejection_clears_readiness')
+            child.acknowledge_forward(policy,n.boot_time()+10)
+            assert child.connected()
+            subprocess.run(['/usr/bin/systemctl','stop',master_unit],check=True,timeout=5)
+            assert not child.connected() and child.forward_receipt is None
+            evidence['checks'].append('master_death_clears_forward_receipt')
+            # -O never falls back to a direct network login when socket is gone.
+            try:n.native_command(isolated_forward(store.paths.private,policy),timeout=2)
+            except s.SupportError:pass
+            else:raise AssertionError('Missing master accepted forward')
+            evidence['checks'].append('missing_mux_has_no_direct_fallback')
+            evidence['forward_ports']={'gateway':gateway_port,'remote':remote_port,'target':target_port}
+        finally:
+            n.forward_command=original_forward
+            for unit in (master_unit,gateway_unit,parent):
+                subprocess.run(['/usr/bin/systemctl','stop',unit],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=5)
+            control=store.paths.private/'mux'
+            if control.exists():
+                info=control.lstat()
+                assert stat.S_ISSOCK(info.st_mode) and info.st_uid==0 and stat.S_IMODE(info.st_mode)==0o600
+                control.unlink()
+        evidence['units'].append(master_unit)
 
 
 def live(pid):

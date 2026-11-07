@@ -8,12 +8,14 @@ import os
 from pathlib import Path
 import re
 import secrets
+import socket
 import stat
+import struct
 import subprocess
 import time
 
 from pc_agent.platform.linux.support_access import (SupportError, SERVICE_NAME,
-    public_key, safe_path, sshd_config, tunnel_command, integer)
+    public_key, safe_path, sshd_config, tunnel_command, forward_command, integer)
 
 
 @dataclass(frozen=True)
@@ -218,6 +220,42 @@ class PrivateStore:
 CHILD_UNITS = ('endpoint-support-access-sshd.service','endpoint-support-access-tunnel.service')
 
 
+def process_identity(pid):
+    integer(pid,1,2**31-1)
+    try:
+        raw = Path(f'/proc/{pid}/stat').read_text()
+        fields=raw[raw.rfind(')')+2:].split()
+        if fields[0] in ('Z','X'):
+            raise ValueError
+        return pid,int(fields[19])
+    except (OSError,IndexError,ValueError):
+        raise SupportError('master_unavailable') from None
+
+
+def control_socket_identity(private,expected_pid):
+    """Kernel peer credentials bind the root-only socket to the owned master."""
+    _directory(private,0o700)
+    path=private/'mux'
+    try:
+        info=path.lstat()
+        if (not stat.S_ISSOCK(info.st_mode) or info.st_uid!=0 or info.st_gid!=0 or
+            info.st_nlink!=1 or stat.S_IMODE(info.st_mode)!=0o600):
+            raise ValueError
+        with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as stream:
+            stream.settimeout(1)
+            stream.connect(str(path))
+            pid,uid,gid=struct.unpack('3i',stream.getsockopt(socket.SOL_SOCKET,socket.SO_PEERCRED,12))
+            if (pid,uid,gid)!=(expected_pid,0,0):
+                raise ValueError
+        after=path.lstat()
+        identity=(info.st_dev,info.st_ino,info.st_ctime_ns)
+        if identity!=(after.st_dev,after.st_ino,after.st_ctime_ns):
+            raise ValueError
+        return identity
+    except (OSError,ValueError):
+        raise SupportError('unsafe_control_socket') from None
+
+
 def child_command(unit, argv, seconds):
     if unit not in CHILD_UNITS or not argv or not str(argv[0]).startswith('/'):
         raise SupportError('invalid_child_unit')
@@ -236,8 +274,12 @@ class NativeChildren:
     def __init__(self,store):
         self.store = store
         self.active = False
+        self.forward_receipt = None
+        self.policy_revision = None
 
     def stop(self):
+        self.forward_receipt = None
+        self.policy_revision = None
         # Kill immediately instead of waiting on systemctl stop jobs/network.
         for unit in CHILD_UNITS:
             subprocess.run(['/usr/bin/systemctl','kill','--kill-whom=all','--signal=KILL',unit],
@@ -252,8 +294,20 @@ class NativeChildren:
             if result.returncode != 0 or result.stdout.strip() not in (b'inactive',b'failed'):
                 raise SupportError('child_stop_unconfirmed')
         self.active = False
+        _directory(self.store.paths.private,0o700)
+        control=self.store.paths.private/'mux'
+        try:
+            info=control.lstat()
+        except FileNotFoundError:
+            return
+        if (not stat.S_ISSOCK(info.st_mode) or info.st_uid!=0 or info.st_gid!=0 or
+            info.st_nlink!=1 or stat.S_IMODE(info.st_mode)!=0o600):
+            raise SupportError('unsafe_control_socket')
+        control.unlink()  # Exact owned stale socket, only after both units stopped.
 
     def start(self,policy,deadline):
+        self.forward_receipt = None
+        self.policy_revision = policy.revision
         validate_account(policy.username,policy.uid)
         self.store.write(str(policy.uid),('\n'.join(policy.operator_keys)+'\n').encode(),public=True)
         self.store.write('known_hosts',('endpoint-support-gateway '+policy.gateway_key+'\n').encode())
@@ -269,6 +323,7 @@ class NativeChildren:
             native_command(child_command(CHILD_UNITS[0],['/usr/sbin/sshd','-D','-e','-f',config],seconds))
             seconds = int(deadline-boot_time())-3
             native_command(child_command(CHILD_UNITS[1],tunnel_command(self.store.paths.private,policy),seconds))
+            self.acknowledge_forward(policy,deadline)
             self.active = True
         except Exception:
             self.stop()
@@ -278,6 +333,50 @@ class NativeChildren:
         try:
             return native_command(['/usr/bin/systemctl','is-active',*CHILD_UNITS],output=True).splitlines() == ['active','active']
         except SupportError:
+            return False
+
+    def master_identity(self):
+        value=native_command(['/usr/bin/systemctl','show','--property=MainPID','--value',CHILD_UNITS[1]],output=True,timeout=3)
+        try:
+            return process_identity(int(value.strip()))
+        except (ValueError,SupportError):
+            raise SupportError('master_unavailable') from None
+
+    def acknowledge_forward(self,policy,deadline):
+        """OpenSSH mux waits for remote tcpip-forward success before exit0."""
+        self.forward_receipt=None
+        self.policy_revision=policy.revision
+        limit=min(boot_time()+8,deadline-1)
+        identity=None
+        while boot_time()<limit:
+            try:
+                master=self.master_identity()
+                identity=control_socket_identity(self.store.paths.private,master[0])
+                break
+            except SupportError:
+                time.sleep(.05)
+        if identity is None:
+            raise SupportError('master_unavailable')
+        remaining=min(3,limit-boot_time())
+        if remaining<=0:
+            raise SupportError('expired_policy')
+        native_command(forward_command(self.store.paths.private,policy),timeout=remaining)
+        if (master!=self.master_identity() or
+            identity!=control_socket_identity(self.store.paths.private,master[0])):
+            raise SupportError('master_changed')
+        self.forward_receipt=(master,identity,policy.revision)
+
+    def connected(self):
+        if self.forward_receipt is None:
+            return False
+        try:
+            master,identity,revision=self.forward_receipt
+            if (revision!=self.policy_revision or not self.alive() or master!=self.master_identity()
+                or identity!=control_socket_identity(self.store.paths.private,master[0])):
+                raise SupportError('master_changed')
+            return True
+        except Exception:
+            self.forward_receipt=None
             return False
 
 

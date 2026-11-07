@@ -48,3 +48,24 @@ def test_native_path_root_is_fixed_and_public_private_are_separate():
     assert paths.public != paths.private
     with pytest.raises(SupportError):
         n.support_unit(PurePosixPath('/opt/x\nExecStart=/evil'))
+
+
+def test_forward_receipt_requires_ack_and_same_master_socket_and_policy(monkeypatch):
+    paths=n.SupportPaths(PurePosixPath('/private'),PurePosixPath('/public'))
+    child=n.NativeChildren(SimpleNamespace(paths=paths))
+    assert not child.connected()
+    child.forward_receipt=((100,200),('socket',10),3)
+    child.policy_revision=3
+    monkeypatch.setattr(child,'alive',lambda:True)
+    monkeypatch.setattr(child,'master_identity',lambda:(100,200))
+    monkeypatch.setattr(n,'control_socket_identity',lambda *_:('socket',10))
+    assert child.connected()
+    child.policy_revision=4
+    assert not child.connected()
+    assert child.forward_receipt is None
+    child.forward_receipt=((100,200),('socket',10),4)
+    monkeypatch.setattr(child,'master_identity',lambda:(101,201))
+    assert not child.connected()
+    child.forward_receipt=((101,201),('socket',10),4)
+    monkeypatch.setattr(n,'control_socket_identity',lambda *_:('socket',11))
+    assert not child.connected()

@@ -309,10 +309,10 @@ def _run_service_locked(store,paths,stop_event):
                 else:
                     error = 'https_unavailable'
             if now >= next_poll:
-                # Local child liveness alone is not a gateway/administrator
-                # command attestation; report connected conservatively false.
+                # Positive only after remote forwarding acknowledgement on the
+                # same root-owned master/socket, never administrator attestation.
                 if worker.submit(dict(platform='linux_amd64',component_version=COMPONENT_VERSION,
-                    installed=True,tunnel_connected=False,last_error_code=error)):
+                    installed=True,tunnel_connected=children.connected(),last_error_code=error)):
                     next_poll = now+30
             stop_event.wait(.2)
     finally:

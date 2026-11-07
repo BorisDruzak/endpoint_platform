@@ -92,3 +92,13 @@ def test_paths_cannot_inject_sshd_configuration():
     assert command[-1] == 'endpoint.sosnadmin.local'
     assert 'StrictHostKeyChecking=yes' in command
     assert '-F' in command and '/dev/null' in command
+
+
+def test_tunnel_master_does_not_report_forwarding_before_mux_ack():
+    command=s.tunnel_command(Path('/private'),parse(policy()))
+    assert '-M' in command and '-S' in command and '/private/mux' in command
+    assert '-R' not in command
+    forward=s.forward_command(Path('/private'),parse(policy()))
+    assert forward[forward.index('-O')+1]=='forward'
+    assert forward[forward.index('-R')+1]=='127.0.0.1:32001:127.0.0.1:22222'
+    assert '-F' in forward and '/dev/null' in forward
