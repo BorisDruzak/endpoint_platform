@@ -139,6 +139,9 @@ def selected_campaign_still_allows_request(
     *,
     now: datetime,
 ) -> bool:
+    if request.platform == 'linux':
+        from .linux_requests import linux_campaign_allows
+        return linux_campaign_allows(request, campaign, now=now)
     policy = parse_windows_enrollment_policy(campaign.policy)
     try:
         source_address = IPv4Address(request.source_address)

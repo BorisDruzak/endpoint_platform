@@ -18,7 +18,7 @@ async def installation_event(body:InstallationEventV1,request:Request,response:R
     async with request.app.state.session_provider() as session:
         principal=await _authenticate_device(session,request)
         await _revalidate_device_principal(session,request,principal)
-        if await verified_platform(session,principal.device.id)!=LINUX:
+        if await verified_platform(session,principal.device.id,credential_id=principal.credential.id,native_source=body.native)!=LINUX:
             raise HTTPException(409,'Verified Linux platform unavailable')
         try:
             ack=await accept_event(session,principal,body,request_id=audit_request_id(request),source_resolver=resolve_linux_source)

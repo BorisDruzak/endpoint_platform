@@ -13,11 +13,15 @@ async def link_previous_installation(session,record,previous_device_id,principal
     state=await session.scalar(select(InstallationState).where(InstallationState.device_id==previous_device_id).with_for_update())
     # Claim and request fingerprints use separate HMAC domains. Compare the
     # consumed claim's original request fingerprint with this request's fingerprint.
-    matching=await session.scalar(select(EnrollmentClaim.id).join(
-        EnrollmentRequest,EnrollmentClaim.enrollment_request_id==EnrollmentRequest.id,
-    ).where(EnrollmentClaim.device_id==previous_device_id,EnrollmentClaim.claimed_at.is_not(None),
-        EnrollmentRequest.device_id==previous_device_id,
-        EnrollmentRequest.fingerprint_digest==record.fingerprint_digest).limit(1))
+    if record.platform == 'linux':
+        from .linux_parent import matching_linux_previous_claim
+        matching = await matching_linux_previous_claim(session, record, previous_device_id)
+    else:
+        matching=await session.scalar(select(EnrollmentClaim.id).join(
+            EnrollmentRequest,EnrollmentClaim.enrollment_request_id==EnrollmentRequest.id,
+        ).where(EnrollmentClaim.device_id==previous_device_id,EnrollmentClaim.claimed_at.is_not(None),
+            EnrollmentRequest.device_id==previous_device_id,
+            EnrollmentRequest.fingerprint_digest==record.fingerprint_digest).limit(1))
     if (record.status != 'approved' or previous is None or previous.retired_at is not None
         or state is None or state.state!='removed' or matching is None or record.device_id==previous_device_id):
         raise HTTPException(409,'Previous installation does not match a committed removal')

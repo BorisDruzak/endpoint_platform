@@ -193,6 +193,8 @@ async def enrollment_request_status(
         if (
             now >= record.expires_at.astimezone(UTC)
             and record.status not in {"denied", "expired", "failed", "cancelled"}
+            and not (record.platform == 'linux' and record.device_id is not None
+                and record.status in {'device_registered', 'waiting_wss', 'completed'})
         ):
             record.status = "expired"
             record.decision_reason = "REQUEST_EXPIRED"
@@ -311,7 +313,10 @@ async def handoff_enrollment_request_claim(
                 pepper=settings.device_token_pepper,
             )
             if now >= record.expires_at.astimezone(UTC):
-                if record.status not in {"denied", "expired", "failed", "cancelled"}:
+                if record.status not in {"denied", "expired", "failed", "cancelled"} and not (
+                    record.platform == 'linux' and record.device_id is not None
+                    and record.status in {'device_registered', 'waiting_wss', 'completed'}
+                ):
                     record.status = "expired"
                     record.decision_reason = "REQUEST_EXPIRED"
                     record.updated_at = now
@@ -348,6 +353,9 @@ async def handoff_enrollment_request_claim(
                     .with_for_update()
                 )
             ).scalar_one_or_none()
+            if record.platform == 'linux':
+                from .linux_requests import validate_linux_request
+                await validate_linux_request(session, record)
             if campaign is None or not selected_campaign_still_allows_request(
                 record, campaign, now=now
             ):

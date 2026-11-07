@@ -10,7 +10,7 @@ WINDOWS = 'windows_amd64'
 LINUX = 'linux_amd64'
 
 
-async def verified_platform(session, device_id):
+async def verified_platform(session, device_id, *, credential_id=None, native_source=None):
     """Consumed enrollment and canonical inventory must agree on exact platform."""
     claims=(await session.execute(select(EnrollmentCampaign.target_platform, EnrollmentClaim.enrollment_request_id, EnrollmentRequest.platform)
         .join(EnrollmentClaim, EnrollmentClaim.campaign_id==EnrollmentCampaign.id)
@@ -28,7 +28,7 @@ async def verified_platform(session, device_id):
             return None
         enrolled.add(value)
     snapshots=(await session.execute(select(ContextCurrent.profile,ContextSnapshot.normalized_projection)
-        .join(ContextSnapshot,(ContextCurrent.snapshot_id==ContextSnapshot.id) &
+        .outerjoin(ContextSnapshot,(ContextCurrent.snapshot_id==ContextSnapshot.id) &
             (ContextCurrent.device_id==ContextSnapshot.device_id) & (ContextCurrent.profile==ContextSnapshot.profile))
         .where(ContextCurrent.device_id==device_id,ContextCurrent.profile.in_(['baseline_v1','inventory_v1'])))).all()
     observed=set()
@@ -43,6 +43,10 @@ async def verified_platform(session, device_id):
         if system.platform not in ('linux','windows') or system.architecture!='x86_64':
             return None
         observed.add(LINUX if system.platform=='linux' else WINDOWS)
+    if not snapshots and enrolled == {LINUX}:
+        from endpoint_server.enrollment.linux_requests import has_linux_bootstrap_binding
+        if await has_linux_bootstrap_binding(session, device_id, credential_id=credential_id, native_source=native_source):
+            return LINUX
     return next(iter(enrolled)) if len(enrolled)==1 and enrolled==observed else None
 
 

@@ -1762,6 +1762,105 @@ paths:
             "application/json":
               schema:
                 "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/enrollment/linux/requests":
+    post:
+      tags:
+        - "enrollment-requests"
+      summary: "Create Linux Request"
+      operationId: "create_linux_request_api_v1_enrollment_linux_requests_post"
+      requestBody:
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/LinuxPreEnrollmentRequestCreateV1"
+        required: true
+      responses:
+        "201":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/PreEnrollmentRequestStatusV1"
+        "200":
+          description: "Recovered the exact existing request"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/PreEnrollmentRequestStatusV1"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/enrollment/linux/requests/{request_id}/status":
+    post:
+      tags:
+        - "enrollment-requests"
+      summary: "Linux Request Status"
+      operationId: "linux_request_status_api_v1_enrollment_linux_requests__request_id__status_post"
+      parameters:
+        -
+          name: "request_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Request Id"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/EnrollmentRequestStatusProof"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/PreEnrollmentRequestStatusV1"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/enrollment/linux/requests/{request_id}/claim":
+    post:
+      tags:
+        - "enrollment-requests"
+      summary: "Linux Request Claim"
+      operationId: "linux_request_claim_api_v1_enrollment_linux_requests__request_id__claim_post"
+      parameters:
+        -
+          name: "request_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Request Id"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/EnrollmentRequestClaimProof"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/EnrollmentRequestClaimResponse"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
   "/agent/v1/installation/linux/events":
     post:
       tags:
@@ -2311,6 +2410,179 @@ paths:
           SupportBearer: []
 components:
   schemas:
+    LinuxEnrollmentPolicyV1:
+      additionalProperties: false
+      properties:
+        policy_id:
+          maxLength: 128
+          minLength: 1
+          pattern: "^[a-z0-9][a-z0-9._-]*$"
+          title: "Policy Id"
+          type: "string"
+        enrollment_mode:
+          enum:
+            - "auto"
+            - "manual"
+          title: "Enrollment Mode"
+          type: "string"
+        allowed_native_releases:
+          items:
+            format: "uuid"
+            type: "string"
+          maxItems: 64
+          minItems: 1
+          title: "Allowed Native Releases"
+          type: "array"
+      required:
+        - "policy_id"
+        - "enrollment_mode"
+        - "allowed_native_releases"
+      title: "LinuxEnrollmentPolicyV1"
+      type: "object"
+    LinuxPreEnrollmentRequestCreateV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "linux_pre_enrollment_request_create_v1"
+          title: "Schema Version"
+          type: "string"
+        platform:
+          const: "linux"
+          title: "Platform"
+          type: "string"
+        installation_id:
+          maxLength: 128
+          minLength: 1
+          title: "Installation Id"
+          type: "string"
+        hardware_fingerprint:
+          maxLength: 256
+          minLength: 8
+          pattern: "^sha256:[a-z0-9][a-z0-9._-]{1,248}$"
+          title: "Hardware Fingerprint"
+          type: "string"
+        request_capability:
+          maxLength: 43
+          minLength: 43
+          pattern: "^[A-Za-z0-9_-]{43}$"
+          title: "Request Capability"
+          type: "string"
+        native:
+          "$ref": "#/components/schemas/LinuxPreEnrollmentRequestCreateV1__LinuxNativeSource"
+        requested_at:
+          format: "date-time"
+          title: "Requested At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+        hostname:
+          maxLength: 256
+          minLength: 1
+          title: "Hostname"
+          type: "string"
+        manufacturer:
+          anyOf:
+            -
+              maxLength: 256
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Manufacturer"
+        model:
+          anyOf:
+            -
+              maxLength: 256
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Model"
+        serial:
+          anyOf:
+            -
+              maxLength: 256
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Serial"
+        product_uuid:
+          anyOf:
+            -
+              maxLength: 64
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Product Uuid"
+        macs:
+          items:
+            pattern: "^[0-9a-f]{12}$"
+            type: "string"
+          maxItems: 32
+          title: "Macs"
+          type: "array"
+      required:
+        - "schema_version"
+        - "platform"
+        - "installation_id"
+        - "hardware_fingerprint"
+        - "request_capability"
+        - "native"
+        - "requested_at"
+        - "hostname"
+      title: "LinuxPreEnrollmentRequestCreateV1"
+      type: "object"
+    LinuxPreEnrollmentRequestCreateV1__LinuxNativeSource:
+      additionalProperties: false
+      properties:
+        version:
+          maxLength: 17
+          pattern: "^(0|[1-9][0-9]{0,4})\\.(0|[1-9][0-9]{0,4})\\.(0|[1-9][0-9]{0,4})$"
+          title: "Version"
+          type: "string"
+        source_revision:
+          maxLength: 40
+          pattern: "^[0-9a-f]{40}$"
+          title: "Source Revision"
+          type: "string"
+        core_nevra:
+          maxLength: 200
+          pattern: "^[A-Za-z0-9][A-Za-z0-9+_.:-]{2,190}\\.x86_64$"
+          title: "Core Nevra"
+          type: "string"
+        core_rpm_sha256:
+          maxLength: 64
+          pattern: "^[0-9a-f]{64}$"
+          title: "Core Rpm Sha256"
+          type: "string"
+        user_sensor_nevra:
+          anyOf:
+            -
+              maxLength: 200
+              pattern: "^[A-Za-z0-9][A-Za-z0-9+_.:-]{2,190}\\.x86_64$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "User Sensor Nevra"
+        user_sensor_rpm_sha256:
+          anyOf:
+            -
+              maxLength: 64
+              pattern: "^[0-9a-f]{64}$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "User Sensor Rpm Sha256"
+      required:
+        - "version"
+        - "source_revision"
+        - "core_nevra"
+        - "core_rpm_sha256"
+      title: "LinuxNativeSource"
+      type: "object"
     LinuxInstallationEventV1:
       additionalProperties: false
       properties:
@@ -9766,6 +10038,68 @@ components:
         - "capability"
         - "parameters"
       title: "EndpointRecipeStepV1"
+    EnrollmentRequestClaimProof:
+      properties:
+        request_capability:
+          type: "string"
+          maxLength: 43
+          minLength: 43
+          format: "password"
+          title: "Request Capability"
+          writeOnly: true
+        installation_id:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          format: "password"
+          title: "Installation Id"
+          writeOnly: true
+        hardware_fingerprint:
+          type: "string"
+          maxLength: 256
+          minLength: 8
+          format: "password"
+          title: "Hardware Fingerprint"
+          writeOnly: true
+      additionalProperties: false
+      type: "object"
+      required:
+        - "request_capability"
+        - "installation_id"
+        - "hardware_fingerprint"
+      title: "EnrollmentRequestClaimProof"
+      description: "Ephemeral capability and binding proof used only for claim handoff."
+    EnrollmentRequestClaimResponse:
+      properties:
+        claim:
+          type: "string"
+          title: "Claim"
+        expires_at:
+          type: "string"
+          format: "date-time"
+          title: "Expires At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "claim"
+        - "expires_at"
+      title: "EnrollmentRequestClaimResponse"
+      description: "Claim response is intentionally separate from the polling status view."
+    EnrollmentRequestStatusProof:
+      properties:
+        request_capability:
+          type: "string"
+          maxLength: 43
+          minLength: 43
+          format: "password"
+          title: "Request Capability"
+          writeOnly: true
+      additionalProperties: false
+      type: "object"
+      required:
+        - "request_capability"
+      title: "EnrollmentRequestStatusProof"
+      description: "Ephemeral capability proof; never persisted or reflected."
     EventFactV1:
       properties:
         timestamp:
@@ -10546,6 +10880,54 @@ components:
         - "core_rpm_sha256"
         - "exit_code"
       title: "LinuxInstallationNativeProof"
+    LinuxNativeSource:
+      properties:
+        version:
+          type: "string"
+          maxLength: 17
+          pattern: "^(0|[1-9][0-9]{0,4})\\.(0|[1-9][0-9]{0,4})\\.(0|[1-9][0-9]{0,4})$"
+          title: "Version"
+        source_revision:
+          type: "string"
+          maxLength: 40
+          pattern: "^[0-9a-f]{40}$"
+          title: "Source Revision"
+        core_nevra:
+          type: "string"
+          maxLength: 200
+          pattern: "^[A-Za-z0-9][A-Za-z0-9+_.:-]{2,190}\\.x86_64$"
+          title: "Core Nevra"
+        core_rpm_sha256:
+          type: "string"
+          maxLength: 64
+          pattern: "^[0-9a-f]{64}$"
+          title: "Core Rpm Sha256"
+        user_sensor_nevra:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 200
+              pattern: "^[A-Za-z0-9][A-Za-z0-9+_.:-]{2,190}\\.x86_64$"
+            -
+              type: "null"
+          title: "User Sensor Nevra"
+        user_sensor_rpm_sha256:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              pattern: "^[0-9a-f]{64}$"
+            -
+              type: "null"
+          title: "User Sensor Rpm Sha256"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "version"
+        - "source_revision"
+        - "core_nevra"
+        - "core_rpm_sha256"
+      title: "LinuxNativeSource"
     LinuxSupportPolicy:
       properties:
         platform:
@@ -11520,6 +11902,53 @@ components:
         - "status"
         - "collected_at"
       title: "PathExistsResultV1"
+    PreEnrollmentRequestStatusV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "pre_enrollment_request_status_v1"
+          title: "Schema Version"
+        request_id:
+          type: "string"
+          format: "uuid"
+          title: "Request Id"
+        status:
+          type: "string"
+          enum:
+            - "auto_approved"
+            - "approved"
+            - "waiting_approval"
+            - "review_required"
+            - "denied"
+            - "claim_issued"
+            - "device_registered"
+            - "waiting_wss"
+            - "completed"
+            - "expired"
+            - "failed"
+            - "cancelled"
+          title: "Status"
+        reason:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 128
+            -
+              type: "null"
+          title: "Reason"
+        expires_at:
+          type: "string"
+          format: "date-time"
+          title: "Expires At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "request_id"
+        - "status"
+        - "expires_at"
+      title: "PreEnrollmentRequestStatusV1"
+      description: "Bounded polling response deliberately excluding claims and credentials."
     PrinterFactV1:
       properties:
         name:

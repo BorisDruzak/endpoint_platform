@@ -73,6 +73,7 @@ from endpoint_contracts import (  # noqa: E402
 from endpoint_contracts.telemetry_results import TelemetryResultV1
 from endpoint_contracts.installation_lifecycle import InstallationEventV1, InstallationEventAckV1
 from endpoint_contracts.linux_installation_lifecycle import LinuxInstallationEventV1
+from endpoint_contracts.linux_enrollment import LinuxEnrollmentPolicyV1, LinuxPreEnrollmentRequestCreateV1
 from endpoint_contracts.linux_support_access import (LinuxSupportRegistration,LinuxSupportRegistrationResult,LinuxSupportPolicy,LinuxSupportPolicyUpdate,LinuxSupportStatusReport)
 from endpoint_contracts.power_events import PowerEventV1, PowerSourceStatusV1, PowerEventBatchV1, PowerEventAckV1
 from endpoint_server.power.routes import router as power_console_router
@@ -147,6 +148,8 @@ LINUX_SUPPORT_MODELS = {
 }
 
 PUBLIC_MODELS: dict[str, type[ContractModelV1]] = {
+    "linux-enrollment-policy-v1.json": LinuxEnrollmentPolicyV1,
+    "linux-pre-enrollment-request-create-v1.json": LinuxPreEnrollmentRequestCreateV1,
     "endpoint-linux-installation-event-v1.json": LinuxInstallationEventV1,
     "endpoint-installation-event-v1.json": InstallationEventV1,
     "endpoint-installation-event-ack-v1.json": InstallationEventAckV1,
@@ -782,6 +785,8 @@ def _service_operation_openapi() -> dict[str, object]:
     application.include_router(linux_support_agent)
     application.include_router(linux_support_admin)
     application.include_router(linux_installation)
+    from endpoint_server.enrollment.linux_request_routes import router as linux_enrollment
+    application.include_router(linux_enrollment)
     from endpoint_server.installation_lifecycle.routes import router as installation_router
     application.include_router(installation_router)
     application.include_router(operations_router)
@@ -809,6 +814,9 @@ def _service_operation_openapi() -> dict[str, object]:
         "paths": {
             path: generated["paths"][path]
             for path in (*_SERVICE_OPERATION_PATHS, *_SERVICE_CONTEXT_PATHS, *_PUBLIC_BROWSER_RELEASE_PATHS,
+                         '/api/v1/enrollment/linux/requests',
+                         '/api/v1/enrollment/linux/requests/{request_id}/status',
+                         '/api/v1/enrollment/linux/requests/{request_id}/claim',
                          '/agent/v1/installation/linux/events',
                          '/agent/v1/support-access/linux/register','/agent/v1/support-access/linux/policy',
                          '/agent/v1/support-access/linux/status','/agent/v1/support-access/linux/unregister',

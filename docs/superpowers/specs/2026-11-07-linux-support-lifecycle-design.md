@@ -226,3 +226,19 @@ must not copy Request/Claim digests across domains or create a fake historical
 request/FK. The existing Windows missing-prior-request refusal stays unchanged.
 This retains the same hardware/credential/history authority for the legacy
 Linux source while allowing the approved full-wipe history relation.
+
+The source-qualified Linux request persists its fingerprint independently in the
+original Request and Claim HMAC domains, using their canonical public builders.
+Historical approval compares the latter only with a consumed Linux claim on the
+same removed, nonretired Device, after fresh administrator revalidation; no old
+request or foreign key is manufactured. The relation remains history only.
+
+Fresh native enrollment also records the exact LinuxNativeRelease, validated
+request, consumed claim and actual permanent credential in the canonical
+enrollment transaction. This positive binding permits Support registration and
+the first matching native event before Core produces WSS or inventory. Existing
+canonical inventory, when present, must still agree on Linux x86_64. An unbound
+legacy identity still requires the original consumed claim and canonical context.
+The initial request expiry bounds issuance, not an already consumed permanent
+identity. No expiry extension, new Support lease or release qualification follows
+from that binding. Linux source/campaign policy is separate from Windows AUTO.

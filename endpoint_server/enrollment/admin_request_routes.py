@@ -181,6 +181,13 @@ async def approve_request(
                 )
                 await session.commit()
                 raise _conflict()
+            if record.platform == 'linux':
+                from .linux_requests import validate_linux_request
+                from .campaigns import EnrollmentDenied
+                try:
+                    await validate_linux_request(session, record)
+                except EnrollmentDenied:
+                    raise _conflict() from None
             try:
                 approve_enrollment_request(record, campaign=campaign, now=now)
             except RequestTransitionError:

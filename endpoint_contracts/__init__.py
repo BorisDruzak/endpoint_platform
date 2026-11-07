@@ -7,6 +7,7 @@ existing import order remain unchanged when any model export is requested.
 
 
 def _load_models():
+    from .linux_enrollment import LinuxEnrollmentPolicyV1, LinuxPreEnrollmentRequestCreateV1
     from .commands import (
         AgentCommandAckV1,
         AgentCommandV1,
@@ -239,6 +240,8 @@ __all__ = [
     "UpdateRolloutCreateV1",
     "validate_context_result_item",
     "WindowsEnrollmentPolicyV1",
+    "LinuxEnrollmentPolicyV1",
+    "LinuxPreEnrollmentRequestCreateV1",
 ]
 
 

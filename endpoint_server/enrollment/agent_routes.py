@@ -570,6 +570,12 @@ async def enroll_agent(
                     or enrollment_request.selected_campaign_id != campaign.id
                 ):
                     raise EnrollmentDenied("Enrollment denied")
+                if enrollment_request.platform == 'linux':
+                    from .linux_requests import validate_linux_request, linux_campaign_allows
+                    await validate_linux_request(session, enrollment_request, body=body, pepper=settings.device_token_pepper)
+                    if (issued_at >= enrollment_request.expires_at or not linux_campaign_allows(
+                        enrollment_request, campaign, now=issued_at, consumed=True)):
+                        raise EnrollmentDenied('Enrollment denied')
                 mark_request_enrolling(enrollment_request, now=issued_at)
             device = Device(
                 id=uuid4(),
@@ -622,6 +628,12 @@ async def enroll_agent(
                     enrollment_request, device_id=device.id, now=issued_at
                 )
             session.add_all((device, credential, envelope, event))
+            if enrollment_request is not None and enrollment_request.platform == 'linux':
+                # Explicit flush orders canonical identity before the binding FK.
+                await session.flush()
+                from .linux_requests import bind_linux_enrollment
+                await bind_linux_enrollment(session, enrollment_request, claim, credential,
+                    body=body, pepper=settings.device_token_pepper, now=issued_at)
             await append_audit_event(
                 session,
                 actor_kind="agent",

@@ -200,6 +200,8 @@ def create_app(
     app.include_router(enrollment_admin_router)
     app.include_router(enrollment_admin_request_router)
     app.include_router(enrollment_agent_router)
+    from endpoint_server.enrollment.linux_request_routes import router as linux_enrollment_request_router
+    app.include_router(linux_enrollment_request_router)
     app.include_router(enrollment_request_router)
     app.include_router(enrollment_verification_router)
     app.include_router(gateway_router)

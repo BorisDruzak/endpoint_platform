@@ -83,7 +83,7 @@ async def register(session,device_id,credential_id,body,*,lifecycle_events=None,
     device=await session.scalar(select(Device).where(Device.id==device_id,Device.retired_at.is_(None)).with_for_update())
     if device is None:
         raise SupportConflict('Support identity unavailable')
-    if platform not in (WINDOWS,LINUX) or (platform==LINUX and await verified_platform(session,device_id)!=LINUX):
+    if platform not in (WINDOWS,LINUX) or (platform==LINUX and await verified_platform(session,device_id,credential_id=credential_id)!=LINUX):
         raise SupportConflict('Support platform is unavailable')
     row=await session.scalar(select(SupportAccess).where(SupportAccess.device_id==device_id).with_for_update())
     if row is not None and row.platform!=platform:
@@ -167,7 +167,7 @@ async def consume_installation_access(session,row,settings,now,*,request_id=None
 async def source_active(session,row,now):
     d=await session.get(Device,row.device_id,populate_existing=True)
     c=await session.get(DeviceCredential,row.source_credential_id,populate_existing=True)
-    if getattr(row,'platform',WINDOWS)==LINUX and await verified_platform(session,row.device_id)!=LINUX:
+    if getattr(row,'platform',WINDOWS)==LINUX and await verified_platform(session,row.device_id,credential_id=row.source_credential_id)!=LINUX:
         return False
     return bool(d and d.retired_at is None and c and c.device_id==row.device_id and c.revoked_at is None and (c.expires_at is None or utc(c.expires_at)>now))
 
