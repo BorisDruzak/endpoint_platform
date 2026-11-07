@@ -152,7 +152,7 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0048_installation_lifecycle"]
+    assert script.get_heads() == ["0049_linux_support_lifecycle"]
 
 
 def test_candidate_visibility_migration_preserves_legacy_default_and_roundtrip(update_migration_database_urls):

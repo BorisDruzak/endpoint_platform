@@ -13,6 +13,7 @@ from endpoint_server.updates.agent_routes import _authenticate_device,_revalidat
 from endpoint_server.setup_updates.routes import revalidate_admin
 from endpoint_server.device_binding.service import consume_budget,ChallengeThrottled
 from .models import SupportAccess
+from .platforms import WINDOWS
 from .service import register,support_token,authenticate,source_active,SupportConflict,SupportResetRequired,utc,tunnel_user,key_authority_lock
 from .service import domain_principal_available,policy_component_available,record_runtime_status
 from .installation import consume_installation_access,pending_authority_current,cancel_installation_access
@@ -88,7 +89,7 @@ async def registration(body:SupportRegistration,request:Request,response:Respons
 async def support_identity(session,request):
     _require_agent_source(request)
     row=await authenticate(session,_bearer_token(request),request.app.state.settings.device_token_pepper)
-    if row is None:
+    if row is None or row.platform!=WINDOWS:
         raise _invalid_credential()
     return row
 
@@ -138,7 +139,7 @@ async def unregister(request:Request):
 
 async def load(session,device_id):
     row=await session.scalar(select(SupportAccess).where(SupportAccess.device_id==device_id).with_for_update())
-    if row is None:
+    if row is None or row.platform!=WINDOWS:
         raise HTTPException(404,'Support component is not registered')
     return row
 

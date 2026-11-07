@@ -1762,6 +1762,323 @@ paths:
             "application/json":
               schema:
                 "$ref": "#/components/schemas/HTTPValidationError"
+  "/agent/v1/installation/linux/events":
+    post:
+      tags:
+        - "installation-lifecycle"
+      summary: "Installation Event"
+      operationId: "installation_event_agent_v1_installation_linux_events_post"
+      requestBody:
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/LinuxInstallationEventV1"
+        required: true
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/InstallationEventAckV1"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      security:
+        -
+          AgentBearer: []
+  "/agent/v1/support-access/linux/register":
+    post:
+      tags:
+        - "agent-support-access"
+      summary: "Registration"
+      operationId: "registration_agent_v1_support_access_linux_register_post"
+      requestBody:
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/LinuxSupportRegistration"
+        required: true
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/LinuxSupportRegistrationResult"
+        "409":
+          description: "Key ownership conflict. Only a durably authenticated device with an explicitly pending administrator reset and overlapping retained keys receives the optional device-bound reset header."
+          headers:
+            X-Support-Reset-Device:
+              description: "Explicit administrator-authorized key replacement required for this exact authenticated device. Absent on ordinary conflicts."
+              schema:
+                type: "string"
+                format: "uuid"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/SupportRegistrationConflict"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      security:
+        -
+          AgentBearer: []
+  "/agent/v1/support-access/linux/policy":
+    get:
+      tags:
+        - "agent-support-access"
+      summary: "Get Policy"
+      operationId: "get_policy_agent_v1_support_access_linux_policy_get"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/LinuxSupportPolicy"
+      security:
+        -
+          SupportBearer: []
+  "/agent/v1/support-access/linux/status":
+    post:
+      tags:
+        - "agent-support-access"
+      summary: "Report"
+      operationId: "report_agent_v1_support_access_linux_status_post"
+      requestBody:
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/LinuxSupportStatusReport"
+        required: true
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/LinuxSupportPolicy"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      security:
+        -
+          SupportBearer: []
+  "/agent/v1/support-access/linux/unregister":
+    post:
+      tags:
+        - "agent-support-access"
+      summary: "Unregister"
+      operationId: "unregister_agent_v1_support_access_linux_unregister_post"
+      responses:
+        "204":
+          description: "Successful Response"
+      security:
+        -
+          SupportBearer: []
+  "/api/admin/support-access/linux/devices/{device_id}":
+    get:
+      tags:
+        - "admin-support-access"
+      summary: "Admin Status"
+      operationId: "admin_status_api_admin_support_access_linux_devices__device_id__get"
+      parameters:
+        -
+          name: "device_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Device Id"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema: {}
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      security:
+        -
+          LinuxSupportAdminCookie: []
+  "/api/admin/support-access/linux/devices/{device_id}/policy":
+    put:
+      tags:
+        - "admin-support-access"
+      summary: "Update Policy"
+      operationId: "update_policy_api_admin_support_access_linux_devices__device_id__policy_put"
+      parameters:
+        -
+          name: "device_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Device Id"
+        -
+          name: "X-CSRF-Token"
+          in: "header"
+          required: true
+          schema:
+            type: "string"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/LinuxSupportPolicyUpdate"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/LinuxSupportPolicy"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      security:
+        -
+          LinuxSupportAdminCookie: []
+  "/api/admin/support-access/linux/devices/{device_id}/revoke":
+    post:
+      tags:
+        - "admin-support-access"
+      summary: "Revoke"
+      operationId: "revoke_api_admin_support_access_linux_devices__device_id__revoke_post"
+      parameters:
+        -
+          name: "device_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Device Id"
+        -
+          name: "X-CSRF-Token"
+          in: "header"
+          required: true
+          schema:
+            type: "string"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/SupportReason"
+      responses:
+        "204":
+          description: "Successful Response"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      security:
+        -
+          LinuxSupportAdminCookie: []
+  "/api/admin/support-access/linux/devices/{device_id}/reset-registration":
+    post:
+      tags:
+        - "admin-support-access"
+      summary: "Reset Registration"
+      operationId: "reset_registration_api_admin_support_access_linux_devices__device_id__reset_registration_post"
+      parameters:
+        -
+          name: "device_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Device Id"
+        -
+          name: "X-CSRF-Token"
+          in: "header"
+          required: true
+          schema:
+            type: "string"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/SupportReason"
+      responses:
+        "204":
+          description: "Successful Response"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      security:
+        -
+          LinuxSupportAdminCookie: []
+  "/api/admin/support-access/linux/devices/{device_id}/verify-access":
+    post:
+      tags:
+        - "admin-support-access"
+      summary: "Verify Access"
+      operationId: "verify_access_api_admin_support_access_linux_devices__device_id__verify_access_post"
+      parameters:
+        -
+          name: "device_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Device Id"
+        -
+          name: "X-CSRF-Token"
+          in: "header"
+          required: true
+          schema:
+            type: "string"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/SupportReason"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema: {}
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      security:
+        -
+          LinuxSupportAdminCookie: []
   "/api/v1/device-binding/challenges":
     post:
       tags:
@@ -1994,6 +2311,146 @@ paths:
           SupportBearer: []
 components:
   schemas:
+    LinuxInstallationEventV1:
+      additionalProperties: false
+      properties:
+        schema_version:
+          const: "endpoint_linux_installation_event_v1"
+          title: "Schema Version"
+          type: "string"
+        device_id:
+          format: "uuid"
+          title: "Device Id"
+          type: "string"
+        event_id:
+          format: "uuid"
+          title: "Event Id"
+          type: "string"
+        generation_id:
+          format: "uuid"
+          title: "Generation Id"
+          type: "string"
+        sequence:
+          maximum: 2147483647
+          minimum: 1
+          title: "Sequence"
+          type: "integer"
+        previous_event_id:
+          anyOf:
+            -
+              format: "uuid"
+              type: "string"
+            -
+              type: "null"
+          title: "Previous Event Id"
+        action:
+          enum:
+            - "installed"
+            - "removed"
+          title: "Action"
+          type: "string"
+        occurred_at:
+          format: "date-time"
+          title: "Occurred At"
+          type: "string"
+          "$comment": "model-only UTC normalization: timezone-aware values are normalized to UTC."
+        native:
+          "$ref": "#/components/schemas/LinuxInstallationEventV1__LinuxInstallationNativeProof"
+        cleanup:
+          "$ref": "#/components/schemas/LinuxInstallationEventV1__InstallationCleanup"
+      required:
+        - "schema_version"
+        - "device_id"
+        - "event_id"
+        - "generation_id"
+        - "sequence"
+        - "previous_event_id"
+        - "action"
+        - "occurred_at"
+        - "native"
+        - "cleanup"
+      title: "LinuxInstallationEventV1"
+      type: "object"
+    LinuxInstallationEventV1__InstallationCleanup:
+      additionalProperties: false
+      properties:
+        support:
+          enum:
+            - "complete"
+            - "incomplete"
+            - "not_applicable"
+          title: "Support"
+          type: "string"
+        browser:
+          enum:
+            - "complete"
+            - "external_preserved"
+            - "conflict"
+            - "failed"
+            - "not_applicable"
+          title: "Browser"
+          type: "string"
+      required:
+        - "support"
+        - "browser"
+      title: "InstallationCleanup"
+      type: "object"
+    LinuxInstallationEventV1__LinuxInstallationNativeProof:
+      additionalProperties: false
+      properties:
+        version:
+          maxLength: 17
+          pattern: "^(0|[1-9][0-9]{0,4})\\.(0|[1-9][0-9]{0,4})\\.(0|[1-9][0-9]{0,4})$"
+          title: "Version"
+          type: "string"
+        source_revision:
+          maxLength: 40
+          pattern: "^[0-9a-f]{40}$"
+          title: "Source Revision"
+          type: "string"
+        core_nevra:
+          maxLength: 200
+          pattern: "^[A-Za-z0-9][A-Za-z0-9+_.:-]{2,190}\\.x86_64$"
+          title: "Core Nevra"
+          type: "string"
+        core_rpm_sha256:
+          maxLength: 64
+          pattern: "^[0-9a-f]{64}$"
+          title: "Core Rpm Sha256"
+          type: "string"
+        user_sensor_nevra:
+          anyOf:
+            -
+              maxLength: 200
+              pattern: "^[A-Za-z0-9][A-Za-z0-9+_.:-]{2,190}\\.x86_64$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "User Sensor Nevra"
+        user_sensor_rpm_sha256:
+          anyOf:
+            -
+              maxLength: 64
+              pattern: "^[0-9a-f]{64}$"
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "User Sensor Rpm Sha256"
+        exit_code:
+          maximum: 0
+          minimum: 0
+          title: "Exit Code"
+          type: "integer"
+      required:
+        - "version"
+        - "source_revision"
+        - "core_nevra"
+        - "core_rpm_sha256"
+        - "exit_code"
+      title: "LinuxInstallationNativeProof"
+      type: "object"
     InstallationEventV1:
       additionalProperties: false
       properties:
@@ -10035,6 +10492,291 @@ components:
       additionalProperties: false
       type: "object"
       title: "InventorySystemV1"
+    LinuxInstallationNativeProof:
+      properties:
+        version:
+          type: "string"
+          maxLength: 17
+          pattern: "^(0|[1-9][0-9]{0,4})\\.(0|[1-9][0-9]{0,4})\\.(0|[1-9][0-9]{0,4})$"
+          title: "Version"
+        source_revision:
+          type: "string"
+          maxLength: 40
+          pattern: "^[0-9a-f]{40}$"
+          title: "Source Revision"
+        core_nevra:
+          type: "string"
+          maxLength: 200
+          pattern: "^[A-Za-z0-9][A-Za-z0-9+_.:-]{2,190}\\.x86_64$"
+          title: "Core Nevra"
+        core_rpm_sha256:
+          type: "string"
+          maxLength: 64
+          pattern: "^[0-9a-f]{64}$"
+          title: "Core Rpm Sha256"
+        user_sensor_nevra:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 200
+              pattern: "^[A-Za-z0-9][A-Za-z0-9+_.:-]{2,190}\\.x86_64$"
+            -
+              type: "null"
+          title: "User Sensor Nevra"
+        user_sensor_rpm_sha256:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              pattern: "^[0-9a-f]{64}$"
+            -
+              type: "null"
+          title: "User Sensor Rpm Sha256"
+        exit_code:
+          type: "integer"
+          maximum: 0.0
+          minimum: 0.0
+          title: "Exit Code"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "version"
+        - "source_revision"
+        - "core_nevra"
+        - "core_rpm_sha256"
+        - "exit_code"
+      title: "LinuxInstallationNativeProof"
+    LinuxSupportPolicy:
+      properties:
+        platform:
+          type: "string"
+          const: "linux_amd64"
+          title: "Platform"
+          default: "linux_amd64"
+        device_id:
+          type: "string"
+          format: "uuid"
+          title: "Device Id"
+        revision:
+          type: "integer"
+          title: "Revision"
+        enabled:
+          type: "boolean"
+          title: "Enabled"
+        expires_at:
+          anyOf:
+            -
+              type: "string"
+              format: "date-time"
+            -
+              type: "null"
+          title: "Expires At"
+        gateway_host:
+          type: "string"
+          title: "Gateway Host"
+        gateway_port:
+          type: "integer"
+          title: "Gateway Port"
+        gateway_host_public_key:
+          type: "string"
+          title: "Gateway Host Public Key"
+        tunnel_user:
+          type: "string"
+          title: "Tunnel User"
+        remote_port:
+          type: "integer"
+          title: "Remote Port"
+        local_port:
+          type: "integer"
+          const: 22222
+          title: "Local Port"
+          default: 22222
+        operator_public_keys:
+          items:
+            type: "string"
+          type: "array"
+          title: "Operator Public Keys"
+        linux_admin_username:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 32
+              pattern: "^[a-z_][a-z0-9_-]{0,31}$"
+            -
+              type: "null"
+          title: "Linux Admin Username"
+        linux_admin_uid:
+          anyOf:
+            -
+              type: "integer"
+              maximum: 2147483647.0
+              minimum: 0.0
+            -
+              type: "null"
+          title: "Linux Admin Uid"
+        poll_after_seconds:
+          type: "integer"
+          const: 30
+          title: "Poll After Seconds"
+          default: 30
+      additionalProperties: false
+      type: "object"
+      required:
+        - "device_id"
+        - "revision"
+        - "enabled"
+        - "expires_at"
+        - "gateway_host"
+        - "gateway_port"
+        - "gateway_host_public_key"
+        - "tunnel_user"
+        - "remote_port"
+        - "operator_public_keys"
+        - "linux_admin_username"
+        - "linux_admin_uid"
+      title: "LinuxSupportPolicy"
+    LinuxSupportPolicyUpdate:
+      properties:
+        platform:
+          type: "string"
+          const: "linux_amd64"
+          title: "Platform"
+          default: "linux_amd64"
+        enabled:
+          type: "boolean"
+          title: "Enabled"
+        expires_at:
+          anyOf:
+            -
+              type: "string"
+              format: "date-time"
+            -
+              type: "null"
+          title: "Expires At"
+        operator_public_keys:
+          items:
+            type: "string"
+          type: "array"
+          maxItems: 16
+          title: "Operator Public Keys"
+        linux_admin_username:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 32
+              pattern: "^[a-z_][a-z0-9_-]{0,31}$"
+            -
+              type: "null"
+          title: "Linux Admin Username"
+        linux_admin_uid:
+          anyOf:
+            -
+              type: "integer"
+              maximum: 2147483647.0
+              minimum: 0.0
+            -
+              type: "null"
+          title: "Linux Admin Uid"
+        reason:
+          type: "string"
+          maxLength: 256
+          minLength: 3
+          pattern: "^[^\\x00-\\x1f\\x7f]+$"
+          title: "Reason"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "enabled"
+        - "reason"
+      title: "LinuxSupportPolicyUpdate"
+    LinuxSupportRegistration:
+      properties:
+        tunnel_public_key:
+          type: "string"
+          maxLength: 128
+          title: "Tunnel Public Key"
+        host_public_key:
+          type: "string"
+          maxLength: 128
+          title: "Host Public Key"
+        component_version:
+          type: "string"
+          const: "1.0.0"
+          title: "Component Version"
+        platform:
+          type: "string"
+          const: "linux_amd64"
+          title: "Platform"
+          default: "linux_amd64"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "tunnel_public_key"
+        - "host_public_key"
+        - "component_version"
+      title: "LinuxSupportRegistration"
+    LinuxSupportRegistrationResult:
+      properties:
+        device_id:
+          type: "string"
+          format: "uuid"
+          title: "Device Id"
+        credential_id:
+          type: "string"
+          format: "uuid"
+          title: "Credential Id"
+        support_token:
+          type: "string"
+          title: "Support Token"
+        policy:
+          "$ref": "#/components/schemas/LinuxSupportPolicy"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "device_id"
+        - "credential_id"
+        - "support_token"
+        - "policy"
+      title: "LinuxSupportRegistrationResult"
+    LinuxSupportStatusReport:
+      properties:
+        installed:
+          type: "boolean"
+          title: "Installed"
+        tunnel_connected:
+          type: "boolean"
+          title: "Tunnel Connected"
+        last_error_code:
+          anyOf:
+            -
+              type: "string"
+              enum:
+                - "dependency_unavailable"
+                - "configuration_conflict"
+                - "key_conflict"
+                - "policy_unavailable"
+                - "tunnel_failed"
+                - "host_key_mismatch"
+                - "service_failed"
+            -
+              type: "null"
+          title: "Last Error Code"
+        component_version:
+          type: "string"
+          const: "1.0.0"
+          title: "Component Version"
+        platform:
+          type: "string"
+          const: "linux_amd64"
+          title: "Platform"
+          default: "linux_amd64"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "installed"
+        - "tunnel_connected"
+        - "component_version"
+      title: "LinuxSupportStatusReport"
     ModuleCapabilityAuthoringV1:
       properties:
         capability:
@@ -12046,6 +12788,19 @@ components:
         - "operator_public_keys"
         - "windows_admin_username"
       title: "SupportPolicy"
+    SupportReason:
+      properties:
+        reason:
+          type: "string"
+          maxLength: 256
+          minLength: 3
+          pattern: "^[^\\x00-\\x1f\\x7f]+$"
+          title: "Reason"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "reason"
+      title: "SupportReason"
     SupportRegistration:
       properties:
         tunnel_public_key:
@@ -12454,3 +13209,8 @@ components:
     ServiceBearer:
       type: "http"
       scheme: "bearer"
+    LinuxSupportAdminCookie:
+      type: "apiKey"
+      in: "cookie"
+      name: "endpoint_admin_session"
+      description: "Authenticated administrator session. Mutations require updates:write and X-CSRF-Token."

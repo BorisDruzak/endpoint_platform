@@ -8,7 +8,15 @@ from endpoint_server.db.ownership import OwnershipRecord
 
 class SupportAccess(OwnershipRecord,Base):
     __tablename__='support_access'
-    __table_args__=(CheckConstraint('remote_port BETWEEN 32000 AND 41999',name='ck_support_port'),)
+    __table_args__=(CheckConstraint('remote_port BETWEEN 32000 AND 41999',name='ck_support_port'),
+        CheckConstraint("(platform = 'windows_amd64' AND linux_admin_username IS NULL AND linux_admin_uid IS NULL) OR "
+            "(platform = 'linux_amd64' AND windows_admin_username IS NULL AND "
+            "((linux_admin_username IS NULL AND linux_admin_uid IS NULL) OR "
+            "(linux_admin_username IS NOT NULL AND linux_admin_uid IS NOT NULL AND linux_admin_uid BETWEEN 0 AND 2147483647)))",
+            name='ck_support_platform_principal'))
+    platform: Mapped[str]=mapped_column(String(32),nullable=False,default='windows_amd64',server_default='windows_amd64')
+    linux_admin_username: Mapped[str|None]=mapped_column(String(32))
+    linux_admin_uid: Mapped[int|None]=mapped_column(Integer)
     device_id: Mapped[UUID]=mapped_column(ForeignKey('devices.id'),unique=True,nullable=False)
     source_credential_id: Mapped[UUID]=mapped_column(ForeignKey('device_credentials.id'),nullable=False)
     tunnel_public_key: Mapped[str]=mapped_column(String(128),unique=True,nullable=False)

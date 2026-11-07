@@ -124,10 +124,15 @@ def _load_models():
     )
 
     from .installation_lifecycle import InstallationEventV1, InstallationEventAckV1, InstallationNativeProof, InstallationCleanup
+    from .linux_installation_lifecycle import LinuxInstallationEventV1, LinuxInstallationNativeProof
+    from .linux_support_access import (LinuxSupportRegistration,LinuxSupportRegistrationResult,LinuxSupportPolicy,
+        LinuxSupportPolicyUpdate,LinuxSupportStatusReport)
     return locals()
 
 
 __all__ = [
+    "LinuxInstallationEventV1", "LinuxInstallationNativeProof", "LinuxSupportRegistration",
+    "LinuxSupportRegistrationResult", "LinuxSupportPolicy", "LinuxSupportPolicyUpdate", "LinuxSupportStatusReport",
     "InstallationEventV1", "InstallationEventAckV1", "InstallationNativeProof", "InstallationCleanup",
     "AgentSecurityEventBatchV1",
     "ActivityObservationEnvelopeV1",

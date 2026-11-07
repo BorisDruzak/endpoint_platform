@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from endpoint_contracts.support_access import SUPPORT_COMPONENT_VERSION_PATTERN
 from endpoint_server.db.models.devices import Device,DeviceCredential
 from .models import SupportAccess
+from .platforms import LINUX, WINDOWS, verified_platform, principal_bound
 
 
 class SupportConflict(ValueError):
@@ -37,6 +38,9 @@ def domain_principal_available(row,now) -> bool:
 
 
 def policy_component_available(row,now) -> bool:
+    if getattr(row,'platform',WINDOWS)==LINUX:
+        return bool(row.installed and row.reported_at is not None and row.component_version=='1.0.0' and
+            row.last_error_code is None and -timedelta(seconds=30)<=now-utc(row.reported_at)<=timedelta(seconds=90))
     return '\\' not in (row.windows_admin_username or '') or domain_principal_available(row,now)
 
 
@@ -70,15 +74,20 @@ def support_token(row,pepper):
     return 'eps1.'+row.id.hex+'.'+hmac.new(pepper,context.encode(),hashlib.sha256).hexdigest()
 
 
-async def register(session,device_id,credential_id,body,*,lifecycle_events=None,settings=None,now=None,request_id=None):
+async def register(session,device_id,credential_id,body,*,lifecycle_events=None,settings=None,now=None,request_id=None,platform=WINDOWS):
     now=now or datetime.now(UTC)
-    if settings is not None and (body.tunnel_public_key in (*settings.support_install_operator_public_keys,settings.support_gateway_host_public_key) or
-                                body.host_public_key in (*settings.support_install_operator_public_keys,settings.support_gateway_host_public_key)):
+    configured_keys=tuple(settings.support_install_operator_public_keys)+tuple(settings.support_linux_install_operator_public_keys) if settings is not None else ()
+    if settings is not None and (body.tunnel_public_key in (*configured_keys,settings.support_gateway_host_public_key) or
+                                body.host_public_key in (*configured_keys,settings.support_gateway_host_public_key)):
         raise SupportConflict('Support key ownership conflict')
     device=await session.scalar(select(Device).where(Device.id==device_id,Device.retired_at.is_(None)).with_for_update())
     if device is None:
         raise SupportConflict('Support identity unavailable')
+    if platform not in (WINDOWS,LINUX) or (platform==LINUX and await verified_platform(session,device_id)!=LINUX):
+        raise SupportConflict('Support platform is unavailable')
     row=await session.scalar(select(SupportAccess).where(SupportAccess.device_id==device_id).with_for_update())
+    if row is not None and row.platform!=platform:
+        raise SupportConflict('Support platform does not match registration')
     replacing=bool(row and row.reset_registration_allowed)
     ticket = None
     if row and not replacing and (row.revoked_at is not None or row.tunnel_public_key != body.tunnel_public_key or row.host_public_key != body.host_public_key):
@@ -125,6 +134,7 @@ async def register(session,device_id,credential_id,body,*,lifecycle_events=None,
         row.source_credential_id=credential_id
         row.tunnel_public_key=body.tunnel_public_key;row.host_public_key=body.host_public_key
         row.component_version='1.0.0';row.reset_registration_allowed=False
+        row.linux_admin_username=None;row.linux_admin_uid=None
         row.enabled=False;row.revoked_at=None;row.expires_at=None;row.operator_public_keys=[];row.windows_admin_username=None
         row.installed=False;row.tunnel_connected=False;row.reported_at=None;row.last_error_code=None
         row.access_verified_at=None;row.access_verified_by=None;row.revision+=1
@@ -137,7 +147,7 @@ async def register(session,device_id,credential_id,body,*,lifecycle_events=None,
     port=next((p for p in range(32000,42000) if p not in occupied),None)
     if port is None:
         raise SupportConflict('Support capacity unavailable')
-    row=SupportAccess(id=uuid4(),device_id=device_id,source_credential_id=credential_id,tunnel_public_key=body.tunnel_public_key,host_public_key=body.host_public_key,remote_port=port,component_version='1.0.0',enabled=False,revision=1,generation=1,operator_public_keys=[],installed=False,tunnel_connected=False)
+    row=SupportAccess(id=uuid4(),platform=platform,device_id=device_id,source_credential_id=credential_id,tunnel_public_key=body.tunnel_public_key,host_public_key=body.host_public_key,remote_port=port,component_version='1.0.0',enabled=False,revision=1,generation=1,operator_public_keys=[],installed=False,tunnel_connected=False)
     session.add(row)
     try:
         await session.flush()
@@ -157,6 +167,8 @@ async def consume_installation_access(session,row,settings,now,*,request_id=None
 async def source_active(session,row,now):
     d=await session.get(Device,row.device_id,populate_existing=True)
     c=await session.get(DeviceCredential,row.source_credential_id,populate_existing=True)
+    if getattr(row,'platform',WINDOWS)==LINUX and await verified_platform(session,row.device_id)!=LINUX:
+        return False
     return bool(d and d.retired_at is None and c and c.device_id==row.device_id and c.revoked_at is None and (c.expires_at is None or utc(c.expires_at)>now))
 
 
@@ -187,7 +199,7 @@ async def get_broker_leases(session,now):
         raise SupportConflict('Support lease capacity exceeded')
     result=[]
     for row in rows:
-        if not row.operator_public_keys or not row.windows_admin_username or not policy_component_available(row,now) or not await source_active(session,row,now):
+        if not row.operator_public_keys or not principal_bound(row) or not policy_component_available(row,now) or not await source_active(session,row,now):
             continue
         credential=await session.get(DeviceCredential,row.source_credential_id)
         expiry=min(utc(row.expires_at),now+timedelta(seconds=60))

@@ -3,6 +3,7 @@ from datetime import timedelta
 from sqlalchemy import select
 from endpoint_server.installation_lifecycle.models import InstallationState
 from .service import utc
+from .platforms import installation_defaults,set_principal
 from .installation import installation_audit,defaults_digest,key_authority_lock,operator_roles_conflict
 
 
@@ -28,14 +29,15 @@ async def consume_native_ticket(session,row,ticket,settings,now,request_id):
     row.installation_access_pending_until=None
     await installation_audit(session,row,'native_rebound',request_id=request_id,
         details={'event_id':str(ticket.event_id),'generation_id':str(ticket.generation_id)})
-    if not ticket.support_auto_eligible or settings is None or not settings.support_install_auto_enable:
+    if not ticket.support_auto_eligible or settings is None or not installation_defaults(settings,row.platform).enabled:
         return
     await key_authority_lock(session)
-    if await operator_roles_conflict(session,settings):
+    if await operator_roles_conflict(session,settings,row.platform):
         return
-    row.operator_public_keys=list(settings.support_install_operator_public_keys)
-    row.windows_admin_username=settings.support_install_windows_admin_username
+    defaults=installation_defaults(settings,row.platform)
+    row.operator_public_keys=list(defaults.keys)
+    set_principal(row,defaults.username,defaults.uid)
     row.installation_access_pending_until=utc(deadline)
     await installation_audit(session,row,'pending',request_id=request_id,
-        details={'pending_until':row.installation_access_pending_until.isoformat(),'defaults_digest':defaults_digest(settings),
+        details={'pending_until':row.installation_access_pending_until.isoformat(),'defaults_digest':defaults_digest(settings,row.platform),
             'native_event_id':str(ticket.event_id)})

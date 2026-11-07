@@ -205,6 +205,12 @@ class Settings:
     support_install_windows_admin_username: str = ''
     support_install_access_hours: float = 8
 
+    support_linux_install_auto_enable: bool = False
+    support_linux_install_operator_public_keys: tuple[str, ...] = ()
+    support_linux_install_admin_username: str = ''
+    support_linux_install_admin_uid: int | None = None
+    support_linux_install_access_hours: float = 8
+
     def __post_init__(self):
         from endpoint_contracts.support_access import canonical_public_key, normalize_windows_support_admin
 
@@ -231,6 +237,27 @@ class Settings:
             canonical_public_key(self.support_gateway_host_public_key)
             if self.support_gateway_host != 'endpoint.sosnadmin.local' or self.support_gateway_port != 2222:
                 raise ValueError('SUPPORT_INSTALL requires the canonical support gateway')
+
+        from endpoint_contracts.linux_support_access import LinuxSupportPolicyUpdate
+        if type(self.support_linux_install_auto_enable) is not bool:
+            raise ValueError('SUPPORT_LINUX_INSTALL_AUTO_ENABLE must be a boolean')
+        linux_keys=self.support_linux_install_operator_public_keys
+        if not isinstance(linux_keys,tuple):
+            raise ValueError('SUPPORT_LINUX_INSTALL_OPERATOR_PUBLIC_KEYS must be a tuple')
+        LinuxSupportPolicyUpdate(enabled=self.support_linux_install_auto_enable,
+            operator_public_keys=list(linux_keys),linux_admin_username=self.support_linux_install_admin_username or None,
+            linux_admin_uid=self.support_linux_install_admin_uid,reason='Validate configured Linux defaults')
+        hours=self.support_linux_install_access_hours
+        if isinstance(hours,bool) or not isinstance(hours,(int,float)) or not math.isfinite(hours) or not 0.25<=hours<=8:
+            raise ValueError('SUPPORT_LINUX_INSTALL_ACCESS_HOURS must be between 0.25 and 8')
+        if linux_keys and self.support_gateway_host_public_key in linux_keys:
+            raise ValueError('Linux operator key conflicts with gateway')
+        if self.support_linux_install_auto_enable:
+            if not linux_keys:
+                raise ValueError('Linux installation defaults require explicit operator keys')
+            canonical_public_key(self.support_gateway_host_public_key)
+            if self.support_gateway_host!='endpoint.sosnadmin.local' or self.support_gateway_port!=2222:
+                raise ValueError('Linux installation defaults require canonical gateway')
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str] | None = None) -> Settings:
@@ -348,6 +375,11 @@ class Settings:
             support_install_operator_public_keys=tuple(values.get('SUPPORT_INSTALL_OPERATOR_PUBLIC_KEYS', '').split(',')) if values.get('SUPPORT_INSTALL_OPERATOR_PUBLIC_KEYS', '') else (),
             support_install_windows_admin_username=values.get('SUPPORT_INSTALL_WINDOWS_ADMIN_USERNAME', ''),
             support_install_access_hours=float(values.get('SUPPORT_INSTALL_ACCESS_HOURS', '8')),
+            support_linux_install_auto_enable=_parse_optional_boolean('SUPPORT_LINUX_INSTALL_AUTO_ENABLE', values.get('SUPPORT_LINUX_INSTALL_AUTO_ENABLE','false')),
+            support_linux_install_operator_public_keys=tuple(values.get('SUPPORT_LINUX_INSTALL_OPERATOR_PUBLIC_KEYS','').split(',')) if values.get('SUPPORT_LINUX_INSTALL_OPERATOR_PUBLIC_KEYS','') else (),
+            support_linux_install_admin_username=values.get('SUPPORT_LINUX_INSTALL_ADMIN_USERNAME',''),
+            support_linux_install_admin_uid=int(values['SUPPORT_LINUX_INSTALL_ADMIN_UID']) if values.get('SUPPORT_LINUX_INSTALL_ADMIN_UID','') else None,
+            support_linux_install_access_hours=float(values.get('SUPPORT_LINUX_INSTALL_ACCESS_HOURS','8')),
             public_base_url=public_base_url,
             device_token_pepper=device_token_pepper,
             service_token_pepper=service_token_pepper,

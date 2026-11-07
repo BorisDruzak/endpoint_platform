@@ -163,7 +163,7 @@ def test_nullable_migration_roundtrip_preserves_existing_rows(update_migration_d
         provider = AsyncSessionProvider(url)
         try:
             async with provider() as s:
-                return (await s.execute(text("SELECT id, to_jsonb(s)-'installation_access_pending_until' FROM support_access s ORDER BY id"))).all()
+                return (await s.execute(text("SELECT id, to_jsonb(s)-'installation_access_pending_until'-'platform'-'linux_admin_username'-'linux_admin_uid' FROM support_access s ORDER BY id"))).all()
         finally:
             await provider.close()
     before = asyncio.run(snapshot())

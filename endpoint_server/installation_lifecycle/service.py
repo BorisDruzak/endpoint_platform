@@ -53,7 +53,24 @@ async def support_snapshot(session, projection, credential_id):
             and e.created_at >= grant.created_at for e in events)
 
 
-async def accept_event(session, principal, body, *, request_id, now=None):
+async def resolve_windows_source(session,proof):
+    from endpoint_contracts.installation_lifecycle import InstallationNativeProof
+    if not isinstance(proof,InstallationNativeProof):
+        raise InstallationConflict('Windows native proof required')
+    release = await session.scalar(select(WindowsSetupRelease).where(
+        WindowsSetupRelease.agent_version == proof.version,
+        WindowsSetupRelease.msi_sha256 == proof.msi_sha256,
+        WindowsSetupRelease.msi_source_commit == proof.source_revision,
+        WindowsSetupRelease.product_code == proof.product_code,
+        WindowsSetupRelease.authenticode_status == 'valid',
+        WindowsSetupRelease.msi_authenticode_status == 'valid',
+        WindowsSetupRelease.retired_at.is_(None)).limit(1))
+    if release is None:
+        raise InstallationConflict('Native source is not an exact registered Windows release')
+    return release
+
+
+async def accept_event(session, principal, body, *, request_id, now=None, source_resolver=None):
     now = now or datetime.now(UTC)
     if body.device_id != principal.device.id:
         raise InstallationConflict('Event identity does not match authenticated device')
@@ -73,16 +90,7 @@ async def accept_event(session, principal, body, *, request_id, now=None):
     elif body.sequence != 1:
         raise InstallationConflict('First event must begin a causal stream')
     proof = body.native
-    release = await session.scalar(select(WindowsSetupRelease).where(
-        WindowsSetupRelease.agent_version == proof.version,
-        WindowsSetupRelease.msi_sha256 == proof.msi_sha256,
-        WindowsSetupRelease.msi_source_commit == proof.source_revision,
-        WindowsSetupRelease.product_code == proof.product_code,
-        WindowsSetupRelease.authenticode_status == 'valid',
-        WindowsSetupRelease.msi_authenticode_status == 'valid',
-        WindowsSetupRelease.retired_at.is_(None)).limit(1))
-    if release is None:
-        raise InstallationConflict('Native source is not an exact registered Windows release')
+    await (source_resolver or resolve_windows_source)(session,proof)
     ack = InstallationEventAckV1(schema_version='endpoint_installation_event_ack_v1',device_id=body.device_id,
         event_id=body.event_id,generation_id=body.generation_id,sequence=body.sequence,state=body.action,received_at=now)
     event = InstallationEvent(id=body.event_id,device_id=body.device_id,source_credential_id=principal.credential.id,

@@ -189,6 +189,11 @@ def create_app(
     from endpoint_server.installation_lifecycle.routes import router as installation_router
     app.include_router(installation_router)
     app.include_router(support_agent_router)
+    from endpoint_server.support_access.linux_routes import agent_router as linux_support_agent,admin_router as linux_support_admin
+    from endpoint_server.installation_lifecycle.linux_routes import router as linux_installation_router
+    app.include_router(linux_support_agent)
+    app.include_router(linux_support_admin)
+    app.include_router(linux_installation_router)
     app.include_router(support_admin_router)
     app.include_router(browser_sensor_public_router)
     app.include_router(admin_auth_router)

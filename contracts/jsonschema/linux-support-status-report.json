@@ -1,0 +1,52 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "component_version": {
+      "const": "1.0.0",
+      "title": "Component Version",
+      "type": "string"
+    },
+    "installed": {
+      "title": "Installed",
+      "type": "boolean"
+    },
+    "last_error_code": {
+      "anyOf": [
+        {
+          "enum": [
+            "dependency_unavailable",
+            "configuration_conflict",
+            "key_conflict",
+            "policy_unavailable",
+            "tunnel_failed",
+            "host_key_mismatch",
+            "service_failed"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Error Code"
+    },
+    "platform": {
+      "const": "linux_amd64",
+      "default": "linux_amd64",
+      "title": "Platform",
+      "type": "string"
+    },
+    "tunnel_connected": {
+      "title": "Tunnel Connected",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "installed",
+    "tunnel_connected",
+    "component_version"
+  ],
+  "title": "LinuxSupportStatusReport",
+  "type": "object"
+}

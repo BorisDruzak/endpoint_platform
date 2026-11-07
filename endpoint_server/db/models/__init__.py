@@ -110,3 +110,5 @@ __all__ = [
 ]
 
 from endpoint_server.installation_lifecycle.models import InstallationEvent, InstallationState, InstallationParent
+
+from endpoint_server.installation_lifecycle.linux_sources import LinuxNativeRelease
