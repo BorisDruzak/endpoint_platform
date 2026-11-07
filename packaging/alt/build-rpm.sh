@@ -11,6 +11,8 @@ launcher=''
 output="$project_root/output"
 prepare_only=false
 with_user_sensor=false
+support_directory=''
+setup_executable=''
 
 usage() {
     cat <<'USAGE'
@@ -36,6 +38,8 @@ while [[ $# -gt 0 ]]; do
         --output) output=${2:-}; shift 2 ;;
         --prepare-only) prepare_only=true; shift ;;
         --with-user-sensor) with_user_sensor=true; shift ;;
+        --support-directory) support_directory=${2:-}; shift 2 ;;
+        --setup-executable) setup_executable=${2:-}; shift 2 ;;
         --help|-h) usage; exit 0 ;;
         *) die "unknown argument: $1" ;;
     esac
@@ -284,6 +288,43 @@ stage_file 0755 "$script_dir/SOURCES/check-start-prerequisites.py" "$build_root/
 stage_file 0755 "$script_dir/SOURCES/start-endpoint-agent.py" "$build_root/SOURCES/start-endpoint-agent.py"
 stage_file 0644 "$script_dir/SOURCES/endpoint-agent.tmpfiles" "$build_root/SOURCES/endpoint-agent.tmpfiles"
 stage_file 0644 "$script_dir/SOURCES/endpoint-agent.logrotate" "$build_root/SOURCES/endpoint-agent.logrotate"
+native_setup=false
+if [[ "$version" == 3.2.178 ]]; then
+    native_setup=true
+    [[ "$(uname -s)" == Linux ]] || die 'native Setup builds require Linux'
+    [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || die 'native source requires exact committed revision'
+    [[ "$(git -C "$project_root" rev-parse HEAD)" == "$revision" ]] || die 'native source revision differs from checkout'
+    [[ -z "$(git -C "$project_root" status --porcelain --untracked-files=no)" ]] || die 'native source must be frozen and clean'
+    if [[ -z "$support_directory" && -z "$setup_executable" ]]; then
+        "$python_command" -m PyInstaller --noconfirm --distpath "$temporary/native-dist" \
+            --workpath "$temporary/build-support" "$project_root/pc_agent/pyinstaller_linux_support_access.spec"
+        "$python_command" -m PyInstaller --noconfirm --distpath "$temporary/native-dist" \
+            --workpath "$temporary/build-setup" "$project_root/pc_agent/pyinstaller_linux_setup.spec"
+        support_directory="$temporary/native-dist/endpoint-support-access"
+        setup_executable="$temporary/native-dist/endpoint-agent-setup"
+    fi
+    [[ -d "$support_directory" && ! -L "$support_directory" && -f "$setup_executable" && ! -L "$setup_executable" ]] || die 'complete frozen Support and Setup required'
+    [[ "$("$support_directory/endpoint-support-access" --version)" == 1.0.0 ]] || die 'Support frozen version mismatch'
+    "$python_command" - "$setup_executable" "$support_directory/endpoint-support-access" "$revision" <<'PY'
+import json, subprocess, sys
+for path, component, version in ((sys.argv[1], 'setup', '3.2.178'), (sys.argv[2], 'support', '1.0.0')):
+    result = subprocess.run([path, '--build-info'], check=True, capture_output=True, timeout=30)
+    if len(result.stdout) > 1024 * 1024:
+        raise SystemExit('native build identity exceeds bound')
+    value = json.loads(result.stdout)
+    if (value.get('schema_version') != 'endpoint_linux_native_build_v1' or value.get('source_revision') != sys.argv[3]
+        or value.get('component') != component or value.get('version') != version):
+        raise SystemExit('native frozen source identity mismatch')
+PY
+    "$python_command" "$project_root/tools/build_linux_native_payload.py" \
+        --support "$support_directory" --output "$build_root/SOURCES/endpoint-support-access.tar.gz"
+    stage_file 0755 "$setup_executable" "$build_root/SOURCES/endpoint-agent-setup.bin"
+    for name in endpoint-agent-setup endpoint-support-access.service endpoint-agent-setup-retry.service endpoint-agent-setup-retry.timer; do
+        stage_file 0644 "$script_dir/SOURCES/$name" "$build_root/SOURCES/$name"
+    done
+    stage_file 0644 "$project_root/tools/build_linux_native_manifest.py" "$build_root/SOURCES/build_linux_native_manifest.py"
+    stage_file 0644 "$script_dir/pilot/endpoint-rpm-release.asc" "$build_root/SOURCES/endpoint-rpm-release.asc"
+fi
 if [[ "$with_user_sensor" == true ]]; then
     [[ "$(uname -s)" == Linux ]] || die 'KDE sensor builds require Linux'
     "$python_command" - "$version" <<'PY' || die 'KDE/browser sensor package requires Agent 3.2.123 or newer'
@@ -333,6 +374,7 @@ fi
 command -v rpmbuild >/dev/null 2>&1 || die 'rpmbuild is required on the ALT build worker'
 rpm_options=()
 [[ "$with_user_sensor" == false ]] || rpm_options+=(--with user_sensor)
+[[ "$native_setup" == false ]] || rpm_options+=(--with native_setup)
 rpmbuild -bb \
     "${rpm_options[@]}" \
     --define "_topdir $build_root" \

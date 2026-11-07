@@ -223,6 +223,11 @@ def machine_preflight(root: Path, expected_hostname: str) -> dict:
 
 
 def main() -> int:
+    import sys
+    if sys.argv[1:2] == ['native178']:
+        from tools.build_alt_native_kit import main as native_main
+        native_main(sys.argv[2:])
+        return 0
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
     creator = commands.add_parser('build')

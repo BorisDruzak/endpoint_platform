@@ -5,7 +5,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_frozen_support_spec_resolves_only_independent_runtime():
+def test_frozen_support_spec_resolves_only_independent_runtime(tmp_path, monkeypatch):
+    from tools.release import freeze_linux_native_identity
+    identity = tmp_path/'linux-native-build.json'
+    identity.write_text('{"schema_version":"endpoint_linux_native_build_v1"}')
+    monkeypatch.setattr(freeze_linux_native_identity, 'freeze_identity', lambda *_: str(identity))
     captured = {}
     class Analysis:
         def __init__(self,scripts,**kwargs):
@@ -19,6 +23,7 @@ def test_frozen_support_spec_resolves_only_independent_runtime():
     assert captured['exe']['name'] == 'endpoint-support-access'
     assert Path(captured['scripts'][0]).is_file()
     assert captured['collect']['name'] == 'endpoint-support-access'
+    assert captured['datas'] == [(str(identity),'.')]
     pending=['pc_agent.platform.linux.support_access_service']
     seen=set()
     while pending:
@@ -33,4 +38,5 @@ def test_frozen_support_spec_resolves_only_independent_runtime():
             if isinstance(node,ast.Import):
                 pending.extend(alias.name for alias in node.names if alias.name.startswith('pc_agent.'))
     assert seen == {'pc_agent.platform.linux.support_access_service','pc_agent.platform.linux.support_access',
-        'pc_agent.platform.linux.support_access_native','pc_agent.platform.linux.enrollment_origin'}
+        'pc_agent.platform.linux.support_access_native','pc_agent.platform.linux.enrollment_origin',
+        'pc_agent.platform.linux.native_build_identity'}

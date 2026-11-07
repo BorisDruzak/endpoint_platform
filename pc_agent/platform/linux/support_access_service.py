@@ -349,6 +349,10 @@ def _run_service_locked(store,paths,stop_event):
 
 def main():
     import sys
+    if sys.argv[1:] == ['--build-info']:
+        from pc_agent.platform.linux.native_build_identity import build_identity
+        print(json.dumps(build_identity(),sort_keys=True))
+        return 0
     if sys.argv[1:] == ['--version']:
         print(COMPONENT_VERSION)
         return 0
