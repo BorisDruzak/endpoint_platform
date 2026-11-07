@@ -1,0 +1,2348 @@
+{
+  "schema_version": 1,
+  "version": "3.2.177",
+  "platform": "windows_amd64",
+  "status": "published_primary_windows_qualified_online_rollout_accepted",
+  "verified_utc": "2026-11-07T00:45:22.653657+00:00",
+  "runtime_source_commit": "25f2ad8a5e13991e4e76260da939d29aafba8674",
+  "windows_packaging_commit": "d21bc3bba119a178607de6f64f620fb53eeadf01",
+  "provider_source_commit": "266e38e5c2ead35f95978da1b95cc7a4fadb2a82",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.177.json",
+  "producer_root": "C:\\endpoint-platform-wix-build\\setup177-lifecycle-25f2ad8",
+  "initial_runtime": {
+    "file_count": 119,
+    "tree_sha256": "a7ae6717d994460b3a4815a94dc8377ab54fbc908014e54fe10f24d9aa61370c",
+    "component_guid": "3D98B33C-4437-46F3-A689-D22DB351799C",
+    "source_file_count": 302,
+    "native_helpers": "Fresh177 helpers; final packaging reused only exact177 C/B build output, not176 helpers",
+    "powershell_build": "7.6.9; WindowsPS5.1 failed attempts preserved and not released"
+  },
+  "setup": {
+    "filename": "EndpointAgentSetup-3.2.177-x64.exe",
+    "sha256": "9d06a8339c2ed3b2c563f2b5258ad9fdbef0962b6d85f79e6e88490ca7f426fc",
+    "size": 178729632,
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+    "operator_path": "C:/endpoint-platform-wix-build/setup177-lifecycle-25f2ad8/native-setup-build/releases/EndpointAgentSetup-3.2.177-x64.exe",
+    "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgentSetup-3.2.177-x64.exe",
+    "console_url": "https://endpoint.sosnadmin.local/admin/enrollment",
+    "download_url": "https://endpoint.sosnadmin.local/api/admin/console/installer/releases/0e47b04d-2335-4255-9028-22cfc1583d9c/download",
+    "release_id": "0e47b04d-2335-4255-9028-22cfc1583d9c"
+  },
+  "msi": {
+    "filename": "EndpointAgent-3.2.177-x64.msi",
+    "sha256": "d096726d6d0521a522fdb81d0b3ee551d583befba5d216c09a96332fd21359f3",
+    "size": 136970240,
+    "product_code": "{51548FA4-95F6-4448-B0E4-99CB47CF32A1}",
+    "authenticode": "Valid with timestamp"
+  },
+  "setup_update_release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+  "setup_update_manifest": {
+    "schema_version": "windows_setup_release_v1",
+    "release_identifier": "endpoint-windows-full-setup-3.2.177-25f2ad8",
+    "version": "3.2.177",
+    "artifact_name": "EndpointAgentSetup-3.2.177-x64.exe",
+    "sha256": "9d06a8339c2ed3b2c563f2b5258ad9fdbef0962b6d85f79e6e88490ca7f426fc",
+    "size": 178729632,
+    "source_revision": "25f2ad8a5e13991e4e76260da939d29aafba8674",
+    "msi_sha256": "d096726d6d0521a522fdb81d0b3ee551d583befba5d216c09a96332fd21359f3",
+    "tray_sha256": "728768280204c211fbaa6d416bd895f30b078fbf8b6514f89e9daca9880cb230",
+    "sensor_sha256": "de9348cd55f5a4e6608a6e8d8f5ff5756add2cce56de6761ae7c47ff5789a71f"
+  },
+  "source_qualifications": [
+    {
+      "id": "13d53e38-deeb-4657-827a-f64cb402b67e",
+      "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+      "source_foundation": "3.2.172",
+      "evidence_assignment_id": "fa9c3a87-4c45-44e0-91c9-607d6bd428e4",
+      "qualified_at": "2026-11-07T00:10:08.224472+00:00",
+      "expires_at": "2026-12-07T00:10:08.224472+00:00"
+    },
+    {
+      "id": "4372c370-5e3e-471e-9145-f4ff3bcf1632",
+      "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+      "source_foundation": "3.2.176",
+      "evidence_assignment_id": "7a0db343-d209-45c6-9038-b2c2f2062e76",
+      "qualified_at": "2026-11-06T23:32:51.074103+00:00",
+      "expires_at": "2026-12-06T23:32:51.074103+00:00"
+    }
+  ],
+  "policy": {
+    "revision": 12,
+    "enabled": true,
+    "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+    "scope": "all_active",
+    "device_ids": [],
+    "max_parallel": 2,
+    "reason": "Full Setup177 automatic updates with verified native lifecycle and independent support for all active and future qualified Windows devices in waves of two",
+    "updated_at": "2026-11-07T00:21:23.598806+00:00",
+    "safe_code": null
+  },
+  "support": {
+    "component_version": "1.0.1",
+    "sha256": "69205b83e588c064d82c014c39afde0a9641ef11c86d8a2cee702fa7afc95c41",
+    "size": 16120000,
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+    "startup": "Auto LocalSystem independent of Core and observers",
+    "default_initial_access_hours": 8,
+    "automatic_renewal_on_retry_or_heartbeat": false,
+    "explicit_manual_policy_precedence": true,
+    "native_reinstall_rebind": "One-use exact authenticated removed to installed stream; disabled intent preserved",
+    "test120_actual_domain_ssh_and_stopped_agent_proof": {
+      "passed": true,
+      "verified_utc": "2026-11-07T00:20:42.243992+00:00",
+      "version": "3.2.177",
+      "device_id": "c87eaa22-4fd1-4830-bc11-88142afda87e",
+      "previous_device_id": "a68f65b1-1ebf-45f2-84e6-6b67afac64a5",
+      "runtime_source": "25f2ad8a5e13991e4e76260da939d29aafba8674",
+      "native_source": "d21bc3bba119a178607de6f64f620fb53eeadf01",
+      "setup_sha256": "9d06a8339c2ed3b2c563f2b5258ad9fdbef0962b6d85f79e6e88490ca7f426fc",
+      "msi_sha256": "d096726d6d0521a522fdb81d0b3ee551d583befba5d216c09a96332fd21359f3",
+      "support_sha256": "69205b83e588c064d82c014c39afde0a9641ef11c86d8a2cee702fa7afc95c41",
+      "fresh_setup_exit_code": 0,
+      "native_event_exit_code": 0,
+      "native_event_id": "48ab9898-f671-5dee-a2db-5aa157aee3c2",
+      "private_four_preserved_during_fault": true,
+      "samples_before_after_advancing": true,
+      "independent_ssh_gap_seconds": 96.908636,
+      "same_support_pid": 6660,
+      "automatic_initial_access": true,
+      "manual_policy_writes": 0,
+      "policy_revision": 2,
+      "expires_at": "2026-11-07T08:14:14.517608Z",
+      "remote_port": 32009,
+      "database_history": {
+        "initial_grants": [
+          {
+            "details": {
+              "revision": 2,
+              "device_id": "c87eaa22-4fd1-4830-bc11-88142afda87e",
+              "expires_at": "2026-11-07T08:14:14.517608+00:00",
+              "defaults_digest": "84246a16ceaf3f2123629b85f36b8dd76c81c4fbf3546ab00eb34b08fce03697"
+            },
+            "created_at": "2026-11-07T00:14:14.544475+00:00"
+          }
+        ],
+        "previous_removed": "removed",
+        "manual_policy_writes": 0,
+        "previous_not_retired": true,
+        "previous_active_credentials": 0
+      },
+      "fresh_setup_client": {
+        "client_version": "1.0.7",
+        "foundation_version": "3.2.177",
+        "core_version": "3.2.177",
+        "ready": true,
+        "safe_code": null,
+        "last_seen_at": "2026-11-07T00:20:07.355436+00:00"
+      }
+    },
+    "private_openssh_fallback": {
+      "version": "10.4.0.0p1-Preview",
+      "sha256": "b67ff8becd203502190ec42ac7787c24c2cd3325ed7700485fe7a1c83d2a7957",
+      "size": 6021393,
+      "vendor_limit": "Preview; upstream not production-ready; unchanged from176"
+    }
+  },
+  "installation_lifecycle": {
+    "ordinary_reinstall": "Retains same423 UUID,credential,four private files and history",
+    "full_wipe": "New registration and verified historical parent only; no credential/history merge",
+    "confirmed_removal": "Canonical known native0; owned browser cleanup before marker removal; no heartbeat resurrection",
+    "offline_delivery": "Protected causal outbox; no raw bearer; bounded notification child after native owner exits; removed precedes installed",
+    "provider_parent_digest_fix": "Consumed Claim joins original Request; compare Request-domain HMACs and both device bindings; no cross-context equality",
+    "test120_final_device_id": "c87eaa22-4fd1-4830-bc11-88142afda87e",
+    "test120_previous_device_id": "a68f65b1-1ebf-45f2-84e6-6b67afac64a5",
+    "report": "docs/verification/2026-11-07-test120-installation-lifecycle177.md"
+  },
+  "cohort_acceptance": {
+    "passed": true,
+    "verified_utc": "2026-11-07T00:44:06.628907+00:00",
+    "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+    "policy": {
+      "revision": 12,
+      "enabled": true,
+      "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+      "scope": "all_active",
+      "device_ids": [],
+      "max_parallel": 2,
+      "reason": "Full Setup177 automatic updates with verified native lifecycle and independent support for all active and future qualified Windows devices in waves of two",
+      "updated_at": "2026-11-07T00:21:23.598806+00:00",
+      "safe_code": null
+    },
+    "initial_online_cohort_count": 6,
+    "accepted": [
+      {
+        "device_id": "c87eaa22-4fd1-4830-bc11-88142afda87e",
+        "hostname": "DESKTOP-9ST5HO2",
+        "job": null,
+        "client": {
+          "client_version": "1.0.7",
+          "foundation_version": "3.2.177",
+          "core_version": "3.2.177",
+          "ready": true,
+          "safe_code": null,
+          "last_seen_at": "2026-11-07T00:43:06.640506+00:00"
+        },
+        "support": {
+          "policy": {
+            "device_id": "c87eaa22-4fd1-4830-bc11-88142afda87e",
+            "revision": 2,
+            "enabled": true,
+            "expires_at": "2026-11-07T08:14:14.517608Z",
+            "gateway_host": "endpoint.sosnadmin.local",
+            "gateway_port": 2222,
+            "gateway_host_public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFTqjBmlmnfuV+ShgOoVKW0uj0a1fo3E+/ifn6O/V8x0",
+            "tunnel_user": "eps-c87eaa224fd14830bc118814",
+            "remote_port": 32009,
+            "local_port": 22222,
+            "operator_public_keys": [
+              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKD6DL20SZb35SuY702KtsxX8r2vHI5VS2EXvIsmtIZR"
+            ],
+            "windows_admin_username": "sosnadm\\admin-2",
+            "poll_after_seconds": 30
+          },
+          "component_version": "1.0.1",
+          "installed": true,
+          "tunnel_connected": true,
+          "reported_at": "2026-11-07T00:43:49.184742+00:00",
+          "last_error_code": null,
+          "host_public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIsTx2S66f28PXnpARBdfetTK/jyssqrm2akBDtmXdJ0",
+          "access_verified_at": null,
+          "access_verified_by": null,
+          "verification_kind": "operator_attestation",
+          "revoked_at": null,
+          "reset_registration_allowed": false
+        },
+        "policy": {
+          "data": {
+            "policy_id": "e95260c5-0a37-4a07-b5b3-f25d084c03ac",
+            "policy_version": 3,
+            "policy_version_id": "c6f5ee58-242e-4ac6-a5ea-651624765dde",
+            "browser_required": true,
+            "deployment_mode": "agent_managed",
+            "delivery_status": "APPLIED",
+            "error_code": null,
+            "sensor_health": {
+              "observed_at": "2026-11-07T00:43:31.668192Z",
+              "fresh": true,
+              "activity_listener_state": "READY",
+              "security_spool_state": "READY",
+              "usb_source_state": "READY",
+              "print_source_state": "READY"
+            },
+            "acknowledged_at": "2026-11-07T00:18:31.266156Z",
+            "compliance": "PARTIAL",
+            "activity_sensor": "ACTIVE",
+            "browser_sensor": "UNKNOWN",
+            "dlp_sensor": "UNKNOWN",
+            "browser_compliance": "PARTIAL",
+            "observed_at": "2026-11-07T00:43:31.653187Z",
+            "browsers": [
+              {
+                "browser_family": "chrome",
+                "browser_state": "UNKNOWN",
+                "running_state": "UNKNOWN",
+                "policy_owner": "ENDPOINT",
+                "installation_policy_state": "APPLIED",
+                "effective_policy_state": "UNKNOWN",
+                "native_host_state": "READY",
+                "extension_version": null,
+                "extension_install_type": "UNKNOWN",
+                "extension_last_seen_at": null,
+                "last_running_at": null,
+                "compliance_state": "UNKNOWN",
+                "reason": "BROWSER_DETECTION_UNKNOWN"
+              },
+              {
+                "browser_family": "yandex",
+                "browser_state": "DETECTED",
+                "running_state": "RUNNING",
+                "policy_owner": "ENDPOINT",
+                "installation_policy_state": "APPLIED",
+                "effective_policy_state": "UNKNOWN",
+                "native_host_state": "READY",
+                "extension_version": null,
+                "extension_install_type": "UNKNOWN",
+                "extension_last_seen_at": null,
+                "last_running_at": "2026-11-07T00:43:31.653187Z",
+                "compliance_state": "NEVER_SEEN",
+                "reason": "EXTENSION_NEVER_SEEN"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "device_id": "13f38b93-cc73-4130-b58c-41f534b1893e",
+        "hostname": "A2-MUNSLU-N",
+        "job": {
+          "id": "f4a1cb90-72b8-4bd3-97c4-dae647961b01",
+          "device_id": "13f38b93-cc73-4130-b58c-41f534b1893e",
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "applied",
+          "reason": "Full Setup177 automatic updates with verified native lifecycle and independent support for all active and future qualified Windows devices in waves of two",
+          "assigned_at": "2026-11-07T00:21:50.488610+00:00",
+          "updated_at": "2026-11-07T00:28:02.106492+00:00",
+          "started_at": "2026-11-07T00:22:07.232535+00:00",
+          "finished_at": "2026-11-07T00:28:02.106492+00:00",
+          "safe_code": "setup_post_restart_confirmed",
+          "last_report": {
+            "attempt_id": "908baaf5-6093-41b4-9706-efb16bcbbbfc",
+            "phase": "applied",
+            "safe_code": "setup_post_restart_confirmed",
+            "proof": {
+              "foundation_version": "3.2.177",
+              "core_version": "3.2.177",
+              "source_revision": "25f2ad8a5e13991e4e76260da939d29aafba8674",
+              "msi_sha256": "d096726d6d0521a522fdb81d0b3ee551d583befba5d216c09a96332fd21359f3",
+              "native_phase": "accepted",
+              "exit_code": 0,
+              "native_verified": true,
+              "core_verified": true,
+              "provenance_verified": true,
+              "pending": false,
+              "services_verified": true,
+              "companions_restored": true,
+              "private": {
+                "credential": true,
+                "identity": true,
+                "origin": true,
+                "ca": true
+              },
+              "soak": {
+                "duration_seconds": 181.895,
+                "samples": 6,
+                "sensor_count": 1,
+                "sensor_cpu_percent_max": 0.0032,
+                "services_stable": true,
+                "companions_stable": true,
+                "connected": true
+              }
+            }
+          }
+        },
+        "client": {
+          "client_version": "1.0.7",
+          "foundation_version": "3.2.177",
+          "core_version": "3.2.177",
+          "ready": true,
+          "safe_code": null,
+          "last_seen_at": "2026-11-07T00:43:06.684358+00:00"
+        },
+        "support": {
+          "policy": {
+            "device_id": "13f38b93-cc73-4130-b58c-41f534b1893e",
+            "revision": 2,
+            "enabled": false,
+            "expires_at": null,
+            "gateway_host": "endpoint.sosnadmin.local",
+            "gateway_port": 2222,
+            "gateway_host_public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFTqjBmlmnfuV+ShgOoVKW0uj0a1fo3E+/ifn6O/V8x0",
+            "tunnel_user": "eps-13f38b93cc734130b58c41f5",
+            "remote_port": 32003,
+            "local_port": 22222,
+            "operator_public_keys": [],
+            "windows_admin_username": null,
+            "poll_after_seconds": 30
+          },
+          "component_version": "1.0.1",
+          "installed": true,
+          "tunnel_connected": false,
+          "reported_at": "2026-11-07T00:44:03.928517+00:00",
+          "last_error_code": null,
+          "host_public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINdnmFZOk9hWfc7Xn71zTtkMgoA664ANUQ73zKWu3pr5",
+          "access_verified_at": "2026-11-06T18:00:52.707251+00:00",
+          "access_verified_by": "fc109962-be6c-450b-871a-51f730ba73d2",
+          "verification_kind": "operator_attestation",
+          "revoked_at": null,
+          "reset_registration_allowed": false
+        },
+        "policy": {
+          "data": {
+            "policy_id": "791405b1-c867-4e4f-b0b3-5a895e40920b",
+            "policy_version": 2,
+            "policy_version_id": "5bbab7a4-50cc-4501-ac07-ee6747348b4c",
+            "browser_required": true,
+            "deployment_mode": "external_managed",
+            "delivery_status": "APPLIED",
+            "error_code": null,
+            "sensor_health": {
+              "observed_at": "2026-11-07T00:43:42.457194Z",
+              "fresh": true,
+              "activity_listener_state": "READY",
+              "security_spool_state": "READY",
+              "usb_source_state": "READY",
+              "print_source_state": "READY"
+            },
+            "acknowledged_at": "2026-11-07T00:23:42.990618Z",
+            "compliance": "NON_COMPLIANT",
+            "activity_sensor": "ACTIVE",
+            "browser_sensor": "UNAVAILABLE",
+            "dlp_sensor": "UNAVAILABLE",
+            "browser_compliance": "NON_COMPLIANT",
+            "observed_at": "2026-11-07T00:43:42.457194Z",
+            "browsers": [
+              {
+                "browser_family": "chrome",
+                "browser_state": "UNKNOWN",
+                "running_state": "UNKNOWN",
+                "policy_owner": "NONE",
+                "installation_policy_state": "NOT_APPLIED",
+                "effective_policy_state": "UNKNOWN",
+                "native_host_state": "READY",
+                "extension_version": null,
+                "extension_install_type": "UNKNOWN",
+                "extension_last_seen_at": null,
+                "last_running_at": null,
+                "compliance_state": "UNKNOWN",
+                "reason": "BROWSER_DETECTION_UNKNOWN"
+              },
+              {
+                "browser_family": "yandex",
+                "browser_state": "DETECTED",
+                "running_state": "RUNNING",
+                "policy_owner": "NONE",
+                "installation_policy_state": "NOT_APPLIED",
+                "effective_policy_state": "UNKNOWN",
+                "native_host_state": "READY",
+                "extension_version": null,
+                "extension_install_type": "UNKNOWN",
+                "extension_last_seen_at": null,
+                "last_running_at": "2026-11-07T00:43:42.457194Z",
+                "compliance_state": "ERROR",
+                "reason": "POLICY_OWNER_MISMATCH"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "device_id": "7e89a328-1595-4cfe-aefb-3dcca72d0083",
+        "hostname": "A2-IAO",
+        "job": {
+          "id": "03a99b6a-b02c-49ff-8e03-c3d997158085",
+          "device_id": "7e89a328-1595-4cfe-aefb-3dcca72d0083",
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "applied",
+          "reason": "Full Setup177 automatic updates with verified native lifecycle and independent support for all active and future qualified Windows devices in waves of two",
+          "assigned_at": "2026-11-07T00:21:50.614249+00:00",
+          "updated_at": "2026-11-07T00:29:03.836026+00:00",
+          "started_at": "2026-11-07T00:22:58.681818+00:00",
+          "finished_at": "2026-11-07T00:29:03.836026+00:00",
+          "safe_code": "setup_post_restart_confirmed",
+          "last_report": {
+            "attempt_id": "cd8d66ba-7a97-441e-9827-27c3ebe273a8",
+            "phase": "applied",
+            "safe_code": "setup_post_restart_confirmed",
+            "proof": {
+              "foundation_version": "3.2.177",
+              "core_version": "3.2.177",
+              "source_revision": "25f2ad8a5e13991e4e76260da939d29aafba8674",
+              "msi_sha256": "d096726d6d0521a522fdb81d0b3ee551d583befba5d216c09a96332fd21359f3",
+              "native_phase": "accepted",
+              "exit_code": 0,
+              "native_verified": true,
+              "core_verified": true,
+              "provenance_verified": true,
+              "pending": false,
+              "services_verified": true,
+              "companions_restored": true,
+              "private": {
+                "credential": true,
+                "identity": true,
+                "origin": true,
+                "ca": true
+              },
+              "soak": {
+                "duration_seconds": 182.73,
+                "samples": 6,
+                "sensor_count": 1,
+                "sensor_cpu_percent_max": 0.0032,
+                "services_stable": true,
+                "companions_stable": true,
+                "connected": true
+              }
+            }
+          }
+        },
+        "client": {
+          "client_version": "1.0.7",
+          "foundation_version": "3.2.177",
+          "core_version": "3.2.177",
+          "ready": true,
+          "safe_code": null,
+          "last_seen_at": "2026-11-07T00:44:05.550462+00:00"
+        },
+        "support": {
+          "policy": {
+            "device_id": "7e89a328-1595-4cfe-aefb-3dcca72d0083",
+            "revision": 2,
+            "enabled": false,
+            "expires_at": null,
+            "gateway_host": "endpoint.sosnadmin.local",
+            "gateway_port": 2222,
+            "gateway_host_public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFTqjBmlmnfuV+ShgOoVKW0uj0a1fo3E+/ifn6O/V8x0",
+            "tunnel_user": "eps-7e89a32815954cfeaefb3dcc",
+            "remote_port": 32001,
+            "local_port": 22222,
+            "operator_public_keys": [],
+            "windows_admin_username": null,
+            "poll_after_seconds": 30
+          },
+          "component_version": "1.0.1",
+          "installed": true,
+          "tunnel_connected": false,
+          "reported_at": "2026-11-07T00:43:52.007840+00:00",
+          "last_error_code": null,
+          "host_public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIYPDMzq3eAg7p8Cxu+CQr/pPfF98251GIYalfKdHsx3",
+          "access_verified_at": "2026-11-06T18:00:52.632973+00:00",
+          "access_verified_by": "fc109962-be6c-450b-871a-51f730ba73d2",
+          "verification_kind": "operator_attestation",
+          "revoked_at": null,
+          "reset_registration_allowed": false
+        },
+        "policy": {
+          "data": {
+            "policy_id": "791405b1-c867-4e4f-b0b3-5a895e40920b",
+            "policy_version": 2,
+            "policy_version_id": "5bbab7a4-50cc-4501-ac07-ee6747348b4c",
+            "browser_required": true,
+            "deployment_mode": "external_managed",
+            "delivery_status": "APPLIED",
+            "error_code": null,
+            "sensor_health": {
+              "observed_at": "2026-11-07T00:43:44.352688Z",
+              "fresh": true,
+              "activity_listener_state": "READY",
+              "security_spool_state": "READY",
+              "usb_source_state": "READY",
+              "print_source_state": "READY"
+            },
+            "acknowledged_at": "2026-11-07T00:24:43.067988Z",
+            "compliance": "NON_COMPLIANT",
+            "activity_sensor": "ACTIVE",
+            "browser_sensor": "UNAVAILABLE",
+            "dlp_sensor": "UNAVAILABLE",
+            "browser_compliance": "NON_COMPLIANT",
+            "observed_at": "2026-11-07T00:43:44.352688Z",
+            "browsers": [
+              {
+                "browser_family": "chrome",
+                "browser_state": "DETECTED",
+                "running_state": "RUNNING",
+                "policy_owner": "NONE",
+                "installation_policy_state": "NOT_APPLIED",
+                "effective_policy_state": "UNKNOWN",
+                "native_host_state": "READY",
+                "extension_version": null,
+                "extension_install_type": "UNKNOWN",
+                "extension_last_seen_at": null,
+                "last_running_at": "2026-11-07T00:43:44.352688Z",
+                "compliance_state": "ERROR",
+                "reason": "POLICY_OWNER_MISMATCH"
+              },
+              {
+                "browser_family": "yandex",
+                "browser_state": "DETECTED",
+                "running_state": "RUNNING",
+                "policy_owner": "NONE",
+                "installation_policy_state": "NOT_APPLIED",
+                "effective_policy_state": "UNKNOWN",
+                "native_host_state": "READY",
+                "extension_version": null,
+                "extension_install_type": "UNKNOWN",
+                "extension_last_seen_at": null,
+                "last_running_at": "2026-11-07T00:43:44.352688Z",
+                "compliance_state": "ERROR",
+                "reason": "POLICY_OWNER_MISMATCH"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "device_id": "c450fc70-63e6-4c2b-baf6-7de79820d63f",
+        "hostname": "ADMIN-2",
+        "job": {
+          "id": "7b64f1eb-4869-409c-a5b5-a1637dd6d1b2",
+          "device_id": "c450fc70-63e6-4c2b-baf6-7de79820d63f",
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "applied",
+          "reason": "Full Setup177 automatic updates with verified native lifecycle and independent support for all active and future qualified Windows devices in waves of two",
+          "assigned_at": "2026-11-07T00:28:56.393612+00:00",
+          "updated_at": "2026-11-07T00:36:18.756782+00:00",
+          "started_at": "2026-11-07T00:29:27.241575+00:00",
+          "finished_at": "2026-11-07T00:36:18.756782+00:00",
+          "safe_code": "setup_post_restart_confirmed",
+          "last_report": {
+            "attempt_id": "e9aebcf9-9e09-4155-a8d8-07eec7844ce3",
+            "phase": "applied",
+            "safe_code": "setup_post_restart_confirmed",
+            "proof": {
+              "foundation_version": "3.2.177",
+              "core_version": "3.2.177",
+              "source_revision": "25f2ad8a5e13991e4e76260da939d29aafba8674",
+              "msi_sha256": "d096726d6d0521a522fdb81d0b3ee551d583befba5d216c09a96332fd21359f3",
+              "native_phase": "accepted",
+              "exit_code": 0,
+              "native_verified": true,
+              "core_verified": true,
+              "provenance_verified": true,
+              "pending": false,
+              "services_verified": true,
+              "companions_restored": true,
+              "private": {
+                "credential": true,
+                "identity": true,
+                "origin": true,
+                "ca": true
+              },
+              "soak": {
+                "duration_seconds": 185.437,
+                "samples": 6,
+                "sensor_count": 1,
+                "sensor_cpu_percent_max": 0.0,
+                "services_stable": true,
+                "companions_stable": true,
+                "connected": true
+              }
+            }
+          }
+        },
+        "client": {
+          "client_version": "1.0.7",
+          "foundation_version": "3.2.177",
+          "core_version": "3.2.177",
+          "ready": true,
+          "safe_code": null,
+          "last_seen_at": "2026-11-07T00:43:14.047781+00:00"
+        },
+        "support": {
+          "policy": {
+            "device_id": "c450fc70-63e6-4c2b-baf6-7de79820d63f",
+            "revision": 2,
+            "enabled": false,
+            "expires_at": null,
+            "gateway_host": "endpoint.sosnadmin.local",
+            "gateway_port": 2222,
+            "gateway_host_public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFTqjBmlmnfuV+ShgOoVKW0uj0a1fo3E+/ifn6O/V8x0",
+            "tunnel_user": "eps-c450fc7063e64c2bbaf67de7",
+            "remote_port": 32002,
+            "local_port": 22222,
+            "operator_public_keys": [],
+            "windows_admin_username": null,
+            "poll_after_seconds": 30
+          },
+          "component_version": "1.0.1",
+          "installed": true,
+          "tunnel_connected": false,
+          "reported_at": "2026-11-07T00:43:37.083643+00:00",
+          "last_error_code": null,
+          "host_public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIL4rLEOwWNs24etUeNcAQD/+iCDPlrmDL8LBRHVVXU42",
+          "access_verified_at": "2026-11-06T18:00:52.660882+00:00",
+          "access_verified_by": "fc109962-be6c-450b-871a-51f730ba73d2",
+          "verification_kind": "operator_attestation",
+          "revoked_at": null,
+          "reset_registration_allowed": false
+        },
+        "policy": {
+          "data": {
+            "policy_id": "e95260c5-0a37-4a07-b5b3-f25d084c03ac",
+            "policy_version": 2,
+            "policy_version_id": "3584f7cd-4ac7-428e-adb9-6c3b92d9a0e9",
+            "browser_required": true,
+            "deployment_mode": "external_managed",
+            "delivery_status": "APPLIED",
+            "error_code": null,
+            "sensor_health": {
+              "observed_at": "2026-11-07T00:43:48.875650Z",
+              "fresh": true,
+              "activity_listener_state": "READY",
+              "security_spool_state": "READY",
+              "usb_source_state": "READY",
+              "print_source_state": "READY"
+            },
+            "acknowledged_at": "2026-11-07T00:31:47.389450Z",
+            "compliance": "NON_COMPLIANT",
+            "activity_sensor": "ACTIVE",
+            "browser_sensor": "UNAVAILABLE",
+            "dlp_sensor": "UNAVAILABLE",
+            "browser_compliance": "NON_COMPLIANT",
+            "observed_at": "2026-11-07T00:43:48.875650Z",
+            "browsers": [
+              {
+                "browser_family": "chrome",
+                "browser_state": "DETECTED",
+                "running_state": "RUNNING",
+                "policy_owner": "NONE",
+                "installation_policy_state": "NOT_APPLIED",
+                "effective_policy_state": "UNKNOWN",
+                "native_host_state": "READY",
+                "extension_version": "0.1.0",
+                "extension_install_type": "ADMIN",
+                "extension_last_seen_at": "2026-10-14T09:56:01.299131Z",
+                "last_running_at": "2026-11-07T00:43:48.875650Z",
+                "compliance_state": "ERROR",
+                "reason": "POLICY_OWNER_MISMATCH"
+              },
+              {
+                "browser_family": "yandex",
+                "browser_state": "DETECTED",
+                "running_state": "RUNNING",
+                "policy_owner": "NONE",
+                "installation_policy_state": "NOT_APPLIED",
+                "effective_policy_state": "UNKNOWN",
+                "native_host_state": "READY",
+                "extension_version": null,
+                "extension_install_type": "UNKNOWN",
+                "extension_last_seen_at": null,
+                "last_running_at": "2026-11-07T00:43:48.875650Z",
+                "compliance_state": "ERROR",
+                "reason": "POLICY_OWNER_MISMATCH"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "device_id": "d3ed13cd-1b40-4ccc-b035-240a184cf247",
+        "hostname": "DESKTOP-2EVR855",
+        "job": {
+          "id": "71495b1c-802b-42e7-b655-62014b32c8a5",
+          "device_id": "d3ed13cd-1b40-4ccc-b035-240a184cf247",
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "applied",
+          "reason": "Full Setup177 automatic updates with verified native lifecycle and independent support for all active and future qualified Windows devices in waves of two",
+          "assigned_at": "2026-11-07T00:30:57.838362+00:00",
+          "updated_at": "2026-11-07T00:42:40.362501+00:00",
+          "started_at": "2026-11-07T00:32:46.769034+00:00",
+          "finished_at": "2026-11-07T00:42:40.362501+00:00",
+          "safe_code": "setup_post_restart_confirmed",
+          "last_report": {
+            "attempt_id": "a0622059-8432-4bad-9e0c-09641f9aa335",
+            "phase": "applied",
+            "safe_code": "setup_post_restart_confirmed",
+            "proof": {
+              "foundation_version": "3.2.177",
+              "core_version": "3.2.177",
+              "source_revision": "25f2ad8a5e13991e4e76260da939d29aafba8674",
+              "msi_sha256": "d096726d6d0521a522fdb81d0b3ee551d583befba5d216c09a96332fd21359f3",
+              "native_phase": "accepted",
+              "exit_code": 0,
+              "native_verified": true,
+              "core_verified": true,
+              "provenance_verified": true,
+              "pending": false,
+              "services_verified": true,
+              "companions_restored": true,
+              "private": {
+                "credential": true,
+                "identity": true,
+                "origin": true,
+                "ca": true
+              },
+              "soak": {
+                "duration_seconds": 183.194,
+                "samples": 6,
+                "sensor_count": 1,
+                "sensor_cpu_percent_max": 0.0,
+                "services_stable": true,
+                "companions_stable": true,
+                "connected": true
+              }
+            }
+          }
+        },
+        "client": {
+          "client_version": "1.0.7",
+          "foundation_version": "3.2.177",
+          "core_version": "3.2.177",
+          "ready": true,
+          "safe_code": null,
+          "last_seen_at": "2026-11-07T00:43:52.857913+00:00"
+        },
+        "support": {
+          "policy": {
+            "device_id": "d3ed13cd-1b40-4ccc-b035-240a184cf247",
+            "revision": 2,
+            "enabled": true,
+            "expires_at": "2026-11-07T08:39:17.099862Z",
+            "gateway_host": "endpoint.sosnadmin.local",
+            "gateway_port": 2222,
+            "gateway_host_public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFTqjBmlmnfuV+ShgOoVKW0uj0a1fo3E+/ifn6O/V8x0",
+            "tunnel_user": "eps-d3ed13cd1b404cccb035240a",
+            "remote_port": 32004,
+            "local_port": 22222,
+            "operator_public_keys": [
+              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKD6DL20SZb35SuY702KtsxX8r2vHI5VS2EXvIsmtIZR"
+            ],
+            "windows_admin_username": "sosnadm\\admin-2",
+            "poll_after_seconds": 30
+          },
+          "component_version": "1.0.1",
+          "installed": true,
+          "tunnel_connected": true,
+          "reported_at": "2026-11-07T00:43:47.731009+00:00",
+          "last_error_code": null,
+          "host_public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJlVbWis0T0vztODf4Sy7J9ran0BI5xHAwiiosB7U/hb",
+          "access_verified_at": null,
+          "access_verified_by": null,
+          "verification_kind": "operator_attestation",
+          "revoked_at": null,
+          "reset_registration_allowed": false
+        },
+        "policy": {
+          "data": {
+            "policy_id": "d8014cae-8d28-4fe6-86e9-6e52fe43e6d4",
+            "policy_version": 3,
+            "policy_version_id": "1d672dbf-e7da-4662-a32d-ba9984d2d163",
+            "browser_required": true,
+            "deployment_mode": "external_managed",
+            "delivery_status": "APPLIED",
+            "error_code": null,
+            "sensor_health": {
+              "observed_at": "2026-11-07T00:43:26.160234Z",
+              "fresh": true,
+              "activity_listener_state": "READY",
+              "security_spool_state": "READY",
+              "usb_source_state": "READY",
+              "print_source_state": "READY"
+            },
+            "acknowledged_at": "2026-11-07T00:37:18.766450Z",
+            "compliance": "PARTIAL",
+            "activity_sensor": "ACTIVE",
+            "browser_sensor": "UNKNOWN",
+            "dlp_sensor": "UNKNOWN",
+            "browser_compliance": "PARTIAL",
+            "observed_at": "2026-11-07T00:43:26.160234Z",
+            "browsers": [
+              {
+                "browser_family": "chrome",
+                "browser_state": "DETECTED",
+                "running_state": "CLOSED",
+                "policy_owner": "EXTERNAL",
+                "installation_policy_state": "APPLIED",
+                "effective_policy_state": "UNKNOWN",
+                "native_host_state": "READY",
+                "extension_version": null,
+                "extension_install_type": "UNKNOWN",
+                "extension_last_seen_at": null,
+                "last_running_at": null,
+                "compliance_state": "NEVER_SEEN",
+                "reason": "EXTENSION_NEVER_SEEN"
+              },
+              {
+                "browser_family": "yandex",
+                "browser_state": "DETECTED",
+                "running_state": "RUNNING",
+                "policy_owner": "EXTERNAL",
+                "installation_policy_state": "APPLIED",
+                "effective_policy_state": "UNKNOWN",
+                "native_host_state": "READY",
+                "extension_version": null,
+                "extension_install_type": "UNKNOWN",
+                "extension_last_seen_at": null,
+                "last_running_at": "2026-11-07T00:43:26.160234Z",
+                "compliance_state": "NEVER_SEEN",
+                "reason": "EXTENSION_NEVER_SEEN"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "device_id": "ff6fd7b0-ad25-419f-83ad-cf5e683ed1bc",
+        "hostname": "MUNSLU-S2",
+        "job": {
+          "id": "4549bdbb-c3e3-45db-b20f-4c0104e43fbd",
+          "device_id": "ff6fd7b0-ad25-419f-83ad-cf5e683ed1bc",
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "applied",
+          "reason": "Full Setup177 automatic updates with verified native lifecycle and independent support for all active and future qualified Windows devices in waves of two",
+          "assigned_at": "2026-11-07T00:37:02.291650+00:00",
+          "updated_at": "2026-11-07T00:43:45.955690+00:00",
+          "started_at": "2026-11-07T00:37:55.121316+00:00",
+          "finished_at": "2026-11-07T00:43:45.955690+00:00",
+          "safe_code": "setup_post_restart_confirmed",
+          "last_report": {
+            "attempt_id": "4fbd9102-d6db-4ea9-a16c-0a4a993662d7",
+            "phase": "applied",
+            "safe_code": "setup_post_restart_confirmed",
+            "proof": {
+              "foundation_version": "3.2.177",
+              "core_version": "3.2.177",
+              "source_revision": "25f2ad8a5e13991e4e76260da939d29aafba8674",
+              "msi_sha256": "d096726d6d0521a522fdb81d0b3ee551d583befba5d216c09a96332fd21359f3",
+              "native_phase": "accepted",
+              "exit_code": 0,
+              "native_verified": true,
+              "core_verified": true,
+              "provenance_verified": true,
+              "pending": false,
+              "services_verified": true,
+              "companions_restored": true,
+              "private": {
+                "credential": true,
+                "identity": true,
+                "origin": true,
+                "ca": true
+              },
+              "soak": {
+                "duration_seconds": 182.155,
+                "samples": 6,
+                "sensor_count": 1,
+                "sensor_cpu_percent_max": 0.0,
+                "services_stable": true,
+                "companions_stable": true,
+                "connected": true
+              }
+            }
+          }
+        },
+        "client": {
+          "client_version": "1.0.7",
+          "foundation_version": "3.2.177",
+          "core_version": "3.2.177",
+          "ready": true,
+          "safe_code": null,
+          "last_seen_at": "2026-11-07T00:43:49.883033+00:00"
+        },
+        "support": {
+          "policy": {
+            "device_id": "ff6fd7b0-ad25-419f-83ad-cf5e683ed1bc",
+            "revision": 2,
+            "enabled": false,
+            "expires_at": null,
+            "gateway_host": "endpoint.sosnadmin.local",
+            "gateway_port": 2222,
+            "gateway_host_public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFTqjBmlmnfuV+ShgOoVKW0uj0a1fo3E+/ifn6O/V8x0",
+            "tunnel_user": "eps-ff6fd7b0ad25419f83adcf5e",
+            "remote_port": 32005,
+            "local_port": 22222,
+            "operator_public_keys": [],
+            "windows_admin_username": null,
+            "poll_after_seconds": 30
+          },
+          "component_version": "1.0.1",
+          "installed": true,
+          "tunnel_connected": false,
+          "reported_at": "2026-11-07T00:44:03.713278+00:00",
+          "last_error_code": null,
+          "host_public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICGSlvSifgUNSgiaFT9oP+Xunkl1WU2o/EDqzdkJJZFV",
+          "access_verified_at": "2026-11-06T18:00:52.762931+00:00",
+          "access_verified_by": "fc109962-be6c-450b-871a-51f730ba73d2",
+          "verification_kind": "operator_attestation",
+          "revoked_at": null,
+          "reset_registration_allowed": false
+        },
+        "policy": {
+          "data": {
+            "policy_id": "e95260c5-0a37-4a07-b5b3-f25d084c03ac",
+            "policy_version": 2,
+            "policy_version_id": "3584f7cd-4ac7-428e-adb9-6c3b92d9a0e9",
+            "browser_required": true,
+            "deployment_mode": "external_managed",
+            "delivery_status": "APPLIED",
+            "error_code": null,
+            "sensor_health": {
+              "observed_at": "2026-11-07T00:43:27.905845Z",
+              "fresh": true,
+              "activity_listener_state": "READY",
+              "security_spool_state": "READY",
+              "usb_source_state": "READY",
+              "print_source_state": "READY"
+            },
+            "acknowledged_at": "2026-11-07T00:39:26.861062Z",
+            "compliance": "NON_COMPLIANT",
+            "activity_sensor": "ACTIVE",
+            "browser_sensor": "UNAVAILABLE",
+            "dlp_sensor": "UNAVAILABLE",
+            "browser_compliance": "NON_COMPLIANT",
+            "observed_at": "2026-11-07T00:43:27.905845Z",
+            "browsers": [
+              {
+                "browser_family": "chrome",
+                "browser_state": "UNKNOWN",
+                "running_state": "UNKNOWN",
+                "policy_owner": "NONE",
+                "installation_policy_state": "NOT_APPLIED",
+                "effective_policy_state": "UNKNOWN",
+                "native_host_state": "READY",
+                "extension_version": null,
+                "extension_install_type": "UNKNOWN",
+                "extension_last_seen_at": null,
+                "last_running_at": null,
+                "compliance_state": "UNKNOWN",
+                "reason": "BROWSER_DETECTION_UNKNOWN"
+              },
+              {
+                "browser_family": "yandex",
+                "browser_state": "DETECTED",
+                "running_state": "RUNNING",
+                "policy_owner": "NONE",
+                "installation_policy_state": "NOT_APPLIED",
+                "effective_policy_state": "UNKNOWN",
+                "native_host_state": "READY",
+                "extension_version": null,
+                "extension_install_type": "UNKNOWN",
+                "extension_last_seen_at": null,
+                "last_running_at": "2026-11-07T00:43:27.905845Z",
+                "compliance_state": "ERROR",
+                "reason": "POLICY_OWNER_MISMATCH"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "future_and_offline_scope_is_dynamic": true,
+    "status": {
+      "data": {
+        "revision": 12,
+        "enabled": true,
+        "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+        "scope": "all_active",
+        "device_ids": [],
+        "max_parallel": 2,
+        "reason": "Full Setup177 automatic updates with verified native lifecycle and independent support for all active and future qualified Windows devices in waves of two",
+        "updated_at": "2026-11-07T00:21:23.598806+00:00",
+        "safe_code": null
+      },
+      "qualifications": {
+        "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1": [
+          {
+            "source_foundation": "3.2.172",
+            "expires_at": "2026-12-07T00:10:08.224472+00:00",
+            "evidence_assignment_id": "fa9c3a87-4c45-44e0-91c9-607d6bd428e4"
+          },
+          {
+            "source_foundation": "3.2.176",
+            "expires_at": "2026-12-06T23:32:51.074103+00:00",
+            "evidence_assignment_id": "7a0db343-d209-45c6-9038-b2c2f2062e76"
+          }
+        ],
+        "1ac9fd1d-1e06-4599-a21a-2e27060156ca": [
+          {
+            "source_foundation": "3.2.172",
+            "expires_at": "2026-12-06T17:46:29.621071+00:00",
+            "evidence_assignment_id": "a5ecd83b-2d0d-4229-9a35-ec242387e47d"
+          },
+          {
+            "source_foundation": "3.2.175",
+            "expires_at": "2026-12-06T17:39:02.352073+00:00",
+            "evidence_assignment_id": "eb002fc8-f757-47b6-ac1b-8e15f37b46e6"
+          }
+        ],
+        "a487ee6b-b5a9-48bd-bba7-bf55450c7d3f": [],
+        "993b6b7f-678a-4ba3-88ee-020296b20610": [
+          {
+            "source_foundation": "3.2.172",
+            "expires_at": "2026-12-06T15:36:28.336580+00:00",
+            "evidence_assignment_id": "f9c1d078-986f-458a-b49f-246906f7abff"
+          }
+        ],
+        "67025bf0-1d93-4e44-9470-3403438056c7": [],
+        "f867fb0f-d506-47cc-84f7-c147b47fcba9": [
+          {
+            "source_foundation": "3.2.158",
+            "expires_at": "2026-12-06T08:49:26.292897+00:00",
+            "evidence_assignment_id": "cc342a30-c6d7-4de9-805a-d9e7c2b804f0"
+          },
+          {
+            "source_foundation": "3.2.165",
+            "expires_at": "2026-12-06T08:57:11.034940+00:00",
+            "evidence_assignment_id": "7a24d863-8492-4f90-921f-cc6f1fd9ad77"
+          },
+          {
+            "source_foundation": "3.2.167",
+            "expires_at": "2026-12-06T09:42:32.894906+00:00",
+            "evidence_assignment_id": "a4bc3da5-d254-432f-8455-d03b0844c468"
+          },
+          {
+            "source_foundation": "3.2.169",
+            "expires_at": "2026-12-06T08:55:44.167070+00:00",
+            "evidence_assignment_id": "d5356ff3-aba4-403e-b7bd-cb793f404e29"
+          },
+          {
+            "source_foundation": "3.2.170",
+            "expires_at": "2026-12-06T08:46:47.162899+00:00",
+            "evidence_assignment_id": "df7a2b50-5d2d-43b5-a00e-87551b769d99"
+          },
+          {
+            "source_foundation": "3.2.171",
+            "expires_at": "2026-12-06T09:15:17.068829+00:00",
+            "evidence_assignment_id": "7edc7aab-87eb-4339-9320-de2c0822fbb0"
+          }
+        ],
+        "a6cb4f29-48f8-4a97-b396-8d282a1a9d01": [],
+        "eb098f60-615c-4360-afb0-b12542a1d24a": [],
+        "dee3a7c6-c758-47fc-beca-f01f8d7c7ef3": [],
+        "6e9b355c-15cd-4756-973a-70cef6a80b04": [
+          {
+            "source_foundation": "3.2.165",
+            "expires_at": "2026-12-05T13:31:17.480947+00:00",
+            "evidence_assignment_id": "113c1719-def9-41ee-8960-e7037d44fac4"
+          }
+        ],
+        "b3feccd9-ac42-4a86-8c17-9a7fc1509869": [],
+        "b9734c6c-7152-44d6-99c3-58cde589d720": [
+          {
+            "source_foundation": "3.2.158",
+            "expires_at": "2026-12-05T09:00:20.002499+00:00",
+            "evidence_assignment_id": "9255096a-d178-46d2-a0c5-e46ee44a3891"
+          }
+        ],
+        "b06ce3dd-49ea-4202-aa55-d446e0dacc6b": [
+          {
+            "source_foundation": "3.2.156",
+            "expires_at": "2026-12-05T04:07:57.728041+00:00",
+            "evidence_assignment_id": "d729ed87-2988-4ce4-a26c-917338403c0f"
+          }
+        ],
+        "ba2af102-3014-4648-ba0b-e24c862a0ef7": [],
+        "0a4b79d1-6cc6-4a7a-8b78-73cde961c34a": []
+      },
+      "active_chains": 0,
+      "decisions": [
+        {
+          "device_id": "01e39b54-34ea-4792-aa32-a9772f5c7a62",
+          "display_name": "Okrug departments pilot 20261019",
+          "policy_revision": 12,
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-07T00:43:07.259974+00:00"
+        },
+        {
+          "device_id": "00aa5779-d229-4dce-a28c-1e668819eed2",
+          "display_name": "Windows - all published versions - AUTO",
+          "policy_revision": 12,
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-07T00:43:07.238988+00:00"
+        },
+        {
+          "device_id": "ff6fd7b0-ad25-419f-83ad-cf5e683ed1bc",
+          "display_name": "Windows 192.168.101.0/24 AUTO",
+          "policy_revision": 12,
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "verifying",
+          "safe_code": "verifying",
+          "job_id": "4549bdbb-c3e3-45db-b20f-4c0104e43fbd",
+          "evaluated_at": "2026-11-07T00:43:07.227360+00:00"
+        },
+        {
+          "device_id": "dd5ebcfc-2e47-4d2b-ab29-85c689028b24",
+          "display_name": "Temporary installer150 A2-INFAN-N 20261026",
+          "policy_revision": 12,
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-07T00:43:07.207666+00:00"
+        },
+        {
+          "device_id": "d72fda38-f2cf-4bd9-ae47-a2c47021f8b8",
+          "display_name": "VM123 independent 3.2.81 acceptance",
+          "policy_revision": 12,
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-07T00:43:07.187400+00:00"
+        },
+        {
+          "device_id": "d3ed13cd-1b40-4ccc-b035-240a184cf247",
+          "display_name": "VM123 independent 3.2.120 acceptance",
+          "policy_revision": 12,
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "applied",
+          "safe_code": "setup_post_restart_confirmed",
+          "job_id": "71495b1c-802b-42e7-b655-62014b32c8a5",
+          "evaluated_at": "2026-11-07T00:43:07.177058+00:00"
+        },
+        {
+          "device_id": "d283a42e-2781-4398-a345-1fa81b751705",
+          "display_name": "Ansible ALT rollout 192.168.101.81",
+          "policy_revision": 12,
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-07T00:43:07.156843+00:00"
+        },
+        {
+          "device_id": "d15b50bb-7f4b-4900-a02e-f91a11fa3ef4",
+          "display_name": "Production ALT cutover canary",
+          "policy_revision": 12,
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-07T00:43:07.132258+00:00"
+        },
+        {
+          "device_id": "cb5851bd-fe70-48fc-ab7e-6afa44c9a7fa",
+          "display_name": "VM123 independent 3.2.118 acceptance",
+          "policy_revision": 12,
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-07T00:43:07.110558+00:00"
+        },
+        {
+          "device_id": "cb3d5ed1-6d6f-4532-a6d2-8faf8072db90",
+          "display_name": "Windows - all published versions - AUTO",
+          "policy_revision": 12,
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-07T00:43:07.090248+00:00"
+        },
+        {
+          "device_id": "c87eaa22-4fd1-4830-bc11-88142afda87e",
+          "display_name": "Windows - all published versions - AUTO",
+          "policy_revision": 12,
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "already_current",
+          "safe_code": "already_current",
+          "job_id": null,
+          "evaluated_at": "2026-11-07T00:43:07.070723+00:00"
+        },
+        {
+          "device_id": "c450fc70-63e6-4c2b-baf6-7de79820d63f",
+          "display_name": "Windows local MSI pilot",
+          "policy_revision": 12,
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "applied",
+          "safe_code": "setup_post_restart_confirmed",
+          "job_id": "7b64f1eb-4869-409c-a5b5-a1637dd6d1b2",
+          "evaluated_at": "2026-11-07T00:43:07.060888+00:00"
+        },
+        {
+          "device_id": "b23db6ad-1e21-4d99-a4b8-5ae0861398ad",
+          "display_name": "Ansible ALT rollout alt-a1-pc2",
+          "policy_revision": 12,
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-07T00:43:07.035930+00:00"
+        },
+        {
+          "device_id": "a8d7937d-40cd-41fa-b32b-85253ec9a505",
+          "display_name": "Okrug departments pilot 20261019",
+          "policy_revision": 12,
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-07T00:43:07.008752+00:00"
+        },
+        {
+          "device_id": "a68f65b1-1ebf-45f2-84e6-6b67afac64a5",
+          "display_name": "Windows - all published versions - AUTO",
+          "policy_revision": 12,
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "blocked",
+          "safe_code": "installation_removed",
+          "job_id": null,
+          "evaluated_at": "2026-11-07T00:43:06.980716+00:00"
+        },
+        {
+          "device_id": "a2da1090-c7e7-40e7-bc75-82cfef05a810",
+          "display_name": "VM123 Agent 3.2.92 acceptance",
+          "policy_revision": 12,
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-07T00:43:06.953416+00:00"
+        },
+        {
+          "device_id": "9c7a7cb2-93a9-4ab8-a3b0-4cd8fdd0f683",
+          "display_name": "VM123 independent 3.2.79 acceptance",
+          "policy_revision": 12,
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-07T00:42:06.468522+00:00"
+        },
+        {
+          "device_id": "9285e667-a4fc-4748-9b33-2fe9e49ac488",
+          "display_name": "Okrug departments pilot 20261019",
+          "policy_revision": 12,
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-07T00:42:06.447285+00:00"
+        },
+        {
+          "device_id": "853d3c7b-23a8-4812-854c-0093a824c475",
+          "display_name": "ALT test pilot",
+          "policy_revision": 12,
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-07T00:42:06.426506+00:00"
+        },
+        {
+          "device_id": "7e89a328-1595-4cfe-aefb-3dcca72d0083",
+          "display_name": "Windows 192.168.101.0/24 AUTO",
+          "policy_revision": 12,
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "applied",
+          "safe_code": "setup_post_restart_confirmed",
+          "job_id": "03a99b6a-b02c-49ff-8e03-c3d997158085",
+          "evaluated_at": "2026-11-07T00:42:06.416246+00:00"
+        },
+        {
+          "device_id": "596d0328-4272-4e59-b644-539fd7b4b6a5",
+          "display_name": "ALT .210 authorized live acceptance 20261024",
+          "policy_revision": 12,
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "outside_scope",
+          "safe_code": "platform_unsupported",
+          "job_id": null,
+          "evaluated_at": "2026-11-07T00:42:06.395079+00:00"
+        },
+        {
+          "device_id": "4ccac6c3-ca90-4cc9-958c-d3eb0cedfcc9",
+          "display_name": "Windows 192.168.101.0/24 AUTO",
+          "policy_revision": 12,
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-07T00:42:06.373838+00:00"
+        },
+        {
+          "device_id": "4231a496-1ab5-4318-b558-2d2e954b5f03",
+          "display_name": "Windows - all published versions - AUTO",
+          "policy_revision": 12,
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "blocked",
+          "safe_code": "installation_removed",
+          "job_id": null,
+          "evaluated_at": "2026-11-07T00:42:06.351145+00:00"
+        },
+        {
+          "device_id": "3139e3ba-29c0-4575-8e2d-ce16433ad564",
+          "display_name": "ALT KDE reference parity 20261021",
+          "policy_revision": 12,
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-07T00:42:06.326743+00:00"
+        },
+        {
+          "device_id": "13f38b93-cc73-4130-b58c-41f534b1893e",
+          "display_name": "Okrug departments pilot 20261019",
+          "policy_revision": 12,
+          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+          "status": "applied",
+          "safe_code": "setup_post_restart_confirmed",
+          "job_id": "f4a1cb90-72b8-4bd3-97c4-dae647961b01",
+          "evaluated_at": "2026-11-07T00:42:06.313429+00:00"
+        },
+        {
+          "device_id": "d283a42e-2781-4398-a345-1fa81b751705",
+          "display_name": "Ansible ALT rollout 192.168.101.81",
+          "policy_revision": 10,
+          "release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T23:43:10.906939+00:00"
+        },
+        {
+          "device_id": "d15b50bb-7f4b-4900-a02e-f91a11fa3ef4",
+          "display_name": "Production ALT cutover canary",
+          "policy_revision": 10,
+          "release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T23:43:10.890513+00:00"
+        },
+        {
+          "device_id": "cb5851bd-fe70-48fc-ab7e-6afa44c9a7fa",
+          "display_name": "VM123 independent 3.2.118 acceptance",
+          "policy_revision": 10,
+          "release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T23:43:10.874177+00:00"
+        },
+        {
+          "device_id": "cb3d5ed1-6d6f-4532-a6d2-8faf8072db90",
+          "display_name": "Windows - all published versions - AUTO",
+          "policy_revision": 10,
+          "release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T23:43:10.857568+00:00"
+        },
+        {
+          "device_id": "c450fc70-63e6-4c2b-baf6-7de79820d63f",
+          "display_name": "Windows local MSI pilot",
+          "policy_revision": 10,
+          "release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+          "status": "already_current",
+          "safe_code": "already_current",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T23:43:10.840418+00:00"
+        },
+        {
+          "device_id": "b23db6ad-1e21-4d99-a4b8-5ae0861398ad",
+          "display_name": "Ansible ALT rollout alt-a1-pc2",
+          "policy_revision": 10,
+          "release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T23:43:10.823358+00:00"
+        },
+        {
+          "device_id": "a8d7937d-40cd-41fa-b32b-85253ec9a505",
+          "display_name": "Okrug departments pilot 20261019",
+          "policy_revision": 10,
+          "release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T23:43:10.806196+00:00"
+        },
+        {
+          "device_id": "a2da1090-c7e7-40e7-bc75-82cfef05a810",
+          "display_name": "VM123 Agent 3.2.92 acceptance",
+          "policy_revision": 10,
+          "release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T23:43:10.789295+00:00"
+        },
+        {
+          "device_id": "9c7a7cb2-93a9-4ab8-a3b0-4cd8fdd0f683",
+          "display_name": "VM123 independent 3.2.79 acceptance",
+          "policy_revision": 10,
+          "release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T23:43:10.772035+00:00"
+        },
+        {
+          "device_id": "9285e667-a4fc-4748-9b33-2fe9e49ac488",
+          "display_name": "Okrug departments pilot 20261019",
+          "policy_revision": 10,
+          "release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T23:43:10.754747+00:00"
+        },
+        {
+          "device_id": "853d3c7b-23a8-4812-854c-0093a824c475",
+          "display_name": "ALT test pilot",
+          "policy_revision": 10,
+          "release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T23:43:10.736587+00:00"
+        },
+        {
+          "device_id": "7e89a328-1595-4cfe-aefb-3dcca72d0083",
+          "display_name": "Windows 192.168.101.0/24 AUTO",
+          "policy_revision": 10,
+          "release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+          "status": "already_current",
+          "safe_code": "already_current",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T23:43:10.718552+00:00"
+        },
+        {
+          "device_id": "596d0328-4272-4e59-b644-539fd7b4b6a5",
+          "display_name": "ALT .210 authorized live acceptance 20261024",
+          "policy_revision": 10,
+          "release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+          "status": "outside_scope",
+          "safe_code": "platform_unsupported",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T23:43:10.700802+00:00"
+        },
+        {
+          "device_id": "4ccac6c3-ca90-4cc9-958c-d3eb0cedfcc9",
+          "display_name": "Windows 192.168.101.0/24 AUTO",
+          "policy_revision": 10,
+          "release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T23:43:10.683592+00:00"
+        },
+        {
+          "device_id": "3139e3ba-29c0-4575-8e2d-ce16433ad564",
+          "display_name": "ALT KDE reference parity 20261021",
+          "policy_revision": 10,
+          "release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T23:43:10.665365+00:00"
+        },
+        {
+          "device_id": "13f38b93-cc73-4130-b58c-41f534b1893e",
+          "display_name": "Okrug departments pilot 20261019",
+          "policy_revision": 10,
+          "release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+          "status": "applied",
+          "safe_code": "setup_post_restart_confirmed",
+          "job_id": "3598bb4e-6822-47de-b28e-9a2ad06e495a",
+          "evaluated_at": "2026-11-06T23:43:10.657373+00:00"
+        },
+        {
+          "device_id": "01e39b54-34ea-4792-aa32-a9772f5c7a62",
+          "display_name": "Okrug departments pilot 20261019",
+          "policy_revision": 10,
+          "release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T23:42:09.979846+00:00"
+        },
+        {
+          "device_id": "00aa5779-d229-4dce-a28c-1e668819eed2",
+          "display_name": "Windows - all published versions - AUTO",
+          "policy_revision": 10,
+          "release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T23:42:09.964352+00:00"
+        },
+        {
+          "device_id": "ff6fd7b0-ad25-419f-83ad-cf5e683ed1bc",
+          "display_name": "Windows 192.168.101.0/24 AUTO",
+          "policy_revision": 10,
+          "release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+          "status": "applied",
+          "safe_code": "setup_post_restart_confirmed",
+          "job_id": "82aa4496-a883-4e63-be11-11149ebd0026",
+          "evaluated_at": "2026-11-06T23:42:09.957545+00:00"
+        },
+        {
+          "device_id": "dd5ebcfc-2e47-4d2b-ab29-85c689028b24",
+          "display_name": "Temporary installer150 A2-INFAN-N 20261026",
+          "policy_revision": 10,
+          "release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T23:42:09.941887+00:00"
+        },
+        {
+          "device_id": "4231a496-1ab5-4318-b558-2d2e954b5f03",
+          "display_name": "Windows - all published versions - AUTO",
+          "policy_revision": 10,
+          "release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T23:42:09.926389+00:00"
+        },
+        {
+          "device_id": "d72fda38-f2cf-4bd9-ae47-a2c47021f8b8",
+          "display_name": "VM123 independent 3.2.81 acceptance",
+          "policy_revision": 10,
+          "release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T23:42:09.910751+00:00"
+        },
+        {
+          "device_id": "d3ed13cd-1b40-4ccc-b035-240a184cf247",
+          "display_name": "VM123 independent 3.2.120 acceptance",
+          "policy_revision": 10,
+          "release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+          "status": "applied",
+          "safe_code": "setup_post_restart_confirmed",
+          "job_id": "f3049146-6350-4fc0-ac86-8a308bdb8aa5",
+          "evaluated_at": "2026-11-06T23:42:09.903540+00:00"
+        },
+        {
+          "device_id": "06143264-1b7b-42e7-990f-7f8e1292491b",
+          "display_name": "Windows - all published versions - AUTO",
+          "policy_revision": 10,
+          "release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T21:22:23.017324+00:00"
+        },
+        {
+          "device_id": "943c87ef-f121-40b9-a31f-003e9459e292",
+          "display_name": "Windows - all published versions - AUTO",
+          "policy_revision": 10,
+          "release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T19:44:12.442004+00:00"
+        },
+        {
+          "device_id": "9c7a7cb2-93a9-4ab8-a3b0-4cd8fdd0f683",
+          "display_name": "VM123 independent 3.2.79 acceptance",
+          "policy_revision": 8,
+          "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:41:14.127189+00:00"
+        },
+        {
+          "device_id": "943c87ef-f121-40b9-a31f-003e9459e292",
+          "display_name": "Windows - all published versions - AUTO",
+          "policy_revision": 8,
+          "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+          "status": "already_current",
+          "safe_code": "already_current",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:41:14.109885+00:00"
+        },
+        {
+          "device_id": "9285e667-a4fc-4748-9b33-2fe9e49ac488",
+          "display_name": "Okrug departments pilot 20261019",
+          "policy_revision": 8,
+          "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:41:14.092388+00:00"
+        },
+        {
+          "device_id": "853d3c7b-23a8-4812-854c-0093a824c475",
+          "display_name": "ALT test pilot",
+          "policy_revision": 8,
+          "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:41:14.074280+00:00"
+        },
+        {
+          "device_id": "7e89a328-1595-4cfe-aefb-3dcca72d0083",
+          "display_name": "Windows 192.168.101.0/24 AUTO",
+          "policy_revision": 8,
+          "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+          "status": "applied",
+          "safe_code": "verifying",
+          "job_id": "1bda1d02-9d84-4881-a380-17c562b2a987",
+          "evaluated_at": "2026-11-06T15:41:14.065190+00:00"
+        },
+        {
+          "device_id": "596d0328-4272-4e59-b644-539fd7b4b6a5",
+          "display_name": "ALT .210 authorized live acceptance 20261024",
+          "policy_revision": 8,
+          "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+          "status": "outside_scope",
+          "safe_code": "platform_unsupported",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:41:14.046954+00:00"
+        },
+        {
+          "device_id": "4ccac6c3-ca90-4cc9-958c-d3eb0cedfcc9",
+          "display_name": "Windows 192.168.101.0/24 AUTO",
+          "policy_revision": 8,
+          "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:41:14.029127+00:00"
+        },
+        {
+          "device_id": "3139e3ba-29c0-4575-8e2d-ce16433ad564",
+          "display_name": "ALT KDE reference parity 20261021",
+          "policy_revision": 8,
+          "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:41:14.010963+00:00"
+        },
+        {
+          "device_id": "13f38b93-cc73-4130-b58c-41f534b1893e",
+          "display_name": "Okrug departments pilot 20261019",
+          "policy_revision": 8,
+          "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+          "status": "applied",
+          "safe_code": "verifying",
+          "job_id": "1fd492d4-a889-435a-9a89-881dcd26ce61",
+          "evaluated_at": "2026-11-06T15:41:14.001617+00:00"
+        },
+        {
+          "device_id": "01e39b54-34ea-4792-aa32-a9772f5c7a62",
+          "display_name": "Okrug departments pilot 20261019",
+          "policy_revision": 8,
+          "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:41:13.979872+00:00"
+        },
+        {
+          "device_id": "00aa5779-d229-4dce-a28c-1e668819eed2",
+          "display_name": "Windows - all published versions - AUTO",
+          "policy_revision": 8,
+          "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:41:13.962387+00:00"
+        },
+        {
+          "device_id": "ff6fd7b0-ad25-419f-83ad-cf5e683ed1bc",
+          "display_name": "Windows 192.168.101.0/24 AUTO",
+          "policy_revision": 8,
+          "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+          "status": "waiting",
+          "safe_code": "capacity_full",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:41:13.942625+00:00"
+        },
+        {
+          "device_id": "dd5ebcfc-2e47-4d2b-ab29-85c689028b24",
+          "display_name": "Temporary installer150 A2-INFAN-N 20261026",
+          "policy_revision": 8,
+          "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:41:13.923889+00:00"
+        },
+        {
+          "device_id": "d72fda38-f2cf-4bd9-ae47-a2c47021f8b8",
+          "display_name": "VM123 independent 3.2.81 acceptance",
+          "policy_revision": 8,
+          "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:41:13.905395+00:00"
+        },
+        {
+          "device_id": "d3ed13cd-1b40-4ccc-b035-240a184cf247",
+          "display_name": "VM123 independent 3.2.120 acceptance",
+          "policy_revision": 8,
+          "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+          "status": "waiting",
+          "safe_code": "capacity_full",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:41:13.884810+00:00"
+        },
+        {
+          "device_id": "d283a42e-2781-4398-a345-1fa81b751705",
+          "display_name": "Ansible ALT rollout 192.168.101.81",
+          "policy_revision": 8,
+          "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:41:13.865037+00:00"
+        },
+        {
+          "device_id": "d15b50bb-7f4b-4900-a02e-f91a11fa3ef4",
+          "display_name": "Production ALT cutover canary",
+          "policy_revision": 8,
+          "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:40:13.449134+00:00"
+        },
+        {
+          "device_id": "cb5851bd-fe70-48fc-ab7e-6afa44c9a7fa",
+          "display_name": "VM123 independent 3.2.118 acceptance",
+          "policy_revision": 8,
+          "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:40:13.432361+00:00"
+        },
+        {
+          "device_id": "cb3d5ed1-6d6f-4532-a6d2-8faf8072db90",
+          "display_name": "Windows - all published versions - AUTO",
+          "policy_revision": 8,
+          "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:40:13.415602+00:00"
+        },
+        {
+          "device_id": "c450fc70-63e6-4c2b-baf6-7de79820d63f",
+          "display_name": "Windows local MSI pilot",
+          "policy_revision": 8,
+          "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+          "status": "waiting",
+          "safe_code": "capacity_full",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:40:13.396522+00:00"
+        },
+        {
+          "device_id": "b23db6ad-1e21-4d99-a4b8-5ae0861398ad",
+          "display_name": "Ansible ALT rollout alt-a1-pc2",
+          "policy_revision": 8,
+          "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:40:13.379409+00:00"
+        },
+        {
+          "device_id": "a8d7937d-40cd-41fa-b32b-85253ec9a505",
+          "display_name": "Okrug departments pilot 20261019",
+          "policy_revision": 8,
+          "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:40:13.359994+00:00"
+        },
+        {
+          "device_id": "a2da1090-c7e7-40e7-bc75-82cfef05a810",
+          "display_name": "VM123 Agent 3.2.92 acceptance",
+          "policy_revision": 8,
+          "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:40:13.339180+00:00"
+        },
+        {
+          "device_id": "d72fda38-f2cf-4bd9-ae47-a2c47021f8b8",
+          "display_name": "VM123 independent 3.2.81 acceptance",
+          "policy_revision": 7,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:36:10.176414+00:00"
+        },
+        {
+          "device_id": "d3ed13cd-1b40-4ccc-b035-240a184cf247",
+          "display_name": "VM123 independent 3.2.120 acceptance",
+          "policy_revision": 7,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "already_current",
+          "safe_code": "already_current",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:36:10.159440+00:00"
+        },
+        {
+          "device_id": "d283a42e-2781-4398-a345-1fa81b751705",
+          "display_name": "Ansible ALT rollout 192.168.101.81",
+          "policy_revision": 7,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:36:10.141827+00:00"
+        },
+        {
+          "device_id": "d15b50bb-7f4b-4900-a02e-f91a11fa3ef4",
+          "display_name": "Production ALT cutover canary",
+          "policy_revision": 7,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:36:10.123403+00:00"
+        },
+        {
+          "device_id": "cb5851bd-fe70-48fc-ab7e-6afa44c9a7fa",
+          "display_name": "VM123 independent 3.2.118 acceptance",
+          "policy_revision": 7,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:36:10.105900+00:00"
+        },
+        {
+          "device_id": "cb3d5ed1-6d6f-4532-a6d2-8faf8072db90",
+          "display_name": "Windows - all published versions - AUTO",
+          "policy_revision": 7,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:36:10.089152+00:00"
+        },
+        {
+          "device_id": "c450fc70-63e6-4c2b-baf6-7de79820d63f",
+          "display_name": "Windows local MSI pilot",
+          "policy_revision": 7,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "already_current",
+          "safe_code": "already_current",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:36:10.073039+00:00"
+        },
+        {
+          "device_id": "b23db6ad-1e21-4d99-a4b8-5ae0861398ad",
+          "display_name": "Ansible ALT rollout alt-a1-pc2",
+          "policy_revision": 7,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:36:10.057020+00:00"
+        },
+        {
+          "device_id": "a8d7937d-40cd-41fa-b32b-85253ec9a505",
+          "display_name": "Okrug departments pilot 20261019",
+          "policy_revision": 7,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:36:10.041229+00:00"
+        },
+        {
+          "device_id": "a2da1090-c7e7-40e7-bc75-82cfef05a810",
+          "display_name": "VM123 Agent 3.2.92 acceptance",
+          "policy_revision": 7,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:36:10.025544+00:00"
+        },
+        {
+          "device_id": "9c7a7cb2-93a9-4ab8-a3b0-4cd8fdd0f683",
+          "display_name": "VM123 independent 3.2.79 acceptance",
+          "policy_revision": 7,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:36:10.009059+00:00"
+        },
+        {
+          "device_id": "943c87ef-f121-40b9-a31f-003e9459e292",
+          "display_name": "Windows - all published versions - AUTO",
+          "policy_revision": 7,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "already_current",
+          "safe_code": "already_current",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:36:09.992383+00:00"
+        },
+        {
+          "device_id": "9285e667-a4fc-4748-9b33-2fe9e49ac488",
+          "display_name": "Okrug departments pilot 20261019",
+          "policy_revision": 7,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "applied",
+          "safe_code": "setup_post_restart_confirmed",
+          "job_id": "7fc059d1-fae4-4e72-8eae-6b190d9d0c7e",
+          "evaluated_at": "2026-11-06T15:36:09.985251+00:00"
+        },
+        {
+          "device_id": "853d3c7b-23a8-4812-854c-0093a824c475",
+          "display_name": "ALT test pilot",
+          "policy_revision": 7,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:36:09.969431+00:00"
+        },
+        {
+          "device_id": "7e89a328-1595-4cfe-aefb-3dcca72d0083",
+          "display_name": "Windows 192.168.101.0/24 AUTO",
+          "policy_revision": 7,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "already_current",
+          "safe_code": "already_current",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:36:09.952964+00:00"
+        },
+        {
+          "device_id": "596d0328-4272-4e59-b644-539fd7b4b6a5",
+          "display_name": "ALT .210 authorized live acceptance 20261024",
+          "policy_revision": 7,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "outside_scope",
+          "safe_code": "platform_unsupported",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:36:09.934788+00:00"
+        },
+        {
+          "device_id": "4ccac6c3-ca90-4cc9-958c-d3eb0cedfcc9",
+          "display_name": "Windows 192.168.101.0/24 AUTO",
+          "policy_revision": 7,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:35:09.512047+00:00"
+        },
+        {
+          "device_id": "3139e3ba-29c0-4575-8e2d-ce16433ad564",
+          "display_name": "ALT KDE reference parity 20261021",
+          "policy_revision": 7,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:35:09.492084+00:00"
+        },
+        {
+          "device_id": "13f38b93-cc73-4130-b58c-41f534b1893e",
+          "display_name": "Okrug departments pilot 20261019",
+          "policy_revision": 7,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "already_current",
+          "safe_code": "already_current",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:35:09.476924+00:00"
+        },
+        {
+          "device_id": "01e39b54-34ea-4792-aa32-a9772f5c7a62",
+          "display_name": "Okrug departments pilot 20261019",
+          "policy_revision": 7,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:35:09.461156+00:00"
+        },
+        {
+          "device_id": "00aa5779-d229-4dce-a28c-1e668819eed2",
+          "display_name": "Windows - all published versions - AUTO",
+          "policy_revision": 7,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "waiting",
+          "safe_code": "waiting_reconnect",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T15:35:09.445400+00:00"
+        },
+        {
+          "device_id": "ff6fd7b0-ad25-419f-83ad-cf5e683ed1bc",
+          "display_name": "Windows 192.168.101.0/24 AUTO",
+          "policy_revision": 7,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "applied",
+          "safe_code": "setup_post_restart_confirmed",
+          "job_id": "aeb7917b-0cdb-4ba5-9df5-f298c3ae9dcc",
+          "evaluated_at": "2026-11-06T15:35:09.438513+00:00"
+        },
+        {
+          "device_id": "dd5ebcfc-2e47-4d2b-ab29-85c689028b24",
+          "display_name": "Temporary installer150 A2-INFAN-N 20261026",
+          "policy_revision": 7,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "applied",
+          "safe_code": "setup_post_restart_confirmed",
+          "job_id": "387ee3e7-2c1e-4da3-ac18-cedd3a32f5bc",
+          "evaluated_at": "2026-11-06T15:35:09.431613+00:00"
+        },
+        {
+          "device_id": "cb5851bd-fe70-48fc-ab7e-6afa44c9a7fa",
+          "display_name": "VM123 independent 3.2.118 acceptance",
+          "policy_revision": 5,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T09:03:06.955041+00:00"
+        },
+        {
+          "device_id": "cb3d5ed1-6d6f-4532-a6d2-8faf8072db90",
+          "display_name": "Windows - all published versions - AUTO",
+          "policy_revision": 5,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "applied",
+          "safe_code": "installing",
+          "job_id": "a2388ba1-d0c4-4ca6-9d35-bf33d1fe1588",
+          "evaluated_at": "2026-11-06T09:03:06.944709+00:00"
+        },
+        {
+          "device_id": "c450fc70-63e6-4c2b-baf6-7de79820d63f",
+          "display_name": "Windows local MSI pilot",
+          "policy_revision": 5,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "already_current",
+          "safe_code": "already_current",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T09:03:06.926209+00:00"
+        },
+        {
+          "device_id": "b23db6ad-1e21-4d99-a4b8-5ae0861398ad",
+          "display_name": "Ansible ALT rollout alt-a1-pc2",
+          "policy_revision": 5,
+          "release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+          "status": "blocked",
+          "safe_code": "platform_unknown",
+          "job_id": null,
+          "evaluated_at": "2026-11-06T09:03:06.907051+00:00"
+        }
+      ]
+    }
+  },
+  "served_download_verification": {
+    "verified_utc": "2026-11-07T00:45:22.653657+00:00",
+    "size": 178729632,
+    "sha256": "9d06a8339c2ed3b2c563f2b5258ad9fdbef0962b6d85f79e6e88490ca7f426fc",
+    "release_id": "0e47b04d-2335-4255-9028-22cfc1583d9c",
+    "version": "3.2.177",
+    "signature": {
+      "status": "Valid",
+      "thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+      "timestamp": true,
+      "subject": "CN=Endpoint Platform Code Signing, OU=IT, O=Sosnadmin, L=Sosnovsky, S=Chelyabinsk, C=RU"
+    },
+    "download_url": "https://endpoint.sosnadmin.local/api/admin/console/installer/releases/0e47b04d-2335-4255-9028-22cfc1583d9c/download",
+    "local_verified_copy": "C:\\Users\\admin-2\\.codex\\worktrees\\pilot-support-channel\\endpoint\\.superpowers\\sdd\\2026-11-07-installation-lifecycle\\served177\\EndpointAgentSetup-3.2.177-x64.exe",
+    "catalog": {
+      "data": [
+        {
+          "id": "0e47b04d-2335-4255-9028-22cfc1583d9c",
+          "version": "3.2.177",
+          "agent_version": "3.2.177",
+          "filename": "EndpointAgentSetup-3.2.177-x64.exe",
+          "setup_sha256": "9d06a8339c2ed3b2c563f2b5258ad9fdbef0962b6d85f79e6e88490ca7f426fc",
+          "msi_sha256": "d096726d6d0521a522fdb81d0b3ee551d583befba5d216c09a96332fd21359f3",
+          "source_commit": "d21bc3bba119a178607de6f64f620fb53eeadf01",
+          "msi_source_commit": "25f2ad8a5e13991e4e76260da939d29aafba8674",
+          "authenticode_status": "valid",
+          "authenticode_publisher": "CN=Endpoint Platform Code Signing, OU=IT, O=Sosnadmin, L=Sosnovsky, S=Chelyabinsk, C=RU",
+          "msi_authenticode_status": "valid",
+          "msi_authenticode_publisher": "CN=Endpoint Platform Code Signing, OU=IT, O=Sosnadmin, L=Sosnovsky, S=Chelyabinsk, C=RU",
+          "created_at": "2026-11-06T23:20:21.132460Z",
+          "retired_at": null,
+          "download_url": "/api/admin/console/installer/releases/0e47b04d-2335-4255-9028-22cfc1583d9c/download"
+        },
+        {
+          "id": "1ee38ef2-e811-460c-a71e-e389bcf85a4f",
+          "version": "3.2.176",
+          "agent_version": "3.2.176",
+          "filename": "EndpointAgentSetup-3.2.176-x64.exe",
+          "setup_sha256": "e0e3289fbdda59a368d01931518a38c6e1003a0be74002cf9e7313491101f6f8",
+          "msi_sha256": "cb9011259f964aba3262f407e502f4c5781df774023f4103d89fe758eac1d32e",
+          "source_commit": "be3ea71493af47229320c8f4ee5206b33631ce39",
+          "msi_source_commit": "03143de5005201837c58a2f0955d714e7026a2eb",
+          "authenticode_status": "valid",
+          "authenticode_publisher": "CN=Endpoint Platform Code Signing, OU=IT, O=Sosnadmin, L=Sosnovsky, S=Chelyabinsk, C=RU",
+          "msi_authenticode_status": "valid",
+          "msi_authenticode_publisher": "CN=Endpoint Platform Code Signing, OU=IT, O=Sosnadmin, L=Sosnovsky, S=Chelyabinsk, C=RU",
+          "created_at": "2026-11-06T18:03:46.993492Z",
+          "retired_at": null,
+          "download_url": "/api/admin/console/installer/releases/1ee38ef2-e811-460c-a71e-e389bcf85a4f/download"
+        },
+        {
+          "id": "80e3b700-c3c1-418f-81d9-d7fc65d62def",
+          "version": "3.2.172",
+          "agent_version": "3.2.172",
+          "filename": "EndpointAgentSetup-3.2.172-x64.exe",
+          "setup_sha256": "f6767cd04def4ef345b660b30c4e082acf065efaf08b0fc1282813517ff18df6",
+          "msi_sha256": "45bce9f74ef209a279404da3951ddefe7c3e89ceee092a76b0e8283d4f649ce0",
+          "source_commit": "5971c4640b8a395537dc2fc0420fcb364c92f19e",
+          "msi_source_commit": "a2b6d6228b6583c6696c19b4e91b2175a2825b4b",
+          "authenticode_status": "valid",
+          "authenticode_publisher": "CN=Endpoint Platform Code Signing, OU=IT, O=Sosnadmin, L=Sosnovsky, S=Chelyabinsk, C=RU",
+          "msi_authenticode_status": "valid",
+          "msi_authenticode_publisher": "CN=Endpoint Platform Code Signing, OU=IT, O=Sosnadmin, L=Sosnovsky, S=Chelyabinsk, C=RU",
+          "created_at": "2026-11-06T08:51:37.940544Z",
+          "retired_at": null,
+          "download_url": "/api/admin/console/installer/releases/80e3b700-c3c1-418f-81d9-d7fc65d62def/download"
+        },
+        {
+          "id": "e1ae6965-f135-43e8-9c7e-0d55a2dbe983",
+          "version": "3.2.165",
+          "agent_version": "3.2.165",
+          "filename": "EndpointAgentSetup-3.2.165-x64.exe",
+          "setup_sha256": "c71cfffca525f8370b22a9f96155176464566739c675f9325596fd2d045f159a",
+          "msi_sha256": "831ed1996daae0bf68a046828ff0e8f3775b879e14bf05e9a086304672cee5a9",
+          "source_commit": "0080690784ff4efa8cecd014d0e38afbc02bc1d5",
+          "msi_source_commit": "ed7f77a559e19500df75b9ec169c5336e308b304",
+          "authenticode_status": "valid",
+          "authenticode_publisher": "CN=Endpoint Platform Code Signing, OU=IT, O=Sosnadmin, L=Sosnovsky, S=Chelyabinsk, C=RU",
+          "msi_authenticode_status": "valid",
+          "msi_authenticode_publisher": "CN=Endpoint Platform Code Signing, OU=IT, O=Sosnadmin, L=Sosnovsky, S=Chelyabinsk, C=RU",
+          "created_at": "2026-11-05T09:05:51.431284Z",
+          "retired_at": null,
+          "download_url": "/api/admin/console/installer/releases/e1ae6965-f135-43e8-9c7e-0d55a2dbe983/download"
+        },
+        {
+          "id": "26fa3bb2-f9f5-424f-a885-2ce6cb489d15",
+          "version": "3.2.156+setup.1",
+          "agent_version": "3.2.156",
+          "filename": "EndpointAgentSetup-3.2.156+setup.1-x64.exe",
+          "setup_sha256": "c98851e539004384d5b216d075b7b16a33888990840c8f218514dcb843590cbf",
+          "msi_sha256": "ab6cde32554798a18b446c8e33ce6f0926eba6a85439bc7224a08a88b25a1073",
+          "source_commit": "b115712c43e8ca7ae46418489edc24ab61d82e3a",
+          "msi_source_commit": "6ed41cd01d494e46111a452c2ae3a844f723175b",
+          "authenticode_status": "valid",
+          "authenticode_publisher": "CN=Endpoint Platform Code Signing, OU=IT, O=Sosnadmin, L=Sosnovsky, S=Chelyabinsk, C=RU",
+          "msi_authenticode_status": "valid",
+          "msi_authenticode_publisher": "CN=Endpoint Platform Code Signing, OU=IT, O=Sosnadmin, L=Sosnovsky, S=Chelyabinsk, C=RU",
+          "created_at": "2026-10-30T21:52:02.634481Z",
+          "retired_at": null,
+          "download_url": "/api/admin/console/installer/releases/26fa3bb2-f9f5-424f-a885-2ce6cb489d15/download"
+        },
+        {
+          "id": "f1f81b7a-7f99-4050-86b6-4fe65fd95365",
+          "version": "3.2.156",
+          "agent_version": "3.2.156",
+          "filename": "EndpointAgentSetup-3.2.156-x64.exe",
+          "setup_sha256": "92c17fddab6d1c4a32b322bb5a39855bc876c688f743684129fc4cfc412e4665",
+          "msi_sha256": "ab6cde32554798a18b446c8e33ce6f0926eba6a85439bc7224a08a88b25a1073",
+          "source_commit": "3e3528fbb07aa6abcece61a31adc8b7762048069",
+          "msi_source_commit": "6ed41cd01d494e46111a452c2ae3a844f723175b",
+          "authenticode_status": "valid",
+          "authenticode_publisher": "CN=Endpoint Platform Code Signing, OU=IT, O=Sosnadmin, L=Sosnovsky, S=Chelyabinsk, C=RU",
+          "msi_authenticode_status": "valid",
+          "msi_authenticode_publisher": "CN=Endpoint Platform Code Signing, OU=IT, O=Sosnadmin, L=Sosnovsky, S=Chelyabinsk, C=RU",
+          "created_at": "2026-10-26T17:49:49.281473Z",
+          "retired_at": null,
+          "download_url": "/api/admin/console/installer/releases/f1f81b7a-7f99-4050-86b6-4fe65fd95365/download"
+        },
+        {
+          "id": "6d8e82dc-4209-45c9-a584-a9c86dda6d10",
+          "version": "3.2.149",
+          "agent_version": "3.2.149",
+          "filename": "EndpointAgentSetup-3.2.149-x64.exe",
+          "setup_sha256": "7bb9f4ba71dac2df0dcb504c263fd83571b505431321e670e661458c8fb3f171",
+          "msi_sha256": "1b4577fbf330f1414dd7b03914deaefdb3f87b94780533849579ab3df8739632",
+          "source_commit": "5923e46708e8145e76e644187d35e9c082e3419c",
+          "msi_source_commit": "1ae42be4180751e271f2e37c7e12870d199c78bf",
+          "authenticode_status": "valid",
+          "authenticode_publisher": "CN=Endpoint Platform Code Signing, OU=IT, O=Sosnadmin, L=Sosnovsky, S=Chelyabinsk, C=RU",
+          "msi_authenticode_status": "valid",
+          "msi_authenticode_publisher": "CN=Endpoint Platform Code Signing, OU=IT, O=Sosnadmin, L=Sosnovsky, S=Chelyabinsk, C=RU",
+          "created_at": "2026-10-23T15:11:36.547164Z",
+          "retired_at": null,
+          "download_url": "/api/admin/console/installer/releases/6d8e82dc-4209-45c9-a584-a9c86dda6d10/download"
+        },
+        {
+          "id": "8a8b6d28-304d-4965-b48c-44e80bf312c4",
+          "version": "3.2.92",
+          "agent_version": "3.2.92",
+          "filename": "EndpointAgentSetup-3.2.92-x64.exe",
+          "setup_sha256": "936285a28b0d2ce1707aeb4c928fcef706c079051eec25c0798c3a0c2c340ed0",
+          "msi_sha256": "f4cef823081a28adc34efb9f3afe7495f4ee58e8fc560e51755970e78d04e3db",
+          "source_commit": "1f9e93956cc3475ff5613df8729dc44edce28562",
+          "msi_source_commit": "1f9e93956cc3475ff5613df8729dc44edce28562",
+          "authenticode_status": "valid",
+          "authenticode_publisher": "CN=Endpoint Platform Code Signing, OU=IT, O=Sosnadmin, L=Sosnovsky, S=Chelyabinsk, C=RU",
+          "msi_authenticode_status": "valid",
+          "msi_authenticode_publisher": "CN=Endpoint Platform Code Signing, OU=IT, O=Sosnadmin, L=Sosnovsky, S=Chelyabinsk, C=RU",
+          "created_at": "2026-10-13T22:07:57.496378Z",
+          "retired_at": null,
+          "download_url": "/api/admin/console/installer/releases/8a8b6d28-304d-4965-b48c-44e80bf312c4/download"
+        },
+        {
+          "id": "0716a71c-2cbc-45a9-991f-5e2592a80c84",
+          "version": "3.2.79",
+          "agent_version": "3.2.79",
+          "filename": "EndpointAgentSetup-3.2.79-x64.exe",
+          "setup_sha256": "c64b90870584a63ff67085948884a06a9bc544ea6edf55b2013eca8a3cc434e6",
+          "msi_sha256": "2f7d778799f1e32645af7936dfaf3f090d6ad4df5bb883827ea8a0a5d859f72a",
+          "source_commit": "d9b0fea2b14e34b05e25058e4ee004ea61643ca6",
+          "msi_source_commit": "d9b0fea2b14e34b05e25058e4ee004ea61643ca6",
+          "authenticode_status": "valid",
+          "authenticode_publisher": "CN=Endpoint Platform Code Signing, OU=IT, O=Sosnadmin, L=Sosnovsky, S=Chelyabinsk, C=RU",
+          "msi_authenticode_status": "valid",
+          "msi_authenticode_publisher": "CN=Endpoint Platform Code Signing, OU=IT, O=Sosnadmin, L=Sosnovsky, S=Chelyabinsk, C=RU",
+          "created_at": "2026-10-02T12:51:14.093345Z",
+          "retired_at": null,
+          "download_url": "/api/admin/console/installer/releases/0716a71c-2cbc-45a9-991f-5e2592a80c84/download"
+        },
+        {
+          "id": "ee063806-57e5-4e94-8f40-7725b631131b",
+          "version": "3.2.65",
+          "agent_version": "3.2.65",
+          "filename": "EndpointAgentSetup-3.2.65-x64.exe",
+          "setup_sha256": "c2e2495dc6a52d70264e28de2b15944e28fc8ed0367690899834d8e6c0d28f19",
+          "msi_sha256": "c7f9d187f6a184688fc50f93b5172ffd33fec75c80c3cbbc86b46f6f20e18548",
+          "source_commit": "53fa4cfc40d06290e1ad8227b303ab9cd71239ee",
+          "msi_source_commit": "2528aeb809d882eb0b9363ecc8c230b552e7cea1",
+          "authenticode_status": "valid",
+          "authenticode_publisher": "CN=Endpoint Platform Code Signing, OU=IT, O=Sosnadmin, L=Sosnovsky, S=Chelyabinsk, C=RU",
+          "msi_authenticode_status": "valid",
+          "msi_authenticode_publisher": "CN=Endpoint Platform Code Signing, OU=IT, O=Sosnadmin, L=Sosnovsky, S=Chelyabinsk, C=RU",
+          "created_at": "2026-09-24T11:44:49.882799Z",
+          "retired_at": null,
+          "download_url": "/api/admin/console/installer/releases/ee063806-57e5-4e94-8f40-7725b631131b/download"
+        },
+        {
+          "id": "326b123d-47c4-4f8e-84be-4abb4e163865",
+          "version": "3.2.63",
+          "agent_version": "3.2.63",
+          "filename": "EndpointAgentSetup-3.2.63-x64.exe",
+          "setup_sha256": "322bc851b5a5b1e2be7a3d2d98627d3cec09117ad388ec5e62cbbe004b235032",
+          "msi_sha256": "2a1973c2ce352f4047f7512b58415d0ce6782183a159ba82c6673c7ebbae8a86",
+          "source_commit": "c14c95d6b4d375551814c3a266b492c54079b7a8",
+          "msi_source_commit": "c14c95d6b4d375551814c3a266b492c54079b7a8",
+          "authenticode_status": "valid",
+          "authenticode_publisher": "CN=Endpoint Platform Code Signing, OU=IT, O=Sosnadmin, L=Sosnovsky, S=Chelyabinsk, C=RU",
+          "msi_authenticode_status": "valid",
+          "msi_authenticode_publisher": "CN=Endpoint Platform Code Signing, OU=IT, O=Sosnadmin, L=Sosnovsky, S=Chelyabinsk, C=RU",
+          "created_at": "2026-09-23T20:34:42.601201Z",
+          "retired_at": null,
+          "download_url": "/api/admin/console/installer/releases/326b123d-47c4-4f8e-84be-4abb4e163865/download"
+        }
+      ],
+      "total": 11,
+      "limit": 20,
+      "offset": 0
+    }
+  },
+  "verification": {
+    "full_project_baseline": "6808 passed,470 skipped,7 existing warnings,821.80s before the narrow candidate visibility extension",
+    "candidate_visibility": "65 distinct focused passing tests including real PostgreSQL migration/transaction/concurrency",
+    "parent_fix": "30 passed,72.78s after real-builder RED; independent focused review approved",
+    "full_final_provider_suite_rerun": false,
+    "frontend": "22 UI tests/typecheck/build; live authenticated desktop1440/mobile390/reload/history/parent links; no overflow/console errors",
+    "real_windows_job_cancellation": "3 actual descendant cancellation tests passed",
+    "signed_frozen_resource_inspection": true,
+    "actual_test120_accepted": true,
+    "report": "docs/verification/2026-11-07-test120-installation-lifecycle177.md",
+    "source_test_commit": "25f2ad8a5e13991e4e76260da939d29aafba8674",
+    "provider_test_commit": "266e38e5c2ead35f95978da1b95cc7a4fadb2a82"
+  },
+  "limits": [
+    "Exact source qualifications cover Foundation172/client107 and176/client107 for this exact EXE; other sources are not inferred.",
+    "Initial online cohort acceptance is separate from six offline172 workstations awaiting fresh reconnection; known79 remains unsupported.",
+    "Existing removed/historical unknown platform records remain blocked; no legacy ProductCode or installation state backfill.",
+    "UserSensor/activity telemetry on120 is verified before and after controlled Core restart; previously deferred Yandex26.10 browser telemetry is not claimed.",
+    "Support needs Windows, network, Endpoint/gateway and an existing verified administrator; initial access is at most8h and is not renewed by polling/retry.",
+    "Portable OpenSSH fallback retains the previously accepted upstream Preview/non-production-ready limitation.",
+    "No new Linux release; preserved ALT156 metadata has not been requalified by this Windows task."
+  ],
+  "linux_release_unchanged": {
+    "version": "3.2.156",
+    "runtime_source_commit": "6ed41cd01d494e46111a452c2ae3a844f723175b",
+    "kit_metadata_commit": "d007064792caa5f3b94d911c73b13214913a230c"
+  },
+  "historical_release_record": "docs/releases/windows-3.2.176-setup.json"
+}

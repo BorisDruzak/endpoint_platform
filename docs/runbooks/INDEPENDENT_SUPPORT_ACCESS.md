@@ -23,7 +23,7 @@ different states; a connected tunnel alone is not successful administrator acces
    отзыв или сброс конкретного ПК имеют приоритет. Если срок закончился,
    задайте срок до8часов, существующего администратора, одобренный публичный
    Ed25519-ключ и причину, затем нажмите **Включить доступ**. Для доменных ПК
-   используется `SOSNADM\admin-2`; после чистой установки176 тестовый120 тоже
+   используется `SOSNADM\admin-2`; после чистой установки тестовый120 тоже
    использует эту доменную учётную запись. Для автономного ПК
    укажите его действующего администратора; аккаунт и пароль не создаются.
 3. Нажмите **Обновить доступ**, дождитесь свежего отчёта и подключения туннеля.
@@ -41,8 +41,8 @@ different states; a connected tunnel alone is not successful administrator acces
 ```powershell
 $hostKey = 'ssh-ed25519 <ключ из карточки нужного Device UUID>'
 .\tools\support\Connect-EndpointSupport.ps1 `
-  -DeviceId '06143264-1b7b-42e7-990f-7f8e1292491b' `
-  -RemotePort 32006 `
+  -DeviceId 'c87eaa22-4fd1-4830-bc11-88142afda87e' `
+  -RemotePort 32009 `
   -WindowsAdminUsername 'SOSNADM\admin-2' `
   -HostPublicKey $hostKey `
   -RemoteCommand 'whoami /user'
@@ -93,7 +93,7 @@ Host keys, device tunnel keys and approved operator keys have distinct roles.
 The installer generates device private keys locally; private keys and enrollment
 material are never embedded in a release. The Windows login must already exist
 and be an enabled administrator. The original pilot used `test_agent_win` on101.120;
-the clean176 reinstall now uses the selected existing domain principal
+the clean reinstall uses the selected existing domain principal
 `SOSNADM\admin-2`, as do the other tested domain Windows devices. A bare `admin-2` must not be substituted for that
 confirmed domain identity. No Windows
 administrator account is created by this feature.
@@ -113,8 +113,10 @@ Explicit domain principals are normalized to lowercase in policy. The Windows
 component resolves and validates the exact existing administrator SID before
 configuration, and renders lowercase local or `domain_short_name\user_name`
 rules as required by [Microsoft's OpenSSH configuration documentation](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh-server-configuration#allowgroups-allowusers-denygroups-denyusers).
-The Console preserves a stored account, but leaves new policy account input
-empty so the operator chooses the exact local or domain identity explicitly.
+The Console uses the account returned by the effective enabled policy. A disabled
+policy projection hides its account and operator keys; their stored server intent
+is preserved. New or disabled policy input can therefore be empty after reload:
+confirm the exact existing local/domain account and approved key when enabling.
 
 Domain policies require the matching provider contract and domain-capable
 Support component 1.0.1. Existing local-name policies and the local pilot account
@@ -288,3 +290,52 @@ code authority; the target remains bound to the older restoration evidence.
 The protected authenticated owner requires genuine native settlement and death
 of prior owners. It does not reinstall MSI, restart services, change selectors
 or replace grants. A mismatched or unresolved native operation remains blocked.
+
+## Удаление и повторная установка начиная с Setup177
+
+Штатное защищённое удаление фиксирует событие только после подтверждённого
+завершения MSI с native0. Перед удалением собственных маркеров оно освобождает
+принадлежащие Endpoint настройки браузеров, сохраняя чужие значения. Результат
+очистки браузеров и Support передаётся отдельно от результата MSI. Не удаляйте
+маркеры владения вручную, пока связанные значения ещё существуют.
+
+Отправка уведомления выполняется после завершения владельца установки и
+освобождения его блокировок. Она ограничена по времени и не оставляет отдельного
+отправителя после удаления. Недоступность сервера не превращает успешное удаление
+в ошибку MSI: защищённая очередь сохраняет факт для следующего Setup. До получения
+уведомления сервер показывает последний подтверждённый факт. При следующей
+установке накопленное удаление доставляется перед новым событием установки.
+
+При обычном удалении сохраняются четыре файла идентичности устройства. Повторный
+Setup использует прежний UUID и credential; карточка, телеметрия и история остаются
+на месте. Состояние «удалён» не равнозначно административному выводу устройства
+из эксплуатации. Heartbeat не отменяет подтверждённое удаление; новые задания
+для такого устройства блокируются до подтверждённой установки.
+
+Ключи самого канала Support после удаления создаются заново. Разрешённая привязка
+к прежнему UUID требует подтверждённой последовательности удаления и установки,
+прежнего действующего device credential и неизменённого решения администратора.
+Ручное отключение, отзыв или сброс не обходятся переустановкой. Прежнее
+автоматическое разрешение может получить новое ограниченное окно только в рамках
+этой однократной привязки; повторы и heartbeat не продлевают доступ.
+
+Изменившийся SSH-ключ по-прежнему вызывает отказ подключения. После разрешённой
+переустановки сверьте новую привязку с актуальной аутентифицированной карточкой,
+фактами native0 и, если он доступен, прежним доверенным административным каналом.
+Сохраните старый публичный pin как свидетельство и замените только pin данного
+UUID. Не отключайте строгую проверку ключей и не используйте сканирование порта
+как подтверждение новой идентичности.
+
+Полная очистка — отдельная операция: сначала дождитесь известного native0,
+очистки принадлежащих продукту значений и полученного сервером события удаления.
+Сохраните журналы вне рабочих каталогов и отзовите утраченный credential.
+Прежнюю карточку с историей сохраните. При одобрении новой регистрации можно
+указать её UUID в поле **Предыдущая карточка после полной очистки**. Сервер требует
+совпадения отпечатков двух заявок и потреблённую прежнюю регистрацию на том же
+устройстве; объединения credential или истории не происходит. Дайджесты заявок
+и install claim имеют разные защитные контексты и напрямую не сравниваются.
+
+Неизвестный результат MSI, незавершённый rollback или смена административной
+политики не дают права повторять установку, удалять журналы или обходить отказ
+привязки. Факты прежних версий без нового уведомления остаются неизвестными;
+миграция не придумывает для них состояние установки или ProductCode.

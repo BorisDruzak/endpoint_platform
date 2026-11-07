@@ -56,11 +56,11 @@ risks. Freeze source before handoff. Coordinate shared contract; no overlapping
 Windows edits. Request permission from root before starting real PG tests; root
 can provide a guarded disposable URL. Do not run competing full project suites.
 
-- [ ] RED tests; define strict shared contract first and notify Windows worker.
-- [ ] Add immutable events/projection and0048 migration; DeviceBearer/CIDR/revocation/exact-release validation, causal ordering/idempotency and audit.
-- [ ] Keep removed card/history visible, exclude new work, add Console fields/UI and history without letting heartbeat resurrect state.
-- [ ] Bind one native reinstall rebind/optional automatic access intent to exact source and removed->installed stream; manual changes cancel it.
-- [ ] Relevant tests + isolated real PostgreSQL races/migration. Independent task review and fixes.
+- [x] RED tests; define strict shared contract first and notify Windows worker.
+- [x] Add immutable events/projection and0048 migration; DeviceBearer/CIDR/revocation/exact-release validation, causal ordering/idempotency and audit.
+- [x] Keep removed card/history visible, exclude new work, add Console fields/UI and history without letting heartbeat resurrect state.
+- [x] Bind one native reinstall rebind/optional automatic access intent to exact source and removed->installed stream; manual changes cancel it.
+- [x] Relevant tests + isolated real PostgreSQL races/migration. Independent task review and fixes.
 
 ## Task 3: Native producer, owned cleanup and durable delivery
 
@@ -101,19 +101,23 @@ packaging closure and remaining concerns. Freeze source before handoff; do not
 start a competing full-project suite or artifact build. New immutable177 is built
 by root only after combined review and source freeze.
 
-- [ ] RED tests; use Task2 shared contract.
-- [ ] Native ordinary0 cleanup/receipt under current authenticated owner, strict exclusions and independent warnings; embed pinned browser identity.
-- [ ] Protected idempotent per-device outbox/causal stream, bounded strict HTTPS delivery; retained identity repair and first-enrollment binding.
-- [ ] Durable local pending if offline, no raw bearer in outbox/no residual sender; preserve all native recovery gates.
-- [ ] Native/Setup/packaging tests, independent task review and fixes.
+- [x] RED tests; use Task2 shared contract.
+- [x] Native ordinary0 cleanup/receipt under current authenticated owner, strict exclusions and independent warnings; embed pinned browser identity.
+- [x] Protected idempotent per-device outbox/causal stream, bounded strict HTTPS delivery; retained identity repair and first-enrollment binding.
+- [x] Durable local pending if offline, no raw bearer in outbox/no residual sender; preserve all native recovery gates.
+- [x] Native/Setup/packaging tests, independent task review and fixes.
 
 ## Task 4: Integration, deployment and actual177 acceptance (root)
 
-- [ ] Add trusted-candidate publication state in additive0048: legacy defaultTrue, active catalog filter, exact native-proof acceptance independent of download visibility, transactional audited one-way promotion and no immutable metadata changes.
-- [ ] Verify candidate-only default inclusion in the same AUTO campaign without CIDR/expiry/quota/use changes; preserve explicit diagnostic no-AUTO exception, failed-promotion rollback and concurrent retry behavior.
-- [ ] Whole-branch review, source checks/tests/build gates, committed immutable source and177 compatibility binding/newGUID.
-- [ ] Verified provider archive/backup/additive migration, atomic deploy and preserved independent gateway.
-- [ ] Signed177 artifact verification and candidate-only registration with inspected MSI/ProductCode/expected publisher; preserve176 primary download while authorizing177 through existing default AUTO, source176 Console canary as qualified, ordinary uninstall and retained identity reinstall.
-- [ ] Clean177 install, fresh user samples, automatic Support/domain SSH with Core/updater/observer stopped and after restore; event/ordering/offline checks.
-- [ ] Canonical release/rules/receipts and scopes, campaign authority preserved; root decides exact-row primary promotion from actual gates via ordinary canonical publication.
-- [ ] Preserve rollback boundary: automatic old-server rollback only before hidden candidate registration; later rollback must retain filtering or explicitly retire candidates under operator authority, never blindly expose them or remove publication state.
+- [x] Add trusted-candidate publication state in additive0048: legacy defaultTrue, active catalog filter, exact native-proof acceptance independent of download visibility, transactional audited one-way promotion and no immutable metadata changes.
+- [x] Verify candidate-only default inclusion in the same AUTO campaign without CIDR/expiry/quota/use changes; preserve explicit diagnostic no-AUTO exception, failed-promotion rollback and concurrent retry behavior.
+- [x] Whole-branch review, source checks/tests/build gates, committed immutable source and177 compatibility binding/newGUID.
+- [x] Verified provider archive/backup/additive migration, atomic deploy and preserved independent gateway.
+- [x] Signed177 artifact verification and candidate-only registration with inspected MSI/ProductCode/expected publisher; preserve176 primary download while authorizing177 through existing default AUTO, source176 Console canary as qualified, ordinary uninstall and retained identity reinstall.
+- [x] Clean177 install, fresh user samples, automatic Support/domain SSH with Core/updater/observer stopped and after restore; event/ordering/offline checks.
+- [x] Canonical release/rules/receipts and scopes, campaign authority preserved; root decides exact-row primary promotion from actual gates via ordinary canonical publication.
+- [x] Preserve rollback boundary: automatic old-server rollback only before hidden candidate registration; later rollback must retain filtering or explicitly retire candidates under operator authority, never blindly expose them or remove publication state.
+
+## Final live acceptance
+
+RuntimeC25f2ad8/nativeBd21bc3b and provider parent fix266e38e are frozen. Source176 and172 Console canaries accepted native0 with185seconds/sensor1/private4, and both were qualified. Ordinary and offline retained reinstall preserved UUID/history/manual policy. Fresh177 accepted native0, genuine advancing samples before/after Core restart and actual stopped-Core/updater/observer SSH96.908636seconds. Six initial online Windows devices accepted177 under dynamic policy12/max2, canonical primary download bytes/signatures were verified, and Linux156 metadata remained identical. See the dated verification receipt and windows177 release record for exact evidence and limits.

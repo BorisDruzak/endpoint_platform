@@ -1,11 +1,12 @@
 # Endpoint Agent Windows MSI
 
-The current published release is **3.2.156**. Its exact packages, source revisions,
-download links and qualification limits are recorded in
+The current published Windows release, exact packages, source revisions,
+download links and source qualification limits are recorded in
 [`docs/releases/current-agent-release.json`](../../docs/releases/current-agent-release.json).
-Use `initial-runtime-3.2.156.json` for this release; older immutable bindings below
-remain historical build inputs. The Core update requires Foundation 3.2.156;
-upgrade an older Foundation with the full signed Setup first.
+Use the `initial-runtime-<version>.json` named by that record. Older immutable
+bindings and build examples below remain historical inputs. Foundation changes
+use a source-qualified full signed Setup; Core bridge qualification is recorded
+separately. ALT Linux has its own version and release metadata.
 
 This directory builds one machine-wide x64 MSI for the headless Endpoint
 Agent. It uses the neutral core, non-GUI launcher, and fixed Windows service
@@ -23,7 +24,13 @@ gates.
 
 ## Build
 
-Prerequisites are Python with PyInstaller and the WiX Toolset 4 `wix` command
+Run these build scripts with **PowerShell 7** (`pwsh`; qualified with 7.6.9).
+Windows PowerShell 5.1 serializes the `ConvertFrom-Json` shared-Foundation array
+as a nested `value`/`Count` wrapper; the resulting invalid inventory is correctly
+rejected by the MSI verifier. Windows runtime and installer execution continue
+to use their separately qualified Windows PowerShell/native paths.
+
+Other prerequisites are Python with PyInstaller and the WiX Toolset 4 `wix` command
 with `WixToolset.Util.wixext` available. The source tree must be Git-clean;
 the builder refuses a dirty tree. A schema-5 manifest also requires independent
 evidence for the retained initial-runtime stage. From the repository root:
