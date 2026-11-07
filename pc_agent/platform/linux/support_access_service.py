@@ -25,6 +25,32 @@ from pc_agent.platform.linux.support_access_native import (SupportPaths, Private
 PREFIX = '/agent/v1/support-access/linux/'
 
 
+def _public_status_error(error):
+    """Map private failures to the frozen status vocabulary without DTO imports.
+
+    This must match LinuxSupportStatusReport's inherited seven-code contract;
+    internal diagnostics or arbitrary exception text never go on the wire.
+    """
+    code = str(error) if isinstance(error,(SupportError,str)) else None
+    return {
+        'https_unavailable':'policy_unavailable',
+        'https_timeout':'policy_unavailable',
+        'expired_policy':'policy_unavailable',
+        'stale_policy':'policy_unavailable',
+        'invalid_policy':'configuration_conflict',
+        'invalid_key':'configuration_conflict',
+        'account_not_authorized':'configuration_conflict',
+        'unsafe_path':'configuration_conflict',
+        'unsafe_file':'configuration_conflict',
+        'unsafe_control_socket':'configuration_conflict',
+        'key_mismatch':'key_conflict',
+        'key_role_conflict':'key_conflict',
+        'child_start_failed':'tunnel_failed',
+        'master_unavailable':'tunnel_failed',
+        'master_changed':'tunnel_failed',
+    }.get(code,'service_failed')
+
+
 class SupportHTTPS:
     def __init__(self, origin, ca_file):
         if origin not in ORIGINS:
@@ -302,12 +328,12 @@ def _run_service_locked(store,paths,stop_event):
                                 children.start(policy,deadline)
                             gate.arm(absolute_deadline=deadline,boot=boot_time())
                         current,error = policy,None
-                    except Exception:
+                    except Exception as failure:
                         children.stop()
                         gate.deadline = 0
-                        error = 'invalid_policy'
+                        error = _public_status_error(failure)
                 else:
-                    error = 'https_unavailable'
+                    error = _public_status_error(result[1])
             if now >= next_poll:
                 # Positive only after remote forwarding acknowledgement on the
                 # same root-owned master/socket, never administrator attestation.

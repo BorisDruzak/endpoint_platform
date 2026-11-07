@@ -138,3 +138,79 @@ def test_runtime_cleanup_stays_inside_exclusive_lock(monkeypatch):
     monkeypatch.setattr(service,'NativeChildren',Children)
     with pytest.raises(SupportError):service.run_service()
     assert stopped == [True,True]
+
+
+@pytest.mark.parametrize('failure,expected_error',[
+    ('https','policy_unavailable'),
+    ('malformed_policy','configuration_conflict'),
+    ('native_start','tunnel_failed'),
+    ('account','configuration_conflict'),
+    ('unexpected_native','service_failed'),
+])
+def test_status_contract_error_then_policy_recovers_in_same_service_loop(monkeypatch,failure,expected_error):
+    """Real loop/worker/lease logic with OS+HTTPS boundaries replaced, real DTO."""
+    from endpoint_contracts.linux_support_access import LinuxSupportStatusReport
+    from pc_agent.tests.linux.test_support_access import DEVICE,NOW,key,policy
+
+    outgoing=[];rejected=[];native_starts=[];account_checks=[];instances=[]
+    clock=[10.0]
+    class Stop(Event):
+        def __init__(self):super().__init__();self.waits=0
+        def wait(self,timeout=None):
+            self.waits+=1
+            clock[0]+=31
+            if self.waits>100:self.set()
+            return super().wait(.001)  # Yield to the real bounded HTTPS worker.
+    stop=Stop()
+    config=dict(device_id=DEVICE,credential_id='e46fc348-c48c-415c-a86a-1dd60ef14e1b',
+        support_token='eps1.'+'x'*64,origin='https://endpoint.sosnadmin.local',environment='production')
+    class Store:
+        def __init__(self,*_):self.state=None
+        @contextmanager
+        def locked(self):yield self
+        def json(self,name,**_):return config if name=='config.json' else self.state
+        def read(self,*_):return b'private test CA'
+        def keys(self):return key(1),key(2)
+        def save(self,_name,state):self.state=state
+    class HTTPS:
+        def __init__(self,*_):pass
+        def request(self,action,token,body):
+            outgoing.append(body.copy())
+            try:LinuxSupportStatusReport.model_validate(body)
+            except ValueError:
+                rejected.append(body.copy())
+                if len(outgoing)>=3:stop.set()
+                raise SupportError('https_unavailable') from None  # Actual422 behavior.
+            if len(outgoing)==1:
+                if failure=='https':raise SupportError('https_unavailable')
+                if failure=='malformed_policy':return policy(gateway_host='invalid.example'),NOW.timestamp()
+            if len(outgoing)>=3:stop.set()
+            return policy(),NOW.timestamp()
+    class Children:
+        def __init__(self,*_):self.active=False;instances.append(self)
+        def stop(self):self.active=False
+        def start(self,_policy,_deadline):
+            native_starts.append(True)
+            if failure=='native_start' and len(native_starts)==1:raise SupportError('child_start_failed')
+            if failure=='unexpected_native' and len(native_starts)==1:raise ValueError('private native detail')
+            self.active=True
+        def alive(self):return self.active
+        def connected(self):return self.active
+    def account(*_):
+        account_checks.append(True)
+        if failure=='account' and len(account_checks)==1:raise SupportError('account_not_authorized')
+    monkeypatch.setattr(service,'PrivateStore',Store)
+    monkeypatch.setattr(service,'SupportHTTPS',HTTPS)
+    monkeypatch.setattr(service,'NativeChildren',Children)
+    monkeypatch.setattr(service,'validate_account',account)
+    monkeypatch.setattr(service,'boot_time',lambda:clock[0])
+    monkeypatch.setattr(service,'boot_id',lambda:'same-boot')
+    monkeypatch.setattr(service.time,'time',lambda:NOW.timestamp())
+
+    service.run_service(stop_event=stop)
+
+    assert not rejected, 'Runtime emitted status outside the frozen Linux DTO'
+    assert len(instances)==1 and len(outgoing)==3
+    assert [body['last_error_code'] for body in outgoing]==[None,expected_error,None]
+    assert outgoing[-1]['tunnel_connected'] is True
+    assert native_starts  # Accepted recovery policy activated children in same loop.
