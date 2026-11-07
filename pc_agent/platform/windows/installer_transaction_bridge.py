@@ -23,11 +23,12 @@ from .installer_fence import assert_state_security, state_root
 from .update_paths import WindowsUpdatePaths
 
 PHASES = frozenset({'inspect','inspect-compound','prepare','stage-online','seal-staged-switch','adopt-staged-switch',
+    'finalize-staged-restoration-continuation',
     'begin-staged-trial','observe-staged-trial','accept-staged-trial','msi-preflight','msi-enter','recover-enter',
     'restore-staged-companions','inspect-staged-recovery','recover-staged-owner','record-staged-native-start','record-staged-native-success','record-staged-reboot-3010','record-staged-reboot-1641',
     'inspect-staged-state','prepare-foundation-rollback','bind-foundation-rollback-roles',
     'rollback-candidate-removed','rollback-native-committed','verify-foundation-rollback',
-    'foundation-config','msi-complete','reconcile','finish','verify-settled',
+    'foundation-config','msi-complete','reconcile','finish','verify-settled','native-continuation','recover-native-continuation',
     'uninstall-finalize-preflight','uninstall-finalize-enter','uninstall-finalize-complete',
     'compound-old-returned','compound-new-returned','compound-commit','compound-retire','compound-complete','compound-finalize',
     'compound-repair-returned','compound-repair-commit'})
@@ -209,7 +210,7 @@ def _read_capability(paths,session_id):
     after=path.lstat()
     if (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns)!=(after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns):
         _failed()
-    if (set(payload) not in (_CAP_FIELDS,_CAP_FIELDS|{'compound'},_CAP_FIELDS|{'recovery_parent'},_CAP_FIELDS|{'staged_rollback'}) or type(payload['schema_version']) is not int or payload['schema_version']!=1
+    if (set(payload) not in (_CAP_FIELDS,_CAP_FIELDS|{'compound'},_CAP_FIELDS|{'recovery_parent'},_CAP_FIELDS|{'staged_rollback'},_CAP_FIELDS|{'restoration_transaction_id'}) or type(payload['schema_version']) is not int or payload['schema_version']!=1
         or payload['session_id']!=session_id
         or payload['operation'] not in {'install','retire-initial-runtime','uninstall'}
         or type(payload['recovery']) is not bool
@@ -238,6 +239,11 @@ def _read_capability(paths,session_id):
     if 'staged_rollback' in payload:
         from .staged_foundation_rollback import validate_rollback_capability_shape
         validate_rollback_capability_shape(payload)
+    if 'restoration_transaction_id' in payload:
+        _uuid(payload['restoration_transaction_id'])
+        if (payload['restoration_transaction_id']==payload['transaction_id'] or payload['operation']!='install'
+                or payload['recovery'] or payload['uninstall_finalization'] or payload['owner']['sid']!='S-1-5-18'
+                or payload['owner']['elevated'] is not True):_failed()
     return payload
 
 
@@ -465,19 +471,29 @@ def _advance_fence(paths,client,expected,phase):
     expected_fence=_public_fence(expected,client.capability)
     if fence is None or any(fence[key]!=expected_fence[key] for key in ('transaction_id','package','operation','selected','previous','service_states')):
         raise ValueError('PROVENANCE_CONFLICT')
+    before = json.loads(json.dumps(fence))
     fence['phase']=phase
     fence['sequence']+=1
     peer=client.identity.value
     if len(fence['helpers'])>=64: _failed()
     fence['helpers'].append({'pid':peer['pid'],'creation_time':peer['created'],'image_sha256':peer['hash'],
         'phase':phase,'complete':True})
+    if phase == 'complete' and client.capability['operation'] == 'install' and 'staged_rollback' not in client.capability:
+        from .native_setup_continuation import reserve_native_continuation
+        fence['startup_restored'] = True
+        reserve_native_continuation(paths, client.capability, fence, before)
     publish_fence(paths,fence)
     return fence
 
 
-def _settled(paths):
+def _settled(paths, *, continuation=None):
     from .update_transaction import active_update_state
-    if active_update_state(paths) is not None:
+    active = active_update_state(paths)
+    if active == 'native-continuation-pending' and continuation is not None:
+        from .native_setup_continuation import read_continuation_grant
+        read_continuation_grant(paths, continuation)
+        return
+    if active is not None:
         raise ValueError('UPDATE_IN_PROGRESS')
 
 
@@ -504,12 +520,26 @@ def _validate_install_recovery(paths,request):
 
 
 def execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabled='',uninstall_finalization='',upgrade_detected=None,staged_removal=''):
+    if client.phase=='finalize-staged-restoration-continuation':
+        from . import durable_state
+        from .staged_restoration_continuation import finalize_restoration_continuation
+        with durable_state.installer_mutation_checkpoints(client.checkpoint):
+            result=finalize_restoration_continuation(client,paths,client.capability['restoration_transaction_id'])
+        client.request('complete',result)
+        return result
+    if 'restoration_transaction_id' in client.capability:_failed()
     if client.phase in {'msi-preflight','uninstall-finalize-preflight'}:
         extra = client.capability.get('staged_rollback')
         removal = (client.capability['operation']=='uninstall'
                    and isinstance(extra,dict) and extra.get('role')=='remove')
         if staged_removal != ('1' if removal else ''):
             _failed()
+    if client.phase == 'native-continuation':
+        from .native_setup_continuation import execute_native_continuation
+        return execute_native_continuation(client, paths)
+    if client.phase == 'recover-native-continuation':
+        from .native_setup_continuation import recover_native_continuation
+        return recover_native_continuation(client, paths)
     if client.phase in {'restore-staged-companions','inspect-staged-recovery','recover-staged-owner','record-staged-native-start','record-staged-native-success','record-staged-reboot-3010','record-staged-reboot-1641'}:
         from .staged_recovery import execute_staged_recovery_phase
         return execute_staged_recovery_phase(client, paths)
@@ -713,6 +743,23 @@ def execute_staged_trial_phase(client, paths):
     return result
 
 
+def _verify_normal_support_uninstall(expected, paths, capability):
+    # Replacement children retain the independent channel. Their bound native
+    # return/commit phases do not represent ordinary whole-product uninstall.
+    if (capability['operation'] == 'uninstall'
+            and 'staged_rollback' not in capability and 'compound' not in capability
+            and getattr(expected, 'foundation_schema', 1) == 3):
+        from .msi_inventory import verify_support_uninstalled
+        try:
+            verify_support_uninstalled(expected, paths.install_root)
+        except ValueError as error:
+            if str(error) != 'SUPPORT_CLEANUP_INCOMPLETE':
+                raise
+            return 'incomplete'
+        return 'complete'
+    return None
+
+
 def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabled='',uninstall_finalization='',upgrade_detected=None,complete=True):
     """One fixed phase after native peer authentication; no mutex reacquisition."""
     from . import durable_state,installation_provenance as provenance,msi_inventory,installer_data_security
@@ -723,6 +770,7 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
     expected=msi_inventory.read_expected_package(request['package_path'],capability['package'])
     phase=client.phase
     result={}
+    support_cleanup = None
     if phase=='inspect':
         _settled(paths)
         if capability['recovery']:
@@ -752,7 +800,7 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
                     from .legacy_foundation_upgrade import canonical_release
                     if canonical_release(foundation) is not None:result['foundation_kind']='canonical-legacy'
     elif phase=='verify-settled':
-        _settled(paths)
+        _settled(paths, continuation=capability)
         from .compound_upgrade_plan import has_active_upgrade
         if has_active_upgrade(paths) or read_fence(paths) is not None: raise ValueError('UPDATE_IN_PROGRESS')
         inspected=provenance.inspect_installed_core(paths,resulting_foundation=expected.package.version)
@@ -905,6 +953,7 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
                     result={'result':'retired_initial_runtime'}
                 else:
                     absence=msi_inventory.verify_uninstalled(expected.package,paths.install_root)
+                    support_cleanup = _verify_normal_support_uninstall(expected, paths, capability)
                     if capability.get('uninstall_finalization'):
                         barrier=state_root(paths)/'transactions'/capability['transaction_id']/('barrier-'+capability['session_id']+'.json')
                         assert_state_security(barrier)
@@ -913,7 +962,8 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
                             'package_sha256':expected.package.sha256,'result':'uninstall-finalization-barrier-passed','postconditions':absence}:
                             raise ValueError('PROVENANCE_CONFLICT')
                     provenance.retire_maintenance_authority(paths,request,capability['operation'])
-                    result={'result':'uninstalled'}
+                    result=({'result':'native-uninstalled','support_cleanup':'incomplete'}
+                            if support_cleanup == 'incomplete' else {'result':'uninstalled'})
             elif phase=='finish':
                 if capability['operation']=='install':
                     if 'compound' not in capability:
@@ -929,11 +979,24 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
                     _matching_inspection(paths,expected,capability)
                 else:
                     msi_inventory.verify_uninstalled(expected.package,paths.install_root)
+                    support_cleanup = _verify_normal_support_uninstall(expected, paths, capability)
                 fence=_advance_fence(paths,client,expected,'complete')
                 fence['startup_restored']=True
                 publish_fence(paths,fence)
                 archive=completion_root(paths,capability,create=True)
                 durable_state.write_json_atomic(archive/'completed.json',fence,trusted_root=archive,max_bytes=16384,protect=protect_state)
+                if support_cleanup is not None:
+                    # Keep known native commit separate from optional component
+                    # cleanup. A leftover Support service must not manufacture
+                    # unresolved native ownership or cause another MSI run.
+                    durable_state.write_json_atomic(archive/'support-cleanup.json',
+                        {'schema_version': 1, 'transaction_id': capability['transaction_id'],
+                         'package_sha256': expected.package.sha256, 'native_result': 0,
+                         'native_uninstalled': True, 'support_cleanup': support_cleanup},
+                        trusted_root=archive, max_bytes=4096, protect=protect_state)
+                    result = {'result': 'native-uninstalled', 'support_cleanup': support_cleanup}
+                from .installation_lifecycle import record_native_finish
+                record_native_finish(paths, capability, expected, support_cleanup=support_cleanup)
                 from .compound_upgrade_plan import record_standalone_completion
                 record_standalone_completion(paths,capability,fence)
                 # Final mutation. The owner waits for this helper's explicit
@@ -941,6 +1004,8 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
                 from .installer_fence import fence_path
                 finished_fence = fence_path(paths)
                 durable_state.durable_unlink(finished_fence,trusted_root=finished_fence.parent)
+                # No network in this authenticated helper. Its completion and
+                # actual process exit precede the wrapper's notification stage.
             else:
                 _failed()
     if complete: client.request('complete',result)

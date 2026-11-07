@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "version": "3.2.175",
+  "platform": "windows_amd64",
+  "status": "diagnostic_native_accepted_not_primary",
+  "runtime_source_commit": "74a08b766d279bab61548adb132b53a04f946578",
+  "windows_packaging_commit": "2ce92f250a6b78ba6dd617b5a1e3793a6ed5ace2",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.175.json",
+  "producer_root": "C:/endpoint-platform-wix-build/setup175-optional-origin-74a08b7",
+  "setup": {
+    "filename": "EndpointAgentSetup-3.2.175-x64.exe",
+    "sha256": "790fd7102f6f0ef37d30a3e23d6bb7242e0cc12f7299ae01cfee6fd9b7f33d93",
+    "size": 166116832,
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776"
+  },
+  "msi": {
+    "sha256": "4f1266f81791c753a489941cc51898fcd78d703ba5e22ad1b826a2096626dcc4",
+    "size": 124510208,
+    "authenticode": "Valid with timestamp"
+  },
+  "support": {
+    "version": "1.0.0",
+    "sha256": "936d4426dbf52c91da5d6835581486b3ea933cf317c428c12a02f0af9fdc470a",
+    "size": 10090216,
+    "authenticode": "Valid with timestamp",
+    "active_payload_owned_by_msi": false
+  },
+  "full_setup_release_id": "a487ee6b-b5a9-48bd-bba7-bf55450c7d3f",
+  "canaries": [
+    {
+      "hostname": "DESKTOP-9ST5HO2",
+      "ip": "192.168.101.120",
+      "assignment_id": "d26b5761-3a22-4aa2-ad65-df58902c6f42",
+      "status": "applied",
+      "native_exit_code": 0,
+      "stable_observation_seconds": 185.083,
+      "samples": 6,
+      "sensor_count": 1,
+      "private_four_preserved": true,
+      "independent_support": "Actual strict SSH through new signed175 payload"
+    },
+    {
+      "hostname": "A2-IAO",
+      "ip": "192.168.101.22",
+      "assignment_id": "6f1ef542-168d-4bac-bcf0-04ae535cebe4",
+      "status": "applied",
+      "native_exit_code": 0,
+      "independent_support": "Installed and reporting without creating the absent optional endpoint-origin file"
+    },
+    {
+      "hostname": "A2-MUNSLU-N",
+      "ip": "192.168.101.27",
+      "assignment_id": "057caf80-c325-47ec-b218-3fee0f1dbabe",
+      "status": "applied",
+      "native_exit_code": 0,
+      "independent_support": "FAILED: Microsoft OS capability installation exceeded its600second timeout; no Support registration",
+      "servicing_outcome": "Unknown; no replay, manual kill, CBS repair or policy changes"
+    }
+  ],
+  "publication": {
+    "windows_primary": "3.2.172",
+    "auto_campaign_included": false,
+    "server_qualified": false,
+    "fleet_policy_revision": 9,
+    "fleet_policy_enabled": false
+  },
+  "limits": [
+    "Native acceptance does not imply independent Support installation.",
+    "175 is immutable diagnostic media and lacks domain-capable Support1.0.1 and offline bundled dependencies.",
+    "All prior failure histories and Windows servicing evidence are preserved."
+  ],
+  "verification": {
+    "full_project": "6517 passed,454 skipped,5 warnings;834.13seconds on clean B4 checkout before176 changes",
+    "report": "docs/verification/2026-11-06-independent-support-access.md"
+  }
+}

@@ -137,6 +137,10 @@ def test_native_usb_callback_dispatches_off_system_callback_thread() -> None:
 async def test_agent_accepts_usb_audit_only_with_live_source_and_spools_change(
     monkeypatch, tmp_path, source_ok: bool,
 ) -> None:
+    from pc_agent.platform.windows import browser_policy
+    from pc_agent.tests.windows.test_browser_policy import MemoryRegistry
+    monkeypatch.setattr(browser_policy, "WindowsPolicyRegistry", MemoryRegistry)
+
     from pc_agent.platform.windows import activity_api, browser_bridge_entry, usb_sensor
     from pc_agent.policy import windows_sensors
     from pc_agent.runtime import application

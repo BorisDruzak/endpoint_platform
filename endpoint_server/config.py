@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import math
 import os
 import re
 import stat
@@ -197,6 +198,76 @@ class Settings:
     oidc: OIDCSettings = OIDCSettings()
     worktime_enabled: bool = False
     worktime_helpdesk_enabled: bool = False
+    support_gateway_host: str = 'endpoint.sosnadmin.local'
+    support_gateway_port: int = 2222
+    support_gateway_host_public_key: str = ''
+    support_install_auto_enable: bool = False
+    support_install_operator_public_keys: tuple[str, ...] = ()
+    support_install_windows_admin_username: str = ''
+    support_install_access_hours: float = 8
+
+    support_linux_install_auto_enable: bool = False
+    support_linux_install_operator_public_keys: tuple[str, ...] = ()
+    support_linux_install_admin_username: str = ''
+    support_linux_install_admin_uid: int | None = None
+    support_linux_install_access_hours: float = 8
+    support_linux_staging_gateway_enabled: bool = False
+
+    def linux_support_gateway_configured(self) -> bool:
+        host = 'endpoint-staging.sosnadmin.local' if self.support_linux_staging_gateway_enabled else 'endpoint.sosnadmin.local'
+        return self.support_gateway_host == host and self.support_gateway_port == 2222 and self.public_base_url == 'https://' + host
+
+    def __post_init__(self):
+        from endpoint_contracts.support_access import canonical_public_key, normalize_windows_support_admin
+
+        if type(self.support_install_auto_enable) is not bool:
+            raise ValueError('SUPPORT_INSTALL_AUTO_ENABLE must be a boolean')
+        keys = self.support_install_operator_public_keys
+        if not isinstance(keys, tuple) or len(keys) > 16:
+            raise ValueError('SUPPORT_INSTALL_OPERATOR_PUBLIC_KEYS must be a tuple of at most 16 keys')
+        for key in keys:
+            canonical_public_key(key)
+        if len(set(keys)) != len(keys) or (keys and self.support_gateway_host_public_key in keys):
+            raise ValueError('SUPPORT_INSTALL_OPERATOR_PUBLIC_KEYS contains conflicting keys')
+        principal = self.support_install_windows_admin_username
+        if principal:
+            if not isinstance(principal, str):
+                raise ValueError('SUPPORT_INSTALL_WINDOWS_ADMIN_USERNAME must be an existing principal')
+            object.__setattr__(self, 'support_install_windows_admin_username', normalize_windows_support_admin(principal))
+        hours = self.support_install_access_hours
+        if isinstance(hours, bool) or not isinstance(hours, (int, float)) or not math.isfinite(hours) or not 0.25 <= hours <= 8:
+            raise ValueError('SUPPORT_INSTALL_ACCESS_HOURS must be finite and between 0.25 and 8')
+        if self.support_install_auto_enable:
+            if not keys or not principal:
+                raise ValueError('SUPPORT_INSTALL requires explicit operator keys and an existing administrator')
+            canonical_public_key(self.support_gateway_host_public_key)
+            if self.support_gateway_host != 'endpoint.sosnadmin.local' or self.support_gateway_port != 2222:
+                raise ValueError('SUPPORT_INSTALL requires the canonical support gateway')
+
+        from endpoint_contracts.linux_support_access import LinuxSupportPolicyUpdate
+        if type(self.support_linux_staging_gateway_enabled) is not bool:
+            raise ValueError('SUPPORT_LINUX_STAGING_GATEWAY_ENABLED must be a boolean')
+        if self.support_linux_staging_gateway_enabled and not self.linux_support_gateway_configured():
+            raise ValueError('Linux staging gateway requires exact staging origin and gateway port 2222')
+        if type(self.support_linux_install_auto_enable) is not bool:
+            raise ValueError('SUPPORT_LINUX_INSTALL_AUTO_ENABLE must be a boolean')
+        linux_keys=self.support_linux_install_operator_public_keys
+        if not isinstance(linux_keys,tuple):
+            raise ValueError('SUPPORT_LINUX_INSTALL_OPERATOR_PUBLIC_KEYS must be a tuple')
+        LinuxSupportPolicyUpdate(enabled=self.support_linux_install_auto_enable,
+            operator_public_keys=list(linux_keys),linux_admin_username=self.support_linux_install_admin_username or None,
+            linux_admin_uid=self.support_linux_install_admin_uid,reason='Validate configured Linux defaults')
+        hours=self.support_linux_install_access_hours
+        if isinstance(hours,bool) or not isinstance(hours,(int,float)) or not math.isfinite(hours) or not 0.25<=hours<=8:
+            raise ValueError('SUPPORT_LINUX_INSTALL_ACCESS_HOURS must be between 0.25 and 8')
+        if linux_keys and self.support_gateway_host_public_key in linux_keys:
+            raise ValueError('Linux operator key conflicts with gateway')
+        if self.support_linux_install_auto_enable:
+            if not linux_keys:
+                raise ValueError('Linux installation defaults require explicit operator keys')
+            canonical_public_key(self.support_gateway_host_public_key)
+            if not self.linux_support_gateway_configured():
+                raise ValueError('Linux installation defaults require canonical gateway')
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str] | None = None) -> Settings:
@@ -283,18 +354,18 @@ class Settings:
             values.get("ENDPOINT_MODULE_EXECUTION_ENABLED", ""),
         )
         endpoint_policy_enabled = _parse_optional_boolean(
-            "ENDPOINT_POLICY_ENABLED", values.get("ENDPOINT_POLICY_ENABLED", "")
+            "ENDPOINT_POLICY_ENABLED", values.get("ENDPOINT_POLICY_ENABLED", "true")
         )
         endpoint_activity_sensor_enabled = _parse_optional_boolean(
             "ENDPOINT_ACTIVITY_SENSOR_ENABLED",
-            values.get("ENDPOINT_ACTIVITY_SENSOR_ENABLED", ""),
+            values.get("ENDPOINT_ACTIVITY_SENSOR_ENABLED", "true"),
         )
         endpoint_browser_sensor_enabled = _parse_optional_boolean(
             "ENDPOINT_BROWSER_SENSOR_ENABLED",
-            values.get("ENDPOINT_BROWSER_SENSOR_ENABLED", ""),
+            values.get("ENDPOINT_BROWSER_SENSOR_ENABLED", "true"),
         )
         endpoint_dlp_audit_enabled = _parse_optional_boolean(
-            "ENDPOINT_DLP_AUDIT_ENABLED", values.get("ENDPOINT_DLP_AUDIT_ENABLED", "")
+            "ENDPOINT_DLP_AUDIT_ENABLED", values.get("ENDPOINT_DLP_AUDIT_ENABLED", "true")
         )
         if (
             endpoint_module_execution_enabled
@@ -307,6 +378,19 @@ class Settings:
 
         return cls(
             database_url=database_url,
+            support_gateway_host=values.get('SUPPORT_GATEWAY_HOST','endpoint.sosnadmin.local'),
+            support_gateway_port=int(values.get('SUPPORT_GATEWAY_PORT','2222')),
+            support_gateway_host_public_key=values.get('SUPPORT_GATEWAY_HOST_PUBLIC_KEY',''),
+            support_linux_staging_gateway_enabled=_parse_optional_boolean('SUPPORT_LINUX_STAGING_GATEWAY_ENABLED', values.get('SUPPORT_LINUX_STAGING_GATEWAY_ENABLED','false')),
+            support_install_auto_enable=_parse_optional_boolean('SUPPORT_INSTALL_AUTO_ENABLE', values.get('SUPPORT_INSTALL_AUTO_ENABLE', 'false')),
+            support_install_operator_public_keys=tuple(values.get('SUPPORT_INSTALL_OPERATOR_PUBLIC_KEYS', '').split(',')) if values.get('SUPPORT_INSTALL_OPERATOR_PUBLIC_KEYS', '') else (),
+            support_install_windows_admin_username=values.get('SUPPORT_INSTALL_WINDOWS_ADMIN_USERNAME', ''),
+            support_install_access_hours=float(values.get('SUPPORT_INSTALL_ACCESS_HOURS', '8')),
+            support_linux_install_auto_enable=_parse_optional_boolean('SUPPORT_LINUX_INSTALL_AUTO_ENABLE', values.get('SUPPORT_LINUX_INSTALL_AUTO_ENABLE','false')),
+            support_linux_install_operator_public_keys=tuple(values.get('SUPPORT_LINUX_INSTALL_OPERATOR_PUBLIC_KEYS','').split(',')) if values.get('SUPPORT_LINUX_INSTALL_OPERATOR_PUBLIC_KEYS','') else (),
+            support_linux_install_admin_username=values.get('SUPPORT_LINUX_INSTALL_ADMIN_USERNAME',''),
+            support_linux_install_admin_uid=int(values['SUPPORT_LINUX_INSTALL_ADMIN_UID']) if values.get('SUPPORT_LINUX_INSTALL_ADMIN_UID','') else None,
+            support_linux_install_access_hours=float(values.get('SUPPORT_LINUX_INSTALL_ACCESS_HOURS','8')),
             public_base_url=public_base_url,
             device_token_pepper=device_token_pepper,
             service_token_pepper=service_token_pepper,

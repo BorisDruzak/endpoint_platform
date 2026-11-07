@@ -56,8 +56,10 @@ def _settings(artifact_root: Path = Path("artifacts")) -> Settings:
 @pytest_asyncio.fixture
 async def session_provider() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    from endpoint_server.setup_updates.models import SetupRelease, SetupAssignment, SetupClientPresence, SetupPreparation
     tables = (
-        Device.__table__,
+        SetupRelease.__table__, SetupAssignment.__table__, SetupClientPresence.__table__, SetupPreparation.__table__,
+        Device.metadata.tables["installation_states"], Device.__table__,
         DeviceCredential.__table__,
         UpdateBuild.__table__,
         UpdateRollout.__table__,

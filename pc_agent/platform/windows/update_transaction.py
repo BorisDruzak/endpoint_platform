@@ -338,4 +338,7 @@ def active_update_state(paths: WindowsUpdatePaths) -> str | None:
             seen.add(record['operation_id'])
         if any(record['operation_id'] not in delivered for record in handoffs):
             result = result or 'pending'
+    from .native_setup_continuation import pending_continuation
+    if pending_continuation(paths) is not None:
+        result = result or 'native-continuation-pending'
     return result

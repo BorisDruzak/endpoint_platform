@@ -12,6 +12,8 @@ param(
     [switch]$ApproveInitialRuntimeSourceChange,
     [switch]$ReusePythonBuild,
     [switch]$PrepareOnly,
+    [string]$CodeSigningCertificateThumbprint,
+    [string]$TimestampServer,
     [string]$WixBuildRoot
 )
 
@@ -23,6 +25,31 @@ function Assert-SemVerTriplet {
     if ($Value -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
         throw "$Label must be a three-part numeric version suitable for MSI."
     }
+}
+
+function Finalize-SupportAccessSignature {
+    param([Parameter(Mandatory)][string]$Path, [string]$Thumbprint, [string]$Timestamp)
+    $signature = Get-AuthenticodeSignature -LiteralPath $Path
+    if ($signature.Status -eq 'Valid') {
+        if (-not $signature.TimeStamperCertificate -or
+            ($Thumbprint -and $signature.SignerCertificate.Thumbprint -ine $Thumbprint)) {
+            throw 'Existing Support component signature does not match the requested release authority.'
+        }
+        return # Preserve already signed immutable bytes; never silently re-sign.
+    }
+    if ($signature.Status -ne 'NotSigned') { throw 'Support component has an invalid existing signature.' }
+    if ($Thumbprint -notmatch '^[A-Fa-f0-9]{40}$' -or -not $Timestamp) {
+        throw 'Unsigned Support component requires a release signer and timestamp server.'
+    }
+    $uri = $null
+    if (-not [Uri]::TryCreate($Timestamp,[UriKind]::Absolute,[ref]$uri) -or
+        $uri.Scheme -ne 'http' -or $uri.UserInfo -or $uri.Fragment) { throw 'Invalid Support timestamp server.' }
+    $certificate = Get-Item -LiteralPath ('Cert:\CurrentUser\My\'+$Thumbprint)
+    if (-not $certificate.HasPrivateKey) { throw 'Support signing private key is unavailable.' }
+    $null = Set-AuthenticodeSignature -LiteralPath $Path -Certificate $certificate -HashAlgorithm SHA256 -TimestampServer $Timestamp
+    $signature = Get-AuthenticodeSignature -LiteralPath $Path
+    if ($signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate -or
+        $signature.SignerCertificate.Thumbprint -ine $Thumbprint) { throw 'Support component signing failed.' }
 }
 
 function Get-AgentVersion {
@@ -278,7 +305,8 @@ function Assert-UninstallFinalizationSequence {
     $suppressedConditions = @('NOT ENDPOINT_UNINSTALL_FINALIZE',
         'NOT ENDPOINT_UNINSTALL_FINALIZE AND NOT ENDPOINT_RUNTIME_RETIRE',
         'NOT ENDPOINT_UNINSTALL_FINALIZE AND (&EndpointAgentFeature = 3 OR (!EndpointAgentFeature = 3 AND &EndpointAgentFeature = 5)) AND NOT ENDPOINT_RUNTIME_RETIRE AND NOT REMOVE~="ALL"',
-        'NOT ENDPOINT_UNINSTALL_FINALIZE AND (!EndpointAgentInitialRuntimeFeature = 3 OR !EndpointAgentInitialRuntimeFeature = 2) AND &EndpointAgentInitialRuntimeFeature = 2 AND &EndpointAgentFeature = 3')
+        'NOT ENDPOINT_UNINSTALL_FINALIZE AND (!EndpointAgentInitialRuntimeFeature = 3 OR !EndpointAgentInitialRuntimeFeature = 2) AND &EndpointAgentInitialRuntimeFeature = 2 AND &EndpointAgentFeature = 3',
+        'REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE AND NOT WIX_UPGRADE_DETECTED AND NOT ENDPOINT_STAGED_REMOVE AND NOT ENDPOINT_RUNTIME_RETIRE AND NOT ENDPOINT_UNINSTALL_FINALIZE')
     $rows = @{}
     foreach ($row in $Inspection.execute_sequence) {
         $name = [string]$row.action
@@ -341,6 +369,7 @@ function Export-MsiInspection {
             files = Read-MsiTable $database 'SELECT `File`, `Component_`, `FileName`, `FileSize` FROM `File`' @('file', 'component', 'name', 'size')
             components = Read-MsiTable $database 'SELECT `Component`, `ComponentId`, `Directory_`, `Attributes`, `KeyPath` FROM `Component`' @('component', 'guid', 'directory', 'attributes', 'key_path')
             services = Read-MsiTable $database 'SELECT `ServiceInstall`, `Name`, `DisplayName`, `ServiceType`, `StartType`, `ErrorControl`, `LoadOrderGroup`, `Dependencies`, `StartName`, `Password`, `Arguments`, `Component_` FROM `ServiceInstall`' @('id', 'name', 'display_name', 'service_type', 'start_type', 'error_control', 'load_order_group', 'dependencies', 'account', 'password', 'arguments', 'component')
+            service_controls = Read-MsiTable $database 'SELECT `ServiceControl`, `Name`, `Event`, `Component_` FROM `ServiceControl`' @('id', 'name', 'event', 'component')
             properties = Read-MsiTable $database 'SELECT `Property`, `Value` FROM `Property`' @('property', 'value')
             features = Read-MsiTable $database 'SELECT `Feature`, `Feature_Parent`, `Level`, `Attributes` FROM `Feature`' @('feature', 'parent', 'level', 'attributes')
             feature_components = Read-MsiTable $database 'SELECT `Feature_`, `Component_` FROM `FeatureComponents`' @('feature', 'component')
@@ -366,10 +395,11 @@ function Export-MsiInspection {
         $expectedSddl = 'D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FRFX;;;BU)(A;OICI;FRFX;;;S-1-5-80-1102781572-1373263041-1070489469-7526906-1468061691)(A;OICI;FRFX;;;S-1-5-80-327494974-20047353-929432329-1920152597-707704661)'
         if ($inspection.binary_directory_security.Count -ne $expectedFolders.Count) { throw 'Unexpected binary-directory security topology.' }
         foreach ($directory in $expectedFolders.Keys) {
+            $directorySddl = $expectedSddl
             $permissions = @($inspection.binary_directory_security | Where-Object object -ceq $directory)
             $folders = @($folderRows | Where-Object directory -ceq $directory)
             if ($permissions.Count -ne 1 -or $folders.Count -ne 1 -or
-                $permissions[0].table -cne 'CreateFolder' -or $permissions[0].sddl -cne $expectedSddl -or
+                $permissions[0].table -cne 'CreateFolder' -or $permissions[0].sddl -cne $directorySddl -or
                 -not [string]::IsNullOrEmpty([string]$permissions[0].condition) -or
                 $folders[0].component -cne $expectedFolders[$directory]) {
                 throw 'Binary-directory protection or MSI component ownership differs.'
@@ -402,6 +432,10 @@ function Export-MsiInspection {
 
 function Assert-RootCleanupComposition {
     param([Parameter(Mandatory)]$Inspection)
+    if (@($Inspection.service_controls | Where-Object name -ceq 'EndpointSupportAccess').Count -or
+        @($Inspection.services | Where-Object name -ceq 'EndpointSupportAccess').Count) {
+        throw 'Native MSI must not control the independent active Support service.'
+    }
     foreach ($name in @('EndpointAgent','EndpointAgentUpdater')) {
         $service = @($Inspection.services | Where-Object name -eq $name)
         if ($service.Count -ne 1 -or [int]$service[0].start_type -ne 4) { throw 'Canonical update service is not initially quarantined.' }
@@ -561,6 +595,7 @@ $traySpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_tray.spec'
 $userSensorSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_user_sensor.spec'
 $browserBridgeSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_browser_bridge.spec'
 $browserPolicySpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_browser_policy_service.spec'
+$supportAccessSpec = Join-Path $repositoryRoot 'pc_agent\pyinstaller_windows_support_access.spec'
 $commonPyInstaller = @('--noconfirm', '--clean', '--distpath', $distRoot, '--workpath', $workRoot)
 if (-not $ReusePythonBuild) {
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($coreSpec)) $repositoryRoot
@@ -573,6 +608,7 @@ if (-not $ReusePythonBuild) {
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($userSensorSpec)) $repositoryRoot
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($browserBridgeSpec)) $repositoryRoot
     Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($browserPolicySpec)) $repositoryRoot
+    Invoke-Checked $python (@('-m', 'PyInstaller') + $commonPyInstaller + @($supportAccessSpec)) $repositoryRoot
 }
 
 $builtCore = Join-Path $distRoot 'endpoint_agent_core'
@@ -586,6 +622,9 @@ $builtTray = Join-Path $distRoot 'EndpointAgentTray.exe'
 $builtUserSensor = Join-Path $distRoot 'EndpointUserSensor\EndpointUserSensor.exe'
 $builtBrowserBridge = Join-Path $distRoot 'EndpointBrowserBridge\EndpointBrowserBridge.exe'
 $builtBrowserPolicy = Join-Path $distRoot 'EndpointBrowserPolicy\EndpointBrowserPolicy.exe'
+$builtSupportAccess = Join-Path $distRoot 'EndpointSupportAccess.exe'
+if (-not (Test-Path -LiteralPath $builtSupportAccess -PathType Leaf)) { throw 'Support component build is missing.' }
+Finalize-SupportAccessSignature -Path $builtSupportAccess -Thumbprint $CodeSigningCertificateThumbprint -Timestamp $TimestampServer
 if (-not (Test-Path -LiteralPath $builtInstallerHost -PathType Leaf)) {
     throw "Self-contained installer host build missing $builtInstallerHost"
 }
@@ -662,6 +701,7 @@ Copy-Item -LiteralPath $builtTray -Destination (Join-Path $programFilesStage 'En
 Copy-Item -LiteralPath $builtUserSensor -Destination (Join-Path $programFilesStage 'EndpointUserSensor.exe')
 Copy-Item -LiteralPath $builtBrowserBridge -Destination (Join-Path $programFilesStage 'EndpointBrowserBridge.exe')
 Copy-Item -LiteralPath $builtBrowserPolicy -Destination (Join-Path $programFilesStage 'EndpointBrowserPolicy.exe')
+Copy-Item -LiteralPath $builtSupportAccess -Destination (Join-Path $programFilesStage 'EndpointSupportAccess.exe')
 $foundationBindings = [ordered]@{
     'launcher.exe'=@('filLauncher','cmpLauncher')
     'endpoint-agent-service.exe'=@('filServiceHost','cmpServiceEntrypoints')
@@ -671,6 +711,7 @@ $foundationBindings = [ordered]@{
     'EndpointUserSensor.exe'=@('filEndpointUserSensor','cmpUserSensor')
     'EndpointBrowserBridge.exe'=@('filEndpointBrowserBridge','cmpBrowserBridge')
     'EndpointBrowserPolicy.exe'=@('filEndpointBrowserPolicy','cmpBrowserPolicyService')
+    'EndpointSupportAccess.exe'=@('filSupportAccess','cmpSupportAccess')
 }
 $foundationInventory = foreach ($name in $foundationBindings.Keys) {
     $path = Join-Path $programFilesStage $name
@@ -695,7 +736,7 @@ Copy-Item -LiteralPath (Join-Path $sharedFoundationRoot '_foundation-runtime') -
 $sharedFoundationInventory = @(Get-Content -LiteralPath $sharedInventoryPath -Raw | ConvertFrom-Json)
 $foundationInventory = @($foundationInventory) + $sharedFoundationInventory
 Write-Utf8NoBom $runtimeInventoryPath (@{
-    schema_version = 2
+    schema_version = 3
     manifest = (Get-Content -LiteralPath (Join-Path $runtimeStage 'endpoint-update-manifest.json') -Raw | ConvertFrom-Json)
     contract_bytes = ([BitConverter]::ToString($contractBytes)).Replace('-', '').ToLowerInvariant()
     foundation_files = @($foundationInventory)
@@ -724,7 +765,7 @@ $componentManifest = @(
     'cmpLauncher', 'cmpCurrentSelector', 'cmpInitialRuntimeAnchor', 'cmpConfigTemplate', 'cmpPublicReadme',
     'cmpProgramDataRoot', 'cmpInstallRootCleanup', 'cmpInitialRuntimeTransitionState',
     'cmpServiceEntrypoints', 'cmpOfflineUpdater', 'cmpBrowserPolicyService', 'cmpProvisioner',
-    'cmpTrayCompanion', 'cmpUserSensor', 'cmpBrowserBridge'
+    'cmpTrayCompanion', 'cmpUserSensor', 'cmpBrowserBridge', 'cmpSupportAccess'
 ) + @($sharedFoundationInventory | ForEach-Object { $_.component }) + @($generatedItems | ForEach-Object {
     Get-StableId -Prefix 'cmpPayload' -Value (Get-RelativePath $runtimeStage $_.FullName)
 })
@@ -750,6 +791,17 @@ $binding = [ordered]@{
         [ordered]@{ name = 'EndpointAgentUpdater'; account = 'LocalSystem'; start = 'disabled'; owner_final_start = 'demand'; recovery = 'restart'; binary = 'ProgramFiles/endpoint-agent-updater.exe'; arguments = '--updater-service' },
         [ordered]@{ name = 'EndpointBrowserPolicy'; account = 'LocalSystem'; start = 'auto'; recovery = 'restart'; binary = 'ProgramFiles/EndpointBrowserPolicy.exe' }
     )
+    support_access = [ordered]@{
+        component_version = '1.0.0'
+        service_name = 'EndpointSupportAccess'
+        account = 'LocalSystem'
+        start_after_durable_registration = 'auto'
+        binary = 'ProgramFiles/EndpointSupportAccess.exe'
+        independent_of_core = $true
+        registration_optional_for_native_acceptance = $true
+        sha256 = (Get-FileHash -LiteralPath $builtSupportAccess -Algorithm SHA256).Hash.ToLowerInvariant()
+        source_revision = $checkedOutSourceRevision
+    }
     state = [ordered]@{
         program_data_permanent = $true
         current_selector_never_overwrite = $true
@@ -789,6 +841,7 @@ $wixArguments = @(
     "-d", "SourceRevision=$initialRuntimeSourceRevision",
     "-d", "InitialRuntimeInventoryPath=$runtimeInventoryPath",
     "-d", "InstallerHostPath=$builtInstallerHost",
+    "-d", "SupportAccessPath=$builtSupportAccess",
     "-d", "PackageVersion=$Version", '-out', $msiPath
 ) + $wixSources
 Invoke-Checked $wixCommand.Source $wixArguments $repositoryRoot

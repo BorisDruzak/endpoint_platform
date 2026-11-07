@@ -19,7 +19,7 @@ for (const width of [1440, 390]) {
     await page.route('**/api/employee/**', async route => {
       const path = new URL(route.request().url()).pathname
       if (!authenticated) return route.fulfill({ status: 401, json: { detail: 'Session expired' } })
-      if (path === '/api/employee/session') return route.fulfill({ json: { person_id: 'person-a', department_id: null, csrf_token: 'fixture-csrf', grants: [] } })
+      if (path === '/api/employee/worktime/session') return route.fulfill({ json: { person_id: 'person-a', department_id: null, csrf_token: 'fixture-csrf', grants: [] } })
       if (path.endsWith('/categories')) return route.fulfill({ json: { categories: [{ code: 'meeting', label: 'Совещание', requires_comment: true }] } })
       if (path.endsWith('/history')) return route.fulfill({ json: { events: [], explanations: [], corrections: [], approvals: [] } })
       if (path.endsWith('/explanations')) {
@@ -38,7 +38,7 @@ for (const width of [1440, 390]) {
         corrections: [], pending_explanations: saved ? [] : [{ ...interval, id: requestId, state: 'pending' }] } })
     })
     await page.route('**/auth/employee/login?**', route => {
-      expect(new URL(route.request().url()).search).toBe(query)
+      expect(new URL(route.request().url()).search).toBe(`${query}&worktime=1`)
       authenticated = true
       // A fresh navigation lets the employee document fixture intercept it;
       // Playwright routes only the first URL of an HTTP redirect chain.
@@ -46,7 +46,7 @@ for (const width of [1440, 390]) {
     })
     await page.goto(`/employee${query}`)
     await expect(page.getByRole('heading', { name: 'Вход сотрудника' })).toBeVisible()
-    await page.getByRole('link', { name: 'Войти с доменной учётной записью' }).click()
+    await page.getByRole('link', { name: 'Войти через AD' }).click()
     await expect(page.getByRole('region', { name: 'Выбранный интервал' })).toBeVisible()
     await expect(page.getByLabel('Дата', { exact: true })).toHaveValue('2026-10-27')
     await page.getByLabel('Причина', { exact: true }).selectOption('meeting')

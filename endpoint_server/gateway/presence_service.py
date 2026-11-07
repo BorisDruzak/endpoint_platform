@@ -129,6 +129,7 @@ class PresenceService:
                         instance_identifier=str(hello.agent_instance_id),
                         agent_version=hello.agent_version,
                         launcher_version=hello.launcher_version,
+                        platform=hello.platform,
                         last_seen_at=now,
                         last_result_sequence=0,
                     )
@@ -137,6 +138,7 @@ class PresenceService:
                 else:
                     instance.agent_version = hello.agent_version
                     instance.launcher_version = hello.launcher_version
+                    instance.platform = hello.platform
                     instance.last_seen_at = now
 
                 active_sessions = (

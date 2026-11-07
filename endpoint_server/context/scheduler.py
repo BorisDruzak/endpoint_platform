@@ -61,13 +61,14 @@ async def _advisory_lock(session: AsyncSession, key: str) -> None:
 
 
 async def _expire_overdue_scheduled_collections(
-    session: AsyncSession, *, now: datetime
+    session: AsyncSession, *, now: datetime, device_id
 ) -> None:
     """Release bounded periodic work that could not reach an offline device."""
     overdue = (await session.scalars(
         select(ContextCollection)
         .where(
             ContextCollection.requested_by == "scheduler",
+            ContextCollection.device_id == device_id,
             ContextCollection.status.in_(_ACTIVE_STATUSES),
             ContextCollection.expires_at.is_not(None),
             ContextCollection.expires_at <= now,
@@ -92,12 +93,16 @@ async def schedule_due_collections(
     offline agent cannot leave the periodic scheduler blocked indefinitely.
     """
     scheduled_at = _now(now)
-    await _expire_overdue_scheduled_collections(session, now=scheduled_at)
     devices = (await session.scalars(
         select(Device).where(Device.retired_at.is_(None)).order_by(Device.id)
     )).all()
     created = 0
     for device in devices:
+        from endpoint_server.installation_lifecycle.service import removed
+        await session.scalar(select(Device).where(Device.id == device.id).with_for_update())
+        await _expire_overdue_scheduled_collections(session, now=scheduled_at, device_id=device.id)
+        if await removed(session, device.id):
+            continue
         for rule in SCHEDULE_RULES:
             await _advisory_lock(
                 session, f"context.schedule:{device.id}:{rule.profile}"

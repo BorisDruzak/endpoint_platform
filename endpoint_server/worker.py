@@ -17,6 +17,8 @@ from endpoint_server.operations.evidence import cleanup_module_step_results, cle
 from endpoint_server.security.retention import retain_security_events
 from endpoint_server.power.retention import retain_power_events
 from endpoint_server.activity.analytics_store import rebuild_daily, retain_analytics
+from endpoint_server.setup_updates.preparation import advance_preparations
+from endpoint_server.setup_updates.scheduler import schedule_fleet
 
 
 async def _run_transactional_job(
@@ -68,6 +70,8 @@ async def run_worker(
                 ),
             )
             await _run_transactional_job(provider, expire_operations)
+            await _run_transactional_job(provider, advance_preparations)
+            await schedule_fleet(provider)
             elapsed = loop.time()
             # Small independent transactions bound row-lock waits for Gateway.
             # 256 user-days/minute covers 120 accounts in organization time + UTC.

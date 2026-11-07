@@ -381,6 +381,9 @@ def execute_staged_recovery_phase(client, paths):
             or cap['recovery'] or cap['uninstall_finalization'] or 'compound' in cap
             or 'staged_rollback' in cap or 'recovery_parent' in cap):
         _fail()
+    if client.phase == 'restore-staged-companions' and record.phase == 'accepted':
+        from .native_setup_continuation import execute_native_continuation
+        return execute_native_continuation(client, paths)
     if client.phase == 'inspect-staged-recovery':
         inputs = _validate_recovery_inputs(paths, record)
         _assert_owner_dead(record.owner)
@@ -413,12 +416,42 @@ def execute_staged_recovery_phase(client, paths):
 _COMPANIONS = {'sensor': 'EndpointUserSensor.exe', 'tray': 'EndpointAgentTray.exe'}
 
 
+def _tray_bootloader_pair(processes):
+    """Only one observed parent/child pair is one PyInstaller Tray instance.
+
+    WMI parent PIDs can be reused. Compare complete creation timestamps as well;
+    incomplete WMI dates or an ambiguous tree must retain duplicate evidence.
+    The caller groups only identical executable, session and owner SID records.
+    """
+    from datetime import datetime, timedelta
+    if (len(processes) != 2 or len({row['pid'] for row in processes}) != 2
+            or any(row['pid'] <= 0 or row['parent'] < 0 or row['parent'] == row['pid'] for row in processes)):
+        return False
+    children = [row for row in processes if any(
+        row['parent'] == other['pid'] for other in processes if other is not row)]
+    if len(children) != 1:
+        return False
+    child = children[0]
+    parent = next(row for row in processes if row is not child)
+    def created(row):
+        value = row['created']
+        if not isinstance(value, str) or not re.fullmatch(r'[0-9]{14}\.[0-9]{6}[+-][0-9]{3}', value):
+            raise ValueError('incomplete WMI birth time')
+        local = datetime.strptime(value[:21], '%Y%m%d%H%M%S.%f')
+        return local - timedelta(minutes=int(value[21:]))
+    try:
+        return parent['pid'] > 0 and child['pid'] > 0 and created(parent) <= created(child)
+    except (ValueError, OverflowError):
+        return False
+
+
 def _probe_companions(paths):
     import win32com.client
     service = win32com.client.GetObject('winmgmts:root\\cimv2')
     rows = service.ExecQuery("SELECT * FROM Win32_Process WHERE Name='EndpointUserSensor.exe' OR Name='EndpointAgentTray.exe'")
     expected = {os.path.normcase(str(paths.install_root / filename)): role for role, filename in _COMPANIONS.items()}
     result = []
+    groups = {}
     for process in rows:
         if not process.ExecutablePath or os.path.normcase(process.ExecutablePath) not in expected:
             continue
@@ -430,10 +463,16 @@ def _probe_companions(paths):
             _fail()
         sid = str(output.Properties_('Sid').Value)
         item = {'role': expected[os.path.normcase(process.ExecutablePath)], 'session_id': session, 'sid': sid}
-        if item not in result:
-            result.append(item)
+        result.append(item)
+        key = item['role'], session, sid
+        groups.setdefault(key, []).append({'pid': int(process.ProcessId),
+            'parent': int(process.ParentProcessId), 'created': process.CreationDate})
     companion_restore_decisions(result, [])  # validate strict bounded records
-    return result
+    logical = []
+    for (role, session, sid), processes in groups.items():
+        count = 1 if role == 'tray' and _tray_bootloader_pair(processes) else len(processes)
+        logical.extend({'role': role, 'session_id': session, 'sid': sid} for _ in range(count))
+    return logical
 
 
 def prepare_staged_companions(paths, binding):
@@ -463,7 +502,7 @@ def _active_sessions():
     result = []
     for session in win32ts.WTSEnumerateSessions():
         session_id = session['SessionId']
-        if session_id <= 0 or session['State'] != win32ts.WTSActive:
+        if session_id <= 0 or session['State'] not in (win32ts.WTSActive, win32ts.WTSDisconnected):
             continue
         user = win32ts.WTSQuerySessionInformation(None, session_id, win32ts.WTSUserName)
         domain = win32ts.WTSQuerySessionInformation(None, session_id, win32ts.WTSDomainName)
@@ -477,36 +516,117 @@ def _active_sessions():
 def _restore_companion_task(paths, operation_id, item):
     """A password-free existing interactive token; never a SYSTEM GUI process."""
     import win32com.client
+    import win32security
     if item not in companion_restore_decisions([item], _active_sessions()):
         return False
     scheduler = win32com.client.Dispatch('Schedule.Service'); scheduler.Connect()
     folder = scheduler.GetFolder('\\')
     name = 'EndpointCompanionRestore-' + operation_id + '-' + item['role'] + '-' + str(item['session_id'])
     definition = scheduler.NewTask(0)
-    definition.Principal.UserId = item['sid']
+    # ScheduledTasks rejects a literal user SID on supported domain clients.
+    # Resolve the account but keep the original SID/session as launch authority.
+    name_part, domain, _ = win32security.LookupAccountSid(None, win32security.ConvertStringSidToSid(item['sid']))
+    account = domain + '\\' + name_part if domain else name_part
+    resolved, *_ = win32security.LookupAccountName(None, account)
+    if win32security.ConvertSidToStringSid(resolved) != item['sid']:
+        _fail()
+    definition.Principal.UserId = account
     definition.Principal.LogonType = 3  # TASK_LOGON_INTERACTIVE_TOKEN
     definition.Principal.RunLevel = 0  # TASK_RUNLEVEL_LUA
     definition.Settings.Enabled = True
     definition.Settings.DisallowStartIfOnBatteries = False
     definition.Settings.StopIfGoingOnBatteries = False
     definition.Settings.ExecutionTimeLimit = 'PT0S'
+    definition.Settings.MultipleInstances = 2  # IgnoreNew also bounds retained launcher retries.
     action = definition.Actions.Create(0)
     action.Path = str(paths.install_root / _COMPANIONS[item['role']])
     action.Arguments = ''
     security = 'O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;GRGX;;;' + item['sid'] + ')'
+    durable_state.installer_mutation_checkpoint(required=True)
     try:
-        # No update/replace flag: a pre-existing foreign task is a conflict.
-        task = folder.RegisterTaskDefinition(name, definition, 2, item['sid'], None, 3, security)
+        # Never replace a task by name. A crash may leave our exact protected
+        # registration; only full readback below authorizes its reuse.
+        task = folder.RegisterTaskDefinition(name, definition, 2, account, None, 3, security)
     except Exception:
-        return False
+        try:
+            task = folder.GetTask(name)
+        except Exception:
+            return False
+    _validate_companion_launcher(task, paths, item)
     try:
         if item not in companion_restore_decisions([item], _active_sessions()):
             return False
+        durable_state.installer_mutation_checkpoint(required=True)
         task.RunEx(None, 4, item['session_id'], '')  # TASK_RUN_USE_SESSION_ID
         return True
     finally:
         # Deleting the launcher registration does not stop its interactive process.
+        durable_state.installer_mutation_checkpoint(required=True)
         folder.DeleteTask(name, 0)
+
+
+def _validate_companion_launcher(task, paths, item):
+    from xml.etree import ElementTree as ET
+    import win32security
+    xml = ET.fromstring(task.Xml)
+    actions = xml.findall('{*}Actions/{*}Exec')
+    principal = task.Definition.Principal
+    if (len(xml.findall('{*}Principals/{*}Principal')) != 1
+            or xml.findtext('{*}Principals/{*}Principal/{*}UserId') != item['sid']
+            or principal.LogonType != 3 or principal.RunLevel != 0
+            or xml.findall('{*}Triggers/*') or task.Definition.Settings.MultipleInstances != 2
+            or len(actions) != 1 or len(xml.findall('{*}Actions/*')) != 1
+            or actions[0].findtext('{*}Command') != str(paths.install_root / _COMPANIONS[item['role']])
+            or actions[0].findtext('{*}Arguments') not in (None, '')
+            or actions[0].findtext('{*}WorkingDirectory') not in (None, '')):
+        _fail()
+    descriptor = win32security.ConvertStringSecurityDescriptorToSecurityDescriptor(task.GetSecurityDescriptor(7), 1)
+    owner, acl = descriptor.GetSecurityDescriptorOwner(), descriptor.GetSecurityDescriptorDacl()
+    admins = {'S-1-5-18', 'S-1-5-32-544'}
+    if owner is None or acl is None or win32security.ConvertSidToStringSid(owner) not in admins:
+        _fail()
+    for index in range(acl.GetAceCount()):
+        kind, mask, sid = acl.GetAce(index)
+        sid = win32security.ConvertSidToStringSid(sid)
+        if kind[0] != 0 or sid not in admins | {item['sid']} or (sid == item['sid'] and mask & ~0xA01200A9):
+            _fail()
+
+
+def restore_expected_companions(paths, operation_id, *, checkpoint, timeout_seconds=20):
+    """Accepted native payload needs both roles, including previously absent ones.
+
+    A RunEx request is never running proof. Only the original matching SID and
+    session with the installed executable path can satisfy the bounded probe.
+    The caller holds verified Foundation bytes throughout this operation.
+    """
+    import time
+    sessions = _active_sessions()
+    if len(sessions) > 32:
+        _fail()
+    expected = [{'role': role, **session} for session in sessions for role in _COMPANIONS]
+    companion_restore_decisions(expected, sessions)
+    if not expected:
+        return 'not-required'
+    for item in expected:
+        checkpoint()
+        if not companion_restore_decisions([item], _active_sessions()):
+            continue
+        if item not in _probe_companions(paths):
+            if not _restore_companion_task(paths, operation_id, item):
+                if companion_restore_decisions([item], _active_sessions()):
+                    _fail()
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        checkpoint()
+        required = companion_restore_decisions(expected, _active_sessions())
+        if not required:
+            return 'session-unavailable'
+        running = _probe_companions(paths)
+        if all(running.count(item) == 1 for item in required):
+            return 'running'
+        if time.monotonic() >= deadline:
+            _fail()
+        time.sleep(0.2)
 
 
 def _service_outcomes(paths, record):

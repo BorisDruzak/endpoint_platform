@@ -1,0 +1,13 @@
+[Unit]
+Description=Finish original pending Endpoint native bootstrap
+After=network-online.target
+ConditionPathExists=/usr/lib/endpoint-agent-setup/endpoint-agent-setup
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStart=/usr/lib/endpoint-agent-setup/endpoint-agent-setup reconcile
+TimeoutStartSec=150
+KillMode=control-group

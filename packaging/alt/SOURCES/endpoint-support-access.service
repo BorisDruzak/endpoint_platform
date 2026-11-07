@@ -1,0 +1,18 @@
+[Unit]
+Description=Independent Endpoint Linux Support
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+UMask=0077
+ExecStart=/usr/lib/endpoint-support-access/endpoint-support-access run
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=10
+SendSIGKILL=yes
+
+[Install]
+WantedBy=multi-user.target

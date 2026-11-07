@@ -28,7 +28,7 @@ async def session() -> AsyncIterator[AsyncSession]:
             lambda sync: Device.metadata.create_all(
                 sync,
                 tables=(
-                    Device.__table__,
+                    Device.metadata.tables["installation_states"], Device.__table__,
                     Command.__table__,
                     CommandResult.__table__,
                     ContextCollection.__table__,

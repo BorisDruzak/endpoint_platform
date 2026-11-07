@@ -143,6 +143,17 @@ def _capture_analysis(spec_path: Path, workpath: Path) -> dict[str, object]:
     return captured
 
 
+@pytest.fixture
+def setup_client_input(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    # These tests qualify dependency isolation, not an operator signature or a
+    # deployable release. CI must not need the private signed release input.
+    source = PROJECT_ROOT / "packaging/windows/EndpointSetupUpdater.ps1"
+    fixture = tmp_path / "EndpointSetupUpdater.ps1"
+    fixture.write_bytes(source.read_bytes())
+    monkeypatch.setenv("ENDPOINT_SIGNED_SETUP_CLIENT", str(fixture))
+    return fixture
+
+
 def test_agent_core_lock_contains_only_headless_runtime_dependencies() -> None:
     """Adding a GUI, Helpdesk, or Remote Assist dependency to core is a bug."""
     locked = _locked_requirements(CORE_REQUIREMENTS)
@@ -190,7 +201,7 @@ def test_forbidden_artifact_modules_match_namespaced_agent_modules(
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows PyInstaller artifact check")
 def test_windows_core_artifact_excludes_all_optional_runtime_packages(
-    tmp_path: Path,
+    tmp_path: Path, setup_client_input: Path,
 ) -> None:
     """A packaged Windows core artifact must not regain optional runtime files."""
     dist_path = tmp_path / "dist"
@@ -229,7 +240,7 @@ def test_windows_core_artifact_excludes_all_optional_runtime_packages(
 
 
 @pytest.mark.parametrize("platform", ("linux", "windows"))
-def test_core_specs_build_only_the_headless_runtime(platform: str, tmp_path: Path) -> None:
+def test_core_specs_build_only_the_headless_runtime(platform: str, tmp_path: Path, setup_client_input: Path) -> None:
     """Changing a core package back to a GUI or legacy entrypoint is a bug."""
     captured = _capture_analysis(
         PROJECT_ROOT / "pc_agent" / f"pyinstaller_endpoint_core_{platform}.spec", tmp_path/'work'
@@ -238,8 +249,11 @@ def test_core_specs_build_only_the_headless_runtime(platform: str, tmp_path: Pat
     assert captured["scripts"] == [
         str(PROJECT_ROOT / "pc_agent" / "runtime" / "main.py")
     ]
-    assert captured["datas"] == [
+    expected_datas = [
         (str(PROJECT_ROOT / "browser_sensor" / "extension-id.txt"), "browser_sensor")
     ]
+    if platform == "windows":
+        expected_datas.append((str(setup_client_input), "setup-updater"))
+    assert captured["datas"] == expected_datas
     assert not FORBIDDEN_SPEC_IMPORTS.intersection(captured["hiddenimports"])
     assert FORBIDDEN_SPEC_IMPORTS.issubset(captured["excludes"])

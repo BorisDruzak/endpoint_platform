@@ -312,7 +312,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.windows_service_child:
         return asyncio.run(_run_service_child(settings))
     if args.verify:
-        return run_verify(settings)
+        verified = run_verify(settings)
+        if verified:
+            return verified
+        from pc_agent.platform.windows.setup_update_bootstrap import bootstrap_setup_client
+        return bootstrap_setup_client(settings)
     if args.print_safe_status:
         from pc_agent.platform.windows.service import print_safe_status
 

@@ -143,3 +143,51 @@ def test_all_explicit_shared_byte_proofs_remain_pinned_across_metadata_checkpoin
                 (tmp_path / rows[-1]['path']).write_bytes(b'blocked while pinned')
     assert len(reads) == len(rows)
     (tmp_path / rows[-1]['path']).write_bytes(b'all pins closed')
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='native Windows identity and ChangeTime guards')
+@pytest.mark.parametrize('invariant', ['path_identity', 'handle_identity', 'change_time'])
+def test_foundation_pin_failure_keeps_rejection_and_identifies_safe_slot(tmp_path, monkeypatch, invariant):
+    import stat
+    from pc_agent.platform.windows import msi_inventory as module, update_transaction
+    rows = records(module)
+    for row in rows:
+        (tmp_path / row['path']).write_bytes(b'exe')
+    expected = SimpleNamespace(foundation_files=tuple(rows))
+    monkeypatch.setattr(update_transaction, '_assert_state_security', lambda *_: None)
+    leaf = tmp_path / rows[0]['path']
+    try:
+        with pytest.raises(module.ProvenanceConflict, match='^PROVENANCE_CONFLICT$') as caught:
+            with module.verified_foundation_bytes(expected, tmp_path):
+                if invariant == 'path_identity':
+                    before = leaf.stat()
+                    os.utime(leaf, ns=(before.st_atime_ns, before.st_mtime_ns + 1_000_000_000))
+                elif invariant == 'change_time':
+                    import time
+                    # NTFS can coalesce immediate metadata writes into the same
+                    # ChangeTime tick. Establish a real descriptor change before
+                    # asking the unchanged production guard to reject it.
+                    with leaf.open('rb') as observed:
+                        before_change = os.fstat(observed.fileno()).st_ctime_ns
+                        deadline = time.monotonic() + 1.0
+                        readonly = True
+                        while True:
+                            leaf.chmod(stat.S_IREAD if readonly else stat.S_IREAD | stat.S_IWRITE)
+                            if os.fstat(observed.fileno()).st_ctime_ns != before_change:
+                                break
+                            assert time.monotonic() < deadline, 'native ChangeTime did not advance'
+                            readonly = not readonly
+                            time.sleep(0.001)
+                else:
+                    real_fstat = module.os.fstat
+                    def different_handle(descriptor):
+                        observed = real_fstat(descriptor)
+                        fields = {name: getattr(observed, name) for name in dir(observed) if name.startswith('st_')}
+                        return SimpleNamespace(**{**fields, 'st_ino': observed.st_ino + 1})
+                    monkeypatch.setattr(module.os, 'fstat', different_handle)
+        assert getattr(caught.value, 'foundation_invariant', None) == invariant
+        assert getattr(caught.value, 'foundation_slot_sha256', None) == hashlib.sha256(rows[0]['path'].encode()).hexdigest()
+        # Diagnostic data never changes the public exception or authorizes work.
+        assert str(caught.value) == 'PROVENANCE_CONFLICT'
+    finally:
+        leaf.chmod(stat.S_IREAD | stat.S_IWRITE)

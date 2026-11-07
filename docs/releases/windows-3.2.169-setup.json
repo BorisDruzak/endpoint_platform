@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "version": "3.2.169",
+  "platform": "windows_amd64",
+  "status": "source168_native_accepted_source158_failed_target_recovered",
+  "runtime_source_commit": "4525435f1345e0d44253948f2867a0a099475f6b",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.169.json",
+  "producer_root": "C:\\endpoint-platform-wix-build\\setup169-4525435",
+  "initial_runtime": {
+    "file_count": 119,
+    "tree_sha256": "20434630595dc71d5a97b2aa8c73638921025e71e67ad8ca4909f7926bb1f3ec",
+    "component_guid": "220A91EB-0942-59DC-B931-844B15D31F6E",
+    "source_file_count": 280,
+    "native_helpers_reuse_allowed": false
+  },
+  "fixes": [
+    "f5e6f33c94798296cbe6f0ddcdd1831987946d27",
+    "d7304706263f1427b6ed267e66661a3989ecf8d6"
+  ],
+  "packaged_observer": {
+    "client_version": "1.0.6",
+    "script_sha256": "f6359376cac7f5a5de6476ed9c41ea652fb95fe7e64c285d1ff2eaa8f6b0b069"
+  },
+  "qualification": {
+    "native_applied": true,
+    "active_user_telemetry": true,
+    "setup_assignments": 2,
+    "accepted_source_foundations": [
+      "3.2.168"
+    ],
+    "server_qualified_source_foundations": [],
+    "fleet_eligible": false
+  },
+  "fleet": {
+    "enabled": false,
+    "policy_revision": 3,
+    "max_parallel": 2,
+    "active_recovery_devices": []
+  },
+  "existing_native_recovery_authorized_by_this_release": false,
+  "independent_support_tunnel_included": false,
+  "windows_packaging_commit": "982b84181486a28e9b351947ca665323cdeae2d8",
+  "server_console_commit": "280d5c2e3005f58c350885744c393af4eeaeeb7d",
+  "setup_update_release_id": "dee3a7c6-c758-47fc-beca-f01f8d7c7ef3",
+  "setup_update_manifest": {
+    "schema_version": "windows_setup_release_v1",
+    "release_identifier": "endpoint-windows-full-setup-3.2.169-4525435",
+    "version": "3.2.169",
+    "artifact_name": "EndpointAgentSetup-3.2.169-x64.exe",
+    "sha256": "7dce65e273a2b96432b7ca57eb7b38a01cebe1bce7246fab22c7cff0777fb4b1",
+    "size": 146246784,
+    "source_revision": "4525435f1345e0d44253948f2867a0a099475f6b",
+    "msi_sha256": "07a01d95af8f4b65dd1b0f763d4ada5d83cc41068002077ebd6ed590b88a8301",
+    "tray_sha256": "732dea9bf07568357771b728f685d28ce754a2828017c1afb84e73430e348903",
+    "sensor_sha256": "6d45f501976dd23fd8fd788d3f834d1ad307be7fa8f5c4d35561b7f073e358b3"
+  },
+  "signatures": [
+    {
+      "File": "EndpointAgent-3.2.169-x64.msi",
+      "Size": 104431616,
+      "SHA256": "07a01d95af8f4b65dd1b0f763d4ada5d83cc41068002077ebd6ed590b88a8301",
+      "Signature": "Valid",
+      "Publisher": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+      "Timestamped": true
+    },
+    {
+      "File": "EndpointAgentSetup-3.2.169-x64.exe",
+      "Size": 146246784,
+      "SHA256": "7dce65e273a2b96432b7ca57eb7b38a01cebe1bce7246fab22c7cff0777fb4b1",
+      "Signature": "Valid",
+      "Publisher": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+      "Timestamped": true
+    }
+  ],
+  "native_helper": {
+    "inspection": {
+      "sha256": "f912e92587dfb88d35282e8d968cecd8c0891e940f5b89d3d20f30687c4cec3e",
+      "build_tools_absent": true,
+      "python_module_count": 438,
+      "archive_member_count": 112
+    },
+    "observer_payload": {
+      "client_version": "1.0.6",
+      "schema_version": 1,
+      "script_sha256": "f6359376cac7f5a5de6476ed9c41ea652fb95fe7e64c285d1ff2eaa8f6b0b069",
+      "source_sha256": "ff518de2831f75ed12b4203463c0dbdc94751579d2ac60adebc75e6df24f3119"
+    },
+    "canonical_selector_in_core_and_helper": true,
+    "strict_grant_reader_unchanged": true
+  },
+  "artifacts": [
+    {
+      "filename": "EndpointAgent-3.2.169-x64.msi",
+      "operator_path": "C:\\endpoint-platform-wix-build\\setup169-4525435\\native-setup-build\\releases\\EndpointAgent-3.2.169-x64.msi",
+      "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgent-3.2.169-x64.msi",
+      "sha256": "07a01d95af8f4b65dd1b0f763d4ada5d83cc41068002077ebd6ed590b88a8301",
+      "size": 104431616
+    },
+    {
+      "filename": "EndpointAgentSetup-3.2.169-x64.exe",
+      "operator_path": "C:\\endpoint-platform-wix-build\\setup169-4525435\\native-setup-build\\releases\\EndpointAgentSetup-3.2.169-x64.exe",
+      "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgentSetup-3.2.169-x64.exe",
+      "sha256": "7dce65e273a2b96432b7ca57eb7b38a01cebe1bce7246fab22c7cff0777fb4b1",
+      "size": 146246784
+    }
+  ],
+  "enrollment": {
+    "published": false,
+    "existing_default_version": "3.2.165",
+    "auto_campaign_unchanged": true
+  },
+  "live_canaries": [
+    {
+      "address": "192.168.101.187",
+      "device_id": "d3ed13cd-1b40-4ccc-b035-240a184cf247",
+      "assignment_id": "0d4299e7-7c17-495d-8ddb-56b50f03a154",
+      "attempt_id": "f0da578b-2234-417a-b625-8b356994123a",
+      "source_core": "3.2.164",
+      "source_foundation": "3.2.158",
+      "source_client": "1.0.5",
+      "status": "failed",
+      "safe_code": "native_failed_target_recovered",
+      "observed_target_core_foundation": "3.2.169",
+      "observer_version": "1.0.7",
+      "manual_preparation": false,
+      "original_native_exit": 21,
+      "native_hold_active": false,
+      "client_only_administrative_exception": true,
+      "finished_at": "2026-11-06T07:04:07.053379Z",
+      "recovery_followup_record": "docs/verification/2026-11-06-observer107-recovery-proposal.md",
+      "native_proof_at_initial_failure": null,
+      "recovery_proof": {
+        "native_phase": "accepted",
+        "exit_code": 21,
+        "core_version": "3.2.169",
+        "foundation_version": "3.2.169",
+        "private_preserved": true,
+        "soak": {
+          "duration_seconds": 183.588,
+          "samples": 6,
+          "sensor_count": 1,
+          "sensor_cpu_percent_max": 0.0128,
+          "services_stable": true,
+          "companions_stable": true,
+          "connected": true
+        }
+      }
+    },
+    {
+      "address": "192.168.101.146",
+      "device_id": "00aa5779-d229-4dce-a28c-1e668819eed2",
+      "assignment_id": "5bd501de-51fe-4932-8ac2-e4f19f5cd67a",
+      "attempt_id": "0cb501b7-9376-46ac-9f51-35e406116bd8",
+      "source_core": "3.2.168",
+      "source_foundation": "3.2.168",
+      "source_client": "1.0.6",
+      "status": "applied",
+      "native_exit": 0,
+      "finished_at": "2026-11-05T17:57:48.819602Z",
+      "soak_seconds": 181.528,
+      "sensor_count": 1,
+      "sensor_cpu_percent_max": 0.0,
+      "private_preserved": true,
+      "manual_preparation": false
+    }
+  ],
+  "verification_record": "docs/verification/2026-11-05-setup169-web-fleet.md"
+}

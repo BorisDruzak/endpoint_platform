@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from endpoint_contracts.capabilities import MODULE_CAPABILITY_REGISTRY
 from endpoint_server.db.models import DeviceSession, EndpointOperation
 from endpoint_server.modules.execution_routes import _project_module_operation
+from tests.server.test_update_postgresql import update_migration_database_urls
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -151,7 +152,34 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0042_worktime_companion"]
+    assert script.get_heads() == ["0051_staging_linux_worktime"]
+    merge = script.get_revision("0051_staging_linux_worktime")
+    assert merge.is_merge_point
+    assert merge.down_revision == ("0050_linux_enrollment_binding", "0044_worktime_helpdesk")
+
+
+def test_candidate_visibility_migration_preserves_legacy_default_and_roundtrip(update_migration_database_urls):
+    database_url, plain_url = update_migration_database_urls
+    config = _alembic_config(database_url)
+    command.upgrade(config, '0047_support_install_access')
+    insert = """INSERT INTO windows_setup_releases
+        (id, version, agent_version, artifact_identifier, filename, setup_sha256, msi_sha256,
+         source_commit, msi_source_commit, authenticode_status, msi_authenticode_status)
+        VALUES ('%s', '%s', '%s', '%s.exe', '%s.exe', '%s', '%s', '%s', '%s', 'valid', 'valid')"""
+    def add(version):
+        asyncio.run(_execute(plain_url, insert % (uuid4(), version, version, version, version,
+            'a' * 64, 'b' * 64, 'c' * 40, 'd' * 40)))
+    add('3.2.176')
+    command.upgrade(config, '0048_installation_lifecycle')
+    add('3.2.178')
+    rows = asyncio.run(_fetch(plain_url, 'SELECT download_published, product_code FROM windows_setup_releases'))
+    assert len(rows) == 2 and all(row['download_published'] is True and row['product_code'] is None for row in rows)
+    command.downgrade(config, '0047_support_install_access')
+    rows = asyncio.run(_fetch(plain_url, 'SELECT version FROM windows_setup_releases ORDER BY version'))
+    assert [row['version'] for row in rows] == ['3.2.176', '3.2.178']
+    command.upgrade(config, '0048_installation_lifecycle')
+    assert all(row['download_published'] is True for row in asyncio.run(_fetch(plain_url,
+        'SELECT download_published FROM windows_setup_releases')))
 
 
 def test_launcher_foundation_migration_only_adds_nullable_columns():

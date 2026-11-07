@@ -30,7 +30,8 @@ def test_actual_windows_producer_has_safe_headers_and_identical_payload(tmp_path
     names = ['endpoint_server/__init__.py', 'endpoint_contracts/__init__.py',
              'browser_sensor/manifest.json', 'alembic.ini', 'requirements-server.txt',
              'tools/__init__.py', 'tools/register_windows_setup_release.py',
-             'tools/register_browser_sensor_release.py', 'webapp/dist/index.html',
+             'tools/register_browser_sensor_release.py', 'tools/release/linux_native_verifier.py',
+             'webapp/dist/index.html',
              'webapp/dist/assets/app.js']
     expected = {}
     for name in names:
@@ -39,7 +40,7 @@ def test_actual_windows_producer_has_safe_headers_and_identical_payload(tmp_path
         expected[name] = (name + '\nUTF8:\u0442\u0435\u0441\u0442\n').encode()
         path.write_bytes(expected[name])
     release = fixture / 'tools/release'
-    release.mkdir()
+    release.mkdir(exist_ok=True)
     shutil.copy2(REPO / 'tools/release/build_console_server_archive.ps1', release)
     if HELPER.exists():
         shutil.copy2(HELPER, release)
@@ -52,7 +53,7 @@ def test_actual_windows_producer_has_safe_headers_and_identical_payload(tmp_path
         output = tmp_path / f'release-{index}.tar.gz'
         env = os.environ | {'SERVER_ARCHIVE_TEST_SCRIPT': str(release / 'build_console_server_archive.ps1'),
                             'SERVER_ARCHIVE_TEST_OUTPUT': str(output),
-                            'SERVER_ARCHIVE_TEST_PYTHON': sys.executable}
+                            'SERVER_ARCHIVE_TEST_PYTHON': os.environ.get('SERVER_ARCHIVE_TEST_PYTHON', sys.executable)}
         # Only the independent Console build is a no-op; actual Git, Windows tar,
         # source staging, PowerShell producer and final archive writer all run.
         command = ("function global:npm { $global:LASTEXITCODE=0 }; "

@@ -32,7 +32,7 @@ from endpoint_contracts.capabilities import MODULE_CAPABILITY_REGISTRY
 async def test_fleet_is_paginated_and_does_not_expose_raw_context() -> None:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     tables = [
-        Device.__table__, DeviceInstance.__table__, DeviceSession.__table__,
+        Device.metadata.tables["installation_states"], Device.__table__, DeviceInstance.__table__, DeviceSession.__table__,
         ContextSnapshot.__table__, ContextCurrent.__table__, UpdateTarget.__table__,
         EnrollmentRequest.__table__, EndpointOperation.__table__,
     ]
@@ -143,7 +143,7 @@ async def test_console_device_api_uses_session_and_safe_projection() -> None:
     async with engine.begin() as connection:
         await connection.run_sync(lambda sync: [
             table.create(sync) for table in (
-                Device.__table__, DeviceSession.__table__, DeviceInstance.__table__,
+                Device.metadata.tables["installation_states"], Device.__table__, DeviceSession.__table__, DeviceInstance.__table__,
                 ContextCollection.__table__, ContextSnapshot.__table__, ContextCurrent.__table__, DeviceEvent.__table__,
                 AuditEvent.__table__, UpdateTarget.__table__,
             )
@@ -328,7 +328,7 @@ async def test_foundation_filters_are_independent_semantic_and_session_only(vers
     engine = version_engine
     async with engine.begin() as connection:
         await connection.run_sync(lambda sync: Base.metadata.create_all(sync) if engine.dialect.name == "postgresql" else [table.create(sync) for table in (
-            Device.__table__, DeviceInstance.__table__, DeviceSession.__table__,
+            Device.metadata.tables["installation_states"], Device.__table__, DeviceInstance.__table__, DeviceSession.__table__,
             ContextSnapshot.__table__, ContextCurrent.__table__, UpdateTarget.__table__,
         )])
     sessions = async_sessionmaker(engine, expire_on_commit=False)

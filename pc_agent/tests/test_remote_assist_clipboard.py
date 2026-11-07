@@ -25,16 +25,26 @@ def test_clipboard_remote_update_writes_backend() -> None:
 def test_clipboard_poll_sends_local_changes_without_echo() -> None:
     async def scenario() -> None:
         sent: list[dict] = []
+        updated = asyncio.Event()
+
+        def send(message: dict) -> None:
+            sent.append(message)
+            if message["type"] == "clipboard.update":
+                updated.set()
+
         backend = MemoryClipboardBackend("initial")
         bridge = ClipboardSyncBridge(
             config=ClipboardConfig(enabled=True, max_bytes=1024, poll_interval_sec=0.01),
-            send=sent.append,
+            send=send,
             backend=backend,
         )
         await bridge.start()
-        backend.text = "operator visible text"
-        await asyncio.sleep(0.04)
-        await bridge.stop()
+        try:
+            backend.text = "operator visible text"
+            # Wait for the observable result, including Windows thread scheduling.
+            await asyncio.wait_for(updated.wait(), timeout=1)
+        finally:
+            await bridge.stop()
 
         updates = [item for item in sent if item["type"] == "clipboard.update"]
         assert updates

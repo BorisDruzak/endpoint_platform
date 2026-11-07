@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, String, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, DateTime, String, UniqueConstraint, true
 from sqlalchemy.orm import Mapped, mapped_column
 
 from endpoint_server.db.base import Base
@@ -38,4 +38,6 @@ class WindowsSetupRelease(OwnershipRecord, Base):
     authenticode_publisher: Mapped[str | None] = mapped_column(String(512))
     msi_authenticode_status: Mapped[str] = mapped_column(String(16), nullable=False)
     msi_authenticode_publisher: Mapped[str | None] = mapped_column(String(512))
+    product_code: Mapped[str | None] = mapped_column(String(38))
+    download_published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
     retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

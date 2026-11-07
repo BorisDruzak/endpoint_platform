@@ -306,12 +306,16 @@ FOUNDATION_EXECUTABLES = {
     'EndpointBrowserPolicy.exe':('filEndpointBrowserPolicy','cmpBrowserPolicyService'),
 }
 
+SUPPORT_HELPER = 'EndpointSupportAccess.exe'
+SUPPORT_HELPER_BINDING = ('filSupportAccess', 'cmpSupportAccess')
+
 
 def _foundation_records(value, *, schema=1):
     from .foundation_layout import shared_binding
-    if (type(schema) is not int or schema not in (1, 2)
+    if (type(schema) is not int or schema not in (1, 2, 3)
         or not isinstance(value,(list,tuple)) or not 8 <= len(value) <= 4096
-        or (schema == 1 and len(value) != 8) or (schema == 2 and len(value) == 8)):
+        or (schema == 1 and len(value) != 8) or (schema == 2 and len(value) == 8)
+        or (schema == 3 and len(value) < 10)):
         raise ProvenanceConflict()
     found=set()
     for row in value:
@@ -322,9 +326,11 @@ def _foundation_records(value, *, schema=1):
             raise ProvenanceConflict()
         try:
             binding = FOUNDATION_EXECUTABLES.get(row['path'])
+            if schema == 3 and row['path'] == SUPPORT_HELPER:
+                binding = SUPPORT_HELPER_BINDING
             if row['size'] == 0 and (binding is not None or Path(row['path']).suffix.casefold() in {'.exe', '.dll', '.pyd'}):
                 raise ProvenanceConflict()
-            if binding is None and schema == 2:
+            if binding is None and schema in (2, 3):
                 binding = shared_binding(row['path'])
             if binding is None or (row['file'], row['component']) != binding:
                 raise ProvenanceConflict()
@@ -332,6 +338,8 @@ def _foundation_records(value, *, schema=1):
             raise ProvenanceConflict() from error
         found.add(row['path'].casefold())
     if not {name.casefold() for name in FOUNDATION_EXECUTABLES} <= found:
+        raise ProvenanceConflict()
+    if schema == 3 and SUPPORT_HELPER.casefold() not in found:
         raise ProvenanceConflict()
     return tuple(value)
 
@@ -384,16 +392,26 @@ def immutable_foundation_reads(expected, install_root):
 
 
 @contextmanager
-def verified_foundation_bytes(expected,install_root):
-    """Hold each exact Foundation file against substitution."""
+def verified_foundation_bytes(expected,install_root,*,allow_execution_metadata=False):
+    """Hold exact Foundation bytes, optionally across accepted image execution.
+
+    Ordinary reads keep their strict ChangeTime guard. The accepted-native
+    companion caller also binds actual retained-handle security/attributes;
+    loader-only timestamp drift requires a fresh hash under the same pin.
+    """
     from . import durable_state
     from .update_transaction import _assert_state_security
     from endpoint_contracts.runtime_payload import reject_reparse_ancestors
     schema = getattr(expected, 'foundation_schema', 1)
+    scope = _PHASE_READS.get()
+    if allow_execution_metadata and scope is not None and scope.foundation_inputs:
+        # An immutable read cache deliberately retains its original timestamp
+        # proof. Never rebaseline it or silently turn cached reads into launches.
+        raise ProvenanceConflict()
     rows=_foundation_records(expected.foundation_files, schema=schema)
     reject_reparse_ancestors(install_root)
     _assert_state_security(install_root)
-    if schema == 2:
+    if schema in (2, 3):
         _verify_shared_namespace(rows, install_root)
     with ExitStack() as stack:
         identities=[]
@@ -404,6 +422,10 @@ def verified_foundation_bytes(expected,install_root):
             descriptor=stack.enter_context(durable_state._pinned_copy_source(path))
             opened=os.fstat(descriptor)
             if durable_state._copy_identity(opened)!=before: raise ProvenanceConflict()
+            # Snapshot before hashing: a metadata mutation during the first
+            # byte read must not become the authority for a subsequent launch.
+            metadata = (durable_state.execution_metadata_identity(descriptor, opened)
+                        if allow_execution_metadata else None)
             scope = _PHASE_READS.get()
             identity = row['size'], row['sha256']
             if scope is not None and scope.foundation_inputs.get(path) == identity:
@@ -411,14 +433,51 @@ def verified_foundation_bytes(expected,install_root):
                            lambda: durable_state._verify_copy_bytes(descriptor, *identity))
             else:
                 durable_state._verify_copy_bytes(descriptor, *identity)
-            identities.append((path,descriptor,before,opened.st_ctime_ns))
+            if allow_execution_metadata:
+                _assert_state_security(path)
+                verified = os.fstat(descriptor)
+                if (durable_state._copy_identity(path.lstat()) != before
+                        or durable_state._copy_identity(verified) != before):
+                    _foundation_pin_failure('handle_identity',row['path'])
+                if durable_state.execution_metadata_identity(descriptor, verified) != metadata:
+                    _foundation_pin_failure('execution_metadata',row['path'])
+            identities.append((path,descriptor,before,opened.st_ctime_ns,row,metadata))
         yield
-        if schema == 2:
+        if schema in (2, 3):
             _verify_shared_namespace(rows, install_root)
-        for path,descriptor,before,changed in identities:
+        for path,descriptor,before,changed,row,metadata in identities:
+            slot = row['path']
             after=os.fstat(descriptor)
-            if (durable_state._copy_identity(path.lstat())!=before or durable_state._copy_identity(after)!=before
-                or after.st_ctime_ns!=changed): raise ProvenanceConflict()
+            if durable_state._copy_identity(path.lstat())!=before:
+                _foundation_pin_failure('path_identity',slot)
+            if durable_state._copy_identity(after)!=before:
+                _foundation_pin_failure('handle_identity',slot)
+            if allow_execution_metadata:
+                if durable_state.execution_metadata_identity(descriptor, after) != metadata:
+                    _foundation_pin_failure('execution_metadata',slot)
+                if after.st_ctime_ns != changed:
+                    # No cached proof or new handle: authenticate the same
+                    # retained bytes again and bind the actual metadata again.
+                    durable_state._verify_copy_bytes(descriptor,row['size'],row['sha256'])
+                    final = os.fstat(descriptor)
+                    if (durable_state._copy_identity(path.lstat()) != before
+                            or durable_state._copy_identity(final) != before):
+                        _foundation_pin_failure('handle_identity',slot)
+                    if durable_state.execution_metadata_identity(descriptor, final) != metadata:
+                        _foundation_pin_failure('execution_metadata',slot)
+                    # Windows may update loader timestamps during this read too.
+                    # They are not a substitute for the exact security/attribute
+                    # and retained-byte/identity proof above.
+            elif after.st_ctime_ns!=changed:
+                _foundation_pin_failure('change_time',slot)
+
+
+def _foundation_pin_failure(invariant, slot):
+    """Keep the same rejection; attach no raw filename or compared values."""
+    error = ProvenanceConflict()
+    error.foundation_invariant = invariant
+    error.foundation_slot_sha256 = hashlib.sha256(slot.encode('utf-8')).hexdigest()
+    raise error
 
 
 def read_expected_package(path: Path, release: dict) -> ExpectedMsi:
@@ -439,7 +498,7 @@ def _read_expected_package(path: Path, release: dict) -> ExpectedMsi:
     if package.product_code != release['product_code'] or package.version != release['version']:
         raise ProvenanceConflict()
     value = read_json(read_binary(path, 'EndpointInitialRuntimeInventory', maximum=8*1024*1024), 8*1024*1024)
-    if set(value) != {'schema_version','manifest','contract_bytes','foundation_files'} or type(value['schema_version']) is not int or value['schema_version'] not in (1, 2):
+    if set(value) != {'schema_version','manifest','contract_bytes','foundation_files'} or type(value['schema_version']) is not int or value['schema_version'] not in (1, 2, 3):
         raise ProvenanceConflict()
     try:
         contract_bytes = bytes.fromhex(value['contract_bytes'])
@@ -476,9 +535,20 @@ def _read_expected_package(path: Path, release: dict) -> ExpectedMsi:
         item=actual[row['path']]
         if (item.name!=row['file'] or item.component!=row['component'] or item.size!=row['size']
             or package.components[item.component].features!=(FOUNDATION_FEATURE,)
-            or (schema == 2 and item.path.startswith('_foundation-runtime/')
+            or (schema in (2, 3) and item.path.startswith('_foundation-runtime/')
                 and package.components[item.component].keypath != item.name)):
             raise ProvenanceConflict()
+        if schema == 3 and row['path'] == SUPPORT_HELPER:
+            owner = package.components[item.component]
+            if (owner.directory != 'INSTALLFOLDER' or owner.keypath != item.name
+                    or owner.guid != '{C20F6D8B-2DF2-42E6-9C7C-0D033D137F61}'):
+                raise ProvenanceConflict()
+            # The ordinary-uninstall commit action executes this same signed
+            # helper as an embedded Binary after native removal. Bind its exact
+            # bytes to the staged File; a name alone is not code authority.
+            removal = read_binary(path, 'EndpointSupportAccessRemoval', maximum=row['size'])
+            if len(removal) != row['size'] or hashlib.sha256(removal).hexdigest() != row['sha256']:
+                raise ProvenanceConflict()
     return ExpectedMsi(package, identity, value['manifest'], contract_bytes,foundation,schema)
 
 
@@ -812,10 +882,26 @@ class NativeMsi:
             win32service.CloseServiceHandle(manager)
         return True
 
+    def support_service_absent(self):
+        """Read-only normal-uninstall proof, never used by native replacement."""
+        import win32service
+        manager = win32service.OpenSCManager(None, None, win32service.SC_MANAGER_CONNECT)
+        try:
+            try:
+                service = win32service.OpenService(manager, 'EndpointSupportAccess', win32service.SERVICE_QUERY_STATUS)
+            except Exception as error:
+                if getattr(error, 'winerror', None) == 1060:
+                    return True
+                raise
+            win32service.CloseServiceHandle(service)
+            return False
+        finally:
+            win32service.CloseServiceHandle(manager)
+
 
 def read_binary(path: Path, name: str, *, maximum: int) -> bytes:
     """Read a fixed caller-selected stream from a previously pinned MSI database."""
-    if name not in {'EndpointInstallerHost', 'EndpointInitialRuntimeInventory', 'EndpointNativeCurrentSelector'} or not 0 < maximum <= MAX_PACKAGE_BYTES:
+    if name not in {'EndpointInstallerHost', 'EndpointInitialRuntimeInventory', 'EndpointNativeCurrentSelector', 'EndpointSupportAccessRemoval'} or not 0 < maximum <= MAX_PACKAGE_BYTES:
         raise ProvenanceConflict()
     api = NativeMsi()
     database, view, record = wintypes.UINT(), wintypes.UINT(), wintypes.UINT()
@@ -986,6 +1072,43 @@ def verify_uninstalled(package: PackageInventory, install_root: Path, *, native=
     return {'product_code':package.product_code,'component_count':len(package.components),
         'feature_count':len(package.features),'ownership_sha256':digest.hexdigest(),
         'registry_count':len(package.registry),'service_count':len(package.services),'install_root_absent':True}
+
+
+def verify_support_uninstalled(expected: ExpectedMsi, install_root: Path, *, native=None) -> None:
+    """Ordinary post-commit uninstall also reports independent cleanup truth.
+
+    The caller first proves canonical native absence. This check neither
+    executes removal nor supplies native authority. Schema1/2 remain exempt;
+    replacement, staged removal and retirement do not call this boundary.
+    """
+    if getattr(expected, 'foundation_schema', 1) != 3:
+        return
+    rows = _foundation_records(expected.foundation_files, schema=3)
+    row = next(row for row in rows if row['path'] == SUPPORT_HELPER)
+    helper = [item for item in expected.package.files if item.path == SUPPORT_HELPER]
+    if len(helper) != 1:
+        raise ProvenanceConflict()
+    item = helper[0]
+    owner = expected.package.components[item.component]
+    if ((item.name, item.component) != SUPPORT_HELPER_BINDING or item.size != row['size']
+            or owner.directory != 'INSTALLFOLDER' or owner.keypath != item.name
+            or owner.guid != '{C20F6D8B-2DF2-42E6-9C7C-0D033D137F61}'
+            or owner.features != (FOUNDATION_FEATURE,)):
+        raise ProvenanceConflict()
+    target = install_root.parent / 'Support' / SUPPORT_HELPER
+    try:
+        try:
+            target.lstat()
+        except FileNotFoundError:
+            pass
+        else:
+            raise ValueError('SUPPORT_CLEANUP_INCOMPLETE')
+        if not (native or NativeMsi()).support_service_absent():
+            raise ValueError('SUPPORT_CLEANUP_INCOMPLETE')
+    except Exception as error:
+        # Retain a distinct bounded failure after known native commit. Never
+        # erase a foreign same-name service/file or replay MSI to fix Support.
+        raise ValueError('SUPPORT_CLEANUP_INCOMPLETE') from error
 
 
 def _verify_components(package,install_root,native,components):

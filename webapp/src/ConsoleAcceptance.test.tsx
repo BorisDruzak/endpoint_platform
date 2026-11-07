@@ -49,7 +49,7 @@ describe('Русский интерфейс Console', () => {
     expect(screen.getAllByText('3.2.83')).toHaveLength(2)
     expect(screen.getByText('Core новее Foundation · информационно')).toBeTruthy()
     const unknown = screen.getByText('Unknown').closest('tr')!
-    expect(within(unknown).getByText('В сети')).toBeTruthy()
+    expect(within(unknown).getByText('Установка не подтверждена · в сети')).toBeTruthy()
     expect(within(unknown).getByText('Неизвестна')).toBeTruthy()
     fireEvent.change(screen.getByLabelText('Core Agent ниже версии'), { target: { value: '3.2.82' } })
     await vi.waitFor(() => expect(fetchMock.mock.calls.at(-1)?.[0]).toContain('core_outdated=3.2.82'))
@@ -319,6 +319,11 @@ describe('Русский интерфейс Console', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Подробнее' })[0])
     expect(await screen.findByRole('heading', { name: 'Этапы регистрации' })).toBeTruthy()
     expect(screen.getByText('Решение оператора')).toBeTruthy()
+    const previous = screen.getByLabelText('Предыдущая карточка после полной очистки (необязательно)')
+    fireEvent.change(previous, { target: { value: 'not-a-device' } })
+    expect((screen.getByRole('button', { name: 'Одобрить со связью с предыдущей карточкой' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.change(previous, { target: { value: '11111111-1111-4111-8111-111111111111' } })
+    expect((screen.getByRole('button', { name: 'Одобрить со связью с предыдущей карточкой' }) as HTMLButtonElement).disabled).toBe(false)
   })
 
   it('загружает следующую страницу внутри очереди регистрации', async () => {

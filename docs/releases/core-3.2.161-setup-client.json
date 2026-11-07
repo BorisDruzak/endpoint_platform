@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "purpose": "Windows-only qualified Setup-client bootstrap; full Setup target stays158",
+  "status": "superseded by client1.0.4/Core162; Core161 and canonical return157 applied; original Setup158 blocked before native start",
+  "source_revision": "de8983b1106d3e0df9bdda64aeb3f99f309df1c9",
+  "build": {
+    "schema_version": "update_build_manifest_v1",
+    "build_identifier": "endpoint-windows-core-3.2.161-setup-client",
+    "version": "3.2.161",
+    "platform": "windows_amd64",
+    "channel": "canary",
+    "artifact_url": "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/endpoint-windows-core-3.2.161-setup-client",
+    "artifact_name": "EndpointCore-3.2.161-de8983b.zip",
+    "archive_type": "zip",
+    "sha256": "237328f91ccdffcb4eae07ffe22f43c9cecc52eec01c48fc028ec290cf59d908",
+    "size": 22904133,
+    "minimum_launcher_version": "3.2.156",
+    "release_notes": "Qualified signed Setup client1.0.3; test120 automatic Setup158 preparation"
+  },
+  "client": {
+    "version": "1.0.3",
+    "sha256": "a11b6bb93699827d7fdeefcf34a35476a7e3b8e373632281902b7a4d3ac345fe",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+    "authenticode": "Valid with timestamp"
+  },
+  "test120": {
+    "device_id": "0051645c-0e81-4c21-bf52-befcd5ef5407",
+    "preparation_id": "cc4b2c66-bab0-4ab5-80d6-25f7f8263785",
+    "bridge_rollout_id": "9314b9f5-9774-4eb2-a60d-86d1516aae1e",
+    "bridge_applied_at": "2026-11-03T11:04:03.466130Z",
+    "return_rollout_id": "f811136e-18be-4c29-b3d5-59dca53ff3b7",
+    "initial_preparation": "Explicitly user-approved one-time domain task changed only updates owner SYSTEM->LocalService. Original DACL/group and private-four preserved; temporary task removed. No workstation SSH.",
+    "return_applied_at": "2026-11-03T11:09:08.207721Z",
+    "original_setup_outcome": "blocked/setup_current_binding_differs; native_started=false"
+  }
+}

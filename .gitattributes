@@ -3,3 +3,8 @@
 *.service text eol=lf
 packaging/alt/SOURCES/*.py text eol=lf
 packaging/alt/pilot/*.patch text eol=lf -whitespace
+
+# Preserve verbatim upstream license bytes, including vendor whitespace.
+packaging/windows/support-openssh/LICENSE.txt -text -whitespace
+packaging/windows/support-openssh/NOTICE.txt -text -whitespace
+packaging/windows/support-openssh/manifest.json text eol=lf

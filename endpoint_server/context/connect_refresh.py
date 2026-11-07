@@ -10,6 +10,9 @@ from uuid import UUID
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from endpoint_server.db.models import Device
+from endpoint_server.installation_lifecycle.service import removed
+
 from .models import ContextCollection, ContextSnapshot
 from .repository import expire_overdue_collections, request_collection_outcome
 
@@ -54,6 +57,14 @@ async def queue_connect_refreshes(
     now: datetime | None = None,
 ) -> int:
     """Queue missing or stale supported observations without duplicate active work."""
+    # Presence is recorded independently by the caller. Serialize this automatic
+    # producer with native removal before any advisory/collection lock or expiry.
+    device = await session.scalar(
+        select(Device).where(Device.id == device_id, Device.retired_at.is_(None))
+        .with_for_update().execution_options(populate_existing=True)
+    )
+    if device is None or await removed(session, device_id):
+        return 0
     observed_at = _utc(now or datetime.now(UTC))
     created = 0
     for rule in CONNECT_REFRESH_RULES:

@@ -8,6 +8,15 @@ def isolated_update_transaction(monkeypatch):
     monkeypatch.setattr(update_transaction, '_MUTEX_NAME', 'Local\\EndpointUnitTest-' + uuid4().hex)
 
 
+@pytest.fixture(autouse=True)
+def forbid_operator_browser_policy_registry(monkeypatch):
+    """A unit/native fixture must explicitly supply an isolated registry adapter."""
+    from pc_agent.platform.windows import browser_policy
+    def forbidden(_self):
+        pytest.fail('Test attempted the operator machine browser policy registry; inject a fake adapter')
+    monkeypatch.setattr(browser_policy.WindowsPolicyRegistry, '__init__', forbidden)
+
+
 @pytest.fixture
 def protected_update_state_root(tmp_path):
     """Source state-machine fixtures use real trusted DACLs, never an ACL bypass."""

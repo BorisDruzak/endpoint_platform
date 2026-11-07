@@ -2,10 +2,20 @@
 %global __find_debuginfo_files %{nil}
 %define debug_package %{nil}
 %def_without user_sensor
+%def_without native_setup
+%if_with native_setup
+# Frozen bytes and helper closure are sealed at end of install. Do not rewrite,
+# strip or generate unmanifested pyc files after that boundary.
+%global __os_install_post %{nil}
+%endif
 
 Name: endpoint-agent
 Version: %{agent_version}
+%if_with native_setup
+Release: alt6
+%else
 Release: alt5
+%endif
 Summary: Endpoint Platform headless management agent for ALT Linux
 License: Proprietary
 Group: System/Servers
@@ -21,6 +31,16 @@ Source14: check-start-prerequisites.py
 Source15: start-endpoint-agent.py
 Source20: endpoint-agent.tmpfiles
 Source21: endpoint-agent.logrotate
+%if_with native_setup
+Source50: endpoint-agent-setup.bin
+Source51: endpoint-support-access.tar.gz
+Source52: endpoint-agent-setup
+Source53: endpoint-support-access.service
+Source54: endpoint-agent-setup-retry.service
+Source55: endpoint-agent-setup-retry.timer
+Source56: build_linux_native_manifest.py
+Source57: endpoint-rpm-release.asc
+%endif
 %if_with user_sensor
 Source30: endpoint-kde-probe
 Source31: foreground.js
@@ -43,6 +63,12 @@ BuildRequires: rpm-build-python3
 Requires(pre): shadow-utils
 Requires: python3
 Requires: systemd
+%if_with native_setup
+Requires: openssh-clients
+Requires: openssh-server
+Requires: gnupg
+Requires: rpm
+%endif
 
 %if_with user_sensor
 %package user-sensor
@@ -92,6 +118,23 @@ install -m 0755 %{SOURCE15} %buildroot/usr/lib/endpoint-agent/start-endpoint-age
 install -m 0644 %{SOURCE20} %buildroot/usr/lib/tmpfiles.d/endpoint-agent.conf
 install -m 0644 %{SOURCE21} %buildroot/etc/logrotate.d/endpoint-agent
 install -m 0644 %{_sourcedir}/README.md %buildroot/usr/share/doc/endpoint-agent/README.md
+%if_with native_setup
+install -d -m 0755 %buildroot/usr/lib/endpoint-agent-setup %buildroot/usr/lib/endpoint-support-access \
+    %buildroot/usr/sbin %buildroot/usr/share/endpoint-agent
+install -m 0755 %{SOURCE50} %buildroot/usr/lib/endpoint-agent-setup/endpoint-agent-setup
+tar -xzf %{SOURCE51} -C %buildroot/usr/lib/endpoint-support-access
+install -m 0755 %{SOURCE52} %buildroot/usr/sbin/endpoint-agent-setup
+install -m 0644 %{SOURCE53} %buildroot/usr/lib/systemd/system/endpoint-support-access.service
+install -m 0644 %{SOURCE54} %buildroot/usr/lib/systemd/system/endpoint-agent-setup-retry.service
+install -m 0644 %{SOURCE55} %buildroot/usr/lib/systemd/system/endpoint-agent-setup-retry.timer
+install -m 0644 %{SOURCE57} %buildroot/usr/share/endpoint-agent/endpoint-rpm-release.asc
+# PID1 checks this private installation-completion proof. Support itself remains
+# independent; lease disable/revocation never clears the native completion gate.
+for native_unit in endpoint-agent.service endpoint-agent-update.service endpoint-agent-update.path; do
+    sed -i '/^\[Unit\]$/a ConditionPathExists=/var/lib/endpoint-agent-installation/runtime-ready' \
+        %buildroot/usr/lib/systemd/system/$native_unit
+done
+%endif
 %if_with user_sensor
 install -d -m 0755 %buildroot/usr/share/endpoint-agent \
     %buildroot/usr/lib/systemd/user %buildroot/etc/xdg/autostart
@@ -123,8 +166,24 @@ install -m 0644 /dev/null \
 printf '{"schema_version":1,"source_revision":"%%s","version":"%%s"}\n' \
     '%{source_revision}' '%{version}' \
     > %buildroot/usr/lib/endpoint-agent/current.json.initial
+%if_with native_setup
+%if_with user_sensor
+python3 %{SOURCE56} --root %buildroot --version %{version} --revision %{source_revision} --sensor
+%else
+python3 %{SOURCE56} --root %buildroot --version %{version} --revision %{source_revision}
+%endif
+%endif
 
 %pre
+%if_with native_setup
+# The new payload is unavailable in pre. Use the installed trusted coordinator,
+# or refuse a retained readiness marker before any new payload can consume it.
+if [ -x /usr/lib/endpoint-agent-setup/endpoint-agent-setup ]; then
+    /usr/lib/endpoint-agent-setup/endpoint-agent-setup scriptlet --intent install || exit 1
+elif [ -e /var/lib/endpoint-agent-installation/runtime-ready ] || [ -L /var/lib/endpoint-agent-installation/runtime-ready ]; then
+    exit 1
+fi
+%endif
 if ! getent group endpoint-agent >/dev/null 2>&1; then
     groupadd -r endpoint-agent
 fi
@@ -145,6 +204,9 @@ else
 fi
 
 %post
+%if_with native_setup
+/usr/lib/endpoint-agent-setup/endpoint-agent-setup scriptlet --intent install || exit 1
+%endif
 /usr/lib/endpoint-agent/check-start-prerequisites --prepare-directories || exit 1
 install_current_selector() {
     selector_stage=$(mktemp /opt/endpoint-agent/.current.json.rpm.XXXXXX) || return 1
@@ -167,11 +229,22 @@ fi
 /usr/lib/endpoint-agent/check-start-prerequisites --allow-unconfigured || exit 1
 systemctl daemon-reload || exit 1
 systemctl enable endpoint-agent.service endpoint-agent-update.path || exit 1
+%if_with native_setup
+# Only the owning coordinator may bootstrap or start Core after real native0.
+systemctl enable endpoint-support-access.service || exit 1
+%else
 systemctl try-restart endpoint-agent.service || exit 1
 systemctl restart endpoint-agent-update.path || exit 1
+%endif
 
 %preun
 if [ "$1" -eq 0 ]; then
+%if_with native_setup
+    /usr/lib/endpoint-agent-setup/endpoint-agent-setup scriptlet --intent remove || exit 1
+    systemctl disable --now endpoint-support-access.service || :
+    systemctl disable --now endpoint-agent-setup-retry.timer || :
+    systemctl stop endpoint-agent-setup-retry.service || :
+%endif
     systemctl disable --now endpoint-agent.service || :
     systemctl disable --now endpoint-agent-update.path || :
 fi
@@ -183,9 +256,13 @@ systemctl daemon-reload || :
 %post user-sensor
 /usr/lib/endpoint-agent/browser-policy-helper --prepare-directories || exit 1
 systemctl daemon-reload || exit 1
+%if_with native_setup
+systemctl enable endpoint-agent-browser-policy.service || exit 1
+%else
 systemctl enable --now endpoint-agent-browser-policy.service || exit 1
 systemctl try-restart endpoint-agent-browser-policy.service || exit 1
 systemctl try-restart endpoint-agent.service || exit 1
+%endif
 
 %preun user-sensor
 if [ "$1" -eq 0 ]; then
@@ -220,9 +297,22 @@ systemctl daemon-reload || :
 /usr/lib/systemd/system/endpoint-agent-update.path
 /usr/lib/tmpfiles.d/endpoint-agent.conf
 %config /etc/logrotate.d/endpoint-agent
+%if_with native_setup
+/usr/lib/endpoint-agent-setup
+/usr/lib/endpoint-support-access
+/usr/sbin/endpoint-agent-setup
+/usr/lib/systemd/system/endpoint-support-access.service
+/usr/lib/systemd/system/endpoint-agent-setup-retry.service
+/usr/lib/systemd/system/endpoint-agent-setup-retry.timer
+/usr/share/endpoint-agent/native-source.json
+/usr/share/endpoint-agent/endpoint-rpm-release.asc
+%endif
 
 %if_with user_sensor
 %files user-sensor
+%if_with native_setup
+/usr/share/endpoint-agent-user-sensor
+%endif
 /usr/lib/endpoint-agent/endpoint-kde-probe
 /usr/lib/endpoint-agent/start-user-sensor
 %dir /usr/share/endpoint-agent

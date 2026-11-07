@@ -362,3 +362,46 @@ def test_https_windows_enrollment_sends_a_valid_windows_contract_request(
     assert re.fullmatch(r"[A-Za-z0-9_-]{43}", request["delivery_nonce"])
     assert datetime.fromisoformat(request["requested_at"])
     assert _CLAIM not in str(request)
+
+
+def test_support_install_follows_durable_identity_proof_before_core_start(tmp_path, monkeypatch):
+    from pc_agent.platform.windows.provision import WindowsProvisioner
+    from pc_agent.device_credential import read_device_credential
+    from pc_agent.enrollment_identity import read_enrollment_device_id
+    request = _request(tmp_path)
+    events = []
+    from pc_agent.platform.windows import installation_notification
+    def delivered(data_root):
+        assert read_device_credential(data_root/'device-credential') == _TOKEN
+        assert read_enrollment_device_id(data_root/'enrollment-identity.json') == _DEVICE_ID
+        events.append('lifecycle.delivered')
+        return 'delivered'
+    monkeypatch.setattr(installation_notification,'sync_enrolled_installation',delivered)
+    def support_installer():
+        assert read_device_credential(request.data_root/'device-credential') == _TOKEN
+        assert read_enrollment_device_id(request.data_root/'enrollment-identity.json') == _DEVICE_ID
+        assert 'service.start' not in events
+        events.append('support.install')
+        return {'installed':True}
+    result = WindowsProvisioner(request,enrollment=_Enrollment(events),service=_Service(events),acl=_Acl(events),
+        support_installer=support_installer).provision_from_stdin(io.StringIO(_CLAIM))
+    assert events.index('gateway.enroll') < events.index('support.install') < events.index('service.start')
+    assert events.index('lifecycle.delivered') < events.index('support.install')
+    assert result.support_access_status == 'installed'
+
+
+def test_support_dependency_failure_preserves_successful_enrollment_without_claim_replay(tmp_path, monkeypatch):
+    from pc_agent.platform.windows.provision import WindowsProvisioner
+    request = _request(tmp_path)
+    events=[]
+    from pc_agent.platform.windows import installation_notification
+    monkeypatch.setattr(installation_notification,'sync_enrolled_installation',lambda _: 'delivered')
+    def failure(): raise RuntimeError('do-not-report-sensitive-error')
+    result = WindowsProvisioner(request,enrollment=_Enrollment(events),service=_Service(events),acl=_Acl(events),
+        support_installer=failure).provision_from_stdin(io.StringIO(_CLAIM))
+    assert result.device_id == _DEVICE_ID
+    assert result.claim_removed
+    assert result.support_access_status == 'unavailable'
+    assert events.count('gateway.enroll') == 1
+    assert events.count('service.start') == 1
+    assert (request.data_root/'device-credential').read_text() == _TOKEN

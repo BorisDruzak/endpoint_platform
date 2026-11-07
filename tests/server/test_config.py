@@ -133,7 +133,7 @@ def test_from_environment_keeps_module_platform_and_execution_default_closed(
     assert enabled_settings.endpoint_module_execution_enabled is True
 
 
-def test_policy_sensor_flags_are_default_closed_and_explicit(tmp_path: Path) -> None:
+def test_policy_sensor_flags_are_default_enabled_and_explicitly_disableable(tmp_path: Path) -> None:
     default_settings = Settings.from_environment(_environment(tmp_path))
     flag_names = (
         "ENDPOINT_POLICY_ENABLED",
@@ -147,12 +147,16 @@ def test_policy_sensor_flags_are_default_closed_and_explicit(tmp_path: Path) -> 
         "endpoint_browser_sensor_enabled",
         "endpoint_dlp_audit_enabled",
     )
-    assert all(getattr(default_settings, attribute) is False for attribute in attributes)
+    assert all(getattr(default_settings, attribute) is True for attribute in attributes)
 
     environment = _environment(tmp_path)
     environment.update({name: "true" for name in flag_names})
     enabled_settings = Settings.from_environment(environment)
     assert all(getattr(enabled_settings, attribute) is True for attribute in attributes)
+    environment.update({name: 'false' for name in flag_names})
+    disabled_settings = Settings.from_environment(environment)
+    assert all(getattr(disabled_settings, attribute) is False for attribute in attributes)
+    assert default_settings.endpoint_system_primitives_enabled is False
 
 
 def test_policy_sensor_flag_rejects_ambiguous_values(tmp_path: Path) -> None:
@@ -349,3 +353,20 @@ def test_load_secret_file_rejects_group_or_world_readable_file(tmp_path: Path) -
 
     with pytest.raises(ValueError, match="group or world readable"):
         load_secret_file(secret)
+
+
+def test_staging_worktime_flags_require_explicit_opt_in(tmp_path: Path) -> None:
+    environment = _environment(tmp_path)
+    settings = Settings.from_environment(environment)
+    assert settings.worktime_enabled is False
+    assert settings.worktime_helpdesk_enabled is False
+    environment['ENDPOINT_WORKTIME_ENABLED'] = 'true'
+    environment['ENDPOINT_WORKTIME_HELPDESK_ENABLED'] = 'true'
+    settings = Settings.from_environment(environment)
+    assert settings.worktime_enabled is True
+    assert settings.worktime_helpdesk_enabled is True
+    environment['ENDPOINT_WORKTIME_ENABLED'] = 'false'
+    environment['ENDPOINT_WORKTIME_HELPDESK_ENABLED'] = 'false'
+    settings = Settings.from_environment(environment)
+    assert settings.worktime_enabled is False
+    assert settings.worktime_helpdesk_enabled is False

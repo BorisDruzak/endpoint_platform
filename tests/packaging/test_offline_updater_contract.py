@@ -65,9 +65,10 @@ def test_durable_state_dependency_gate():
     assert_offline_modules(names)
     # Closed dependencies prevent an innocent-looking project wrapper from
     # indirectly bringing the network runtime into the privileged worker.
+    # win32security binds the existing retained-handle ACL metadata identity.
     assert set(names) <= {'__future__', 'collections.abc', 'json', 'os', 'pathlib',
                           'stat', 'uuid', 'win32con', 'win32file', 'pywintypes',
-                          'contextlib', 'contextvars', 'hashlib', 'msvcrt', 're', 'win32timezone', 'ctypes', 'win32api'}
+                          'contextlib', 'contextvars', 'hashlib', 'msvcrt', 're', 'win32timezone', 'ctypes', 'win32api', 'win32security'}
     for parent in ['pc_agent/__init__.py', 'pc_agent/platform/__init__.py',
                    'pc_agent/platform/windows/__init__.py']:
         if (ROOT / parent).exists():
@@ -116,6 +117,12 @@ def test_migrated_offline_worker_project_import_graph_is_closed_to_network():
             'pc_agent.platform.windows.selector_migration'} <= visited
     assert 'pc_agent.update_adapter' not in visited
     assert 'pc_agent.platform.windows.online_update_runtime' not in visited
+    assert 'pc_agent.platform.windows.installation_lifecycle' in visited
+    assert 'pc_agent.platform.windows.support_bootstrap' in visited
+    assert 'pc_agent.platform.windows.installer_native_entry' in visited
+    assert 'pc_agent.platform.windows.installer_host_entry' not in visited
+    assert 'pc_agent.platform.windows.support_access_native' not in visited
+    assert 'pc_agent.platform.windows.installation_notification' not in visited
 
 
 @pytest.mark.parametrize('name', ['socket', 'ssl', 'http', 'urllib.request', 'aiohttp',
@@ -144,9 +151,11 @@ def offline_import(name, *args, **kwargs):
 builtins.__import__ = offline_import
 from pc_agent.platform.windows import durable_state
 from pc_agent.platform.windows import updater_service, selector_migration, acl
+from pc_agent.platform.windows import installation_lifecycle, installer_native_entry, support_bootstrap
 from pc_agent.platform.windows.installer_fence import read_fence
 from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
 assert 'pydantic' not in sys.modules
+assert 'pc_agent.platform.windows.installation_notification' not in sys.modules
 import tempfile
 from pathlib import Path
 with tempfile.TemporaryDirectory() as directory:

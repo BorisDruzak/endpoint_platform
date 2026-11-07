@@ -9,10 +9,12 @@ from contextlib import contextmanager
 from pc_agent.version import AGENT_VERSION
 
 _CODES = frozenset({"UPDATE_IN_PROGRESS", "UPDATE_STATE_INVALID", "PROVENANCE_CONFLICT",
-                    "OWNER_AUTH_FAILED", "MSI_EVIDENCE_FAILED", "RECOVERY_REQUIRED"})
+                    "OWNER_AUTH_FAILED", "MSI_EVIDENCE_FAILED", "RECOVERY_REQUIRED",
+                    "SUPPORT_CLEANUP_INCOMPLETE"})
 _TYPES = frozenset({"OSError", "PermissionError", "TimeoutError", "ValueError", "RuntimeError",
                     "error", "AttributeError", "TypeError", "ImportError", "ModuleNotFoundError",
                     "FileNotFoundError"})
+_FOUNDATION_INVARIANTS = frozenset({'path_identity', 'handle_identity', 'change_time', 'execution_metadata'})
 
 
 def _exception_context(error):
@@ -35,10 +37,22 @@ def _exception_context(error):
             frames.append({"file": name, "function": function, "line": trace.tb_lineno})
         trace = trace.tb_next
     native_code = getattr(error, "winerror", None)
-    return {"type": type(error).__name__ if type(error).__name__ in _TYPES else "Exception",
+    context = {"type": type(error).__name__ if type(error).__name__ in _TYPES else "Exception",
             "safe_code": code,
             "winerror": native_code if type(native_code) is int and 0 <= native_code < 2**32 else None,
             "frames": frames[-6:]}
+    # Diagnostic evidence only. Never serialize arbitrary exception attributes,
+    # filenames, identities, security descriptors or compared metadata values.
+    try:
+        invariant = getattr(error, 'foundation_invariant', None)
+        slot = getattr(error, 'foundation_slot_sha256', None)
+        if (code == 'PROVENANCE_CONFLICT' and type(invariant) is str
+                and invariant in _FOUNDATION_INVARIANTS and type(slot) is str
+                and re.fullmatch('[0-9a-f]{64}', slot)):
+            context.update(foundation_invariant=invariant, foundation_slot_sha256=slot)
+    except Exception:
+        pass
+    return context
 
 
 def report_installer_phase_failure(phase: str, error: BaseException) -> None:

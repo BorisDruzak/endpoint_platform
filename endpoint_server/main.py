@@ -29,6 +29,7 @@ from endpoint_server.browser_sensor.admin_routes import router as browser_sensor
 from endpoint_server.auth.validation import redacting_validation_exception_handler
 from endpoint_server.config import Settings
 from endpoint_server.device_binding.routes import router as device_binding_router
+from endpoint_server.support_access.routes import agent_router as support_agent_router, admin_router as support_admin_router
 from endpoint_server.console.routes import (
     install_console_assets,
     router as console_router,
@@ -79,6 +80,8 @@ from endpoint_server.gateway.ws_routes import (
 )
 from endpoint_server.updates.admin_routes import router as updates_admin_router
 from endpoint_server.updates.agent_routes import router as updates_agent_router
+from endpoint_server.setup_updates.routes import admin_router as setup_updates_admin_router, agent_router as setup_updates_agent_router
+from endpoint_server.setup_updates.fleet_routes import router as setup_fleet_router
 from endpoint_server.updates.admin_transaction import UpdateAdminTransactionProvider
 
 
@@ -194,11 +197,24 @@ def create_app(
 
     app.include_router(health_router)
     app.include_router(device_binding_router)
+    from endpoint_server.installation_lifecycle.routes import router as installation_router
+    app.include_router(installation_router)
+    app.include_router(support_agent_router)
+    from endpoint_server.support_access.linux_routes import agent_router as linux_support_agent,admin_router as linux_support_admin
+    from endpoint_server.installation_lifecycle.linux_routes import router as linux_installation_router
+    app.include_router(linux_support_agent)
+    app.include_router(linux_support_admin)
+    from endpoint_server.support_access.discovery import router as support_platform_router
+    app.include_router(support_platform_router)
+    app.include_router(linux_installation_router)
+    app.include_router(support_admin_router)
     app.include_router(browser_sensor_public_router)
     app.include_router(admin_auth_router)
     app.include_router(enrollment_admin_router)
     app.include_router(enrollment_admin_request_router)
     app.include_router(enrollment_agent_router)
+    from endpoint_server.enrollment.linux_request_routes import router as linux_enrollment_request_router
+    app.include_router(linux_enrollment_request_router)
     app.include_router(enrollment_request_router)
     app.include_router(enrollment_verification_router)
     app.include_router(gateway_router)
@@ -207,6 +223,9 @@ def create_app(
     app.include_router(provisioning_admin_router)
     app.include_router(updates_admin_router)
     app.include_router(updates_agent_router)
+    app.include_router(setup_updates_admin_router)
+    app.include_router(setup_fleet_router)
+    app.include_router(setup_updates_agent_router)
     app.include_router(context_router)
     if settings.endpoint_operations_api_enabled:
         app.include_router(operations_router)

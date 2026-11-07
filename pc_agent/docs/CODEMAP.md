@@ -33,10 +33,14 @@ and registers PowrProf suspend/resume callbacks. Latest native boot identity is
 separate from historical replay. One bounded reverse Boot27 lookup recovers
 context before the first replay row even if its boot predates the30-day fact
 window. The context shares the existing atomic page/checkpoint transaction.
-The checkpoint also stores a bounded native record-identity digest. An exact
-record lookup validates continuity before cursor reuse; overlapping generations,
-missing records and legacy checkpoints without an anchor reset/replay retained
-coverage explicitly. A later live boot alone does not invalidate the cursor.
+The checkpoint also stores a bounded native record-identity digest. Exact anchor
+validation uses the same Power provider/ID whitelist as collection, so unrelated
+System records sharing a numeric ID cannot trigger replay. Missing/mismatched or
+out-of-range records and legacy checkpoints reset/replay retained coverage
+explicitly. At most two anchor candidates are read; an ambiguous Power identity
+retains its checkpoint/history/counters, reports DEGRADED without reset/replay,
+and suppresses notifications until continuity is provable again. A later live
+boot alone does not invalidate the cursor.
 Fixed subprocess reads (10-second deadline, kill-and-wait on cancellation) share
 one loop-scoped lock with SCM evidence. The frozen core dispatches the private
 stdin-only `--windows-power-read` mode; static imports keep the worker in the
@@ -265,6 +269,27 @@ while schema 1 retains its exact eight executable contract. Full namespace,
 directory/file ACL, hash and descriptor checks surround shared use; post-commit
 pins grow only with that explicit bounded inventory. Installed performance and
 matrix acceptance are recorded separately in the Task 8 report.
+
+Independent Windows support access uses `support_access.py`,
+`support_access_native.py` and `support_access_service.py`. Its LocalSystem
+service and active executable live in the protected Support sibling, outside
+Core, observer, updater and MSI resource control. MSI inventory schema 3 pins
+the signed staged `Agent/EndpointSupportAccess.exe` and identical embedded
+uninstall helper. Setup activates it after native acceptance; fresh enrollment
+does so after durable identity and before Core starts. The service renews its
+own HTTPS policy and outbound SSH tunnel. Native failure and staged rollback
+do not stop the active service. See `docs/runbooks/INDEPENDENT_SUPPORT_ACCESS.md`
+for policy, ownership, installation and live qualification boundaries.
+
+`staged_restoration_continuation.py` finalizes only the old native reservation
+created by a completed staged rollback's restoration role. It binds the private
+plan, three role capabilities, native grant/completion, original payload and
+private state, and exact restored selectors. It records a new derived receipt
+before retiring that reservation; historical grants and selectors stay intact.
+The live rollback owner invokes it automatically. Signed SYSTEM Setup also
+exposes `--recover-staged-restoration` through a fresh authenticated owner,
+genuine native settlement and the same proof path. This executes no MSI replay
+or service changes and does not relax historical continuation validation.
 
 `tools/canary/ssl_payload.py` preserves an interpreter's required adjacent TLS
 policy resource in every Windows analysis containing `ssl`. It binds the
@@ -513,13 +538,13 @@ TaskDialog with reason/later actions and refuses Session 0. ALT uses libnotify's
 DBus action interface in the existing KDE session (the optional user-sensor RPM
 requires libnotify). A reason action must obtain a newly authorized Core/server
 reply before the user process opens the browser. No browser token or device
-credential is sent to either user process. See
-`docs/architecture/worktime-companion.md` for durability and qualification limits.
-UUID lease fencing and a fresh server `present` acceptance precede native UI;
-an expired unaccepted claim may move to another verified device for the same
-person, while accepted presentation cannot be reassigned automatically. Polls
-and presentation also require the current effective schedule and fresh active
-person verification through the configured Helpdesk authority.
+credential is sent to either user process. The companion HTTP service is
+optional: the server on this branch does not implement its WorkTime routes.
+Missing routes and request failures return an empty companion reply; startup
+failures retry without terminating the WSS connection. Server-side scheduling,
+person verification and real-user notification acceptance require separate
+qualification. See `docs/releases/current-agent-release.json` for the deployed
+provider source and the current release's verified scope and limits.
 
 `browser_policy_protocol.py` is the closed, stdlib-only privileged helper
 request/reply contract shared by Windows and Linux. Linux `seqpacket.py` owns
@@ -599,6 +624,16 @@ live owner. Windows execution metadata binds the retained handle owner, group,
 DACL and file attributes; loader-updated ChangeTime is not a content identity.
 This offline executability check grants no Native or trial proof.
 
+The accepted-native companion continuation uses the same retained-handle metadata
+identity from `durable_state.execution_metadata_identity`. Only that execution
+scope opts into `verified_foundation_bytes(..., allow_execution_metadata=True)`.
+It snapshots security before hashing and rechecks it before any launch, keeps all
+Foundation deny-write/delete pins through execution and authenticates bytes again
+when Windows changes timestamps. Exact path/handle identity, attributes and
+owner/group/DACL must still match; a read error or changed metadata fails closed.
+Ordinary Foundation reads retain strict ChangeTime checks. Execution is rejected
+inside the separate immutable-Foundation read cache; no cache is rebaselined.
+
 ALT native distribution assembly lives in `tools/build_alt_pilot_kit.py` and
 `packaging/alt/pilot/`. It pins already qualified Core/User Sensor/runtime and
 separate CUPS repair/rollback/source RPM bytes, adds a deterministic manifest,
@@ -625,3 +660,5 @@ both platforms; Browser Status resumes after the current ACK even on ERROR, whil
 Activity still requires APPLIED. KDE autostart replaces its private environment
 before restarting its own unit. See the current ALT baseline and parity ledger
 for installed acceptance and remaining external gates.
+
+The Windows Core162 verifier can install the bundled publisher-signed Setup client1.0.4 from its existing fixed Core assignment. `platform/windows/setup_update_bootstrap.py` performs only local admission and registration; `packaging/windows/EndpointSetupUpdater.ps1` owns the separate protected download/Setup/report task outside MSI-owned paths. Native updates remain delegated to signed full Setup, with unknown outcomes blocked against replay. Server `endpoint_server/setup_updates/{service,preparation}.py` owns separate Setup assignments and canonical Core children. A known exit21 may settle as failed only after verified unchanged-source/private/session proof; the recovery observer bootstrap and exact Core157 return retain the original native hold. `tools/release/verify_setup_core_archive.py` binds reused ZIP bytes to the frozen MSI runtime instead of recompressing its immutable transport. See `docs/runbooks/WINDOWS_FULL_SETUP_AUTOUPDATE.md` for operator and recovery boundaries.

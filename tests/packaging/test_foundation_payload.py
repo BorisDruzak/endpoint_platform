@@ -77,6 +77,6 @@ def test_shared_native_binding_preserves_self_contained_installer_and_offline_up
     assert 'EndpointAgentSharedFoundation' in package
     assert 'pyinstaller_windows_installer_host.spec' in build
     assert 'tools.canary.foundation_payload' in build
-    assert 'schema_version = 2' in build
+    assert 'schema_version = 3' in build
     updater = (root / 'pc_agent/pyinstaller_windows_updater.spec').read_text()
     assert 'COLLECT(' not in updater

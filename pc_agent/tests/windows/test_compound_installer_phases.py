@@ -53,7 +53,10 @@ def staged(inputs,tmp_path,monkeypatch):
         (acl,('apply_tray_status_acl',)),(service_launcher,('stop_tray_companions',))):
         for name in names:
             monkeypatch.setattr(module,name,lambda *_a,name=name,**_k:events.append(name))
-    monkeypatch.setattr(bridge,'_settled',lambda *_:None)
+    monkeypatch.setattr(bridge,'_settled',lambda *_a,**_k:None)
+    from pc_agent.platform.windows import native_setup_continuation
+    monkeypatch.setattr(native_setup_continuation, 'reserve_native_continuation',
+        lambda *_a: events.append('reserve-continuation'))
     monkeypatch.setattr(bridge,'_matching_inspection',lambda *_a,**_k:events.append('inspection'))
     monkeypatch.setattr(provenance,'inspect_installed_core',lambda *_a,**_k:SimpleNamespace(
         current=SimpleNamespace(digest=cap['selected']),previous=None))
@@ -171,6 +174,7 @@ def test_commit_retirement_reconcile_and_finish_keep_barrier_until_final_checks(
     with fence.child_fence(client.capability['transaction_id']):assert fence.read_fence(paths) is None
     assert 'retire-old-authority' in events and events.index('old-owner-absent')<events.index('retire-old-authority')
     assert events.index('retire-old-authority')<events.index('reconcile-core')<events.index('restore-services')
+    assert events.index('restore-services') < events.index('reserve-continuation')
     client.phase='compound-complete';bridge.execute_authorized_phase(client,paths)
     assert plan.has_active_upgrade(paths)
     archived=plan._root(paths,client.capability)

@@ -17,12 +17,50 @@ assert 'pc_agent.gateway_update_runtime' not in sys.modules
     subprocess.run([sys.executable, '-c', code], check=True)
 
 
+def test_packaged_host_keeps_exact_offline_native_dispatch_aliases():
+    from pc_agent.platform.windows import installer_host_entry as host, installer_native_entry as native
+    assert host.add_installer_arguments is native.add_installer_arguments
+    assert host.run_installer_args is native.run_installer_args
+    assert host._parser is native._parser
+
+
+@pytest.mark.parametrize('mode', ['--installation-events-send','--installation-events-deliver'])
+def test_service_launcher_rejects_notification_modes(mode):
+    from pc_agent.platform.windows import service_launcher
+    with pytest.raises(SystemExit) as error:
+        service_launcher.main([mode])
+    assert error.value.code==2
+
+
+def test_service_launcher_dispatches_native_arguments_through_offline_leaf(monkeypatch):
+    from pc_agent.platform.windows import service_launcher, installer_native_entry
+    calls=[]
+    monkeypatch.setattr(installer_native_entry,'run_installer_args',lambda args:calls.append(args) or 62)
+    assert service_launcher.main(['--installer-phase','finish','--installer-session','bound-session'])==62
+    assert len(calls)==1 and calls[0].installer_phase=='finish' and calls[0].installer_session=='bound-session'
+
+
 @pytest.mark.parametrize('option', ['--agent-service', '--updater-service'])
 def test_installer_host_rejects_service_modes(option):
     from pc_agent.platform.windows import installer_host_entry as entry
     with pytest.raises(SystemExit) as error:
         entry.main([option])
     assert error.value.code == 2
+
+
+@pytest.mark.parametrize('mode', ['--installation-events-send','--installation-events-deliver'])
+def test_notification_only_entry_has_no_native_owner_authority(monkeypatch, mode):
+    from pc_agent.platform.windows import installer_host_entry as entry, installation_notification
+    from pc_agent.platform.windows import installer_transaction_bridge as bridge
+    monkeypatch.setattr(bridge,'owner_authorized_phase',lambda *a:pytest.fail('notification entered native owner'))
+    monkeypatch.setattr(installation_notification,'notification_main',lambda argv:75 if argv==[mode] else None)
+    assert entry.main([mode])==75
+
+
+def test_notification_mode_does_not_accept_caller_native_arguments(monkeypatch):
+    from pc_agent.platform.windows import installer_host_entry as entry
+    with pytest.raises(SystemExit):
+        entry.main(['--installation-events-send','--installer-session','forged'])
 
 
 def test_installer_keeps_owner_scope_and_all_native_inputs(monkeypatch, tmp_path):
@@ -56,3 +94,31 @@ def test_installer_keeps_owner_scope_and_all_native_inputs(monkeypatch, tmp_path
                      ('execute', True, {'feature_states': (3, 2, 3, 4), 'rollback_disabled': '0',
                                        'uninstall_finalization': '1', 'upgrade_detected': 'product',
                                        'staged_removal': '1'}), ('owner-exit',)]
+
+
+@pytest.mark.parametrize('finalization',['','1'])
+def test_installer_preflight_does_not_touch_independent_support_service(monkeypatch,tmp_path,finalization):
+    from pc_agent.platform.windows import installer_host_entry as entry
+    from pc_agent.platform.windows import installer_transaction_bridge as bridge
+    from pc_agent.platform.windows import installer_phase_diagnostics as diagnostics
+    from pc_agent.platform.windows import msi_inventory
+    import types
+    paths=entry.WindowsUpdatePaths(tmp_path/'Agent',tmp_path/'updates/pending.json')
+    monkeypatch.setattr(entry.WindowsUpdatePaths,'production',classmethod(lambda _:paths))
+    client=type('Client',(),{'capability':{}})()
+    @contextlib.contextmanager
+    def owner(*args): yield client
+    monkeypatch.setattr(bridge,'owner_authorized_phase',owner)
+    monkeypatch.setattr(msi_inventory,'immutable_installer_media_roots',lambda *args:())
+    monkeypatch.setattr(msi_inventory,'package_read_scope',lambda **kw:contextlib.nullcontext())
+    monkeypatch.setattr(diagnostics,'profile_installer_phase',lambda *args:contextlib.nullcontext())
+    monkeypatch.setattr(diagnostics,'report_installer_phase_failure',lambda *args:None)
+    calls=[]
+    service=types.SimpleNamespace(SC_MANAGER_CONNECT=1,SERVICE_QUERY_CONFIG=1,
+        OpenSCManager=lambda *a:pytest.fail('native worker touched independent Support SCM'),OpenService=lambda *a:'service',
+        QueryServiceConfig=lambda *a:(16,2,1,'"C:\\Other\\unrelated.exe"','',0,[],'LocalSystem','display'),
+        CloseServiceHandle=lambda *a:None)
+    monkeypatch.setitem(sys.modules,'win32service',service)
+    monkeypatch.setattr(bridge,'execute_authorized_phase',lambda *a,**k:calls.append('native'))
+    assert entry.main(['--installer-phase','msi-preflight','--installer-session','session','--uninstall-finalization',finalization]) == 0
+    assert calls==['native']

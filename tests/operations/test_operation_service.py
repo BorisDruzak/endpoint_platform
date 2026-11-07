@@ -65,7 +65,7 @@ async def session() -> AsyncIterator[AsyncSession]:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     tables = (
         ServiceClient.__table__,
-        Device.__table__,
+        Device.metadata.tables["installation_states"], Device.__table__,
         Command.__table__,
         CommandResult.__table__,
         AuditEvent.__table__,

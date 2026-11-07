@@ -1,0 +1,293 @@
+{
+  "$defs": {
+    "LinuxSupportConfiguredPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
+        },
+        "linux_admin_uid": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Linux Admin Uid"
+        },
+        "linux_admin_username": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Linux Admin Username"
+        },
+        "operator_public_keys": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Operator Public Keys",
+          "type": "array"
+        }
+      },
+      "required": [
+        "enabled",
+        "expires_at",
+        "operator_public_keys",
+        "linux_admin_username",
+        "linux_admin_uid"
+      ],
+      "title": "LinuxSupportConfiguredPolicy",
+      "type": "object"
+    },
+    "LinuxSupportPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "device_id": {
+          "format": "uuid",
+          "title": "Device Id",
+          "type": "string"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
+        },
+        "gateway_host": {
+          "title": "Gateway Host",
+          "type": "string"
+        },
+        "gateway_host_public_key": {
+          "title": "Gateway Host Public Key",
+          "type": "string"
+        },
+        "gateway_port": {
+          "title": "Gateway Port",
+          "type": "integer"
+        },
+        "linux_admin_uid": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Linux Admin Uid"
+        },
+        "linux_admin_username": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Linux Admin Username"
+        },
+        "local_port": {
+          "const": 22222,
+          "default": 22222,
+          "title": "Local Port",
+          "type": "integer"
+        },
+        "operator_public_keys": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Operator Public Keys",
+          "type": "array"
+        },
+        "platform": {
+          "const": "linux_amd64",
+          "default": "linux_amd64",
+          "title": "Platform",
+          "type": "string"
+        },
+        "poll_after_seconds": {
+          "const": 30,
+          "default": 30,
+          "title": "Poll After Seconds",
+          "type": "integer"
+        },
+        "remote_port": {
+          "title": "Remote Port",
+          "type": "integer"
+        },
+        "revision": {
+          "title": "Revision",
+          "type": "integer"
+        },
+        "tunnel_user": {
+          "title": "Tunnel User",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device_id",
+        "revision",
+        "enabled",
+        "expires_at",
+        "gateway_host",
+        "gateway_port",
+        "gateway_host_public_key",
+        "tunnel_user",
+        "remote_port",
+        "operator_public_keys",
+        "linux_admin_username",
+        "linux_admin_uid"
+      ],
+      "title": "LinuxSupportPolicy",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "access_verified_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Access Verified At"
+    },
+    "access_verified_by": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Access Verified By"
+    },
+    "component_version": {
+      "title": "Component Version",
+      "type": "string"
+    },
+    "configured_policy": {
+      "$ref": "#/$defs/LinuxSupportConfiguredPolicy"
+    },
+    "host_public_key": {
+      "title": "Host Public Key",
+      "type": "string"
+    },
+    "installed": {
+      "title": "Installed",
+      "type": "boolean"
+    },
+    "last_error_code": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Last Error Code"
+    },
+    "policy": {
+      "$ref": "#/$defs/LinuxSupportPolicy"
+    },
+    "reported_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Reported At"
+    },
+    "reset_registration_allowed": {
+      "title": "Reset Registration Allowed",
+      "type": "boolean"
+    },
+    "revoked_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Revoked At"
+    },
+    "tunnel_connected": {
+      "title": "Tunnel Connected",
+      "type": "boolean"
+    },
+    "verification_kind": {
+      "const": "operator_attestation",
+      "title": "Verification Kind",
+      "type": "string"
+    }
+  },
+  "required": [
+    "policy",
+    "configured_policy",
+    "component_version",
+    "installed",
+    "tunnel_connected",
+    "reported_at",
+    "last_error_code",
+    "host_public_key",
+    "access_verified_at",
+    "access_verified_by",
+    "verification_kind",
+    "revoked_at",
+    "reset_registration_allowed"
+  ],
+  "title": "LinuxSupportAdminStatus",
+  "type": "object"
+}

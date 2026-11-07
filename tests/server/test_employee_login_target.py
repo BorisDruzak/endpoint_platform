@@ -33,7 +33,7 @@ async def test_employee_callback_uses_only_flow_bound_companion_target(monkeypat
     person, guid = uuid4(), uuid4()
     identity = SimpleNamespace(id=uuid4(), person_id=person, ad_object_guid=guid, state='active', revoked_at=None)
     added = []
-    session = SimpleNamespace(add=added.append, commit=AsyncMock(), flush=AsyncMock(),
+    session = SimpleNamespace(add=added.append, commit=AsyncMock(), flush=AsyncMock(), execute=AsyncMock(),
         scalar=AsyncMock(return_value=identity), scalars=AsyncMock(return_value=SimpleNamespace(all=lambda: [SimpleNamespace(role='hr')] if privileged else [])))
 
     @asynccontextmanager
@@ -61,6 +61,8 @@ async def test_employee_callback_uses_only_flow_bound_companion_target(monkeypat
         if expected_status==401:
             app.state.helpdesk_identity_client.resolve.assert_not_called()
             return
+        session.execute.assert_awaited_once()
+        assert session.execute.await_args.args[1] == {'key': 'worktime-person:' + str(person)}
         if privileged and acr is None:
             assert completed.headers['location']==expected.replace('/employee','/auth/employee/step-up',1)
             assert not any(isinstance(value,oidc.EmployeeSession) for value in added)

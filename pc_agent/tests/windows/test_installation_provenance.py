@@ -828,6 +828,10 @@ def test_finish_checks_foundation_bytes_before_enable_and_records_restoration_be
     # independent data-security tests exercise the native configuration barrier.
     from pc_agent.platform.windows import installer_data_security
     monkeypatch.setattr(installer_data_security, 'verify_preserved', lambda *_args: None)
+    # Native continuation capture/grant security has independent tests; this
+    # fixture models only Foundation bytes and SCM restoration/retirement order.
+    from pc_agent.platform.windows import native_setup_continuation
+    monkeypatch.setattr(native_setup_continuation, 'reserve_native_continuation', lambda *_args: None)
     monkeypatch.setattr(update_transaction,'_assert_state_security',lambda _:None)
     package=paths.install_root.parent/'installer-cache'/f'msi-{expected.package.sha256}'/'EndpointAgent.msi'
     package.parent.mkdir(parents=True);package.write_bytes(request['package_path'].read_bytes())

@@ -1,0 +1,63 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+    },
+    "expires_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Expires At"
+    },
+    "linux_admin_uid": {
+      "anyOf": [
+        {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Linux Admin Uid"
+    },
+    "linux_admin_username": {
+      "anyOf": [
+        {
+          "maxLength": 32,
+          "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Linux Admin Username"
+    },
+    "operator_public_keys": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Operator Public Keys",
+      "type": "array"
+    }
+  },
+  "required": [
+    "enabled",
+    "expires_at",
+    "operator_public_keys",
+    "linux_admin_username",
+    "linux_admin_uid"
+  ],
+  "title": "LinuxSupportConfiguredPolicy",
+  "type": "object"
+}

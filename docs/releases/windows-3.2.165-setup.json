@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "version": "3.2.165",
+  "platform": "windows_amd64",
+  "status": "published_native_canary_qualified_fleet_paused",
+  "verified_utc": "2026-11-05T09:23:00.240291+00:00",
+  "runtime_source_commit": "ed7f77a559e19500df75b9ec169c5336e308b304",
+  "windows_packaging_commit": "0080690784ff4efa8cecd014d0e38afbc02bc1d5",
+  "server_console_commit": "366133981f4b45b132e3cc6839707f74728d0d28",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.165.json",
+  "initial_runtime": {
+    "files": 119,
+    "tree_sha256": "ac6284d140dd6e312fc7c778a98dd71d73ab738d4263025ee8c38499dd443562",
+    "component_guid": "B0EFC509-91BC-543A-86BD-E6BB708F9287",
+    "compatibility_contract_authored_before_freeze": true
+  },
+  "setup_update_release_id": "b9734c6c-7152-44d6-99c3-58cde589d720",
+  "setup_update_manifest": {
+    "schema_version": "windows_setup_release_v1",
+    "release_identifier": "endpoint-windows-full-setup-3.2.165-ed7f77a",
+    "version": "3.2.165",
+    "artifact_name": "EndpointAgentSetup-3.2.165-x64.exe",
+    "sha256": "c71cfffca525f8370b22a9f96155176464566739c675f9325596fd2d045f159a",
+    "size": 145978968,
+    "source_revision": "ed7f77a559e19500df75b9ec169c5336e308b304",
+    "msi_sha256": "831ed1996daae0bf68a046828ff0e8f3775b879e14bf05e9a086304672cee5a9",
+    "tray_sha256": "4df7a8ed7c458ba5a6593bec6a208d0ee38fc8f492e0cc9e0f546e44379d4bc4",
+    "sensor_sha256": "629e8b50c4ac3fe5442e85a00f2ac6fa74748666b7f8efa2dbd7a5620d4484e8"
+  },
+  "artifacts": [
+    {
+      "File": "EndpointAgent-3.2.165-x64.msi",
+      "Size": 104218624,
+      "SHA256": "831ed1996daae0bf68a046828ff0e8f3775b879e14bf05e9a086304672cee5a9",
+      "Signature": "Valid",
+      "Publisher": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+      "Timestamped": true
+    },
+    {
+      "File": "EndpointAgentSetup-3.2.165-x64.exe",
+      "Size": 145978968,
+      "SHA256": "c71cfffca525f8370b22a9f96155176464566739c675f9325596fd2d045f159a",
+      "Signature": "Valid",
+      "Publisher": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+      "Timestamped": true
+    }
+  ],
+  "operator_setup_path": "C:\\endpoint-platform-wix-build\\setup165-final-ed7f77a\\native-setup-build\\releases\\EndpointAgentSetup-3.2.165-x64.exe",
+  "server_setup_path": "/var/lib/endpoint-platform/artifacts/EndpointAgentSetup-3.2.165-x64.exe",
+  "canary": {
+    "device_id": "943c87ef-f121-40b9-a31f-003e9459e292",
+    "hostname": "DESKTOP-9ST5HO2",
+    "address": "192.168.101.120",
+    "source_core": "3.2.164",
+    "source_foundation": "3.2.158",
+    "source_client": "1.0.5",
+    "assignment_id": "9255096a-d178-46d2-a0c5-e46ee44a3891",
+    "attempt_id": "75dfc054-a49d-4949-a4b6-a11e4c9a0b9c",
+    "assigned_at": "2026-11-05T08:48:40.402366Z",
+    "assigned_through_console": true,
+    "workstation_update_preparation": false,
+    "native_acceptance": true,
+    "finished_at": "2026-11-05T08:57:15.077908Z",
+    "native_exit": 0,
+    "soak_seconds": 183.731,
+    "sensor_count": 1,
+    "private_preserved": true,
+    "runtime_files_verified": 119
+  },
+  "persistent_policy": {
+    "revision": 3,
+    "enabled": false,
+    "scope": "all_active",
+    "device_ids": [],
+    "max_parallel": 2,
+    "future_registrations_and_reconnections": true,
+    "source_qualification_required": true,
+    "previous_enabled_revision": 2,
+    "automatically_paused_at": "2026-11-05T09:06:53.917645Z",
+    "safe_code": "fleet_failure_requires_review"
+  },
+  "public_enrollment": {
+    "registered": true,
+    "release_id": "e1ae6965-f135-43e8-9c7e-0d55a2dbe983",
+    "served_bytes_and_signature_verified": true,
+    "download_url": "https://endpoint.sosnadmin.local/api/admin/console/installer/releases/e1ae6965-f135-43e8-9c7e-0d55a2dbe983/download",
+    "default_campaign_id": "09e62472-a6ae-49ab-aaaa-6613836b4423",
+    "campaign_authority_and_usage_preserved": true,
+    "stable_primary_acceptance": false,
+    "reason": "Published after native canary; first fleet wave stopped on146 recovery hold. No general fleet acceptance."
+  },
+  "tests": {
+    "fallback_context_passed": 24,
+    "initial_runtime_contract_passed": 14,
+    "focused_server_passed": 60,
+    "isolated_postgresql_passed": 18,
+    "web_passed": 83,
+    "browser_workflows_passed": 2,
+    "viewports": [
+      1440,
+      390
+    ],
+    "typecheck": "passed",
+    "build": "passed",
+    "canonical_contract_check": "passed"
+  },
+  "verification_record": "docs/verification/2026-11-05-setup165-web-fleet.md",
+  "limits": [
+    "Windows native release only; ALT Linux primary156 unchanged",
+    "Yandex browser telemetry remains explicitly user-deferred",
+    "Published download and accepted canary do not imply fleet acceptance. Original146 assignment later completed after an authorized one-off repair; policy remains paused.",
+    "Source Foundation158 qualification only; no new clean156 acceptance implied",
+    "Source qualification expires after30 days; unsupported or unqualified sources retain explicit safe reasons"
+  ],
+  "qualification": {
+    "id": "ffbc8451-8a2c-4689-b586-b3151d1baed0",
+    "source_foundation": "3.2.158",
+    "qualified_at": "2026-11-05T09:00:20.002499Z",
+    "expires_at": "2026-12-05T09:00:20.002499Z",
+    "created_through_console": true
+  },
+  "first_automatic_wave": [
+    {
+      "address": "192.168.101.144",
+      "hostname": "A1-OHTRUD-S1W",
+      "assignment_id": "bade87b9-26f5-4d77-91c3-b1c252738b00",
+      "status": "applied",
+      "finished_at": "2026-11-05T09:09:33.796238Z",
+      "native_exit": 0,
+      "soak_seconds": 181.014,
+      "runtime_files_verified": 119,
+      "private_preserved": true,
+      "sensor_count": 0,
+      "user_sensor_absent_before_update": true
+    },
+    {
+      "address": "192.168.101.146",
+      "hostname": "A2-MUNSLU-S1",
+      "assignment_id": "6bc214b4-50b3-4fe0-91b4-0732b8dea2e6",
+      "attempt_id": "43731f03-f211-465d-8cf2-f8dd1f8fc5fa",
+      "status": "recovery_required",
+      "safe_code": "native_observation_unavailable",
+      "observed_core": "3.2.165",
+      "observed_foundation": "3.2.165",
+      "native_proof": null,
+      "user_sensor_last_seen_at": "2026-11-05T09:03:42.942789Z",
+      "root_cause": "not_yet_established"
+    }
+  ],
+  "recovery_146_followup": {
+    "assignment_id": "6bc214b4-50b3-4fe0-91b4-0732b8dea2e6",
+    "attempt_id": "43731f03-f211-465d-8cf2-f8dd1f8fc5fa",
+    "status": "applied",
+    "finished_at": "2026-11-05T12:36:56.777021Z",
+    "native_exit": 0,
+    "client_version": "1.0.6",
+    "manual_repair_exception": true,
+    "soak_seconds": 181.517,
+    "sensor_count": 1,
+    "private_preserved": true,
+    "unattended_source_qualified": false,
+    "verification_record": "docs/verification/2026-11-05-recovery146-canary167.md"
+  }
+}
