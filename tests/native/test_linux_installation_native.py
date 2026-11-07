@@ -102,6 +102,8 @@ echo {version} > %buildroot/opt/task4-fixture/value
     class Backend:
         version = '1'
         cleanup_count = 0
+        def preflight(self, action, source): pass
+        def recover_preparation(self): pass
         def prepare(self, action, source): pass
         def execute(self, action, inputs):
             args = ['-e','--noscripts','--nodeps','endpoint-task4-fixture'] if action == 'remove' else ['-U','--noscripts','--nodeps','--oldpackage',str(inputs[0])]
@@ -258,13 +260,102 @@ def test_completed_local_removal_receipt_is_not_replaced_by_missing_token_retry(
 
 
 def test_native_prepare_closes_boot_gate_before_any_native_operation(root, monkeypatch):
-    from pc_agent.platform.linux.installation_lifecycle import InstallationStore
+    from pc_agent.platform.linux.installation_lifecycle import InstallationStore, LifecycleJournal
     from pc_agent.platform.linux.installation_coordinator import RPMBackend
     store = InstallationStore(root/'state')
     store.prepare()
     with store.locked():
         store.write('runtime-ready',b'previous-known-bootstrap')
+        LifecycleJournal(store).begin('upgrade',{'version':'3.2.178','source_revision':'a'*40,
+            'core_nevra':'endpoint-agent-3.2.178-alt6.x86_64','core_rpm_sha256':'b'*64})
         backend = RPMBackend(store)
-        monkeypatch.setattr(backend,'_systemctl',lambda *_: b'not-found\n')
+        monkeypatch.setattr(backend,'_systemctl',lambda *_: b'LoadState=not-found\n')
         backend.prepare('upgrade',{'version':'3.2.178'})
         assert not (store.paths.private/'runtime-ready').exists()
+
+
+def test_native_preparation_recovery_restores_only_exact_owned_stopped_unit(root, monkeypatch):
+    from pc_agent.platform.linux.installation_lifecycle import InstallationStore, LifecycleJournal, InstallationPending
+    from pc_agent.platform.linux.installation_coordinator import RPMBackend, NativeCoordinator
+    from pc_agent.platform.linux import installation_user_sessions as sensors
+    store = InstallationStore(root/'state')
+    store.prepare()
+    unit = 'endpoint-agent.service'
+    current = {'LoadState':'loaded','FragmentPath':'/usr/lib/systemd/system/'+unit,
+        'DropInPaths':'','UnitFileState':'enabled','ActiveState':'active','InactiveEnterTimestampMonotonic':'10'}
+    backend = RPMBackend(store)
+    commands = []
+    def systemctl(*args):
+        commands.append(args)
+        if args[0] == 'show':
+            return ('\n'.join(k+'='+v for k,v in current.items()) if args[1] == unit else 'LoadState=not-found').encode()
+        if args[0] == 'stop': current.update(ActiveState='inactive',InactiveEnterTimestampMonotonic='20')
+        if args[0] == 'start': current.update(ActiveState='active')
+        return b''
+    monkeypatch.setattr(backend,'_systemctl',systemctl)
+    monkeypatch.setattr(sensors,'session_ids',lambda: [])
+    with store.locked():
+        journal = LifecycleJournal(store)
+        journal.begin('upgrade',{'version':'3.2.178','source_revision':'a'*40,
+            'core_nevra':'endpoint-agent-3.2.178-alt6.x86_64','core_rpm_sha256':'b'*64})
+        store.write('runtime-ready',b'old-proof')
+        backend.prepare('upgrade',{'version':'3.2.178'})
+        assert current['ActiveState'] == 'inactive'
+        coordinator = NativeCoordinator(journal,backend)
+        # An explicit state change defeats restoration until original proof is
+        # available; no service action or gate restoration is inferred.
+        current['UnitFileState'] = 'masked'
+        with pytest.raises(InstallationPending): coordinator.reconcile(device_id=None)
+        assert store.read('runtime-ready',missing=True) is None
+        current['UnitFileState'] = 'enabled'
+        assert coordinator.reconcile(device_id=None) == 'preparation_recovered'
+        assert current['ActiveState'] == 'active'
+        assert store.read('runtime-ready') == b'old-proof'
+        assert ('start',unit) in commands and not any('enable' in x for x in commands)
+        assert store.json('receipt-'+journal.state()['operation']['id']+'.json')['exit_code'] is None
+
+
+def test_native_scriptlet_invalidates_existing_gate_without_native_success(root):
+    from pc_agent.platform.linux.installation_lifecycle import InstallationStore, LifecycleJournal, InstallationPending
+    store = InstallationStore(root/'state')
+    store.prepare()
+    with store.locked():
+        store.write('runtime-ready',b'old-proof')
+        journal = LifecycleJournal(store)
+        journal.scriptlet_intent('install')
+        assert not (store.paths.private/'runtime-ready').exists()
+        assert journal.state()['operation']['unmanaged']
+        with pytest.raises(InstallationPending): journal.native_result(0)
+
+
+def test_native_optional_graphical_environment_absence_race_and_unsafe_nodes(root, monkeypatch):
+    from pc_agent.platform.linux import installation_user_sessions as sensors
+    from pc_agent.platform.linux.installation_lifecycle import InstallationPending
+    from tools.release.linux_native_verifier import VerificationError
+    runtime = root/'run/user/1000'
+    runtime.mkdir(parents=True,mode=0o700)
+    os.chown(runtime,1000,1000)
+    actual_path = Path
+    monkeypatch.setattr(sensors,'Path',lambda value: root/'run/user' if value == '/run/user' else actual_path(value))
+    def missing_environment(argv, **kwargs):
+        if 'list-sessions' in argv: return b'6 1000 fixture seat0\n'
+        return b'Active=yes\nRemote=no\nClass=user\nType=x11\nUser=1000\nState=active\nTimestampMonotonic=123\nLeader=456\n'
+    monkeypatch.setattr(sensors,'run',missing_environment)
+    assert sensors.handoff_active_sensors() == [{'session':'6','status':'session_prerequisite_absent'}]
+    environment = runtime/'endpoint-user-sensor.env'
+    environment.write_text('DISPLAY=":0"\n')
+    environment.chmod(0o600)
+    os.chown(environment,1000,1000)
+    assert sensors.read_session_environment(runtime,1000)['digest']
+    environment.chmod(0o666)
+    with pytest.raises(InstallationPending): sensors.read_session_environment(runtime,1000)
+    environment.unlink()
+    environment.symlink_to(root/'missing')
+    with pytest.raises(OSError): sensors.read_session_environment(runtime,1000)
+    calls = []
+    def vanished(argv, **kwargs):
+        calls.append(argv)
+        if 'show-session' in argv: raise VerificationError('native_tool_failed')
+        return b'6 1000 fixture seat0\n' if len(calls) == 1 else b''
+    monkeypatch.setattr(sensors,'run',vanished)
+    assert sensors.handoff_active_sensors() == [{'session':'6','status':'session_prerequisite_absent'}]

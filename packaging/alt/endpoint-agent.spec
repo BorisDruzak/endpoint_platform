@@ -175,6 +175,15 @@ python3 %{SOURCE56} --root %buildroot --version %{version} --revision %{source_r
 %endif
 
 %pre
+%if_with native_setup
+# The new payload is unavailable in pre. Use the installed trusted coordinator,
+# or refuse a retained readiness marker before any new payload can consume it.
+if [ -x /usr/lib/endpoint-agent-setup/endpoint-agent-setup ]; then
+    /usr/lib/endpoint-agent-setup/endpoint-agent-setup scriptlet --intent install || exit 1
+elif [ -e /var/lib/endpoint-agent-installation/runtime-ready ] || [ -L /var/lib/endpoint-agent-installation/runtime-ready ]; then
+    exit 1
+fi
+%endif
 if ! getent group endpoint-agent >/dev/null 2>&1; then
     groupadd -r endpoint-agent
 fi

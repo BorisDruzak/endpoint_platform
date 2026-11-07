@@ -3,8 +3,11 @@ import os
 from pathlib import Path
 import re
 import stat
+import hashlib
+import json
 
-from tools.release.linux_native_verifier import run
+from tools.release.linux_native_verifier import run, VerificationError
+from pc_agent.platform.linux.installation_lifecycle import InstallationPending
 
 
 def session_uid(properties):
@@ -24,48 +27,181 @@ def eligible_owned_unit(properties):
         and (properties.get('ActiveState') == 'active' or properties.get('UnitFileState') in ('enabled','enabled-runtime')))
 
 
-def handoff_active_sensors(*, stop=False):
+def session_ids():
+    rows = run(['/usr/bin/loginctl', 'list-sessions', '--no-legend', '--no-pager']).decode().splitlines()
+    return [row.split()[0] for row in rows[:128] if row.split() and re.fullmatch('[a-zA-Z0-9_-]{1,32}', row.split()[0])]
+
+
+def properties(raw):
+    return dict(row.split('=', 1) for row in raw.decode().splitlines() if '=' in row)
+
+
+def read_session_environment(runtime, uid):
+    environment = runtime/'endpoint-user-sensor.env'
+    try:
+        # Existence is optional; a symlink/bad mode/foreign owner is not absence.
+        environment.lstat()
+        fd = os.open(environment, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != uid or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o600 or info.st_size > 16384:
+            raise InstallationPending('unsafe_sensor_environment')
+        raw = os.read(fd, 16385)
+        if not re.search(r'(?m)^(DISPLAY|WAYLAND_DISPLAY)="[^"\r\n]+"$', raw.decode('utf-8')):
+            return None
+        def identity(node):
+            return (node.st_dev,node.st_ino,node.st_mode,node.st_uid,node.st_gid,
+                node.st_size,node.st_nlink,node.st_mtime_ns,node.st_ctime_ns)
+        try:
+            current = environment.lstat()
+        except FileNotFoundError:
+            return None
+        if identity(os.fstat(fd)) != identity(info) or identity(current) != identity(info):
+            raise InstallationPending('sensor_environment_changed')
+        return {'digest':hashlib.sha256(raw).hexdigest(), 'device':info.st_dev,
+            'inode':info.st_ino,'mtime':info.st_mtime_ns,'ctime':info.st_ctime_ns}
+    finally:
+        os.close(fd)
+
+
+def session_context(sid):
     import pwd
-    sessions = run(['/usr/bin/loginctl', 'list-sessions', '--no-legend', '--no-pager']).decode().splitlines()
-    seen, restarted = set(), []
-    for line in sessions[:128]:
-        sid = line.split()[0]
-        if not re.fullmatch('[a-zA-Z0-9_-]{1,32}', sid):
-            continue
-        raw = run(['/usr/bin/loginctl', 'show-session', sid, '--no-pager',
-            '--property=Active,Remote,Class,Type,User,State']).decode()
-        uid = session_uid(dict(row.split('=', 1) for row in raw.splitlines() if '=' in row))
-        if uid is None or uid in seen:
-            continue
-        seen.add(uid)
+    try:
+        session = properties(run(['/usr/bin/loginctl', 'show-session', sid, '--no-pager',
+            '--property=Active,Remote,Class,Type,User,State,TimestampMonotonic,Leader']))
+    except (VerificationError, OSError):
+        if sid not in session_ids():
+            return None
+        raise
+    uid = session_uid(session)
+    if uid is None:
+        return None
+    try:
         account = pwd.getpwuid(uid)
         runtime = Path('/run/user')/str(uid)
         info = runtime.lstat()
-        if runtime.resolve() != runtime or not stat.S_ISDIR(info.st_mode) or info.st_uid != uid or stat.S_IMODE(info.st_mode) != 0o700:
+    except (FileNotFoundError, KeyError):
+        return None
+    if runtime.resolve() != runtime or not stat.S_ISDIR(info.st_mode) or info.st_uid != uid or stat.S_IMODE(info.st_mode) != 0o700:
+        raise InstallationPending('unsafe_sensor_runtime')
+    environment = read_session_environment(runtime, uid)
+    if environment is None:
+        return None
+    # Directory identity/timestamps detect explicit unit configuration changes,
+    # including enable/disable/mask edits while the owned service is stopped.
+    configuration = []
+    for base in (Path(account.pw_dir)/'.config/systemd', runtime/'systemd'):
+        for suffix in ('user','user.control','user/graphical-session.target.wants'):
+            path = base/suffix
+            try:
+                node = path.lstat()
+                configuration.append([str(path),node.st_dev,node.st_ino,node.st_ctime_ns])
+            except FileNotFoundError:
+                configuration.append([str(path),None])
+    prefix = ['/sbin/runuser', '-u', account.pw_name, '--', '/usr/bin/env', '-i',
+        'PATH=/usr/bin:/bin', f'XDG_RUNTIME_DIR={runtime}',
+        f'DBUS_SESSION_BUS_ADDRESS=unix:path={runtime}/bus', '/usr/bin/systemctl', '--user']
+    return {'sid':sid,'uid':uid,'session':session,'environment':environment,
+        'runtime':[info.st_dev,info.st_ino], 'configuration':configuration,
+        'boot':Path('/proc/sys/kernel/random/boot_id').read_text().strip(),'prefix':prefix}
+
+
+def unit_properties(context):
+    return properties(run([*context['prefix'], 'show', 'endpoint-user-sensor.service',
+        '--property=LoadState,UnitFileState,FragmentPath,ActiveState,DropInPaths,InactiveEnterTimestampMonotonic,ActiveEnterTimestampMonotonic']))
+
+
+def retained_unit_matches(retained, props, store):
+    if retained['after'] == props:
+        return True
+    # An inactive unreferenced unit can be garbage-collected across RPM removal.
+    # Accept only a freshly loaded zero-timestamp unit after our confirmed erase;
+    # a new user start/stop has nonzero timestamps and never matches this case.
+    operation_id = retained.get('operation_id')
+    receipt = store.json('receipt-' + operation_id + '.json', missing=True) if store and operation_id else None
+    if not (receipt and receipt.get('action') == 'remove' and type(receipt.get('exit_code')) is int
+        and receipt['exit_code'] == 0 and receipt.get('settled')
+        and (receipt.get('event') or {}).get('action') == 'removed'):
+        return False
+    timestamps = ('InactiveEnterTimestampMonotonic','ActiveEnterTimestampMonotonic')
+    return (all(props.get(key, '0') == '0' for key in timestamps)
+        and {k:v for k,v in props.items() if k not in timestamps}
+            == {k:v for k,v in retained['after'].items() if k not in timestamps})
+
+
+def handoff_active_sensors(*, stop=False, store=None, retained_only=False):
+    receipts = (store.json('sensor-handoff.json', missing=True) or {}) if store else {}
+    seen, results = set(), []
+    def save():
+        if store:
+            store.write('sensor-handoff.json', json.dumps(receipts).encode())
+    for sid in session_ids():
+        context = session_context(sid)
+        if context is None:
+            results.append({'session':sid,'status':'session_prerequisite_absent'})
             continue
-        environment = runtime/'endpoint-user-sensor.env'
-        fd = os.open(environment, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        uid = str(context['uid'])
+        if uid in seen:
+            continue
+        seen.add(uid)
+        prefix = context['prefix']
         try:
-            info = os.fstat(fd)
-            if not stat.S_ISREG(info.st_mode) or info.st_uid != uid or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o600 or info.st_size > 16384:
+            props = unit_properties(context)
+        except (VerificationError, OSError):
+            if session_context(sid) is None:
+                results.append({'session':sid,'status':'session_vanished'})
                 continue
-            raw = os.read(fd, 16385).decode('utf-8')
-        finally:
-            os.close(fd)
-        # Do not evaluate user content. The existing user's manager reads its own
-        # environment file; every command below runs as that exact existing UID.
-        if not re.search(r'(?m)^(DISPLAY|WAYLAND_DISPLAY)="[^"\r\n]+"$', raw):
+            raise
+        retained = receipts.get(uid)
+        resume = bool(retained and retained['phase'] == 'stopped' and retained['context'] == context
+            and retained_unit_matches(retained, props, store) and retained['before']['ActiveState'] == 'active'
+            and props['ActiveState'] == 'inactive')
+        eligible = eligible_owned_unit(props)
+        if stop:
+            eligible = eligible and props['ActiveState'] == 'active'
+        elif retained_only:
+            eligible = False
+        if not resume and not eligible:
+            results.append({'session':sid,'status':'unit_ineligible_or_changed'})
             continue
-        prefix = ['/sbin/runuser', '-u', account.pw_name, '--', '/usr/bin/env', '-i',
-            'PATH=/usr/bin:/bin', f'XDG_RUNTIME_DIR={runtime}',
-            f'DBUS_SESSION_BUS_ADDRESS=unix:path={runtime}/bus', '/usr/bin/systemctl', '--user']
-        shown = run([*prefix, 'show', 'endpoint-user-sensor.service',
-            '--property=LoadState,UnitFileState,FragmentPath,ActiveState,DropInPaths']).decode()
-        props = dict(row.split('=', 1) for row in shown.splitlines() if '=' in row)
-        if not eligible_owned_unit(props):
+        if session_context(sid) != context:
+            results.append({'session':sid,'status':'session_changed'})
             continue
-        run([*prefix, 'daemon-reload'])
-        # Preserve boot policy: restart active autostart service; never enable it.
-        run([*prefix, 'stop' if stop else 'restart', 'endpoint-user-sensor.service'], timeout=25)
-        restarted.append(uid)
-    return restarted
+        if stop:
+            if store is None:
+                raise InstallationPending('durable_sensor_stop_receipt_required')
+            operation = (store.json('state.json', missing=True) or {}).get('operation') or {}
+            receipts[uid] = {'context':context,'before':props,'phase':'stop_pending','after':None,
+                'operation_id':operation.get('id')}
+            save()
+        try:
+            run([*prefix, 'daemon-reload'])
+            # Reload must not introduce a user override or consume changed state.
+            if unit_properties(context) != props:
+                raise InstallationPending('sensor_unit_changed_during_handoff')
+            run([*prefix, 'stop' if stop else 'restart', 'endpoint-user-sensor.service'], timeout=25)
+        except (VerificationError, OSError):
+            if session_context(sid) is None:
+                results.append({'session':sid,'status':'session_vanished'})
+                continue
+            raise
+        if stop:
+            try:
+                after = unit_properties(context)
+            except (VerificationError, OSError):
+                if session_context(sid) is None:
+                    results.append({'session':sid,'status':'session_vanished'})
+                    continue
+                raise
+            if after.get('ActiveState') != 'inactive':
+                raise InstallationPending('sensor_stop_not_confirmed')
+            receipts[uid].update(phase='stopped',after=after)
+            save()
+        elif resume:
+            receipts[uid]['phase'] = 'consumed'
+            save()
+        results.append({'session':sid,'uid':int(uid),
+            'status':'stopped_owned' if stop else 'resumed_owned_stop' if resume else 'restarted_active_or_enabled'})
+    return results

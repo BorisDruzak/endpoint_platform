@@ -63,11 +63,24 @@ intent or contradictory files remain pending for explicit diagnosis. Exit21 is a
 pending/recovery result, not permission to rerun installation. Direct bare RPM
 hooks can stage intent but cannot assert native0; they do not start Core.
 
+A nonmutating preflight refusal retains a separate refusal receipt and reserves
+no native invocation. Preparation has its own durable phase and owned service
+snapshots. `reconcile` may restore only the exact unchanged preparation state and
+retain a `not_started_recovered` receipt; a later command can then proceed. The
+invocation-possible phase is written before spawning RPM. It never takes this
+recovery path, even if the subprocess exit was never recorded. An interrupted
+stop without a confirmed matching snapshot, or externally changed service state,
+remains pending rather than being restarted speculatively.
+
 Core and updater units additionally require a root-owned `runtime-ready` marker.
 It is durably cleared before new native work and created only after causal event
 delivery and successful Support registration. PID1 checks it; no user helper
 reads the private directory. It is an installation-completion proof: later lease
 expiry, disable or revocation never clears it or stops a healthy Core/updater.
+Direct RPM intent clears this marker under the installation lock. The native
+`%pre` hook uses existing Setup before replacing files, or refuses a stale marker
+when no trusted installed helper is available. Only pre/post hooks from the same
+actual RPM PID/start/boot identity share an unmanaged pending receipt.
 
 The installed-only retry timer uses the same bounded reconciliation path after
 offline installation. It stops after exact bootstrap completion. Runtime401,
@@ -77,6 +90,14 @@ The next Setup sends an offline `removed` event before `installed` using the
 retained canonical credential. Native result, local cleanup and delivery are
 distinct facts. Failed offline Support unregister remains incomplete even after
 owned local private cleanup succeeds.
+
+Before stopping an active graphical UserSensor, Setup retains its session, boot,
+environment identity and owned unit state. Reinstall may resume that exact stop
+without enabling the user's boot unit. Changed sessions, environments, masks,
+overrides or observed user state are preserved. A unit forgotten by systemd can
+resume only with the same session proof and the confirmed native removal receipt.
+Missing optional environment/runtime or a vanished session is a recorded skip;
+it does not prevent machine bootstrap completion. Unsafe nodes remain refused.
 
 An exact156 rollback additionally supplies the original signed156 kit manifest
 and detached signature via `--legacy-kit-manifest` and `--legacy-kit-signature`.

@@ -62,3 +62,42 @@ def test_acknowledged_delivery_never_replaces_rotated_retained_credential(monkey
     result = asyncio.run(n.ensure_identity(SimpleNamespace(paths=SimpleNamespace(private=tmp_path)),
         {'action':'upgrade'},None,{}))
     assert result == (device,'r'*43)
+
+
+def test_absent_graphical_environment_completes_machine_bootstrap_once(monkeypatch):
+    from pc_agent.platform.linux import installation_notification as n, installation_coordinator as c
+    from pc_agent.platform.linux import installation_user_sessions as sensors, support_access_service as support
+    from pc_agent.tests.test_linux_installation_coordinator import Backend
+    store, device = MemoryStore(), str(uuid4())
+    @contextmanager
+    def locked(): yield store
+    store.locked = locked
+    journal = LifecycleJournal(store)
+    native = source() | {'user_sensor_nevra':'endpoint-agent-user-sensor-3.2.178-alt6.x86_64','user_sensor_rpm_sha256':'c'*64}
+    journal.begin('install',native)
+    journal.native_result(0)
+    journal.settle(exact_native_state=True,device_id=device)
+    backend = Backend()
+    units = []
+    backend._systemctl = lambda *args: units.append(args)
+    monkeypatch.setattr(c,'RPMBackend',lambda _:backend)
+    import json
+    monkeypatch.setattr(n,'read_secret',lambda path: json.dumps({'gateway':{
+        'endpoint':'https://example.invalid','ca_file':str(n.CA)}}).encode())
+    monkeypatch.setattr(n,'configured_endpoint_origin',lambda: 'https://example.invalid')
+    monkeypatch.setattr(n,'NotificationTransport',lambda *_:object())
+    async def identity(*_): return device,'x'*43
+    async def drain(*_): pass
+    monkeypatch.setattr(n,'ensure_identity',identity)
+    monkeypatch.setattr(n,'drain_events',drain)
+    registrations = []
+    monkeypatch.setattr(support,'install_from_enrollment',lambda **kw: registrations.append(kw['device_id']))
+    monkeypatch.setattr(sensors,'session_ids',lambda: ['6'])
+    monkeypatch.setattr(sensors,'session_context',lambda _:None)
+    asyncio.run(n.notify(store))
+    assert journal.state()['operation']['bootstrap'] == 'complete'
+    assert store.data['sensor-handoff-result.json'] == [{'session':'6','status':'session_prerequisite_absent'}]
+    assert store.data['runtime-ready']['operation_id'] == journal.state()['operation']['id']
+    count = len(units)
+    asyncio.run(n.notify(store))
+    assert registrations == [device] and len(units) == count

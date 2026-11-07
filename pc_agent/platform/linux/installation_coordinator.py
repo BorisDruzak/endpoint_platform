@@ -19,8 +19,17 @@ class NativeCoordinator:
         self.journal, self.backend = journal, backend
 
     def operate(self, action, source, inputs, *, device_id):
+        prior = self.journal.state()['operation']
+        if prior and prior.get('phase') == 'preparing' and prior.get('exit_code') is None:
+            self.reconcile(device_id=None)
+        try:
+            self.backend.preflight(action, source)
+        except Exception:
+            self.journal.preflight_refused(action, source)
+            raise
         self.journal.begin(action, source, execution=self.journal.store.json('executor.json', missing=True))
         self.backend.prepare(action, source)
+        self.journal.invocation_started()
         try:
             code = self.backend.execute(action, inputs)
         except Exception:
@@ -30,6 +39,12 @@ class NativeCoordinator:
 
     def reconcile(self, *, device_id):
         operation = self.journal.state()['operation']
+        if operation and operation.get('phase') == 'preparing' and operation.get('exit_code') is None:
+            self.backend.recover_preparation()
+            self.journal.preparation_recovered()
+            return 'preparation_recovered'
+        if operation and operation.get('phase') == 'not_started_recovered':
+            return 'preparation_recovered'
         if (not operation or operation.get('unmanaged') or type(operation.get('exit_code')) is not int
             or operation['exit_code'] != 0):
             raise InstallationPending('native_result_unknown_or_failed_no_replay')
@@ -85,36 +100,87 @@ class RPMBackend:
     def _systemctl(self, *args):
         return run(['/usr/bin/systemctl', *args], timeout=25)
 
-    def prepare(self, action, source):
+    def preflight(self, action, source):
         for name in ('pending_alt_update.json', 'rollback-request.json'):
             path = Path('/var/lib/endpoint-agent/updates')/name
             if path.exists() or path.is_symlink():
                 raise InstallationPending('core_update_ownership_pending')
-        if self.store.read('runtime-ready', missing=True) is not None:
-            (self.store.paths.private/'runtime-ready').unlink()
-            directory = os.open(self.store.paths.private, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-            try:
-                os.fsync(directory)
-            finally:
-                os.close(directory)
+    def _unit_state(self, unit):
+        raw = self._systemctl('show', unit, '--property=LoadState,FragmentPath,DropInPaths,UnitFileState,ActiveState,InactiveEnterTimestampMonotonic,ActiveEnterTimestampMonotonic').decode()
+        return dict(row.split('=', 1) for row in raw.splitlines() if '=' in row)
+
+    def _preparation_name(self):
+        return 'preparation-' + LifecycleJournal(self.store).state()['operation']['id'] + '.json'
+
+    def prepare(self, action, source):
+        self.preflight(action, source)  # Recheck before the first owned mutation.
+        ready = self.store.read('runtime-ready', missing=True)
+        proof = {'ready': ready.decode() if ready else None, 'units': []}
+        name = self._preparation_name()
+        self.store.save(name, proof)
+        self.store.invalidate_ready()
         # Stop only owned units. A missing unit is allowed only when not loaded.
         for unit in ('endpoint-agent.service', 'endpoint-agent-update.path', 'endpoint-agent-update.service',
                      'endpoint-support-access.service', 'endpoint-agent-setup-retry.timer'):
-            status = self._systemctl('show', unit, '--property=LoadState', '--value').decode().strip()
-            if status not in ('not-found', ''):
-                self._systemctl('stop', unit)
+            before = self._unit_state(unit)
+            if before.get('LoadState') == 'not-found':
+                continue
+            if before.get('FragmentPath') != '/usr/lib/systemd/system/' + unit or before.get('DropInPaths'):
+                raise InstallationPending('foreign_native_unit_preserved')
+            if before.get('ActiveState') != 'active':
+                continue
+            item = {'unit':unit, 'before':before, 'after':None, 'restored':False}
+            proof['units'].append(item)
+            self.store.save(name, proof)
+            self._systemctl('stop', unit)
+            item['after'] = self._unit_state(unit)
+            stable = ('LoadState','FragmentPath','DropInPaths','UnitFileState')
+            if (item['after'].get('ActiveState') != 'inactive'
+                or any(item['after'].get(key) != before.get(key) for key in stable)):
+                raise InstallationPending('preparation_unit_changed_during_stop')
+            self.store.save(name, proof)
         if action == 'remove':
             self._capture_native_selector(source)
             if source['user_sensor_nevra']:
                 from pc_agent.platform.linux.installation_user_sessions import handoff_active_sensors
-                handoff_active_sensors(stop=True)
+                handoff_active_sensors(stop=True, store=self.store)
             helper = Path('/usr/lib/endpoint-agent/browser-policy-helper')
             if helper.exists():
                 # Failure aborts before RPM can delete ownership metadata.
                 run([str(helper), '--relinquish'], timeout=25)
             self.store.write('browser-cleanup.json', json.dumps({'browser':'complete' if helper.exists() else 'not_applicable'}).encode())
-        if action == 'upgrade' and source['version'] == '3.2.156':
-            self._systemctl('disable', 'endpoint-support-access.service')
+        # Obsolete units disappear on rollback; never mutate enablement in preparation.
+
+    def recover_preparation(self):
+        name = self._preparation_name()
+        proof = self.store.json(name, missing=True)
+        if proof is None:
+            return  # Interrupted before the first durable preparation/mutation.
+        for item in proof['units']:
+            if item['restored']:
+                continue
+            current = self._unit_state(item['unit'])
+            if item['after'] is None:
+                if current != item['before']:
+                    raise InstallationPending('preparation_stop_outcome_pending')
+                item['restored'] = True  # Stop demonstrably never changed state.
+                self.store.save(name, proof)
+            elif current != item['after']:
+                raise InstallationPending('preparation_unit_changed_preserved')
+        ready = self.store.read('runtime-ready', missing=True)
+        original = proof['ready'].encode() if proof['ready'] else None
+        if ready is not None and ready != original:
+            raise InstallationPending('preparation_ready_changed_preserved')
+        if original is not None and ready is None:
+            self.store.write('runtime-ready', original)
+        for item in reversed(proof['units']):
+            if not item['restored']:
+                # Never enable units or restore an externally changed unit.
+                self._systemctl('start', item['unit'])
+                item['restored'] = True
+                self.store.save(name, proof)
+        from pc_agent.platform.linux.installation_user_sessions import handoff_active_sensors
+        handoff_active_sensors(store=self.store, retained_only=True)
 
     def execute(self, action, inputs):
         if action == 'remove':
@@ -255,6 +321,19 @@ def retain_executor(store):
         os.execv(str(target), [str(target), *sys.argv[1:]])
 
 
+def rpm_scriptlet_invocation():
+    parent = os.getppid()
+    for _ in range(16):
+        if parent <= 1:
+            break
+        fields = Path(f'/proc/{parent}/stat').read_text().rsplit(')',1)[1].split()
+        if Path(f'/proc/{parent}/exe').resolve() == Path('/usr/bin/rpm').resolve():
+            return {'pid':parent,'start':fields[19],
+                'boot':Path('/proc/sys/kernel/random/boot_id').read_text().strip()}
+        parent = int(fields[1])
+    raise InstallationPending('scriptlet_native_ancestor_required')
+
+
 def main(argv=None):
     if (sys.argv[1:] if argv is None else argv) == ['--build-info']:
         from pc_agent.platform.linux.native_build_identity import build_identity
@@ -288,7 +367,7 @@ def main(argv=None):
             # A locked CLI owner is the only path in which hooks skip new intent.
             try:
                 with store.locked():
-                    LifecycleJournal(store).scriptlet_intent(args.intent)
+                    LifecycleJournal(store).scriptlet_intent(args.intent, invocation=rpm_scriptlet_invocation())
             except Exception:
                 # Confirm a real ancestor coordinator owns the pending receipt;
                 # arbitrary lock contention/unsafe state is never permission.
@@ -296,7 +375,8 @@ def main(argv=None):
                 owner = pending.get('owner_pid') if pending else None
                 parent = os.getppid()
                 for _ in range(16):
-                    if parent == owner and pending.get('exit_code') is None and not pending.get('settled'):
+                    if (parent == owner and pending.get('exit_code') is None and not pending.get('settled')
+                        and pending.get('phase') == 'invocation_possible'):
                         start = Path(f'/proc/{parent}/stat').read_text().rsplit(')',1)[1].split()[19]
                         boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
                         return 0 if start == pending.get('owner_starttime') and boot == pending.get('owner_boot_id') else 21
@@ -321,7 +401,8 @@ def main(argv=None):
             if args.action == 'reconcile':
                 if journal.state()['operation'] and journal.state()['operation'].get('bootstrap') == 'complete':
                     return 0
-                coordinator.reconcile(device_id=device)
+                if coordinator.reconcile(device_id=device) == 'preparation_recovered':
+                    return 0
             else:
                 if args.core_rpm is None:
                     raise InstallationPending('exact_native_input_required')

@@ -13,6 +13,8 @@ class MemoryStore:
         return copy.deepcopy(self.data.get(name))
     def write(self, name, raw):
         self.data[name] = json.loads(raw)
+    def invalidate_ready(self):
+        self.data.pop('runtime-ready', None)
 
 
 def source():
@@ -87,3 +89,33 @@ def test_completed_bootstrap_is_terminal_until_new_native_operation():
     # Runtime token revocation cannot turn completed native bootstrap into retry.
     with pytest.raises(InstallationPending):
         journal.request_bootstrap()
+
+
+def test_unmanaged_pre_post_intent_invalidates_prior_readiness_and_retains_unknown():
+    from pc_agent.platform.linux.installation_lifecycle import LifecycleJournal, InstallationPending
+    store = MemoryStore()
+    journal = LifecycleJournal(store)
+    journal.begin('install', source())
+    journal.native_result(0)
+    journal.settle(exact_native_state=True, device_id=str(uuid4()))
+    store.data['runtime-ready'] = {'old': 'completed'}
+    invocation = {'pid':123,'start':'456','boot':'fixture'}
+    journal.scriptlet_intent('install', invocation=invocation)
+    operation = journal.state()['operation']
+    journal.scriptlet_intent('install', invocation=invocation)
+    assert journal.state()['operation'] == operation
+    assert operation['unmanaged'] and operation['exit_code'] is None
+    assert 'runtime-ready' not in store.data
+    with pytest.raises(InstallationPending):
+        journal.scriptlet_intent('install', invocation=invocation | {'pid':124})
+    with pytest.raises(InstallationPending):
+        journal.settle(exact_native_state=True, device_id=str(uuid4()))
+
+
+def test_native_pre_scriptlet_runs_before_payload_or_refuses_stale_readiness():
+    from pathlib import Path
+    spec = (Path(__file__).parents[2]/'packaging/alt/endpoint-agent.spec').read_text()
+    pre = spec.split('\n%pre\n')[1].split('\n%post\n')[0]
+    assert 'scriptlet --intent install' in pre
+    assert '[ -e /var/lib/endpoint-agent-installation/runtime-ready ]' in pre
+    assert 'exit 1' in pre

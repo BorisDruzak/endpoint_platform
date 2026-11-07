@@ -26,6 +26,16 @@ class InstallationStore(PrivateStore):
     def prepare(self):
         _directory(self.paths.private, 0o700, create=True)
 
+    def invalidate_ready(self):
+        # Caller owns the installation lock. Validate the node before unlinking.
+        if self.read('runtime-ready', missing=True) is not None:
+            (self.paths.private/'runtime-ready').unlink()
+            descriptor = os.open(self.paths.private, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+
 
 class LifecycleJournal:
     def __init__(self, store):
@@ -44,13 +54,13 @@ class LifecycleJournal:
         if action not in ('install', 'upgrade', 'remove'):
             raise InstallationPending('invalid_native_action')
         prior = state['operation']
-        if prior and not prior.get('settled'):
+        if prior and not prior.get('settled') and prior.get('phase') != 'not_started_recovered':
             raise InstallationPending('exclusive_native_recovery_required')
         if state['sequence'] - state['acknowledged'] >= 128:
             raise InstallationPending('outbox_delivery_required')
         source = LinuxNativeSource.model_validate(source).model_dump(mode='json')
         operation = {'id': str(uuid4()), 'action': action, 'source': source,
-            'exit_code': None, 'settled': False, 'event': None, 'bootstrap': 'pending' if action != 'remove' else 'not_applicable',
+            'exit_code': None, 'phase': 'preparing', 'settled': False, 'event': None, 'bootstrap': 'pending' if action != 'remove' else 'not_applicable',
             'execution': execution, 'cleanup': {'support': 'not_applicable', 'browser': 'not_applicable'}}
         from pc_agent.platform.linux.enrollment_origin import configured_endpoint_origin
         configured_endpoint_origin()  # Validate explicit staging markers before native work.
@@ -63,6 +73,28 @@ class LifecycleJournal:
         state['operation'] = operation
         self._save(state)
         return operation
+
+    def preflight_refused(self, action, source):
+        self.store.write('refused-' + str(uuid4()) + '.json', json.dumps({
+            'action': action, 'source': source, 'phase': 'preflight_refused',
+            'occurred_at': datetime.now(timezone.utc).isoformat()}).encode())
+
+    def invocation_started(self):
+        state = self.state()
+        if not state['operation'] or state['operation'].get('phase') != 'preparing':
+            raise InstallationPending('native_preparation_not_owned')
+        # Must be durable BEFORE calling RPM, including the subprocess spawn.
+        state['operation']['phase'] = 'invocation_possible'
+        self._save(state)
+
+    def preparation_recovered(self):
+        state = self.state()
+        operation = state['operation']
+        if not operation or operation.get('phase') != 'preparing' or operation.get('exit_code') is not None:
+            raise InstallationPending('preparation_not_recoverable')
+        operation.update(phase='not_started_recovered', bootstrap='not_applicable')
+        self.store.write('receipt-' + operation['id'] + '.json', json.dumps(operation).encode())
+        self._save(state)
 
     def native_result(self, code):
         state = self.state()
@@ -79,13 +111,17 @@ class LifecycleJournal:
         state['operation']['cleanup'] = cleanup
         self._save(state)
 
-    def scriptlet_intent(self, action):
+    def scriptlet_intent(self, action, *, invocation=None):
         # CLI-owned hooks never enter this method while the parent's flock is held.
+        self.store.invalidate_ready()
         state = self.state()
+        if (state['operation'] and state['operation'].get('unmanaged') and state['operation']['action'] == action
+            and invocation is not None and state['operation'].get('invocation') == invocation):
+            return  # The same pre/post pair retains one unknown receipt.
         if state['operation'] and not state['operation'].get('settled'):
             raise InstallationPending('exclusive_native_recovery_required')
         state['operation'] = {'id': str(uuid4()), 'action': action, 'exit_code': None,
-            'settled': False, 'unmanaged': True, 'bootstrap': 'blocked'}
+            'settled': False, 'unmanaged': True, 'bootstrap': 'blocked', 'invocation':invocation}
         self._save(state)
 
     def settle(self, *, exact_native_state, device_id):

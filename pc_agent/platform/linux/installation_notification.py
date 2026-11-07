@@ -234,7 +234,8 @@ async def notify(store):
         if operation['source']['user_sensor_nevra']:
             backend._systemctl('start', 'endpoint-agent-browser-policy.service')
             from pc_agent.platform.linux.installation_user_sessions import handoff_active_sensors
-            handoff_active_sensors()
+            handoff = handoff_active_sensors(store=store)
+            store.write('sensor-handoff-result.json', json.dumps(handoff).encode())
         # Terminal before timer stop: a crash cannot authorize re-registration.
         journal.complete_bootstrap()
         backend._systemctl('disable', '--now', 'endpoint-agent-setup-retry.timer')

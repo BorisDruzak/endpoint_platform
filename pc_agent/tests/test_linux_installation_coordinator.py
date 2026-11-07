@@ -11,6 +11,10 @@ class Backend:
         self.calls, self.code, self.exact = [], code, exact
     def prepare(self, action, source):
         self.calls.append('prepare')
+    def preflight(self, action, source):
+        pass
+    def recover_preparation(self):
+        self.calls.append('restore')
     def execute(self, action, inputs):
         self.calls.append('rpm')
         if self.code is None:
@@ -71,3 +75,48 @@ def test_native_package_absence_requires_exact_successful_query_semantics():
     installed = 'endpoint-agent-3.2.178-alt6.x86_64\npackage endpoint-agent-user-sensor is not installed\n'
     assert native_state_matches('install', source(), 1, installed)
     assert not native_state_matches('install', source(), 1, installed + installed)
+
+
+def test_preflight_refusal_keeps_receipt_without_reserving_unknown_native_owner():
+    from pc_agent.platform.linux.installation_coordinator import NativeCoordinator
+    from pc_agent.platform.linux.installation_lifecycle import LifecycleJournal, InstallationPending
+    journal, backend = LifecycleJournal(MemoryStore()), Backend()
+    coordinator = NativeCoordinator(journal, backend)
+    def refuse(*_): raise InstallationPending('core_update_ownership_pending')
+    backend.preflight = refuse
+    with pytest.raises(InstallationPending):
+        coordinator.operate('upgrade', source(), [], device_id=str(uuid4()))
+    assert journal.state()['operation'] is None
+    assert any(name.startswith('refused-') for name in journal.store.data)
+    backend.preflight = lambda *_: None
+    coordinator.operate('upgrade', source(), [], device_id=str(uuid4()))
+    assert backend.calls == ['prepare', 'rpm', 'retry']
+
+
+def test_preparation_interruption_recovers_owned_state_without_rpm_and_preserves_receipt():
+    from pc_agent.platform.linux.installation_coordinator import NativeCoordinator
+    from pc_agent.platform.linux.installation_lifecycle import LifecycleJournal
+    journal, backend = LifecycleJournal(MemoryStore()), Backend()
+    coordinator = NativeCoordinator(journal, backend)
+    def interrupted(*_): raise KeyboardInterrupt()
+    backend.prepare = interrupted
+    with pytest.raises(KeyboardInterrupt):
+        coordinator.operate('upgrade', source(), [], device_id=str(uuid4()))
+    operation_id = journal.state()['operation']['id']
+    assert coordinator.reconcile(device_id=None) == 'preparation_recovered'
+    assert backend.calls == ['restore']
+    assert journal.store.data['receipt-' + operation_id + '.json']['phase'] == 'not_started_recovered'
+    backend.prepare = lambda *_: None
+    coordinator.operate('upgrade', source(), [], device_id=str(uuid4()))
+    assert backend.calls.count('rpm') == 1
+
+
+def test_invocation_boundary_is_unknown_even_if_no_exit_was_recorded():
+    from pc_agent.platform.linux.installation_coordinator import NativeCoordinator
+    from pc_agent.platform.linux.installation_lifecycle import LifecycleJournal, InstallationPending
+    journal, backend = LifecycleJournal(MemoryStore()), Backend()
+    journal.begin('upgrade', source())
+    journal.invocation_started()
+    with pytest.raises(InstallationPending):
+        NativeCoordinator(journal, backend).reconcile(device_id=None)
+    assert backend.calls == []
