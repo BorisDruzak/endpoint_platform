@@ -34,7 +34,7 @@ async def policy(session,row,settings):
     return SupportPolicy(device_id=row.device_id,revision=row.revision,enabled=enabled,expires_at=row.expires_at if enabled else None,gateway_host=settings.support_gateway_host,gateway_port=settings.support_gateway_port,gateway_host_public_key=settings.support_gateway_host_public_key,tunnel_user=tunnel_user(row.device_id),remote_port=row.remote_port,operator_public_keys=row.operator_public_keys if enabled else [],windows_admin_username=row.windows_admin_username if enabled else None)
 
 
-async def audit(session,request,action,row,actor_kind,actor,reason=None):
+async def audit(session,request,action,row,actor_kind,actor,reason=None,*,extra_details=None):
     details={'device_id':str(row.device_id),'revision':row.revision}
     if action=='policy_changed':
         details['enabled']=row.enabled
@@ -43,6 +43,8 @@ async def audit(session,request,action,row,actor_kind,actor,reason=None):
                        tunnel_connected=row.tunnel_connected,last_error_code=row.last_error_code)
     if reason is not None:
         details['reason']=reason
+    if extra_details is not None:
+        details.update(extra_details)
     await append_audit_event(session,actor_kind=actor_kind,actor_identifier=str(actor),action='support_access.'+action,object_kind='support_access',object_identifier=str(row.id),request_id=audit_request_id(request),details=details)
 
 
