@@ -71,6 +71,11 @@ invocation-possible phase is written before spawning RPM. It never takes this
 recovery path, even if the subprocess exit was never recorded. An interrupted
 stop without a confirmed matching snapshot, or externally changed service state,
 remains pending rather than being restarted speculatively.
+This includes an owned sensor's `stop_pending` receipt: recovery must prove the
+unchanged pre-stop state or restore its exact confirmed stopped state. A missing
+or changed session cannot silently complete that preparation. Transitional system
+units, queued jobs and remaining native processes block preparation; an inactive
+label alone is insufficient, and quiescence is checked again before RPM invocation.
 
 Core and updater units additionally require a root-owned `runtime-ready` marker.
 It is durably cleared before new native work and created only after causal event

@@ -12,6 +12,8 @@ from pc_agent.platform.linux.installation_lifecycle import (
 from tools.release.linux_native_verifier import NativeRPMVerifier, snapshot, run, ENV
 
 KEY = Path('/usr/share/endpoint-agent/endpoint-rpm-release.asc')
+NATIVE_UNITS = ('endpoint-agent.service', 'endpoint-agent-update.path', 'endpoint-agent-update.service',
+    'endpoint-support-access.service', 'endpoint-agent-setup-retry.timer')
 
 
 class NativeCoordinator:
@@ -106,8 +108,13 @@ class RPMBackend:
             if path.exists() or path.is_symlink():
                 raise InstallationPending('core_update_ownership_pending')
     def _unit_state(self, unit):
-        raw = self._systemctl('show', unit, '--property=LoadState,FragmentPath,DropInPaths,UnitFileState,ActiveState,InactiveEnterTimestampMonotonic,ActiveEnterTimestampMonotonic').decode()
+        raw = self._systemctl('show', unit, '--property=LoadState,FragmentPath,DropInPaths,UnitFileState,ActiveState,Job,MainPID,ControlPID,InactiveEnterTimestampMonotonic,ActiveEnterTimestampMonotonic').decode()
         return dict(row.split('=', 1) for row in raw.splitlines() if '=' in row)
+
+    @staticmethod
+    def _quiescent(properties):
+        return (properties.get('ActiveState') in ('inactive','failed')
+            and all(properties.get(key) in (None,'','0') for key in ('Job','MainPID','ControlPID')))
 
     def _preparation_name(self):
         return 'preparation-' + LifecycleJournal(self.store).state()['operation']['id'] + '.json'
@@ -120,22 +127,25 @@ class RPMBackend:
         self.store.save(name, proof)
         self.store.invalidate_ready()
         # Stop only owned units. A missing unit is allowed only when not loaded.
-        for unit in ('endpoint-agent.service', 'endpoint-agent-update.path', 'endpoint-agent-update.service',
-                     'endpoint-support-access.service', 'endpoint-agent-setup-retry.timer'):
+        for unit in NATIVE_UNITS:
             before = self._unit_state(unit)
             if before.get('LoadState') == 'not-found':
                 continue
             if before.get('FragmentPath') != '/usr/lib/systemd/system/' + unit or before.get('DropInPaths'):
                 raise InstallationPending('foreign_native_unit_preserved')
             if before.get('ActiveState') != 'active':
-                continue
+                if self._quiescent(before):
+                    continue
+                raise InstallationPending('native_unit_transition_pending')
+            if before.get('Job') not in (None,'','0'):
+                raise InstallationPending('native_unit_job_pending')
             item = {'unit':unit, 'before':before, 'after':None, 'restored':False}
             proof['units'].append(item)
             self.store.save(name, proof)
             self._systemctl('stop', unit)
             item['after'] = self._unit_state(unit)
             stable = ('LoadState','FragmentPath','DropInPaths','UnitFileState')
-            if (item['after'].get('ActiveState') != 'inactive'
+            if (not self._quiescent(item['after'])
                 or any(item['after'].get(key) != before.get(key) for key in stable)):
                 raise InstallationPending('preparation_unit_changed_during_stop')
             self.store.save(name, proof)
@@ -150,6 +160,10 @@ class RPMBackend:
                 run([str(helper), '--relinquish'], timeout=25)
             self.store.write('browser-cleanup.json', json.dumps({'browser':'complete' if helper.exists() else 'not_applicable'}).encode())
         # Obsolete units disappear on rollback; never mutate enablement in preparation.
+        for unit in NATIVE_UNITS:
+            final = self._unit_state(unit)
+            if final.get('LoadState') != 'not-found' and not self._quiescent(final):
+                raise InstallationPending('native_unit_not_quiescent')
 
     def recover_preparation(self):
         name = self._preparation_name()
@@ -167,6 +181,8 @@ class RPMBackend:
                 self.store.save(name, proof)
             elif current != item['after']:
                 raise InstallationPending('preparation_unit_changed_preserved')
+        from pc_agent.platform.linux.installation_user_sessions import assert_preparation_handoffs, handoff_active_sensors
+        assert_preparation_handoffs(self.store)
         ready = self.store.read('runtime-ready', missing=True)
         original = proof['ready'].encode() if proof['ready'] else None
         if ready is not None and ready != original:
@@ -179,7 +195,6 @@ class RPMBackend:
                 self._systemctl('start', item['unit'])
                 item['restored'] = True
                 self.store.save(name, proof)
-        from pc_agent.platform.linux.installation_user_sessions import handoff_active_sensors
         handoff_active_sensors(store=self.store, retained_only=True)
 
     def execute(self, action, inputs):

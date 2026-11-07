@@ -131,13 +131,35 @@ def retained_unit_matches(retained, props, store):
             == {k:v for k,v in retained['after'].items() if k not in timestamps})
 
 
+def preparation_sensor_receipts(store):
+    operation = (store.json('state.json', missing=True) or {}).get('operation') or {}
+    return {uid:receipt for uid,receipt in (store.json('sensor-handoff.json', missing=True) or {}).items()
+        if receipt.get('operation_id') == operation.get('id') and receipt.get('phase') in ('stop_pending','stopped')}
+
+
+def assert_preparation_handoffs(store):
+    # Recovery cannot silently skip an owned stop whose outcome is unresolved.
+    for receipt in preparation_sensor_receipts(store).values():
+        context = session_context(receipt['context']['sid'])
+        if context != receipt['context']:
+            raise InstallationPending('preparation_sensor_context_pending')
+        expected = receipt['before'] if receipt['phase'] == 'stop_pending' else receipt['after']
+        if unit_properties(context) != expected:
+            raise InstallationPending('preparation_sensor_stop_outcome_pending')
+
+
 def handoff_active_sensors(*, stop=False, store=None, retained_only=False):
     receipts = (store.json('sensor-handoff.json', missing=True) or {}) if store else {}
     seen, results = set(), []
     def save():
         if store:
             store.write('sensor-handoff.json', json.dumps(receipts).encode())
-    for sid in session_ids():
+    if retained_only:
+        assert_preparation_handoffs(store)
+        sessions = list(dict.fromkeys(x['context']['sid'] for x in preparation_sensor_receipts(store).values()))
+    else:
+        sessions = session_ids()
+    for sid in sessions:
         context = session_context(sid)
         if context is None:
             results.append({'session':sid,'status':'session_prerequisite_absent'})
@@ -155,6 +177,14 @@ def handoff_active_sensors(*, stop=False, store=None, retained_only=False):
                 continue
             raise
         retained = receipts.get(uid)
+        if retained_only and retained and retained['phase'] == 'stop_pending':
+            if context != retained['context'] or props != retained['before']:
+                raise InstallationPending('preparation_sensor_stop_outcome_pending')
+            # Exact original state proves no stop took effect; no restart needed.
+            retained['phase'] = 'not_stopped'
+            save()
+            results.append({'session':sid,'uid':int(uid),'status':'unchanged_before_stop'})
+            continue
         resume = bool(retained and retained['phase'] == 'stopped' and retained['context'] == context
             and retained_unit_matches(retained, props, store) and retained['before']['ActiveState'] == 'active'
             and props['ActiveState'] == 'inactive')
@@ -200,8 +230,15 @@ def handoff_active_sensors(*, stop=False, store=None, retained_only=False):
             receipts[uid].update(phase='stopped',after=after)
             save()
         elif resume:
+            if retained_only:
+                restored = unit_properties(context)
+                stable = ('LoadState','FragmentPath','DropInPaths','UnitFileState','ActiveState')
+                if session_context(sid) != context or any(restored.get(key) != retained['before'].get(key) for key in stable):
+                    raise InstallationPending('preparation_sensor_restoration_pending')
             receipts[uid]['phase'] = 'consumed'
             save()
         results.append({'session':sid,'uid':int(uid),
             'status':'stopped_owned' if stop else 'resumed_owned_stop' if resume else 'restarted_active_or_enabled'})
+    if retained_only and preparation_sensor_receipts(store):
+        raise InstallationPending('preparation_sensor_restoration_pending')
     return results
