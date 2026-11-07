@@ -73,6 +73,40 @@ def test_expiry_stale_revision_and_same_revision_mutation_fail_closed():
         state.accept(parse(policy()), wall=NOW.timestamp()-3600, server=NOW.timestamp()+3601, boot=5, boot_id='b')
 
 
+def test_masked_availability_preserves_original_authority_and_deadline_after_restart():
+    disabled = parse(policy(enabled=False, expires_at=None, linux_admin_username=None,
+        linux_admin_uid=None, operator_public_keys=[]))
+    state = s.LeaseState()
+    assert state.accept(disabled, wall=NOW.timestamp(), server=NOW.timestamp(), boot=1, boot_id='a') == 0
+    assert state.accept(parse(policy()), wall=NOW.timestamp(), server=NOW.timestamp(), boot=10, boot_id='a') == 3610
+    assert state.accept(disabled, wall=NOW.timestamp(), server=NOW.timestamp()+30, boot=40, boot_id='a') == 0
+    restored = s.LeaseState.from_json(state.to_json())
+    for changed in (policy(operator_public_keys=[key(5)]), policy(linux_admin_uid=1),
+                    policy(expires_at=(NOW+timedelta(hours=2)).isoformat())):
+        with pytest.raises(s.SupportError, match='stale_policy'):
+            restored.accept(parse(changed), wall=NOW.timestamp(), server=NOW.timestamp(), boot=50, boot_id='a')
+    assert restored.accept(parse(policy()), wall=NOW.timestamp()-600, server=NOW.timestamp()+40, boot=50, boot_id='a') == 3610
+    assert restored.accept(disabled, wall=NOW.timestamp(), server=NOW.timestamp()+50, boot=60, boot_id='a') == 0
+    assert restored.accept(parse(policy()), wall=NOW.timestamp()-600, server=NOW.timestamp()+100, boot=5, boot_id='b') == 3505
+    with pytest.raises(s.SupportError, match='expired_policy'):
+        restored.accept(parse(policy()), wall=NOW.timestamp(), server=NOW.timestamp()+3601, boot=3506, boot_id='b')
+
+
+def test_administrator_revision_discards_old_readiness_authority_and_rejects_replay():
+    state=s.LeaseState()
+    state.accept(parse(policy()),wall=NOW.timestamp(),server=NOW.timestamp(),boot=10,boot_id='a')
+    saved=state.to_json()
+    saved['authority']['operator_keys']=[key(5)]
+    with pytest.raises(s.SupportError,match='invalid_lease_state'):
+        s.LeaseState.from_json(saved)
+    disabled=parse(policy(revision=4,enabled=False,expires_at=None,linux_admin_username=None,
+        linux_admin_uid=None,operator_public_keys=[]))
+    assert state.accept(disabled,wall=NOW.timestamp(),server=NOW.timestamp(),boot=20,boot_id='a')==0
+    assert state.authority_policy() is None and state.deadline==0
+    with pytest.raises(s.SupportError,match='stale_policy'):
+        state.accept(parse(policy()),wall=NOW.timestamp(),server=NOW.timestamp(),boot=30,boot_id='a')
+
+
 def test_expiry_does_not_wait_for_http_worker():
     stopped = []
     gate = s.LeaseGate(lambda: stopped.append(True))

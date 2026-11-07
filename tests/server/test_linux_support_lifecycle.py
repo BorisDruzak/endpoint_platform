@@ -110,8 +110,8 @@ async def test_linux_defaults_are_separate_fresh_and_once_only(sessions,tmp_path
         expiry=row.expires_at
         await consume_installation_access(session,row,settings,now+timedelta(hours=1))
         assert row.expires_at==expiry
-        assert len(await get_broker_leases(session,now))==1
-        assert await get_broker_leases(session,now+timedelta(seconds=91))==[]
+        assert len(await get_broker_leases(session,now, settings=settings))==1
+        assert await get_broker_leases(session,now+timedelta(seconds=91), settings=settings)==[]
 
 
 async def test_linux_exact_source_and_replay_share_causal_projection(sessions):

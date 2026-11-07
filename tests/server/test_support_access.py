@@ -1,10 +1,12 @@
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from endpoint_server.db.models import Device, DeviceCredential
 from tests.contracts.test_support_access import key
+from tests.server.test_update_agent_api import _settings
 
 
 @pytest.fixture
@@ -37,7 +39,7 @@ async def test_registration_retry_disabled_policy_and_conflicts(sessions):
         a=await register(s,d.id,c.id,body)
         token=support_token(a,b'pepper')
         assert a.enabled is False
-        assert await get_broker_leases(s,datetime.now(UTC)) == []
+        assert await get_broker_leases(s,datetime.now(UTC), settings=_settings(Path('.'))) == []
         b=await register(s,d.id,c.id,body)
         assert support_token(b,b'pepper')==token
         with pytest.raises(SupportConflict):
@@ -57,18 +59,18 @@ async def test_broker_excludes_expired_revoked_retired_and_caps_lease(sessions):
         r=await register(s,d.id,c.id,SupportRegistration(tunnel_public_key=key(),host_public_key=key(2),component_version='1.0.0'))
         r.enabled=True;r.expires_at=now+timedelta(hours=1);r.operator_public_keys=[key(3)];r.windows_admin_username='admin'
         await s.flush()
-        leases=await get_broker_leases(s,now)
+        leases=await get_broker_leases(s,now, settings=_settings(Path('.')))
         assert len(leases)==1
         assert leases[0].expires_at<=now+timedelta(seconds=90)
         c.revoked_at=now
         await s.flush()
-        assert await get_broker_leases(s,now)==[]
+        assert await get_broker_leases(s,now, settings=_settings(Path('.')))==[]
         c.revoked_at=None;d.retired_at=now
         await s.flush()
-        assert await get_broker_leases(s,now)==[]
+        assert await get_broker_leases(s,now, settings=_settings(Path('.')))==[]
         d.retired_at=None;r.expires_at=now
         await s.flush()
-        assert await get_broker_leases(s,now)==[]
+        assert await get_broker_leases(s,now, settings=_settings(Path('.')))==[]
 
 
 @pytest.mark.asyncio
@@ -102,7 +104,7 @@ async def test_exporter_produces_atomic_bounded_snapshot(sessions,tmp_path):
             yield session
     now=datetime.now(UTC)
     destination=tmp_path/'leases.json'
-    await export_once(provider,destination,now=now)
+    await export_once(provider,destination,now=now, settings=_settings(Path('.')))
     payload=json.loads(destination.read_text())
     assert payload['leases']==[]
     assert datetime.fromisoformat(payload['valid_until'])-datetime.fromisoformat(payload['generated_at'])==timedelta(seconds=60)
@@ -192,9 +194,9 @@ async def test_broker_filters_domain_policy_after_runtime_downgrade_or_stale_rep
         row.windows_admin_username=r'sosnadm\admin-2';row.installed=True;row.reported_at=now
         row.component_version='1.0.1'
         await s.flush()
-        assert len(await get_broker_leases(s,now))==1
+        assert len(await get_broker_leases(s,now, settings=_settings(Path('.'))))==1
         row.component_version='1.0.0';await s.flush()
-        assert await get_broker_leases(s,now)==[]
+        assert await get_broker_leases(s,now, settings=_settings(Path('.')))==[]
         assert row.enabled is True
         row.component_version='1.0.1';row.reported_at=now-timedelta(seconds=91);await s.flush()
-        assert await get_broker_leases(s,now)==[]
+        assert await get_broker_leases(s,now, settings=_settings(Path('.')))==[]

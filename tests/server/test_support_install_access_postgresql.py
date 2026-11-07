@@ -248,7 +248,7 @@ def test_source_revocation_race_removes_effective_authority_preserving_identity(
                     row = await s.scalar(select(SupportAccess).where(SupportAccess.device_id == device_id))
                     assert (row.source_credential_id, row.tunnel_public_key, row.host_public_key, row.generation) == identity
                     assert not (await policy(s, row, settings)).enabled
-                    assert all(lease.device_id != device_id for lease in await get_broker_leases(s, datetime.now(UTC)))
+                    assert all(lease.device_id != device_id for lease in await get_broker_leases(s, datetime.now(UTC), settings=settings))
         finally:
             await provider.close()
     asyncio.run(scenario())

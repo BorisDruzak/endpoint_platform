@@ -306,7 +306,7 @@ def _run_service_locked(store,paths,stop_event):
         gate = LeaseGate(children.stop)
         next_poll = 0
         current = None
-        error = None
+        error = state.last_error
         while not stop_event.is_set():
             now = boot_time()
             gate.tick(now)
@@ -316,11 +316,25 @@ def _run_service_locked(store,paths,stop_event):
                     try:
                         raw,server = result[1]
                         policy = SupportPolicy.parse(raw,device_id=config['device_id'],origin=config['origin'],host_key=host,tunnel_key=tunnel)
+                        previous_revision = state.revision
                         deadline = state.accept(policy,wall=time.time(),server=server,boot=boot_time(),boot_id=boot_id())
                         store.save('lease.json',state.to_json())
                         if not policy.enabled:
                             children.stop()
                             gate.deadline = 0
+                            if error is not None:
+                                # Successful HTTPS alone proves no local repair.
+                                # Recheck own key bindings and the same consent's
+                                # account/sshd configuration without starting it.
+                                if store.keys() != (host,tunnel):
+                                    raise SupportError('key_mismatch')
+                                authority = state.authority_policy()
+                                if authority is not None:
+                                    children.prepare(authority)
+                                elif error != 'policy_unavailable' and policy.revision == previous_revision:
+                                    # No cached principal means no truthful claim
+                                    # that an account/config/native error recovered.
+                                    continue
                         else:
                             validate_account(policy.username,policy.uid)
                             if current != policy or not children.alive():
@@ -328,12 +342,18 @@ def _run_service_locked(store,paths,stop_event):
                                 children.start(policy,deadline)
                             gate.arm(absolute_deadline=deadline,boot=boot_time())
                         current,error = policy,None
+                        state.last_error = None
+                        store.save('lease.json',state.to_json())
                     except Exception as failure:
                         children.stop()
                         gate.deadline = 0
                         error = _public_status_error(failure)
+                        state.last_error = error
+                        store.save('lease.json',state.to_json())
                 else:
                     error = _public_status_error(result[1])
+                    state.last_error = error
+                    store.save('lease.json',state.to_json())
             if now >= next_poll:
                 # Positive only after remote forwarding acknowledgement on the
                 # same root-owned master/socket, never administrator attestation.

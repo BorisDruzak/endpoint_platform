@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter,Depends,HTTPException,Request,Response
 from sqlalchemy import select
 from endpoint_contracts.linux_support_access import (LinuxSupportRegistration as SupportRegistration,LinuxSupportRegistrationResult as SupportRegistrationResult,LinuxSupportPolicy as SupportPolicy,LinuxSupportPolicyUpdate as SupportPolicyUpdate,LinuxSupportStatusReport as SupportStatusReport)
-from endpoint_contracts.support_access import SupportReason,canonical_public_key
+from endpoint_contracts.support_access import SupportReason
 from endpoint_contracts.support_console import LinuxSupportAdminStatus, LinuxSupportConfiguredPolicy
 from endpoint_contracts.support_access import SUPPORT_RESET_DEVICE_HEADER,SupportRegistrationConflict
 from endpoint_server.audit.request_ids import audit_request_id
@@ -17,7 +17,7 @@ from .models import SupportAccess
 from .routes import audit
 from .platforms import LINUX,verified_platform,principal_bound
 from .service import register,support_token,authenticate,source_active,SupportConflict,SupportResetRequired,utc,tunnel_user,key_authority_lock
-from .service import policy_component_available,record_runtime_status
+from .service import policy_component_available,record_runtime_status,linux_gateway_available
 from .installation import consume_installation_access,pending_authority_current,cancel_installation_access
 
 agent_router=APIRouter(prefix='/agent/v1/support-access/linux',tags=['agent-support-access'])
@@ -26,12 +26,7 @@ admin_router=APIRouter(prefix='/api/admin/support-access/linux',tags=['admin-sup
 
 async def policy(session,row,settings):
     now=datetime.now(UTC)
-    configured=False
-    try:
-        canonical_public_key(settings.support_gateway_host_public_key)
-        configured=settings.linux_support_gateway_configured()
-    except ValueError:
-        pass
+    configured=linux_gateway_available(settings)
     enabled=bool(configured and row.enabled and row.revoked_at is None and row.expires_at and utc(row.expires_at)>now and row.operator_public_keys and principal_bound(row) and policy_component_available(row,now) and await source_active(session,row,now))
     return SupportPolicy(device_id=row.device_id,revision=row.revision,enabled=enabled,expires_at=row.expires_at if enabled else None,gateway_host=settings.support_gateway_host,gateway_port=settings.support_gateway_port,gateway_host_public_key=settings.support_gateway_host_public_key,tunnel_user=tunnel_user(row.device_id),remote_port=row.remote_port,operator_public_keys=row.operator_public_keys if enabled else [],linux_admin_username=row.linux_admin_username if enabled else None,linux_admin_uid=row.linux_admin_uid if enabled else None)
 
@@ -160,7 +155,7 @@ async def update_policy(device_id:UUID,body:SupportPolicyUpdate,request:Request,
         row=await load(session,device_id)
         now=datetime.now(UTC)
         if body.enabled:
-            if not request.app.state.settings.linux_support_gateway_configured():
+            if not linux_gateway_available(request.app.state.settings):
                 raise HTTPException(409,'Support gateway is not configured')
             if not policy_component_available(row,now):
                 raise HTTPException(409,'Linux administrator requires freshly reported installed Support component 1.0.0')
@@ -174,10 +169,6 @@ async def update_policy(device_id:UUID,body:SupportPolicyUpdate,request:Request,
                 raise HTTPException(409,'Support key roles conflict')
             if request.app.state.settings.support_gateway_host_public_key in body.operator_public_keys:
                 raise HTTPException(409,'Support key roles conflict')
-            try:
-                canonical_public_key(request.app.state.settings.support_gateway_host_public_key)
-            except ValueError:
-                raise HTTPException(409,'Support gateway is not configured') from None
             if not await source_active(session,row,now) or body.expires_at is None or body.expires_at.tzinfo is None or not now<body.expires_at<=now+timedelta(hours=8) or not body.operator_public_keys or (not body.linux_admin_username or body.linux_admin_uid is None) or any(k in (row.tunnel_public_key,row.host_public_key) for k in body.operator_public_keys):
                 raise HTTPException(422,'Invalid bounded support policy')
             # Explicit administrator authorization is required to recover a

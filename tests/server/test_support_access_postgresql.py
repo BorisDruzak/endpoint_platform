@@ -1,6 +1,7 @@
 """Real isolated PostgreSQL allocation/clone races and revocation."""
 import asyncio
 from datetime import UTC,datetime,timedelta
+from pathlib import Path
 from uuid import uuid4
 import pytest
 from alembic import command
@@ -11,6 +12,7 @@ from endpoint_contracts.support_access import SupportRegistration
 from endpoint_server.support_access.service import register,SupportConflict,get_broker_leases
 from tests.contracts.test_support_access import key
 from tests.server.test_update_postgresql import update_migration_database_urls,_alembic_config
+from tests.server.test_update_agent_api import _settings
 
 pytestmark=pytest.mark.usefixtures('preserve_migration_loggers')
 
@@ -54,12 +56,12 @@ def test_registration_race_binds_key_to_exactly_one_device(update_migration_data
                 assert r.id==winners[0].id
                 now=datetime.now(UTC);r.enabled=True;r.expires_at=now+timedelta(hours=1);r.operator_public_keys=[key(3)];r.windows_admin_username='admin'
                 await s.commit()
-                leases=await get_broker_leases(s,now)
+                leases=await get_broker_leases(s,now, settings=_settings(Path('.')))
                 assert len(leases)==1
                 assert leases[0].remote_port==32000
                 c=await s.get(DeviceCredential,r.source_credential_id);c.revoked_at=now
                 await s.commit()
-                assert await get_broker_leases(s,now)==[]
+                assert await get_broker_leases(s,now, settings=_settings(Path('.')))==[]
         finally:
             await provider.close()
     asyncio.run(scenario())
@@ -144,7 +146,7 @@ def test_real_cookie_csrf_scope_independent_policy_and_retirement(update_migrati
                     from endpoint_server.support_access.service import get_broker_leases
                     downgraded=await s.scalar(select(SupportAccess).where(SupportAccess.device_id==device_id))
                     assert downgraded.component_version=='1.0.0' and downgraded.enabled
-                    assert await get_broker_leases(s,datetime.now(UTC))==[]
+                    assert await get_broker_leases(s,datetime.now(UTC), settings=_settings(Path('.')))==[]
                 assert (await client.put(endpoint,json=domain_body,headers={'X-CSRF-Token':issued.csrf_token})).status_code==409
                 assert (await client.put(endpoint,json=body,headers={'X-CSRF-Token':issued.csrf_token})).status_code==200
                 async with provider() as s:

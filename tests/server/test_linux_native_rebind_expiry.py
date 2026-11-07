@@ -75,7 +75,7 @@ async def test_linux_native_reinstall_cannot_bypass_original_expiry(sessions,tmp
         assert row.installation_access_pending_until is None
         healthy(row,report_at)
         await consume_installation_access(session,row,settings,report_at)
-        assert await get_broker_leases(session,report_at)==[]
+        assert await get_broker_leases(session,report_at, settings=settings)==[]
         if phase!='before_healthy':
             assert not row.enabled
         assert row.expires_at==original_expiry
@@ -103,13 +103,13 @@ async def test_live_linux_lease_keeps_original_deadline_identity_and_keys_across
             previous=await reinstall(session,principal,step,step,previous)
             row=await register(session,principal.device.id,principal.credential.id,registration(4+2*index),platform='linux_amd64',settings=changed,now=step)
             assert row.enabled and row.expires_at==original_expiry
-            assert not row.installed and await get_broker_leases(session,step)==[]
+            assert not row.installed and await get_broker_leases(session,step, settings=changed)==[]
             assert row.installation_access_pending_until is None
             healthy(row,step)
             for offset in range(3):
                 await consume_installation_access(session,row,changed,step+timedelta(seconds=offset))
                 assert row.expires_at==original_expiry
-            assert len(await get_broker_leases(session,step))==1
+            assert len(await get_broker_leases(session,step, settings=changed))==1
             assert row.operator_public_keys==[key(53)] and row.linux_admin_username=='approved-admin' and row.linux_admin_uid==1001
         assert await grant_count(session)==1
 
@@ -149,7 +149,7 @@ async def test_explicit_linux_decision_wins_over_native_rebind(sessions,tmp_path
         healthy(row,now)
         await consume_installation_access(session,row,settings,now)
         assert not row.enabled and row.installation_access_pending_until is None
-        assert await get_broker_leases(session,now)==[] and await grant_count(session)==1
+        assert await get_broker_leases(session,now, settings=settings)==[] and await grant_count(session)==1
         if decision=='reset':
             assert row.operator_public_keys==[] and row.linux_admin_username is None and row.linux_admin_uid is None
         else:
@@ -206,7 +206,7 @@ async def test_online_linux_unregister_captures_prior_lease_without_renewing_it(
         healthy(row,now)
         await consume_installation_access(session,row,settings,now)
         assert (utc(row.expires_at) if row.expires_at else None)==original_expiry and await grant_count(session)==1
-        assert bool(await get_broker_leases(session,now))==(prior=='live')
+        assert bool(await get_broker_leases(session,now, settings=settings))==(prior=='live')
 
 
 async def test_historical_linux_unregister_without_bound_prior_lease_stays_disabled(sessions,tmp_path):
@@ -228,4 +228,4 @@ async def test_historical_linux_unregister_without_bound_prior_lease_stays_disab
         await consume_installation_access(session,row,settings,now)
         assert not row.enabled and row.expires_at==original_expiry and row.installation_access_pending_until is None
         assert row.operator_public_keys==[key(50)] and row.linux_admin_username=='root' and row.linux_admin_uid==0
-        assert await get_broker_leases(session,now)==[] and await grant_count(session)==1
+        assert await get_broker_leases(session,now, settings=settings)==[] and await grant_count(session)==1

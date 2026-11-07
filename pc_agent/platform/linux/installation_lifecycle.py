@@ -135,10 +135,10 @@ class LifecycleJournal:
         if operation['settled']:
             return operation['event']
         action = 'removed' if operation['action'] == 'remove' else 'installed'
-        # Upgrade remains in the same generation; reinstall follows removal.
-        prior = self.store.json(f"event-{state['sequence']}.json", missing=True) if state['sequence'] else None
+        # Retained Device identity has one continuous causal stream, including
+        # ordinary/offline reinstall. Full wipe archives this journal separately.
         generation = state['generation_id']
-        if generation is None or (action == 'installed' and prior and prior['action'] == 'removed'):
+        if generation is None:
             generation = str(uuid4())
         event = LinuxInstallationEventV1(schema_version='endpoint_linux_installation_event_v1',
             device_id=device_id, event_id=operation['id'], generation_id=generation,

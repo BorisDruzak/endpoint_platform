@@ -13,10 +13,10 @@ from endpoint_server.db.session import create_session_provider
 from .service import get_broker_leases
 
 
-async def export_once(provider,path:Path,*,now=None):
+async def export_once(provider,path:Path,*,settings:Settings,now=None):
     now=now or datetime.now(UTC)
     async with provider() as session:
-        leases=await get_broker_leases(session,now)
+        leases=await get_broker_leases(session,now,settings=settings)
     payload={'schema_version':1,'generated_at':now.isoformat(),'valid_until':(now+timedelta(seconds=60)).isoformat(),'leases':[{**asdict(row),'device_id':str(row.device_id),'expires_at':row.expires_at.isoformat()} for row in leases]}
     # RuntimeDirectory is provisioned by systemd; do not create arbitrary parents.
     fd,temporary=tempfile.mkstemp(prefix='.leases-',dir=path.parent)
@@ -32,11 +32,12 @@ async def export_once(provider,path:Path,*,now=None):
 
 
 async def run(path):
-    provider=create_session_provider(Settings.from_environment().database_url)
+    settings=Settings.from_environment()
+    provider=create_session_provider(settings.database_url)
     try:
         while True:
             try:
-                await asyncio.wait_for(export_once(provider,path),timeout=4)
+                await asyncio.wait_for(export_once(provider,path,settings=settings),timeout=4)
             except Exception:
                 # Keep last-good bytes; the broker rejects them after 60 seconds.
                 pass

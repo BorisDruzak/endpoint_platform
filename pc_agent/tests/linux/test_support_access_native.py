@@ -69,3 +69,33 @@ def test_forward_receipt_requires_ack_and_same_master_socket_and_policy(monkeypa
     child.forward_receipt=((101,201),('socket',10),4)
     monkeypatch.setattr(n,'control_socket_identity',lambda *_:('socket',11))
     assert not child.connected()
+
+
+@pytest.mark.parametrize('failure', [None,'account','keys','configuration'])
+def test_readiness_rechecks_local_dependencies_without_starting_children(monkeypatch,failure):
+    from pc_agent.tests.linux.test_support_access import parse,policy,key
+    writes=[];commands=[];checks=[]
+    class Store:
+        paths=n.SupportPaths(PurePosixPath('/private'),PurePosixPath('/public'))
+        def keys(self):
+            checks.append('keys')
+            if failure=='keys':raise SupportError('key_mismatch')
+            return key(1),key(2)
+        def write(self,name,data,**kwargs):writes.append(name)
+    def account(*_):
+        checks.append('account')
+        if failure=='account':raise SupportError('account_not_authorized')
+    def command(argv):
+        commands.append(argv)
+        if failure=='configuration':raise SupportError('native_command_failed')
+    monkeypatch.setattr(n,'validate_account',account)
+    monkeypatch.setattr(n,'native_command',command)
+    child=n.NativeChildren(Store())
+    if failure:
+        with pytest.raises(SupportError):child.prepare(parse(policy()))
+    else:
+        assert child.prepare(parse(policy()))=='/private/sshd_config'
+        assert checks==['keys','account']
+        assert writes==['0','known_hosts','sshd_config']
+    assert all(argv==['/usr/sbin/sshd','-t','-f','/private/sshd_config'] for argv in commands)
+    assert not child.active and child.forward_receipt is None

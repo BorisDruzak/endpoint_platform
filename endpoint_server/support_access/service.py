@@ -44,6 +44,16 @@ def policy_component_available(row,now) -> bool:
     return '\\' not in (row.windows_admin_username or '') or domain_principal_available(row,now)
 
 
+def linux_gateway_available(settings) -> bool:
+    """Effective Linux admission, independent of first-install grant defaults."""
+    from endpoint_contracts.support_access import canonical_public_key
+    try:
+        canonical_public_key(settings.support_gateway_host_public_key)
+    except ValueError:
+        return False
+    return bool(settings.device_token_pepper and settings.linux_support_gateway_configured())
+
+
 def record_runtime_status(row,body,now) -> bool:
     version=body.component_version if body.component_version is not None else '1.0.0'
     changed=(row.installed!=body.installed or row.tunnel_connected!=body.tunnel_connected or
@@ -193,12 +203,14 @@ class BrokerLease:
     expires_at: datetime
 
 
-async def get_broker_leases(session,now):
+async def get_broker_leases(session,now,*,settings):
     rows=(await session.scalars(select(SupportAccess).where(SupportAccess.enabled.is_(True),SupportAccess.revoked_at.is_(None),SupportAccess.expires_at>now).order_by(SupportAccess.device_id).limit(1001))).all()
     if len(rows)>1000:
         raise SupportConflict('Support lease capacity exceeded')
     result=[]
     for row in rows:
+        if row.platform==LINUX and not linux_gateway_available(settings):
+            continue
         if not row.operator_public_keys or not principal_bound(row) or not policy_component_available(row,now) or not await source_active(session,row,now):
             continue
         credential=await session.get(DeviceCredential,row.source_credential_id)

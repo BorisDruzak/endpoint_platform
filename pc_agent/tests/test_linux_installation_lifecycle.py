@@ -61,7 +61,7 @@ def test_offline_removed_event_precedes_reinstall_without_tokens_and_no_duplicat
     assert [x.action for x in events] == ['installed', 'removed', 'installed']
     assert [x.sequence for x in events] == [1, 2, 3]
     assert events[2].previous_event_id == events[1].event_id
-    assert events[0].generation_id != events[2].generation_id
+    assert events[0].generation_id == events[2].generation_id
     assert all('token' not in json.dumps(x) and 'bearer' not in json.dumps(x) for x in store.data.values())
     journal.acknowledge(events[0].model_dump(mode='json'))
     assert [x['sequence'] for x in journal.pending_events()] == [2, 3]

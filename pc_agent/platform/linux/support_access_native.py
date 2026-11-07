@@ -305,15 +305,21 @@ class NativeChildren:
             raise SupportError('unsafe_control_socket')
         control.unlink()  # Exact owned stale socket, only after both units stopped.
 
-    def start(self,policy,deadline):
-        self.forward_receipt = None
-        self.policy_revision = policy.revision
+    def prepare(self,policy):
+        """Validate local account/configuration without opening any listener/tunnel."""
+        self.store.keys()  # Revalidate owned key files and public/private binding.
         validate_account(policy.username,policy.uid)
         self.store.write(str(policy.uid),('\n'.join(policy.operator_keys)+'\n').encode(),public=True)
         self.store.write('known_hosts',('endpoint-support-gateway '+policy.gateway_key+'\n').encode())
         self.store.write('sshd_config',sshd_config(self.store.paths.private,self.store.paths.public,policy).encode())
         config = str(self.store.paths.private/'sshd_config')
         native_command(['/usr/sbin/sshd','-t','-f',config])
+        return config
+
+    def start(self,policy,deadline):
+        self.forward_receipt = None
+        self.policy_revision = policy.revision
+        config = self.prepare(policy)
         # Hard cgroup bound survives dead/hung parent and detached ssh sessions.
         # Reserve activation budget so delayed starts cannot extend the lease.
         seconds = int(deadline-boot_time())-6

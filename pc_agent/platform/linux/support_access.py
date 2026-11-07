@@ -111,6 +111,8 @@ class LeaseState:
     fingerprint: str = ''
     boot_id: str = ''
     deadline: float = 0
+    authority: dict | None = None
+    last_error: str | None = None
 
     @classmethod
     def from_json(cls, raw):
@@ -119,6 +121,10 @@ class LeaseState:
             integer(result.revision, -1, 2**63-1)
             if not isinstance(result.fingerprint,str) or not isinstance(result.boot_id,str) or not isinstance(result.deadline,(float,int)):
                 raise ValueError
+            result.authority_policy()
+            if result.last_error not in (None,'policy_unavailable','configuration_conflict','key_conflict',
+                                         'tunnel_failed','service_failed','dependency_unavailable','host_key_mismatch'):
+                raise ValueError
             return result
         except (TypeError,ValueError):
             raise SupportError('invalid_lease_state') from None
@@ -126,9 +132,34 @@ class LeaseState:
     def to_json(self):
         return asdict(self)
 
+    def authority_policy(self):
+        """Public last-enabled consent, for local readiness only, never admission."""
+        if self.authority is None:
+            return None
+        try:
+            policy = SupportPolicy(**self.authority)
+            if (not policy.enabled or policy.revision != self.revision or
+                hashlib.sha256(json.dumps(asdict(policy),sort_keys=True).encode()).hexdigest() != self.fingerprint):
+                raise ValueError
+            return policy
+        except (TypeError, ValueError):
+            raise SupportError('invalid_lease_state') from None
+
     def accept(self, policy, *, wall, server, boot, boot_id):
         fingerprint = hashlib.sha256(json.dumps(asdict(policy),sort_keys=True).encode()).hexdigest()
-        if policy.revision < self.revision or (policy.revision == self.revision and self.fingerprint != fingerprint):
+        if policy.revision < self.revision:
+            raise SupportError('stale_policy')
+        if not policy.enabled:
+            if policy.revision > self.revision:
+                self.revision,self.fingerprint,self.boot_id,self.deadline,self.authority = policy.revision,'','',0,None
+            elif self.fingerprint == fingerprint:
+                # Compatibility with a pre-fix state that bound only a masked
+                # disabled projection. It contains no administrator authority.
+                self.fingerprint = ''
+            # Keep a previously bound enabled fingerprint and BOOTTIME anchor.
+            # Disabled is an effective mask, not replacement administrator consent.
+            return 0
+        if policy.revision == self.revision and self.fingerprint and self.fingerprint != fingerprint:
             raise SupportError('stale_policy')
         deadline = 0
         if policy.enabled:
@@ -138,11 +169,12 @@ class LeaseState:
             if not 0 < remaining <= MAX_LEASE:
                 raise SupportError('expired_policy')
             deadline = boot + remaining
-            if policy.revision == self.revision and boot_id == self.boot_id:
+            if policy.revision == self.revision and self.fingerprint and boot_id == self.boot_id:
                 deadline = min(deadline,self.deadline)
             if deadline <= boot:
                 raise SupportError('expired_policy')
         self.revision,self.fingerprint,self.boot_id,self.deadline = policy.revision,fingerprint,boot_id,deadline
+        self.authority = asdict(policy)
         return deadline
 
 

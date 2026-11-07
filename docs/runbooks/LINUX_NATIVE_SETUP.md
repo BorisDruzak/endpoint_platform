@@ -152,6 +152,17 @@ checks the account, UID, unlock state, shell and administrative readiness. No
 account, sudo rule or password is created. Disable/revoke/reset are audited;
 refresh, retries and reinstall cannot create a new initial lease. Qualified native
 rebind resumes only unchanged authorization up to its original unexpired deadline.
+Ordinary retained-identity reinstall preserves the journal generation, sequence
+and previous-event chain. Offline removal is delivered before reinstall; a full
+wipe/new identity requires the separately authorized journal archival workflow.
+
+Temporary effective disablement at the same policy revision does not replace
+administrator consent or restart its expiry. Support retains a fingerprint-bound
+public consent snapshot only to check local readiness after errors, including
+service restarts. It checks its owned keys, account and sshd configuration without
+starting a listener or tunnel while disabled. Persistent local errors remain
+reported. A new enabled server policy is required before starting children;
+only actual forwarding acknowledgement makes `tunnel_connected` true.
 
 Fresh defaults require explicit `SUPPORT_LINUX_INSTALL_AUTO_ENABLE`,
 `SUPPORT_LINUX_INSTALL_OPERATOR_PUBLIC_KEYS`, `SUPPORT_LINUX_INSTALL_ADMIN_USERNAME`,
@@ -172,6 +183,12 @@ three gates, using `ENDPOINT_AGENT_DEPLOYMENT_ENVIRONMENT=staging`. The same gat
 public key participates in host/tunnel/operator role-conflict checks. This opt-in
 does not authorize Windows staging or arbitrary hosts. Never send staging identity
 or tokens to production. Live configuration remains a separate deployment gate.
+The exporter receives the validated provider settings and applies the same Linux
+origin/gateway/port/pin and authentication-availability predicate as policy delivery
+and administrator admission. Removing staging opt-in suppresses Linux broker
+leases without changing stored intent or its original expiry. Turning off initial
+auto-grant defaults alone does not revoke an existing consent. Windows broker
+selection and wire contracts retain their existing behavior.
 
 For an actual command read device UUID, loopback remote port and public host pin
 together from the authenticated Linux card. Prepare a public known-hosts file
