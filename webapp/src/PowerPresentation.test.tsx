@@ -23,13 +23,15 @@ it.each([
   [false, 'shutdown', 'READY', event, 'Нет связи — причина неизвестна', 'Последнее событие: завершение работы ОС'],
   [false, 'unknown', 'UNAVAILABLE', event, 'Нет связи — причина неизвестна', 'Источник событий питания недоступен'],
   [false, 'unknown', 'UNSUPPORTED', null, 'Нет связи — причина неизвестна', 'Источник событий питания не поддерживается'],
-])('keeps connectivity independent of %s/%s power evidence (%s)', async (online, status, availability, latest, connection, label) => {
+])('keeps connectivity independent of %s/%s power evidence (%s)', async (online, status, availability, latest, _connection, label) => {
   const fetch = vi.fn(async (_url: string) => response({ data: [{ ...device, online, power: { ...power, status, latest_event: latest,
     source_status: { ...source, availability } } }], total: 1, offset: 0, limit: 50 }))
   vi.stubGlobal('fetch', fetch)
   render(<MemoryRouter><DevicesPage /></MemoryRouter>)
   const row = (await screen.findByText('Synthetic PC')).closest('tr')!
-  expect(within(row).getByText(connection)).toBeTruthy()
+  // This legacy fixture has no accepted installation fact. Connectivity must
+  // stay independent from power evidence without asserting an installation.
+  expect(within(row).getByText(`Установка не подтверждена · ${online ? 'в сети' : 'не в сети'}`)).toBeTruthy()
   expect(within(row).getByText(label)).toBeTruthy()
   expect(fetch.mock.calls[0][0]).toContain('include_power=true')
 })

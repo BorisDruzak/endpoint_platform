@@ -1,5 +1,10 @@
 # Independent Windows support access
 
+For native Linux Setup178/Support1.0.0 use the separate
+[Linux native Setup workflow](LINUX_NATIVE_SETUP.md#console-enrollment-and-independent-linux-access),
+including exact Linux username/UID and install/remove/reconcile commands. The
+Windows fields, primary release and procedures below remain unchanged.
+
 This is a separate support channel for diagnosing an enrolled Windows device
 when Core, EndpointAgentUpdater or EndpointSetupUpdater is unavailable. Ordinary
 software updates still use the signed full Setup workflow. Installing a component,

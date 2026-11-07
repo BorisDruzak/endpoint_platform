@@ -2,6 +2,8 @@ import { cleanup, fireEvent, render, screen, waitFor, act } from '@testing-libra
 import { afterEach, expect, it, vi } from 'vitest'
 import { SupportAccess } from './SupportAccess'
 import { request, ApiError } from './api'
+vi.mock('./supportAccessApi', async original => ({ ...await original<typeof import('./supportAccessApi')>(),
+  getSupportPlatform: vi.fn((deviceId: string) => Promise.resolve({ device_id: deviceId, platform: 'windows_amd64' })) }))
 vi.mock('./api', async original => ({ ...await original<typeof import('./api')>(), request: vi.fn() }))
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 
@@ -35,6 +37,7 @@ it('never applies an old device response to a new device', async () => {
   let resolveOld!: (value: unknown) => void
   vi.mocked(request).mockImplementation(path => path.endsWith('/one') ? new Promise(resolve => { resolveOld = resolve }) : Promise.resolve(status('two')))
   const { rerender } = render(<SupportAccess deviceId="one" canWrite={false} />)
+  await waitFor(() => expect(resolveOld).toBeTypeOf('function'))
   rerender(<SupportAccess deviceId="two" canWrite={false} />)
   await screen.findByText('Установлен · 1.0.0')
   await act(async () => resolveOld({ ...status(), component_version: '9.9.9' }))

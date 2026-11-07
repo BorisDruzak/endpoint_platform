@@ -136,3 +136,66 @@ Source/unit/isolated-RPM tests do not qualify an installed agent. Real signed178
 freeze, publication, fresh HTTPS enrollment, native transitions, accepted telemetry,
 independent SSH, offline removal/reinstall and historical-parent linkage remain
 separate reviewed acceptance gates. Preserve their original failure receipts.
+
+## Console, enrollment and independent Linux access
+
+Console selects Support from authenticated provider platform discovery. Consumed
+enrollment and canonical inventory/source binding must agree on Linux x86_64.
+An OS label is not authority; conflicting proof blocks controls without trying
+the Windows endpoint. Saved intent and original expiry are displayed separately
+from effective policy. Refresh never changes authorization.
+
+In **Доступ поддержки**, enter the exact existing NSS username and integer UID;
+explicit `root` / `0` is supported. Use existing approved public operator keys,
+a reason and a duration no longer than eight hours. The component independently
+checks the account, UID, unlock state, shell and administrative readiness. No
+account, sudo rule or password is created. Disable/revoke/reset are audited;
+refresh, retries and reinstall cannot create a new initial lease. Qualified native
+rebind resumes only unchanged authorization up to its original unexpired deadline.
+
+Fresh defaults require explicit `SUPPORT_LINUX_INSTALL_AUTO_ENABLE`,
+`SUPPORT_LINUX_INSTALL_OPERATOR_PUBLIC_KEYS`, `SUPPORT_LINUX_INSTALL_ADMIN_USERNAME`,
+`SUPPORT_LINUX_INSTALL_ADMIN_UID` and bounded `SUPPORT_LINUX_INSTALL_ACCESS_HOURS`.
+They never inherit Windows defaults. The single initial grant requires a fresh
+healthy Support1.0.0 report. Registration, forwarding acknowledgement and a real
+administrator command are separate evidence. **Подтвердить выполненную SSH-команду**
+records only the operator's statement after that real command; Console executes
+no SSH command itself.
+
+Production remains `https://endpoint.sosnadmin.local`, gateway port2222. The only
+alternate Linux path requires provider `SUPPORT_LINUX_STAGING_GATEWAY_ENABLED=true`,
+public URL exactly `https://endpoint-staging.sosnadmin.local`,
+`SUPPORT_GATEWAY_HOST=endpoint-staging.sosnadmin.local`, port2222 and all three
+existing provider staging gates (`ENDPOINT_DEPLOYMENT_ENVIRONMENT=staging`,
+`CANARY_ENVIRONMENT=staging`, `CANARY_APPROVED=true`). Agent bootstrap retains its
+three gates, using `ENDPOINT_AGENT_DEPLOYMENT_ENVIRONMENT=staging`. The same gateway
+public key participates in host/tunnel/operator role-conflict checks. This opt-in
+does not authorize Windows staging or arbitrary hosts. Never send staging identity
+or tokens to production. Live configuration remains a separate deployment gate.
+
+For an actual command read device UUID, loopback remote port and public host pin
+together from the authenticated Linux card. Prepare a public known-hosts file
+containing `endpoint-device-UUID ssh-ed25519 BASE64` from that card. Preserve and
+compare an existing UUID pin; do not overwrite a changed pin. With explicit values
+from the card/config, a Windows OpenSSH example is:
+
+```powershell
+ssh -F NUL -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=NUL -o UserKnownHostsFile=C:/approved/device.known_hosts -o HostKeyAlias=endpoint-device-UUID -o 'ProxyCommand=ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ForwardAgent=no -o PermitLocalCommand=no -W %h:%p APPROVED_GATEWAY_ALIAS' -o ForwardAgent=no -o PermitLocalCommand=no -o ClearAllForwardings=yes -i C:/approved/operator-key -p REMOTE_PORT -l EXACT_LINUX_USERNAME 127.0.0.1 'hostname; id'
+```
+
+The gateway alias uses its ordinary administrator SSH and independently trusted
+host key, never the device's outbound2222 identity. Use the trusted staging alias
+for staging. A changed device host key fails closed until authorized reinstall and
+authenticated rebind are verified. Never use scans or disable host checking.
+Record real command output and UID separately from tunnel status; no private keys
+belong in reports. The Windows connection helper keeps its Windows-only contract.
+
+Linux requests under **Установка и регистрация** identify the native RPM source.
+Without a frozen selected campaign, approval is unavailable: review existing Linux
+authority before any distinct request, and only after the old attempt is confirmed
+terminal, unclaimed and without device delivery. Do not replace active private
+attempts automatically. A previous-device relation is server-verified history only;
+credentials/grants remain separate. Ordinary removal retains UUID/card/history.
+History displays received native0 events, cleanup and delivery time separately.
+Native pending/offline queue contents stay local; no event/heartbeat absence proves
+removal. Use the canonical `reconcile` procedure above, never replay unknown RPM.

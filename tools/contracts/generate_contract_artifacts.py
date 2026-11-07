@@ -75,6 +75,7 @@ from endpoint_contracts.installation_lifecycle import InstallationEventV1, Insta
 from endpoint_contracts.linux_installation_lifecycle import LinuxInstallationEventV1
 from endpoint_contracts.linux_enrollment import LinuxEnrollmentPolicyV1, LinuxPreEnrollmentRequestCreateV1
 from endpoint_contracts.linux_support_access import (LinuxSupportRegistration,LinuxSupportRegistrationResult,LinuxSupportPolicy,LinuxSupportPolicyUpdate,LinuxSupportStatusReport)
+from endpoint_contracts.support_console import SupportPlatform, LinuxSupportConfiguredPolicy, LinuxSupportAdminStatus
 from endpoint_contracts.power_events import PowerEventV1, PowerSourceStatusV1, PowerEventBatchV1, PowerEventAckV1
 from endpoint_server.power.routes import router as power_console_router
 from endpoint_server.auth.admin_sessions import ADMIN_SESSION_COOKIE
@@ -145,6 +146,9 @@ LINUX_SUPPORT_MODELS = {
     "linux-support-policy.json":LinuxSupportPolicy,
     "linux-support-policy-update.json":LinuxSupportPolicyUpdate,
     "linux-support-status-report.json":LinuxSupportStatusReport,
+    "support-platform.json":SupportPlatform,
+    "linux-support-admin-status.json":LinuxSupportAdminStatus,
+    "linux-support-configured-policy.json":LinuxSupportConfiguredPolicy,
 }
 
 PUBLIC_MODELS: dict[str, type[ContractModelV1]] = {
@@ -784,6 +788,8 @@ def _service_operation_openapi() -> dict[str, object]:
     from endpoint_server.installation_lifecycle.linux_routes import router as linux_installation
     application.include_router(linux_support_agent)
     application.include_router(linux_support_admin)
+    from endpoint_server.support_access.discovery import router as support_platform_router
+    application.include_router(support_platform_router)
     application.include_router(linux_installation)
     from endpoint_server.enrollment.linux_request_routes import router as linux_enrollment
     application.include_router(linux_enrollment)
@@ -804,7 +810,7 @@ def _service_operation_openapi() -> dict[str, object]:
         'type':'apiKey','in':'cookie','name':ADMIN_SESSION_COOKIE,
         'description':'Authenticated administrator session. Mutations require updates:write and X-CSRF-Token.'}
     for path,operations in generated['paths'].items():
-        if path.startswith('/api/admin/support-access/linux/'):
+        if path.startswith('/api/admin/support-access/linux/') or path == '/api/admin/support-access/devices/{device_id}/platform':
             for method,operation in operations.items():
                 operation['security']=[{'LinuxSupportAdminCookie':[]}]
                 if method!='get':
@@ -821,6 +827,7 @@ def _service_operation_openapi() -> dict[str, object]:
                          '/agent/v1/support-access/linux/register','/agent/v1/support-access/linux/policy',
                          '/agent/v1/support-access/linux/status','/agent/v1/support-access/linux/unregister',
                          '/api/admin/support-access/linux/devices/{device_id}',
+                         '/api/admin/support-access/devices/{device_id}/platform',
                          '/api/admin/support-access/linux/devices/{device_id}/policy',
                          '/api/admin/support-access/linux/devices/{device_id}/revoke',
                          '/api/admin/support-access/linux/devices/{device_id}/reset-registration',

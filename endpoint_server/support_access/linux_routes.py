@@ -6,6 +6,7 @@ from fastapi import APIRouter,Depends,HTTPException,Request,Response
 from sqlalchemy import select
 from endpoint_contracts.linux_support_access import (LinuxSupportRegistration as SupportRegistration,LinuxSupportRegistrationResult as SupportRegistrationResult,LinuxSupportPolicy as SupportPolicy,LinuxSupportPolicyUpdate as SupportPolicyUpdate,LinuxSupportStatusReport as SupportStatusReport)
 from endpoint_contracts.support_access import SupportReason,canonical_public_key
+from endpoint_contracts.support_console import LinuxSupportAdminStatus, LinuxSupportConfiguredPolicy
 from endpoint_contracts.support_access import SUPPORT_RESET_DEVICE_HEADER,SupportRegistrationConflict
 from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.auth.admin_sessions import AdminPrincipal,require_admin,require_admin_update_scope
@@ -28,7 +29,7 @@ async def policy(session,row,settings):
     configured=False
     try:
         canonical_public_key(settings.support_gateway_host_public_key)
-        configured=bool(settings.support_gateway_host=='endpoint.sosnadmin.local' and settings.support_gateway_port==2222)
+        configured=settings.linux_support_gateway_configured()
     except ValueError:
         pass
     enabled=bool(configured and row.enabled and row.revoked_at is None and row.expires_at and utc(row.expires_at)>now and row.operator_public_keys and principal_bound(row) and policy_component_available(row,now) and await source_active(session,row,now))
@@ -140,13 +141,15 @@ async def load(session,device_id):
     return row
 
 
-@admin_router.get('/devices/{device_id}')
+@admin_router.get('/devices/{device_id}',response_model=LinuxSupportAdminStatus)
 async def admin_status(device_id:UUID,request:Request,response:Response,_:Annotated[AdminPrincipal,Depends(require_admin)]):
     response.headers['Cache-Control']='no-store'
     async with request.app.state.session_provider() as session:
         row=await load(session,device_id)
         await pending_authority_current(session,row,request.app.state.settings,datetime.now(UTC),request_id=audit_request_id(request))
         result={'policy':await policy(session,row,request.app.state.settings),'component_version':row.component_version,'installed':row.installed,'tunnel_connected':row.tunnel_connected,'reported_at':row.reported_at,'last_error_code':row.last_error_code,'host_public_key':row.host_public_key,'access_verified_at':row.access_verified_at,'access_verified_by':row.access_verified_by,'verification_kind':'operator_attestation','revoked_at':row.revoked_at,'reset_registration_allowed':row.reset_registration_allowed}
+        result['configured_policy']=LinuxSupportConfiguredPolicy(enabled=row.enabled,expires_at=row.expires_at,
+            operator_public_keys=row.operator_public_keys,linux_admin_username=row.linux_admin_username,linux_admin_uid=row.linux_admin_uid)
         await session.commit()
         return result
 
@@ -157,6 +160,8 @@ async def update_policy(device_id:UUID,body:SupportPolicyUpdate,request:Request,
         row=await load(session,device_id)
         now=datetime.now(UTC)
         if body.enabled:
+            if not request.app.state.settings.linux_support_gateway_configured():
+                raise HTTPException(409,'Support gateway is not configured')
             if not policy_component_available(row,now):
                 raise HTTPException(409,'Linux administrator requires freshly reported installed Support component 1.0.0')
             if row.reset_registration_allowed:

@@ -193,6 +193,8 @@ def create_app(
     from endpoint_server.installation_lifecycle.linux_routes import router as linux_installation_router
     app.include_router(linux_support_agent)
     app.include_router(linux_support_admin)
+    from endpoint_server.support_access.discovery import router as support_platform_router
+    app.include_router(support_platform_router)
     app.include_router(linux_installation_router)
     app.include_router(support_admin_router)
     app.include_router(browser_sensor_public_router)

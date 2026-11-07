@@ -74,10 +74,10 @@ function RequestQueue({ title, page, busy, onOpen, onDecide, onMove }: {
     {rows.length ? <div className="table-scroll"><table>
       <thead><tr><th>Устройство</th><th>Состояние</th><th>Адрес</th><th>Установщик</th><th>Создан</th><th>Действия</th></tr></thead>
       <tbody>{rows.map(item => <tr key={item.id}>
-        <td><strong>{item.hostname}</strong><small>{item.manufacturer} {item.model}</small></td>
+        <td><strong>{item.hostname}</strong><small>{item.platform === 'linux' ? 'Linux · RPM' : item.platform === 'windows' ? 'Windows · Setup' : 'Платформа не подтверждена'} · {item.manufacturer} {item.model}</small></td>
         <td>{requestLabels[item.status] ?? item.status}</td>
         <td>{item.source_address}</td><td>{item.installer_release_id}</td><td>{dateText(item.created_at)}</td>
-        <td><button onClick={() => onOpen(item)}>Подробнее</button>{['waiting_approval', 'review_required'].includes(item.status) && <><button disabled={busy} onClick={() => onDecide(item, 'approve')}>Одобрить</button><button disabled={busy} onClick={() => onDecide(item, 'deny')}>Отклонить</button></>}</td>
+        <td><button onClick={() => onOpen(item)}>Подробнее</button>{['waiting_approval', 'review_required'].includes(item.status) && <><button disabled={busy || (item.platform === 'linux' && !item.selected_campaign_id)} onClick={() => onDecide(item, 'approve')}>Одобрить</button><button disabled={busy} onClick={() => onDecide(item, 'deny')}>Отклонить</button></>}</td>
       </tr>)}</tbody>
     </table></div> : <p className="muted">Заявок нет.</p>}
     <div className="pagination"><button disabled={offset === 0} onClick={() => onMove(Math.max(0, offset - limit))}>Назад</button><span>{total ? `${offset + 1}–${Math.min(offset + limit, total)}` : '0'} из {total}</span><button disabled={offset + limit >= total} onClick={() => onMove(offset + limit)}>Далее</button></div>
@@ -226,7 +226,7 @@ export function EnrollmentPage() {
   if (editing) for (const version of editing.policy.allowed_installer_releases ?? []) if (!knownVersions.includes(version)) knownVersions.push(version)
   const selectedStageIndex = selected ? enrollmentStages.findIndex(stage => (stage.statuses as readonly string[]).includes(selected.status)) : -1
   return <>
-    <div className="page-heading"><div><p className="eyebrow">РАЗВЁРТЫВАНИЕ</p><h1>Установка и регистрация</h1><p className="muted">Установщик Windows, кампании и запросы устройств</p></div><button onClick={() => setRevision(value => value + 1)}>Обновить</button></div>
+    <div className="page-heading"><div><p className="eyebrow">РАЗВЁРТЫВАНИЕ</p><h1>Установка и регистрация</h1><p className="muted">Установщик Windows, кампании и запросы устройств Windows и Linux</p></div><button onClick={() => setRevision(value => value + 1)}>Обновить</button></div>
     <nav className="tabs" aria-label="Разделы установки"><button className={tab === 'installer' ? 'selected' : ''} onClick={() => setTab('installer')}>Установщик</button><button className={tab === 'campaigns' ? 'selected' : ''} onClick={() => setTab('campaigns')}>Кампании</button><button className={tab === 'requests' ? 'selected' : ''} onClick={() => setTab('requests')}>Запросы регистрации</button></nav>
     {error && <div className="panel error" role="alert">{error} <button onClick={() => setRevision(value => value + 1)}>Повторить</button></div>}
     {!loaded && <p aria-live="polite">Загрузка регистрации…</p>}
@@ -248,12 +248,14 @@ export function EnrollmentPage() {
       <section className="dialog panel" role="dialog" aria-modal="true" aria-label="Запрос регистрации" onClick={event => event.stopPropagation()}>
         <button className="dialog-close" onClick={() => setSelected(null)}>Закрыть</button>
         <h2>{selected.hostname}</h2><p>{requestLabels[selected.status] ?? selected.status}</p>
+        {selected.platform === 'linux' && <><p>Linux · проверенный источник RPM</p><p className="muted">Одобрение регистрации не подтверждает завершение native. Итог RPM и доставку событий проверяйте отдельно в истории установки; неизвестный результат остаётся pending и не разрешает повторную установку.</p></>}
         <h3>Этапы регистрации</h3>
         <ol className="lifecycle">{enrollmentStages.map((stage, index) => <li key={stage.label} aria-current={selectedStageIndex === index ? 'step' : undefined}>
           {stage.label}{selectedStageIndex === index && <strong> · Текущий этап</strong>}
         </li>)}</ol>
         <h3>Решение оператора</h3>
-        {['waiting_approval', 'review_required'].includes(selected.status) && <div>
+        {selected.platform === 'linux' && !selected.selected_campaign_id && <p>Сначала требуется проверка кампании Linux. Без однозначно выбранной кампании одобрение недоступно; не заменяйте активный запрос автоматически.</p>}
+        {['waiting_approval', 'review_required'].includes(selected.status) && (selected.platform !== 'linux' || selected.selected_campaign_id) && <div>
           <label>Предыдущая карточка после полной очистки (необязательно)<input value={previousDeviceId} maxLength={36} onChange={event => setPreviousDeviceId(event.target.value.trim())} placeholder="UUID предыдущего устройства" /></label>
           <p className="muted">Связь сохранит историю переустановки. Сервер проверит подтверждённое удаление и совпадение устройства; права и ключи остаются раздельными.</p>
           <button disabled={busy || (!!previousDeviceId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(previousDeviceId))} onClick={() => decide(selected, 'approve', previousDeviceId || undefined)}>{previousDeviceId ? 'Одобрить со связью с предыдущей карточкой' : 'Одобрить регистрацию'}</button>

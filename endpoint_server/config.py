@@ -210,6 +210,11 @@ class Settings:
     support_linux_install_admin_username: str = ''
     support_linux_install_admin_uid: int | None = None
     support_linux_install_access_hours: float = 8
+    support_linux_staging_gateway_enabled: bool = False
+
+    def linux_support_gateway_configured(self) -> bool:
+        host = 'endpoint-staging.sosnadmin.local' if self.support_linux_staging_gateway_enabled else 'endpoint.sosnadmin.local'
+        return self.support_gateway_host == host and self.support_gateway_port == 2222 and self.public_base_url == 'https://' + host
 
     def __post_init__(self):
         from endpoint_contracts.support_access import canonical_public_key, normalize_windows_support_admin
@@ -239,6 +244,10 @@ class Settings:
                 raise ValueError('SUPPORT_INSTALL requires the canonical support gateway')
 
         from endpoint_contracts.linux_support_access import LinuxSupportPolicyUpdate
+        if type(self.support_linux_staging_gateway_enabled) is not bool:
+            raise ValueError('SUPPORT_LINUX_STAGING_GATEWAY_ENABLED must be a boolean')
+        if self.support_linux_staging_gateway_enabled and not self.linux_support_gateway_configured():
+            raise ValueError('Linux staging gateway requires exact staging origin and gateway port 2222')
         if type(self.support_linux_install_auto_enable) is not bool:
             raise ValueError('SUPPORT_LINUX_INSTALL_AUTO_ENABLE must be a boolean')
         linux_keys=self.support_linux_install_operator_public_keys
@@ -256,7 +265,7 @@ class Settings:
             if not linux_keys:
                 raise ValueError('Linux installation defaults require explicit operator keys')
             canonical_public_key(self.support_gateway_host_public_key)
-            if self.support_gateway_host!='endpoint.sosnadmin.local' or self.support_gateway_port!=2222:
+            if not self.linux_support_gateway_configured():
                 raise ValueError('Linux installation defaults require canonical gateway')
 
     @classmethod
@@ -371,6 +380,7 @@ class Settings:
             support_gateway_host=values.get('SUPPORT_GATEWAY_HOST','endpoint.sosnadmin.local'),
             support_gateway_port=int(values.get('SUPPORT_GATEWAY_PORT','2222')),
             support_gateway_host_public_key=values.get('SUPPORT_GATEWAY_HOST_PUBLIC_KEY',''),
+            support_linux_staging_gateway_enabled=_parse_optional_boolean('SUPPORT_LINUX_STAGING_GATEWAY_ENABLED', values.get('SUPPORT_LINUX_STAGING_GATEWAY_ENABLED','false')),
             support_install_auto_enable=_parse_optional_boolean('SUPPORT_INSTALL_AUTO_ENABLE', values.get('SUPPORT_INSTALL_AUTO_ENABLE', 'false')),
             support_install_operator_public_keys=tuple(values.get('SUPPORT_INSTALL_OPERATOR_PUBLIC_KEYS', '').split(',')) if values.get('SUPPORT_INSTALL_OPERATOR_PUBLIC_KEYS', '') else (),
             support_install_windows_admin_username=values.get('SUPPORT_INSTALL_WINDOWS_ADMIN_USERNAME', ''),

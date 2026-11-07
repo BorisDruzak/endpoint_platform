@@ -2005,7 +2005,39 @@ paths:
           description: "Successful Response"
           content:
             "application/json":
-              schema: {}
+              schema:
+                "$ref": "#/components/schemas/LinuxSupportAdminStatus"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      security:
+        -
+          LinuxSupportAdminCookie: []
+  "/api/admin/support-access/devices/{device_id}/platform":
+    get:
+      tags:
+        - "admin-support-access"
+      summary: "Platform"
+      operationId: "platform_api_admin_support_access_devices__device_id__platform_get"
+      parameters:
+        -
+          name: "device_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Device Id"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/SupportPlatform"
         "422":
           description: "Validation Error"
           content:
@@ -10928,6 +10960,131 @@ components:
         - "core_nevra"
         - "core_rpm_sha256"
       title: "LinuxNativeSource"
+    LinuxSupportAdminStatus:
+      properties:
+        policy:
+          "$ref": "#/components/schemas/LinuxSupportPolicy"
+        configured_policy:
+          "$ref": "#/components/schemas/LinuxSupportConfiguredPolicy"
+        component_version:
+          type: "string"
+          title: "Component Version"
+        installed:
+          type: "boolean"
+          title: "Installed"
+        tunnel_connected:
+          type: "boolean"
+          title: "Tunnel Connected"
+        reported_at:
+          anyOf:
+            -
+              type: "string"
+              format: "date-time"
+            -
+              type: "null"
+          title: "Reported At"
+        last_error_code:
+          anyOf:
+            -
+              type: "string"
+            -
+              type: "null"
+          title: "Last Error Code"
+        host_public_key:
+          type: "string"
+          title: "Host Public Key"
+        access_verified_at:
+          anyOf:
+            -
+              type: "string"
+              format: "date-time"
+            -
+              type: "null"
+          title: "Access Verified At"
+        access_verified_by:
+          anyOf:
+            -
+              type: "string"
+            -
+              type: "null"
+          title: "Access Verified By"
+        verification_kind:
+          type: "string"
+          const: "operator_attestation"
+          title: "Verification Kind"
+        revoked_at:
+          anyOf:
+            -
+              type: "string"
+              format: "date-time"
+            -
+              type: "null"
+          title: "Revoked At"
+        reset_registration_allowed:
+          type: "boolean"
+          title: "Reset Registration Allowed"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "policy"
+        - "configured_policy"
+        - "component_version"
+        - "installed"
+        - "tunnel_connected"
+        - "reported_at"
+        - "last_error_code"
+        - "host_public_key"
+        - "access_verified_at"
+        - "access_verified_by"
+        - "verification_kind"
+        - "revoked_at"
+        - "reset_registration_allowed"
+      title: "LinuxSupportAdminStatus"
+    LinuxSupportConfiguredPolicy:
+      properties:
+        enabled:
+          type: "boolean"
+          title: "Enabled"
+        expires_at:
+          anyOf:
+            -
+              type: "string"
+              format: "date-time"
+            -
+              type: "null"
+          title: "Expires At"
+        operator_public_keys:
+          items:
+            type: "string"
+          type: "array"
+          title: "Operator Public Keys"
+        linux_admin_username:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 32
+              pattern: "^[a-z_][a-z0-9_-]{0,31}$"
+            -
+              type: "null"
+          title: "Linux Admin Username"
+        linux_admin_uid:
+          anyOf:
+            -
+              type: "integer"
+              maximum: 2147483647.0
+              minimum: 0.0
+            -
+              type: "null"
+          title: "Linux Admin Uid"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "enabled"
+        - "expires_at"
+        - "operator_public_keys"
+        - "linux_admin_username"
+        - "linux_admin_uid"
+      title: "LinuxSupportConfiguredPolicy"
     LinuxSupportPolicy:
       properties:
         platform:
@@ -13142,6 +13299,28 @@ components:
         - "status"
         - "collected_at"
       title: "SoftwareListResultV1"
+    SupportPlatform:
+      properties:
+        device_id:
+          type: "string"
+          format: "uuid"
+          title: "Device Id"
+        platform:
+          anyOf:
+            -
+              type: "string"
+              enum:
+                - "linux_amd64"
+                - "windows_amd64"
+            -
+              type: "null"
+          title: "Platform"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "device_id"
+        - "platform"
+      title: "SupportPlatform"
     SupportPolicy:
       properties:
         device_id:

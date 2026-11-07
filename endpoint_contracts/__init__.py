@@ -128,10 +128,12 @@ def _load_models():
     from .linux_installation_lifecycle import LinuxInstallationEventV1, LinuxInstallationNativeProof
     from .linux_support_access import (LinuxSupportRegistration,LinuxSupportRegistrationResult,LinuxSupportPolicy,
         LinuxSupportPolicyUpdate,LinuxSupportStatusReport)
+    from .support_console import SupportPlatform, LinuxSupportConfiguredPolicy, LinuxSupportAdminStatus
     return locals()
 
 
 __all__ = [
+    "SupportPlatform", "LinuxSupportConfiguredPolicy", "LinuxSupportAdminStatus",
     "LinuxInstallationEventV1", "LinuxInstallationNativeProof", "LinuxSupportRegistration",
     "LinuxSupportRegistrationResult", "LinuxSupportPolicy", "LinuxSupportPolicyUpdate", "LinuxSupportStatusReport",
     "InstallationEventV1", "InstallationEventAckV1", "InstallationNativeProof", "InstallationCleanup",
