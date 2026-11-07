@@ -1,8 +1,7 @@
 # ALT Linux client: independent support and installation lifecycle
 
-Status: independent builder check passed; pending user approval. No implementation or new
-publication is authorized by this document alone. The user's requested scope is
-confirmed: include independent support and removal/reinstallation behavior.
+Status: independent builder check passed; user explicitly approved this project.
+The requested scope includes independent support and removal/reinstallation.
 
 ## Intent and existing evidence
 
@@ -200,3 +199,30 @@ ownership; the actual target versions and supported options still need probing.
 
 References: [RPM scriptlet tags](https://github.com/rpm-software-management/rpm/blob/master/docs/manual/tags.md),
 [systemd service ownership](https://github.com/systemd/systemd/blob/v249/docs/ROOT_STORAGE_DAEMONS.md).
+
+## Confirmed environment and compatibility rulings
+
+Live Proxmox inventory identified pve1/VM107 `test-agent-lin`, product UUID
+`db12fb5c-3732-487f-911f-80e31f79b29b`. It was stopped and was started for this
+authorized dedicated test. Trusted guest-agent MAC/IP evidence identifies its
+new DHCP address191, with guest hostname `alt-a2-pc86.sosnadmin.local`.
+Its existing SSH host public key was obtained through the already trusted
+hypervisor and pinned in this task's separate known-hosts file, without scanning
+or weakening host checking. User-supplied `osn-admin` login works; it has no sudo.
+No account/sudoers change is implied. Exact Support administrator remains to be
+explicitly configured and tested; administrative guest-agent access is available.
+
+Measured packages: Core/UserSensor3.2.156-alt5, OpenSSH9.6p1-alt7,
+systemd258.9-alt1, Python3.12.13-alt1. State/config/CA hashes were captured.
+The original low-space condition and bounded APT cache cleanup are recorded in
+the baseline; Btrfs snapshots may retain blocks and must not be deleted merely
+to build a client. Measure real build footprint before staging.
+
+Implementation ruling: legacy Linux claims may lack an original universal
+EnrollmentRequest. A Linux-only historical adapter may compare a fresh canonical
+proof re-derived in the original Claim HMAC domain with that exact consumed
+claim, under explicit administrator approval and matching removed Device. It
+must not copy Request/Claim digests across domains or create a fake historical
+request/FK. The existing Windows missing-prior-request refusal stays unchanged.
+This retains the same hardware/credential/history authority for the legacy
+Linux source while allowing the approved full-wipe history relation.

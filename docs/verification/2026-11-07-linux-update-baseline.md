@@ -80,3 +80,33 @@ automatic host-key acceptance was used. The implementation design is in
 [Linux support/lifecycle](../superpowers/specs/2026-11-07-linux-support-lifecycle-design.md),
 with an independent builder check finding no important unresolved design question.
 User design approval and working test-host access remain pending.
+
+## Resolved VM identity and fresh baseline
+
+The user approved the design and provided the existing `osn-admin` login.
+Read-only trusted Proxmox inventory identified `pve1` at10.83.1.11,
+VM107 `test-agent-lin`, initially stopped. After checking exact name and SMBIOS
+UUID`db12fb5c-3732-487f-911f-80e31f79b29b`, only107 was started.
+Its QEMU guest agent reported MAC`BC:24:11:B6:B5:C1` and new DHCP191. The old162
+alias was stale. Guest hostname is `alt-a2-pc86.sosnadmin.local`.
+
+The SSH Ed25519 public key was read from `/etc/openssh` through the trusted
+hypervisor and pinned in a separate task known-hosts file. Strict SSH to191 under
+the supplied account succeeded. Passwords were entered interactively without
+echo and were not stored. `osn-admin` is UID1000 and has no sudo permission;
+no account, password or sudoers was changed. Root guest-agent administration
+remains available for the dedicated test machine.
+
+Actual OS is ALT Workstation K11.4/p11; Core and UserSensor156-alt5;
+OpenSSH9.6p1-alt7; systemd258.9-alt1; Python3.12.13-alt1. CorePID1061 is active,
+NRestarts0. There was no logged-in graphical user, only the display greeter.
+Permanent DeviceUUID is29a8bed4-2894-40f7-89fb-07b3c7f633fe.
+Private credential/identity/config/CA hashes and ownership were saved in ignored
+task evidence; no plaintext credential was printed.
+
+Root initially had242814976free bytes. An exact-directory guarded standard
+APT archive cleanup completed0 after checking no package manager was active;
+the four private/config hashes and CorePID were preserved. It freed about447MB,
+leaving690069504bytes. Archives under/root and agent state were preserved.
+Root is Btrfs; live tree du and df differ. No snapshots, historical packages or
+test receipts were removed. Native build footprint/storage remains a gate.
