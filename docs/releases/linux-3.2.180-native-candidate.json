@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "version": "3.2.180",
+  "kind": "linux_native_candidate",
+  "status": "signed_staging_registered_retained_entry_blocked_not_invoked",
+  "source_revision": "26864c50313a03dd9cfac03a9559b9fbce1fa74f",
+  "publisher_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+  "frozen_manifest_sha256": "50dc140a1f0b6b67c9ec5aa49526afd9a005893d73999bb9542a1dada41c511d",
+  "native_packages": {
+    "core": {
+      "nevra": "endpoint-agent-3.2.180-alt6.x86_64",
+      "signer_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+      "source_revision": "26864c50313a03dd9cfac03a9559b9fbce1fa74f",
+      "frozen_manifest_sha256": "50dc140a1f0b6b67c9ec5aa49526afd9a005893d73999bb9542a1dada41c511d",
+      "sha256": "11f18f45d3b53658314852a5e9ac25dc9546ece64e698853013ee2b37e500386",
+      "version": "3.2.180",
+      "package": "endpoint-agent",
+      "setup_sha256": "03eff9a863741e2ddb2f3a98deda595535341b39f72ab8e0181da521950f83e3"
+    },
+    "sensor": {
+      "nevra": "endpoint-agent-user-sensor-3.2.180-alt6.x86_64",
+      "signer_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+      "source_revision": "26864c50313a03dd9cfac03a9559b9fbce1fa74f",
+      "frozen_manifest_sha256": "50dc140a1f0b6b67c9ec5aa49526afd9a005893d73999bb9542a1dada41c511d",
+      "sha256": "b7bdb0a7184e5d6d112d5297dc35fb85ef42a62556627ad9e59f3ac53036c3a2",
+      "version": "3.2.180",
+      "package": "endpoint-agent-user-sensor",
+      "setup_sha256": "03eff9a863741e2ddb2f3a98deda595535341b39f72ab8e0181da521950f83e3"
+    }
+  },
+  "kit": {
+    "endpoint-alt-pilot-3.2.180-1.tar.gz": {
+      "size": 71369585,
+      "sha256": "7358bc0b8d5d2e1533943ee8ec776370cdedec8b634c201011fa67b71ec7ff56"
+    },
+    "endpoint-alt-pilot-3.2.180-1.manifest.json": {
+      "size": 1005,
+      "sha256": "df6e819c688515fc257659d6c44c0d9dfc2dca9bf3019c2470885684de60eb72"
+    }
+  },
+  "detached_signatures": {
+    "endpoint-alt-pilot-3.2.180-1.manifest.sig": {
+      "size": 438,
+      "sha256": "f5750d40a7dbb5aaf6a08794cc965a78f28848137494d3d797da75b039d215b6"
+    },
+    "endpoint-alt-pilot-3.2.180-1.tar.gz.sig": {
+      "size": 438,
+      "sha256": "36f1ea39df8d44bb6b65c4f093f72f4353e8f8855fdf55d316e0943c0e67d75e"
+    }
+  },
+  "source_publication": {
+    "environment": "staging",
+    "origin": "https://endpoint-staging.sosnadmin.local",
+    "observed_utc": "2026-11-08T11:51:26.502597+00:00",
+    "release_id": "a8aaf525-3f2e-4807-be4e-c299a3772eff",
+    "mandatory_real_verifier": true
+  },
+  "native_installation_attempted": false,
+  "staging_source_qualified": false,
+  "primary_promoted": false,
+  "fleet_acceptance": false,
+  "limits": [
+    "Actual isolated delayed-key SSH startup regression passed; this does not qualify installed180 service access.",
+    "Root pre-install source inspection found retained_executor still compares embedded setup with literal179; no180 invocation or native outcome is claimed.",
+    "A distinct181 candidate binds the retained identity to the same tracked runtime version and adds actual retained-branch behavior tests.",
+    "Signed180 RPMs and kit remain immutable."
+  ],
+  "operator_artifact_directory": "C:/endpoint-platform-wix-build/linux178-native",
+  "verification_receipt": "docs/verification/2026-11-08-linux180-support-startup-source.md"
+}
