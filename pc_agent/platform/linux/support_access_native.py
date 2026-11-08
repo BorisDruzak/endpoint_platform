@@ -280,20 +280,26 @@ class NativeChildren:
     def stop(self):
         self.forward_receipt = None
         self.policy_revision = None
+        self._stop_units(CHILD_UNITS)
+        self.active = False
+        self._remove_control_socket()
+
+    def _stop_units(self,units):
         # Kill immediately instead of waiting on systemctl stop jobs/network.
-        for unit in CHILD_UNITS:
+        for unit in units:
             subprocess.run(['/usr/bin/systemctl','kill','--kill-whom=all','--signal=KILL',unit],
                 stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=3)
         # Unknown/not-loaded owned units are already stopped. Do not broaden the
         # selector or accidentally operate the machine's global sshd service.
-        subprocess.run(['/usr/bin/systemctl','stop',*CHILD_UNITS],stdin=subprocess.DEVNULL,
+        subprocess.run(['/usr/bin/systemctl','stop',*units],stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=5)
-        for unit in CHILD_UNITS:
+        for unit in units:
             result = subprocess.run(['/usr/bin/systemctl','show','--property=ActiveState','--value',unit],
                 stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=3)
             if result.returncode != 0 or result.stdout.strip() not in (b'inactive',b'failed'):
                 raise SupportError('child_stop_unconfirmed')
-        self.active = False
+
+    def _remove_control_socket(self):
         _directory(self.store.paths.private,0o700)
         control=self.store.paths.private/'mux'
         try:
@@ -303,7 +309,7 @@ class NativeChildren:
         if (not stat.S_ISSOCK(info.st_mode) or info.st_uid!=0 or info.st_gid!=0 or
             info.st_nlink!=1 or stat.S_IMODE(info.st_mode)!=0o600):
             raise SupportError('unsafe_control_socket')
-        control.unlink()  # Exact owned stale socket, only after both units stopped.
+        control.unlink()  # Exact owned stale socket, only after tunnel unit stopped.
 
     def prepare(self,policy):
         """Validate local account/configuration without opening any listener/tunnel."""
@@ -319,18 +325,41 @@ class NativeChildren:
     def start(self,policy,deadline):
         self.forward_receipt = None
         self.policy_revision = policy.revision
+        # Exporter/broker authorization may follow enabled policy by two 5sec
+        # ticks. Retry dead masters only within this original activation window.
+        activation_limit = min(boot_time()+15,deadline-3)
         config = self.prepare(policy)
         # Hard cgroup bound survives dead/hung parent and detached ssh sessions.
         # Reserve activation budget so delayed starts cannot extend the lease.
         seconds = int(deadline-boot_time())-6
-        if seconds < 1:
+        if seconds < 1 or boot_time()>=activation_limit:
             raise SupportError('expired_policy')
         try:
             native_command(child_command(CHILD_UNITS[0],['/usr/sbin/sshd','-D','-e','-f',config],seconds))
-            seconds = int(deadline-boot_time())-3
-            native_command(child_command(CHILD_UNITS[1],tunnel_command(self.store.paths.private,policy),seconds))
-            self.acknowledge_forward(policy,deadline)
-            self.active = True
+            while boot_time()<activation_limit:
+                seconds = int(deadline-boot_time())-3
+                if seconds<1:
+                    break
+                native_command(child_command(CHILD_UNITS[1],tunnel_command(self.store.paths.private,policy),seconds),
+                    timeout=min(3,activation_limit-boot_time()))
+                try:
+                    self.acknowledge_forward(policy,min(deadline,activation_limit+1))
+                except SupportError as exc:
+                    if str(exc)!='master_unavailable' or boot_time()>=activation_limit:
+                        raise
+                    # Failed --collect units and their stale mux must be gone
+                    # before the exact owned unit name can be safely reused.
+                    self._stop_units((CHILD_UNITS[1],))
+                    self._remove_control_socket()
+                    remaining=activation_limit-boot_time()
+                    if remaining>0:
+                        time.sleep(min(1,remaining))
+                    continue
+                if boot_time()>=activation_limit:
+                    break
+                self.active = True
+                return
+            raise SupportError('expired_policy')
         except Exception:
             self.stop()
             raise SupportError('child_start_failed') from None
@@ -360,9 +389,14 @@ class NativeChildren:
                 identity=control_socket_identity(self.store.paths.private,master[0])
                 break
             except SupportError:
+                # A rejected initial login exits before creating a mux. Waiting
+                # on that dead master cannot observe later broker authorization.
+                if not self.alive():
+                    raise SupportError('master_unavailable') from None
                 time.sleep(.05)
         if identity is None:
-            raise SupportError('master_unavailable')
+            # A live master without a verified mux is not a dead initial login.
+            raise SupportError('master_not_ready')
         remaining=min(3,limit-boot_time())
         if remaining<=0:
             raise SupportError('expired_policy')

@@ -13,6 +13,7 @@ import socket
 import stat
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import replace
 
@@ -136,6 +137,7 @@ def run(root):
             for unit in (sshd_unit,child_unit,parent):
                 subprocess.run(['/usr/bin/systemctl','stop',unit],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=5)
         verify_forward_ack(root,store,policy,parent,evidence)
+        verify_delayed_gateway_authorization(root,store,policy,parent,evidence)
         try: n.remove_owned_state(store)
         except s.SupportError: pass
         else: raise AssertionError('Foreign sentinel was purged')
@@ -246,6 +248,118 @@ def verify_forward_ack(root,store,policy,parent,evidence):
                 assert stat.S_ISSOCK(info.st_mode) and info.st_uid==0 and stat.S_IMODE(info.st_mode)==0o600
                 control.unlink()
         evidence['units'].append(master_unit)
+
+
+def verify_delayed_gateway_authorization(root,store,policy,parent,evidence):
+    """Run the real start/retry/cleanup/ACK path against an isolated late key."""
+    sshd_unit=parent.replace('.service','-sshd.service')
+    tunnel_unit=parent.replace('.service','-tunnel.service')
+    gateway_unit=parent.replace('.service','-descendant.service')
+    gateway_key=root/'gateway_ed25519'
+    key=s.public_key(gateway_key.with_suffix('.pub').read_text().strip())
+    ports=[]
+    # Reserve all ports together so gateway/sshd/forward/target cannot collide.
+    probes=[socket.socket() for _ in range(4)]
+    try:
+        for probe in probes:
+            probe.bind(('127.0.0.1',0));ports.append(probe.getsockname()[1])
+    finally:
+        for probe in probes:probe.close()
+    gateway_port,sshd_port,remote_port,target_port=ports
+    assert 22222 not in ports
+    policy=replace(policy,gateway='127.0.0.1',gateway_key=key,tunnel_user='root',remote_port=remote_port)
+    auth_name='gateway-authorized'
+    store.write(auth_name,b'',public=True)
+    store.write('known_hosts',('endpoint-support-gateway '+key+'\n').encode())
+    gateway_config=s.sshd_config(store.paths.private,store.paths.public,policy,port=gateway_port)
+    gateway_config=gateway_config.replace('HostKey '+str(store.paths.private/'host_ed25519'),
+        'HostKey '+str(gateway_key)).replace('AuthorizedKeysFile '+str(store.paths.public)+'/%U',
+        'AuthorizedKeysFile '+str(store.paths.public/auth_name)).replace('DisableForwarding yes',
+        'DisableForwarding no\nAllowTcpForwarding remote\nPermitListen 127.0.0.1:'+str(remote_port))
+    config=root/'gateway_delayed_sshd_config';config.write_text(gateway_config)
+    n.native_command(['/usr/sbin/sshd','-t','-f',str(config)])
+    originals=(n.CHILD_UNITS,n.SERVICE_NAME,n.sshd_config,n.tunnel_command,n.forward_command,n.native_command)
+    original_sshd,original_tunnel,original_forward,original_native=originals[2:]
+    started=threading.Event();cancelled=threading.Event()
+    authorized=[];launches=[];writer_errors=[]
+    def late_key():
+        try:
+            if started.wait(10) and not cancelled.wait(6):
+                store.write(auth_name,store.read('tunnel_ed25519.pub')+b'\n',public=True)
+                authorized.append(n.boot_time())
+        except Exception as exc:writer_errors.append(type(exc).__name__)
+    def isolated_tunnel(private,p):
+        argv=original_tunnel(private,p)
+        argv[argv.index('-p')+1]=str(gateway_port)
+        return argv
+    def isolated_forward(private,p):
+        argv=original_forward(private,p)
+        argv[argv.index('-R')+1]=f'127.0.0.1:{p.remote_port}:127.0.0.1:{target_port}'
+        return argv
+    def record_launch(argv,**kwargs):
+        if '--unit='+tunnel_unit in argv:
+            lifetime=int(next(arg.split('=',2)[2] for arg in argv if arg.startswith('--property=RuntimeMaxSec=')))
+            launches.append((n.boot_time(),lifetime))
+            started.set()
+        return original_native(argv,**kwargs)
+    child=None;writer=None
+    try:
+        original_native(['/usr/bin/systemd-run','--quiet','--collect','--unit='+parent,
+            '--property=KillMode=control-group','--property=RuntimeMaxSec=45',
+            '--property=TimeoutStopSec=1','--','/usr/bin/sleep','45'])
+        original_native(harness_child(gateway_unit,['/usr/sbin/sshd','-D','-e','-f',str(config)],40,parent))
+        ready_limit=time.monotonic()+2
+        while True:
+            with socket.socket() as probe:
+                probe.settimeout(.2)
+                if probe.connect_ex(('127.0.0.1',gateway_port))==0:break
+            assert time.monotonic()<ready_limit,'Isolated gateway listener did not start'
+            time.sleep(.05)
+        # The same pinned master command really fails publickey before keyready.
+        rejected=subprocess.run(isolated_tunnel(store.paths.private,policy),stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=8)
+        assert rejected.returncode==255 and b'Permission denied (publickey)' in rejected.stderr
+        assert not (store.paths.private/'mux').exists()
+        n.CHILD_UNITS=(sshd_unit,tunnel_unit)
+        n.SERVICE_NAME=parent
+        n.sshd_config=lambda private,public,p:original_sshd(private,public,p,port=sshd_port)
+        n.tunnel_command=isolated_tunnel
+        n.forward_command=isolated_forward
+        n.native_command=record_launch
+        child=n.NativeChildren(store)
+        writer=threading.Thread(target=late_key,daemon=True)
+        with socket.socket() as target:
+            target.bind(('127.0.0.1',target_port));target.listen(1)
+            writer.start()
+            deadline=n.boot_time()+30
+            child.start(policy,deadline)
+            writer.join(timeout=1)
+            assert not writer.is_alive() and not writer_errors and authorized
+            assert len(launches)>1 and launches[0][0]<authorized[0]<=launches[-1][0]
+            assert all(when+lifetime<=deadline-3 for when,lifetime in launches)
+            assert launches[-1][1]<launches[0][1]
+            assert child.active and child.connected()
+            with socket.create_connection(('127.0.0.1',remote_port),timeout=2) as forwarded:
+                forwarded.sendall(b'LATE_GATEWAY_AUTH_ACK')
+                target.settimeout(2)
+                connection,_=target.accept()
+                with connection:
+                    connection.settimeout(2)
+                    assert connection.recv(100)==b'LATE_GATEWAY_AUTH_ACK'
+            evidence['checks'].append('native_start_retries_late_gateway_key_and_forwards_bytes')
+            evidence['delayed_gateway_authorization']={'delay_seconds':6,'attempts':len(launches),
+                'first_rejected_exit':rejected.returncode,'activation_seconds':n.boot_time()-(deadline-30),
+                'original_deadline':deadline,'launch_lifetimes':launches}
+    finally:
+        cancelled.set();started.set()
+        if writer is not None and writer.ident is not None:writer.join(timeout=2)
+        try:
+            if child is not None:child.stop()
+        finally:
+            n.CHILD_UNITS,n.SERVICE_NAME,n.sshd_config,n.tunnel_command,n.forward_command,n.native_command=originals
+            for unit in (tunnel_unit,sshd_unit,gateway_unit,parent):
+                subprocess.run(['/usr/bin/systemctl','stop',unit],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=5)
+            (store.paths.public/auth_name).unlink()
 
 
 def live(pid):
