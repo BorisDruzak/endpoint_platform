@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "version": "3.2.179",
+  "kind": "linux_native_candidate",
+  "status": "native0_installed_support_startup_failed_not_qualified",
+  "source_revision": "23e2b037f12f5b72474cc18401bd981403362381",
+  "publisher_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+  "frozen_manifest_sha256": "5e5889fcbc4618518b816ca40d87a0e3057532d96c13981d9c20e91899e8b0b3",
+  "native_packages": {
+    "core": {
+      "nevra": "endpoint-agent-3.2.179-alt6.x86_64",
+      "signer_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+      "source_revision": "23e2b037f12f5b72474cc18401bd981403362381",
+      "frozen_manifest_sha256": "5e5889fcbc4618518b816ca40d87a0e3057532d96c13981d9c20e91899e8b0b3",
+      "sha256": "1b369d823c9195b5b5dbe8461c3dfed4a8dfb4a3e5535ec39bd2cdb3f005c6b2",
+      "version": "3.2.179",
+      "package": "endpoint-agent",
+      "setup_sha256": "e90caf42e4459d0d07a5e062b13accf95a4140b4ea2fe829be2b5fab4d7b03cc"
+    },
+    "sensor": {
+      "nevra": "endpoint-agent-user-sensor-3.2.179-alt6.x86_64",
+      "signer_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+      "source_revision": "23e2b037f12f5b72474cc18401bd981403362381",
+      "frozen_manifest_sha256": "5e5889fcbc4618518b816ca40d87a0e3057532d96c13981d9c20e91899e8b0b3",
+      "sha256": "eca65531c962ca03c690e54ea7b0ef8fe555dfee93a1d05bfeb8541c0145cd81",
+      "version": "3.2.179",
+      "package": "endpoint-agent-user-sensor",
+      "setup_sha256": "e90caf42e4459d0d07a5e062b13accf95a4140b4ea2fe829be2b5fab4d7b03cc"
+    }
+  },
+  "kit": {
+    "endpoint-alt-pilot-3.2.179-1.tar.gz": {
+      "size": 71360267,
+      "sha256": "9a8713b06b7196951694c7be31e0710d193e59458ec506882de6bfea5daf4474"
+    },
+    "endpoint-alt-pilot-3.2.179-1.manifest.json": {
+      "size": 1005,
+      "sha256": "90945fb60820ecde7f8514aef6c7e9140c537995c77c167eaae8d2b7b6f5f35c"
+    }
+  },
+  "detached_signatures": {
+    "endpoint-alt-pilot-3.2.179-1.manifest.sig": {
+      "size": 438,
+      "sha256": "9506539769c30057a67dfeea0d5ec52fcf7cafa41e1fd37d8acafc8fd5a06795"
+    },
+    "endpoint-alt-pilot-3.2.179-1.tar.gz.sig": {
+      "size": 438,
+      "sha256": "e689ee9de26ae84ec266e0ea45f98b91f242a16a06100b4ad14ae22bd124b63d"
+    }
+  },
+  "source_publication": {
+    "environment": "staging",
+    "origin": "https://endpoint-staging.sosnadmin.local",
+    "observed_utc": "2026-11-08T11:09:21.925314+00:00",
+    "release_id": "dea922ff-4084-471e-b914-d3b9f0be92e0",
+    "mandatory_real_verifier": true
+  },
+  "native_installation_attempted": true,
+  "native_exit_code": 0,
+  "outer_setup_exit_code": 21,
+  "automatic_bootstrap_reconciliation_complete": true,
+  "staging_source_qualified": false,
+  "primary_promoted": false,
+  "fleet_acceptance": false,
+  "limits": [
+    "Exact native transaction succeeded and bootstrap reconciled automatically; all four retained private files unchanged.",
+    "Fresh user telemetry accepted; independent support tunnel startup fails before forwarding acknowledgement.",
+    "No stopped-Core SSH, rollback/reinstall/full-clean or final stability qualification.",
+    "A distinct180 candidate is being prepared for bounded dead-master startup retry; signed179 media stay immutable."
+  ],
+  "operator_artifact_directory": "C:/endpoint-platform-wix-build/linux178-native",
+  "verification_receipt": "docs/verification/2026-11-08-linux179-native-canary.md"
+}
