@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "version": "3.2.181",
+  "kind": "linux_native_candidate",
+  "status": "native_lifecycle_and_independent_ssh_passed_administrative_gates_pending",
+  "source_revision": "83e3bfce3ad82a774f7ae84585d0ddb213c2d32a",
+  "publisher_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+  "frozen_manifest_sha256": "a8df42937130e6a2c145decca6b66a1e805f9627cb3145fdb0c7acdc4213a2a4",
+  "native_packages": {
+    "core": {
+      "nevra": "endpoint-agent-3.2.181-alt6.x86_64",
+      "signer_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+      "source_revision": "83e3bfce3ad82a774f7ae84585d0ddb213c2d32a",
+      "frozen_manifest_sha256": "a8df42937130e6a2c145decca6b66a1e805f9627cb3145fdb0c7acdc4213a2a4",
+      "sha256": "5095e89a72bcbb827526b9cf219a1fccbd1df414470ec9bab72d18b9ee005d8c",
+      "version": "3.2.181",
+      "package": "endpoint-agent",
+      "setup_sha256": "095d6ddc6a22bc0e1c74215e4873be4911ac8973a41dd5cdc9b237d0dc292147"
+    },
+    "sensor": {
+      "nevra": "endpoint-agent-user-sensor-3.2.181-alt6.x86_64",
+      "signer_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+      "source_revision": "83e3bfce3ad82a774f7ae84585d0ddb213c2d32a",
+      "frozen_manifest_sha256": "a8df42937130e6a2c145decca6b66a1e805f9627cb3145fdb0c7acdc4213a2a4",
+      "sha256": "092a628c70d407017cac646c5795822c3403f8f3409b83f14d5b52cc02311727",
+      "version": "3.2.181",
+      "package": "endpoint-agent-user-sensor",
+      "setup_sha256": "095d6ddc6a22bc0e1c74215e4873be4911ac8973a41dd5cdc9b237d0dc292147"
+    }
+  },
+  "kit": {
+    "endpoint-alt-pilot-3.2.181-1.tar.gz": {
+      "size": 71369821,
+      "sha256": "3e7a5d1f6a69179aeed3eead90a34a113d71c2624db653180638c20c1552dab6"
+    },
+    "endpoint-alt-pilot-3.2.181-1.manifest.json": {
+      "size": 1005,
+      "sha256": "2d2ed0c2c9d60f29a1ce761f1db2c58fff860d550d6b28928796dcb3c8205134"
+    }
+  },
+  "detached_signatures": {
+    "endpoint-alt-pilot-3.2.181-1.manifest.sig": {
+      "size": 438,
+      "sha256": "07244d53d489bf235f253ba89e6a3929bb0556820f72ecf1a10026fbafebbe1e"
+    },
+    "endpoint-alt-pilot-3.2.181-1.tar.gz.sig": {
+      "size": 438,
+      "sha256": "97b5efd6dd9831549cb2f30fd767d4e1afe3048a2deb444ba14e74c8d9bf79c2"
+    }
+  },
+  "source_publication": {
+    "environment": "staging",
+    "origin": "https://endpoint-staging.sosnadmin.local",
+    "observed_utc": "2026-11-08T12:09:00.297279+00:00",
+    "release_id": "a523e0f1-dee4-4be0-8668-50619fe65f57",
+    "mandatory_real_verifier": true
+  },
+  "native_installation_attempted": true,
+  "native_exit_code": 0,
+  "outer_setup_exit_code": 0,
+  "bootstrap_complete": true,
+  "staging_source_qualified": false,
+  "primary_promoted": false,
+  "fleet_acceptance": false,
+  "live_checkpoints": {
+    "original_device_id": "29a8bed4-2894-40f7-89fb-07b3c7f633fe",
+    "installed_event_id": "9febbf10-4c6e-4912-be42-335b27884d0a",
+    "preserved_private_files": 4,
+    "actual_stopped_core_root_ssh_commands": 2,
+    "stopped_core_ssh_interval_boot_seconds": 119.27670849001152,
+    "support_parent_and_binary_unchanged_during_stopped_core_test": true,
+    "post_restoration_stable_boot_seconds": 263.52627551401383,
+    "initial_support_access_deadline_unchanged": "2026-11-08T19:18:32.175239Z",
+    "rollback_to_156_native_exit_code": 0,
+    "return_from_156_native_exit_code": 0,
+    "ordinary_remove_native_exit_code": 0,
+    "ordinary_reinstall_native_exit_code": 0,
+    "offline_remove_native_exit_code": 0,
+    "offline_remove_outer_setup_exit_code": 21,
+    "offline_reinstall_native_exit_code": 0,
+    "offline_reinstall_outer_setup_exit_code": 21,
+    "offline_reconciliation_bootstrap_complete": true,
+    "offline_reconciliation_registration_complete": true,
+    "offline_reconciliation_sequence": 8,
+    "offline_reconciliation_acknowledged": 8,
+    "offline_removed_received_at": "2026-11-08T12:40:35.985157Z",
+    "offline_installed_received_at": "2026-11-08T12:40:36.029261Z",
+    "offline_support_cleanup_remains_incomplete": true,
+    "offline_reinstall_same_card_and_generation": true,
+    "owned_test_route_restored": true,
+    "offline_reinstalled_actual_strict_root_ssh_exit_code": 0,
+    "offline_reinstalled_actual_strict_root_ssh_observed_at": "2026-11-08T12:46:26.653209Z",
+    "offline_reinstalled_fresh_user_sensor_at": "2026-11-08T12:44:34.073201Z",
+    "offline_reinstalled_activity_listener_state": "READY"
+  },
+  "limits": [
+    "Full-clean new registration with approved historical parent, administrative disable/revoke/short-expiry/recovery and final acceptance remain pending a legitimate staging Console admin session.",
+    "Candidate registration and this single test device do not constitute fleet acceptance.",
+    "Production provider, Linux primary156 and Windows177 distribution/policy remain unchanged."
+  ],
+  "operator_artifact_directory": "C:/endpoint-platform-wix-build/linux178-native",
+  "verification_receipt": "docs/verification/2026-11-08-linux181-native-canary.md"
+}
