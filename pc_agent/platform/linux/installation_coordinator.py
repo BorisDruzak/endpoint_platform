@@ -16,6 +16,7 @@ from tools.release.linux_native_verifier import (
     NativeRPMVerifier, snapshot, run, ENV, LEGACY_SOURCE, LEGACY_MANIFEST, LEGACY_RPMS, PUBLISHER)
 from pc_agent.platform.linux.installation_configuration import (
     configuration_file, STAGING_DROPIN, STAGING_ENVIRONMENT, STAGING_BYTES)
+from pc_agent.version import AGENT_VERSION
 
 KEY = Path('/usr/share/endpoint-agent/endpoint-rpm-release.asc')
 NATIVE_UNITS = ('endpoint-agent.service', 'endpoint-agent-update.path', 'endpoint-agent-update.service',
@@ -427,7 +428,7 @@ def retain_executor(store):
         if executable == target:
             from pc_agent.platform.linux.native_build_identity import build_identity
             identity = build_identity()
-            if identity.get('component') != 'setup' or identity.get('version') != '3.2.179':
+            if identity.get('component') != 'setup' or identity.get('version') != AGENT_VERSION:
                 raise InstallationPending('executor_build_identity')
             with store.locked():
                 store.write('executor.json', json.dumps({'path':str(target),'sha256':digest,

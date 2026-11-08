@@ -1,4 +1,4 @@
-"""Current candidate builders must seal corrected180, with independent Support1.0.0."""
+"""Current candidate builders must seal corrected181, with independent Support1.0.0."""
 from contextlib import contextmanager
 from dataclasses import replace
 import hashlib
@@ -11,7 +11,7 @@ import pytest
 from tools.release.linux_native_verifier import VerifiedNativeRPM, PUBLISHER
 
 
-@pytest.mark.parametrize('component,version', [('setup','3.2.180'),('support','1.0.0')])
+@pytest.mark.parametrize('component,version', [('setup','3.2.181'),('support','1.0.0')])
 def test_native_freezer_seals_candidate_source_identity(tmp_path, monkeypatch, component, version):
     from tools.release import freeze_linux_native_identity as f
     def git(argv, **kwargs):
@@ -26,7 +26,7 @@ def test_native_freezer_seals_candidate_source_identity(tmp_path, monkeypatch, c
     assert value['source_revision'] == 'a'*40
 
 
-def kit_inputs(tmp_path, monkeypatch, version='3.2.180'):
+def kit_inputs(tmp_path, monkeypatch, version='3.2.181'):
     from tools import build_alt_native_kit as k
     paths = [tmp_path/name for name in ('core.rpm','sensor.rpm','setup','key.asc')]
     for path in paths: path.write_bytes(path.name.encode())
@@ -41,31 +41,31 @@ def kit_inputs(tmp_path, monkeypatch, version='3.2.180'):
     return k, paths
 
 
-def test_native_kit_builds180_with_signed_setup_source_binding(tmp_path, monkeypatch):
+def test_native_kit_builds181_with_signed_setup_source_binding(tmp_path, monkeypatch):
     k, paths = kit_inputs(tmp_path,monkeypatch)
     target, metadata = k.build(*paths,tmp_path/'output')
     value = json.loads(metadata.read_text())
-    assert target.name == 'endpoint-alt-pilot-3.2.180-1.tar.gz'
-    assert value['agent_version'] == '3.2.180' and value['agent_source_revision'] == 'a'*40
+    assert target.name == 'endpoint-alt-pilot-3.2.181-1.tar.gz'
+    assert value['agent_version'] == '3.2.181' and value['agent_source_revision'] == 'a'*40
     with tarfile.open(target) as archive:
-        assert archive.extractfile('endpoint-alt-pilot-3.2.180-1/endpoint-agent-setup').read() == b'setup'
+        assert archive.extractfile('endpoint-alt-pilot-3.2.181-1/endpoint-agent-setup').read() == b'setup'
     paths[2].write_bytes(b'wrong-setup')
     with pytest.raises(ValueError): k.build(*paths,tmp_path/'wrong')
     assert not (tmp_path/'wrong').exists()
 
 
-@pytest.mark.parametrize('version',['3.2.179','3.2.178','3.2.156'])
+@pytest.mark.parametrize('version',['3.2.180','3.2.179','3.2.178','3.2.156'])
 def test_current_native_kit_refuses_older_candidate_pair(tmp_path,monkeypatch,version):
     k, paths = kit_inputs(tmp_path,monkeypatch,version)
     with pytest.raises(ValueError): k.build(*paths,tmp_path/'output')
     assert not (tmp_path/'output').exists()
 
 
-def test_native180_dispatches_to_current_builder_without_legacy_pilot_flow(monkeypatch):
+def test_native181_dispatches_to_current_builder_without_legacy_pilot_flow(monkeypatch):
     import sys
     from tools import build_alt_pilot_kit as dispatcher, build_alt_native_kit as native
     received = []
-    monkeypatch.setattr(sys,'argv',['kit','native180','--core','fixed.rpm'])
+    monkeypatch.setattr(sys,'argv',['kit','native181','--core','fixed.rpm'])
     monkeypatch.setattr(native,'main',lambda argv:received.append(argv))
     assert dispatcher.main() == 0
     assert received == [['--core','fixed.rpm']]

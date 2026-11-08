@@ -118,7 +118,7 @@ echo {version} > %buildroot/opt/task4-fixture/value
     backend = Backend()
     state = InstallationStore(root/'state')
     state.prepare()
-    source = {'version':'3.2.180','source_revision':'a'*40,'core_nevra':'endpoint-agent-3.2.180-alt6.x86_64','core_rpm_sha256':'b'*64}
+    source = {'version':'3.2.181','source_revision':'a'*40,'core_nevra':'endpoint-agent-3.2.181-alt6.x86_64','core_rpm_sha256':'b'*64}
     with state.locked():
         journal = LifecycleJournal(state)
         coordinator = NativeCoordinator(journal,backend)
@@ -169,7 +169,7 @@ def test_actual_spec_builds_two_packages_with_identical_complete_source_closure(
     (sources/'foreground.js').write_text('// native fixture\n')
     (sources/'extension-id.txt').write_text('a'*32)
     (sources/'browser-native-host.json').write_text('{}')
-    manifest = json.dumps({'schema_version':1,'version':'3.2.180','source_revision':'a'*40,'files':[]}).encode()
+    manifest = json.dumps({'schema_version':1,'version':'3.2.181','source_revision':'a'*40,'files':[]}).encode()
     def archive(path, entries):
         with tarfile.open(path,'w:gz') as target:
             for name, raw in entries.items():
@@ -177,14 +177,14 @@ def test_actual_spec_builds_two_packages_with_identical_complete_source_closure(
                 info.size = len(raw)
                 info.mode = 0o755 if name.endswith(('endpoint-agent','endpoint-support-access')) else 0o644
                 target.addfile(info,io.BytesIO(raw))
-    archive(sources/'endpoint-agent-linux_amd64-3.2.180.tar.gz', {'manifest.json':manifest,
+    archive(sources/'endpoint-agent-linux_amd64-3.2.181.tar.gz', {'manifest.json':manifest,
         'endpoint-agent/endpoint-agent':dummy,'endpoint-agent/_internal/fixture':b'fixture'})
-    (sources/'endpoint-agent-linux_amd64-3.2.180.manifest.json').write_text('{}')
+    (sources/'endpoint-agent-linux_amd64-3.2.181.manifest.json').write_text('{}')
     archive(sources/'endpoint-support-access.tar.gz',{'endpoint-support-access':dummy,'_internal/fixture':b'support'})
     spec = build/'SPECS/endpoint-agent.spec'
     spec.write_bytes((repository/'packaging/alt/endpoint-agent.spec').read_bytes())
     result = subprocess.run(['/usr/bin/rpmbuild','-bb','--nodeps','--with','user_sensor','--with','native_setup',
-        '--define','_allow_root_build 1','--define',f'_topdir {build}','--define','agent_version 3.2.180',
+        '--define','_allow_root_build 1','--define',f'_topdir {build}','--define','agent_version 3.2.181',
         '--define','source_revision '+'a'*40,str(spec)],capture_output=True,timeout=60)
     assert result.returncode == 0, result.stderr.decode()[-4000:]
     rpms = list((build/'RPMS').rglob('*.rpm'))
@@ -197,7 +197,7 @@ def test_actual_spec_builds_two_packages_with_identical_complete_source_closure(
             files, selected = read_cpio(payload)
         raw = selected[NATIVE_PATHS[package]]
         files.pop(NATIVE_PATHS[package])
-        common.append(inspect_source(raw,package,'3.2.180',files,
+        common.append(inspect_source(raw,package,'3.2.181',files,
             core_manifest_digest=hashlib.sha256(manifest).hexdigest() if package == 'endpoint-agent' else None))
     assert common[0] == common[1]
 
@@ -244,8 +244,8 @@ def test_completed_local_removal_receipt_is_not_replaced_by_missing_token_retry(
     store.prepare()
     with store.locked():
         journal = LifecycleJournal(store)
-        journal.begin('remove',{'version':'3.2.180','source_revision':'a'*40,
-            'core_nevra':'endpoint-agent-3.2.180-alt6.x86_64','core_rpm_sha256':'b'*64})
+        journal.begin('remove',{'version':'3.2.181','source_revision':'a'*40,
+            'core_nevra':'endpoint-agent-3.2.181-alt6.x86_64','core_rpm_sha256':'b'*64})
         journal.native_result(0)
         backend = RPMBackend(store)
         assert backend.cleanup('remove')['support'] == 'complete'
@@ -266,11 +266,11 @@ def test_native_prepare_closes_boot_gate_before_any_native_operation(root, monke
     store.prepare()
     with store.locked():
         store.write('runtime-ready',b'previous-known-bootstrap')
-        LifecycleJournal(store).begin('upgrade',{'version':'3.2.180','source_revision':'a'*40,
-            'core_nevra':'endpoint-agent-3.2.180-alt6.x86_64','core_rpm_sha256':'b'*64})
+        LifecycleJournal(store).begin('upgrade',{'version':'3.2.181','source_revision':'a'*40,
+            'core_nevra':'endpoint-agent-3.2.181-alt6.x86_64','core_rpm_sha256':'b'*64})
         backend = RPMBackend(store)
         monkeypatch.setattr(backend,'_systemctl',lambda *_: b'LoadState=not-found\nNeedDaemonReload=no\n')
-        backend.prepare('upgrade',{'version':'3.2.180'})
+        backend.prepare('upgrade',{'version':'3.2.181'})
         assert not (store.paths.private/'runtime-ready').exists()
 
 
@@ -297,10 +297,10 @@ def test_native_preparation_recovery_restores_only_exact_owned_stopped_unit(root
     monkeypatch.setattr(sensors,'session_ids',lambda: [])
     with store.locked():
         journal = LifecycleJournal(store)
-        journal.begin('upgrade',{'version':'3.2.180','source_revision':'a'*40,
-            'core_nevra':'endpoint-agent-3.2.180-alt6.x86_64','core_rpm_sha256':'b'*64})
+        journal.begin('upgrade',{'version':'3.2.181','source_revision':'a'*40,
+            'core_nevra':'endpoint-agent-3.2.181-alt6.x86_64','core_rpm_sha256':'b'*64})
         store.write('runtime-ready',b'old-proof')
-        backend.prepare('upgrade',{'version':'3.2.180'})
+        backend.prepare('upgrade',{'version':'3.2.181'})
         assert current['ActiveState'] == 'inactive'
         coordinator = NativeCoordinator(journal,backend)
         # An explicit state change defeats restoration until original proof is

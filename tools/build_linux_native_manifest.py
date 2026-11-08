@@ -17,7 +17,7 @@ META = {'endpoint-agent':'/usr/share/endpoint-agent/native-source.json',
 
 
 def build_manifest(root, *, version, revision, sensor):
-    if version != '3.2.180' or not re.fullmatch('[0-9a-f]{40}', revision):
+    if version != '3.2.181' or not re.fullmatch('[0-9a-f]{40}', revision):
         raise ValueError('NEW_REVIEWED_NATIVE_SOURCE_REQUIRED')
     root = Path(root)
     core = (root/f'opt/endpoint-agent/versions/{version}/manifest.json').read_bytes()

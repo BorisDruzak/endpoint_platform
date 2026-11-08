@@ -4,6 +4,7 @@ from dataclasses import replace
 import pytest
 
 from pc_agent.platform.linux.installation_lifecycle import InstallationPending
+from pc_agent.version import AGENT_VERSION
 from tools.release.linux_native_verifier import (VerifiedNativeRPM, PUBLISHER, LEGACY_SOURCE,
     LEGACY_MANIFEST, LEGACY_RPMS)
 
@@ -81,8 +82,14 @@ def test_executor_binding_also_binds_source_record_to_verified_core(field,value)
         assert_executor_binding(binding(native) | {field:value},native,
             {'sha256':'d'*64,'source_revision':'a'*40,'version':'3.2.179'})
 
-@pytest.mark.parametrize('version',['3.2.179','3.2.178'])
-def test_retained_executor_accepts_only_current_frozen_setup_identity(tmp_path,monkeypatch,version):
+@pytest.mark.parametrize('component,version,accepted',[
+    ('setup', AGENT_VERSION, True),
+    ('setup', '3.2.179', False),
+    ('setup', '3.2.178', False),
+    ('core', AGENT_VERSION, False),
+    ('support', AGENT_VERSION, False),
+])
+def test_retained_executor_accepts_only_current_frozen_setup_identity(tmp_path,monkeypatch,component,version,accepted):
     from contextlib import contextmanager, nullcontext
     from types import SimpleNamespace
     from pc_agent.platform.linux import installation_coordinator as c, native_build_identity as identity
@@ -96,10 +103,11 @@ def test_retained_executor_accepts_only_current_frozen_setup_identity(tmp_path,m
     @contextmanager
     def snapshot(_): yield executable,'d'*64
     monkeypatch.setattr(c,'snapshot',snapshot)
-    monkeypatch.setattr(identity,'build_identity',lambda:{'component':'setup','version':version,'source_revision':'a'*40})
-    if version == '3.2.179':
+    monkeypatch.setattr(identity,'build_identity',lambda:{'schema_version':'endpoint_linux_native_build_v1',
+        'component':component,'version':version,'source_revision':'a'*40,'source_files':{}})
+    if accepted:
         c.retain_executor(store)
-        assert store.json('executor.json') == {'path':str(executable),'sha256':'d'*64,'source_revision':'a'*40,'version':'3.2.179'}
+        assert store.json('executor.json') == {'path':str(executable),'sha256':'d'*64,'source_revision':'a'*40,'version':version}
     else:
-        with pytest.raises(InstallationPending): c.retain_executor(store)
+        with pytest.raises(InstallationPending,match='executor_build_identity'): c.retain_executor(store)
         assert store.json('executor.json',missing=True) is None
