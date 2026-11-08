@@ -224,7 +224,7 @@ def machine_preflight(root: Path, expected_hostname: str) -> dict:
 
 def main() -> int:
     import sys
-    if sys.argv[1:2] == ['native178']:
+    if sys.argv[1:2] == ['native179']:
         from tools.build_alt_native_kit import main as native_main
         native_main(sys.argv[2:])
         return 0

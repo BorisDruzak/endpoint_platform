@@ -65,7 +65,8 @@ class LifecycleJournal:
         from pc_agent.platform.linux.enrollment_origin import configured_endpoint_origin
         configured_endpoint_origin()  # Validate explicit staging markers before native work.
         operation['environment'] = {name:os.environ[name] for name in
-            ('ENDPOINT_AGENT_DEPLOYMENT_ENVIRONMENT','CANARY_ENVIRONMENT','CANARY_APPROVED') if name in os.environ}
+            ('ENDPOINT_AGENT_DEPLOYMENT_ENVIRONMENT','CANARY_ENVIRONMENT','CANARY_APPROVED',
+             'ENDPOINT_AGENT_ORIGIN') if name in os.environ}
         operation['owner_pid'] = os.getpid()
         if os.name == 'posix':
             operation['owner_starttime'] = Path('/proc/self/stat').read_text().rsplit(')',1)[1].split()[19]

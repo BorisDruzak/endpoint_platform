@@ -145,8 +145,9 @@ def test_transitional_updater_never_crosses_native_invocation_boundary(monkeypat
     unit = 'endpoint-agent-update.service'
     def status(name):
         return {'LoadState':'loaded','FragmentPath':('/foreign/' if foreign else '/usr/lib/systemd/system/')+unit,
-            'DropInPaths':'','UnitFileState':'static','ActiveState':state,'Job':'91/start','MainPID':'123'} if name == unit else {'LoadState':'not-found'}
+            'DropInPaths':'','NeedDaemonReload':'no','UnitFileState':'static','ActiveState':state,'Job':'91/start','MainPID':'123'} if name == unit else {'LoadState':'not-found','NeedDaemonReload':'no'}
     monkeypatch.setattr(backend,'_unit_state',status)
+    monkeypatch.setattr(backend,'_configuration_file',lambda _: {'identity':[1,2],'bytes':'[Service]\n'})
     commands = []
     monkeypatch.setattr(backend,'_systemctl',lambda *args:commands.append(args))
     monkeypatch.setattr(backend,'execute',lambda *_:commands.append(('rpm',)))
@@ -166,7 +167,7 @@ def test_real_handoff_stop_interruption_cannot_silently_complete_preparation(mon
     store = PreparationStore()
     journal, backend = LifecycleJournal(store), RPMBackend(store)
     monkeypatch.setattr(backend,'preflight',lambda *_:None)
-    monkeypatch.setattr(backend,'_unit_state',lambda _: {'LoadState':'not-found'})
+    monkeypatch.setattr(backend,'_unit_state',lambda _: {'LoadState':'not-found','NeedDaemonReload':'no'})
     monkeypatch.setattr(backend,'_capture_native_selector',lambda *_:None)
     context = {'sid':'6','uid':1000,'prefix':['user-manager'],'session':{'Leader':'123'},'boot':'fixture'}
     props = {'LoadState':'loaded','FragmentPath':'/usr/lib/systemd/user/endpoint-user-sensor.service',
@@ -222,11 +223,12 @@ def test_native_quiescence_is_rechecked_after_all_preparation(monkeypatch):
     monkeypatch.setattr(backend,'preflight',lambda *_:None)
     reads = []
     def status(unit):
-        if unit != 'endpoint-agent.service': return {'LoadState':'not-found'}
+        if unit != 'endpoint-agent.service': return {'LoadState':'not-found','NeedDaemonReload':'no'}
         reads.append(unit)
         return {'LoadState':'loaded','FragmentPath':'/usr/lib/systemd/system/'+unit,
-            'DropInPaths':'','ActiveState':'inactive' if len(reads) == 1 else 'activating'}
+            'DropInPaths':'','NeedDaemonReload':'no','ActiveState':'inactive' if len(reads) == 1 else 'activating'}
     monkeypatch.setattr(backend,'_unit_state',status)
+    monkeypatch.setattr(backend,'_configuration_file',lambda _: {'identity':[1,2],'bytes':'[Service]\n'})
     executed = []
     monkeypatch.setattr(backend,'execute',lambda *_:executed.append(True))
     with pytest.raises(InstallationPending): NativeCoordinator(journal,backend).operate('upgrade',source(),[],device_id=None)

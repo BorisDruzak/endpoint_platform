@@ -289,7 +289,7 @@ stage_file 0755 "$script_dir/SOURCES/start-endpoint-agent.py" "$build_root/SOURC
 stage_file 0644 "$script_dir/SOURCES/endpoint-agent.tmpfiles" "$build_root/SOURCES/endpoint-agent.tmpfiles"
 stage_file 0644 "$script_dir/SOURCES/endpoint-agent.logrotate" "$build_root/SOURCES/endpoint-agent.logrotate"
 native_setup=false
-if [[ "$version" == 3.2.178 ]]; then
+if [[ "$version" == 3.2.179 ]]; then
     native_setup=true
     [[ "$(uname -s)" == Linux ]] || die 'native Setup builds require Linux'
     [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || die 'native source requires exact committed revision'
@@ -307,7 +307,7 @@ if [[ "$version" == 3.2.178 ]]; then
     [[ "$("$support_directory/endpoint-support-access" --version)" == 1.0.0 ]] || die 'Support frozen version mismatch'
     "$python_command" - "$setup_executable" "$support_directory/endpoint-support-access" "$revision" <<'PY'
 import json, subprocess, sys
-for path, component, version in ((sys.argv[1], 'setup', '3.2.178'), (sys.argv[2], 'support', '1.0.0')):
+for path, component, version in ((sys.argv[1], 'setup', '3.2.179'), (sys.argv[2], 'support', '1.0.0')):
     result = subprocess.run([path, '--build-info'], check=True, capture_output=True, timeout=30)
     if len(result.stdout) > 1024 * 1024:
         raise SystemExit('native build identity exceeds bound')

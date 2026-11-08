@@ -1,19 +1,40 @@
 """Canonical root-only Linux native owner. Reconcile never invokes RPM."""
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 from pathlib import Path
+import shlex
+import stat
 import subprocess
 import sys
 
 from pc_agent.platform.linux.installation_lifecycle import (
     InstallationPending, InstallationStore, LifecycleJournal)
-from tools.release.linux_native_verifier import NativeRPMVerifier, snapshot, run, ENV
+from tools.release.linux_native_verifier import (
+    NativeRPMVerifier, snapshot, run, ENV, LEGACY_SOURCE, LEGACY_MANIFEST, LEGACY_RPMS, PUBLISHER)
+from pc_agent.platform.linux.installation_configuration import (
+    configuration_file, STAGING_DROPIN, STAGING_ENVIRONMENT, STAGING_BYTES)
 
 KEY = Path('/usr/share/endpoint-agent/endpoint-rpm-release.asc')
 NATIVE_UNITS = ('endpoint-agent.service', 'endpoint-agent-update.path', 'endpoint-agent-update.service',
     'endpoint-support-access.service', 'endpoint-agent-setup-retry.timer')
+
+
+def public_unit_state(properties):
+    """Keep cached configuration identity without retaining arbitrary environment."""
+    result = properties.copy()
+    raw = result.pop('Environment', '')
+    result['environment_sha256'] = hashlib.sha256(raw.encode()).hexdigest()
+    try:
+        cached = shlex.split(raw)
+    except ValueError:
+        cached = []
+    result['staging_authority'] = {name: [item for item in cached
+        if item.partition('=')[0] == name] == [name + '=' + value]
+        for name, value in STAGING_ENVIRONMENT.items()}
+    return result
 
 
 class NativeCoordinator:
@@ -76,6 +97,30 @@ def verify_pair(core, sensor, verifier):
         'user_sensor_rpm_sha256': right.sha256 if right else None}
 
 
+def assert_executor_binding(source, proof, execution):
+    """Only the immutable historical156 source predates signed Setup closure."""
+    if (proof.package != 'endpoint-agent' or source.get('version') != proof.version
+        or source.get('source_revision') != proof.source_revision
+        or source.get('core_nevra') != proof.nevra or source.get('core_rpm_sha256') != proof.sha256):
+        raise InstallationPending('coordinator_source_proof_mismatch')
+    legacy = {'version': '3.2.156', 'source_revision': LEGACY_SOURCE,
+        'core_nevra': 'endpoint-agent-3.2.156-alt5.x86_64',
+        'core_rpm_sha256': LEGACY_RPMS['endpoint-agent'],
+        'user_sensor_nevra': None, 'user_sensor_rpm_sha256': None}
+    sensor = {'user_sensor_nevra': 'endpoint-agent-user-sensor-3.2.156-alt5.x86_64',
+        'user_sensor_rpm_sha256': LEGACY_RPMS['endpoint-agent-user-sensor']}
+    if (source in (legacy, legacy | sensor) and proof.package == 'endpoint-agent'
+        and proof.version == legacy['version'] and proof.nevra == legacy['core_nevra']
+        and proof.sha256 == legacy['core_rpm_sha256'] and proof.source_revision == LEGACY_SOURCE
+        and proof.frozen_manifest_sha256 == LEGACY_MANIFEST and proof.signer_fingerprint == PUBLISHER):
+        return
+    if (not isinstance(execution, dict) or not proof.setup_sha256
+        or proof.setup_sha256 != execution.get('sha256')
+        or proof.source_revision != execution.get('source_revision')
+        or proof.version != execution.get('version')):
+        raise InstallationPending('coordinator_not_bound_by_signed_source')
+
+
 def native_state_matches(action, source, returncode, output, errors=''):
     expected = set() if action == 'remove' else {source['core_nevra']} | ({source['user_sensor_nevra']} if source['user_sensor_nevra'] else set())
     rows, actual, missing = output.splitlines() + errors.splitlines(), set(), 0
@@ -108,8 +153,60 @@ class RPMBackend:
             if path.exists() or path.is_symlink():
                 raise InstallationPending('core_update_ownership_pending')
     def _unit_state(self, unit):
-        raw = self._systemctl('show', unit, '--property=LoadState,FragmentPath,DropInPaths,UnitFileState,ActiveState,Job,MainPID,ControlPID,InactiveEnterTimestampMonotonic,ActiveEnterTimestampMonotonic').decode()
-        return dict(row.split('=', 1) for row in raw.splitlines() if '=' in row)
+        raw = self._systemctl('show', unit, '--property=LoadState,FragmentPath,DropInPaths,NeedDaemonReload,Environment,UnitFileState,ActiveState,Job,MainPID,ControlPID,InactiveEnterTimestampMonotonic,ActiveEnterTimestampMonotonic').decode()
+        return public_unit_state(dict(row.split('=', 1) for row in raw.splitlines() if '=' in row))
+
+    def _configuration_file(self, path):
+        return configuration_file(path)
+
+    def _configuration(self, unit, environment, properties=None):
+        properties = self._unit_state(unit) if properties is None else properties
+        if properties.get('NeedDaemonReload') != 'no':
+            raise InstallationPending('native_configuration_reload_pending')
+        result = {key: properties.get(key, '') for key in
+            ('LoadState', 'FragmentPath', 'DropInPaths', 'UnitFileState', 'NeedDaemonReload',
+             'environment_sha256', 'staging_authority')}
+        if properties.get('LoadState') == 'not-found':
+            if properties.get('FragmentPath') or properties.get('DropInPaths'):
+                raise InstallationPending('foreign_native_unit_preserved')
+            return result
+        if (properties.get('LoadState') != 'loaded'
+            or properties.get('FragmentPath') != '/usr/lib/systemd/system/' + unit):
+            raise InstallationPending('foreign_native_unit_preserved')
+        dropin = properties.get('DropInPaths')
+        if dropin:
+            if (unit != 'endpoint-agent.service' or dropin != STAGING_DROPIN
+                or any(environment.get(name) != value for name, value in STAGING_ENVIRONMENT.items())):
+                raise InstallationPending('foreign_native_unit_preserved')
+            if properties.get('staging_authority') != dict.fromkeys(STAGING_ENVIRONMENT, True):
+                raise InstallationPending('native_staging_cache_mismatch')
+            proof = self._configuration_file(dropin)
+            if proof['bytes'] != STAGING_BYTES or proof['identity'][2] != (stat.S_IFREG | 0o644):
+                raise InstallationPending('foreign_native_staging_preserved')
+            result['staging'] = proof
+        fragment = self._configuration_file(properties['FragmentPath'])
+        fragment['sha256'] = hashlib.sha256(fragment.pop('bytes').encode()).hexdigest()
+        result['fragment'] = fragment
+        return result
+
+    def _assert_configuration(self, proof):
+        if set(proof.get('configuration', {})) != set(NATIVE_UNITS):
+            raise InstallationPending('native_configuration_proof_required')
+        environment = LifecycleJournal(self.store).state()['operation']['environment']
+        for unit, expected in proof['configuration'].items():
+            if self._configuration(unit, environment) != expected:
+                raise InstallationPending('native_configuration_changed_preserved')
+
+    def _assert_prepared(self):
+        proof = self.store.json(self._preparation_name())
+        self._assert_configuration(proof)
+        environment = LifecycleJournal(self.store).state()['operation']['environment']
+        for unit in NATIVE_UNITS:
+            final = self._unit_state(unit)
+            if self._configuration(unit, environment, final) != proof['configuration'][unit]:
+                raise InstallationPending('native_configuration_changed_preserved')
+            if final.get('LoadState') != 'not-found' and not self._quiescent(final):
+                raise InstallationPending('native_unit_not_quiescent')
 
     @staticmethod
     def _quiescent(properties):
@@ -122,17 +219,21 @@ class RPMBackend:
     def prepare(self, action, source):
         self.preflight(action, source)  # Recheck before the first owned mutation.
         ready = self.store.read('runtime-ready', missing=True)
-        proof = {'ready': ready.decode() if ready else None, 'units': []}
+        environment = LifecycleJournal(self.store).state()['operation']['environment']
+        proof = {'ready': ready.decode() if ready else None, 'units': [],
+            'configuration': {unit: self._configuration(unit, environment) for unit in NATIVE_UNITS}}
         name = self._preparation_name()
         self.store.save(name, proof)
+        self._assert_configuration(proof)
         self.store.invalidate_ready()
         # Stop only owned units. A missing unit is allowed only when not loaded.
         for unit in NATIVE_UNITS:
+            self._assert_configuration(proof)
             before = self._unit_state(unit)
             if before.get('LoadState') == 'not-found':
                 continue
-            if before.get('FragmentPath') != '/usr/lib/systemd/system/' + unit or before.get('DropInPaths'):
-                raise InstallationPending('foreign_native_unit_preserved')
+            if self._configuration(unit, environment, before) != proof['configuration'][unit]:
+                raise InstallationPending('native_configuration_changed_preserved')
             if before.get('ActiveState') != 'active':
                 if self._quiescent(before):
                     continue
@@ -142,34 +243,37 @@ class RPMBackend:
             item = {'unit':unit, 'before':before, 'after':None, 'restored':False}
             proof['units'].append(item)
             self.store.save(name, proof)
+            self._assert_configuration(proof)
+            if self._unit_state(unit) != before:
+                raise InstallationPending('preparation_unit_changed_before_stop')
             self._systemctl('stop', unit)
             item['after'] = self._unit_state(unit)
-            stable = ('LoadState','FragmentPath','DropInPaths','UnitFileState')
             if (not self._quiescent(item['after'])
-                or any(item['after'].get(key) != before.get(key) for key in stable)):
+                or self._configuration(unit, environment, item['after']) != proof['configuration'][unit]):
                 raise InstallationPending('preparation_unit_changed_during_stop')
             self.store.save(name, proof)
         if action == 'remove':
+            self._assert_configuration(proof)
             self._capture_native_selector(source)
             if source['user_sensor_nevra']:
                 from pc_agent.platform.linux.installation_user_sessions import handoff_active_sensors
+                self._assert_configuration(proof)
                 handoff_active_sensors(stop=True, store=self.store)
             helper = Path('/usr/lib/endpoint-agent/browser-policy-helper')
             if helper.exists():
                 # Failure aborts before RPM can delete ownership metadata.
+                self._assert_configuration(proof)
                 run([str(helper), '--relinquish'], timeout=25)
             self.store.write('browser-cleanup.json', json.dumps({'browser':'complete' if helper.exists() else 'not_applicable'}).encode())
         # Obsolete units disappear on rollback; never mutate enablement in preparation.
-        for unit in NATIVE_UNITS:
-            final = self._unit_state(unit)
-            if final.get('LoadState') != 'not-found' and not self._quiescent(final):
-                raise InstallationPending('native_unit_not_quiescent')
+        self._assert_prepared()
 
     def recover_preparation(self):
         name = self._preparation_name()
         proof = self.store.json(name, missing=True)
         if proof is None:
             return  # Interrupted before the first durable preparation/mutation.
+        self._assert_configuration(proof)
         for item in proof['units']:
             if item['restored']:
                 continue
@@ -188,16 +292,23 @@ class RPMBackend:
         if ready is not None and ready != original:
             raise InstallationPending('preparation_ready_changed_preserved')
         if original is not None and ready is None:
+            self._assert_configuration(proof)
             self.store.write('runtime-ready', original)
         for item in reversed(proof['units']):
             if not item['restored']:
                 # Never enable units or restore an externally changed unit.
+                self._assert_configuration(proof)
+                if self._unit_state(item['unit']) != item['after']:
+                    raise InstallationPending('preparation_unit_changed_preserved')
                 self._systemctl('start', item['unit'])
                 item['restored'] = True
                 self.store.save(name, proof)
+        self._assert_configuration(proof)
         handoff_active_sensors(store=self.store, retained_only=True)
 
     def execute(self, action, inputs):
+        # Final boundary after the durable invocation marker; refusal never runs RPM.
+        self._assert_prepared()
         if action == 'remove':
             arguments = ['/usr/bin/rpm', '-e', 'endpoint-agent-user-sensor', 'endpoint-agent'] if len(inputs) == 2 else ['/usr/bin/rpm', '-e', 'endpoint-agent']
         else:
@@ -316,7 +427,7 @@ def retain_executor(store):
         if executable == target:
             from pc_agent.platform.linux.native_build_identity import build_identity
             identity = build_identity()
-            if identity.get('component') != 'setup' or identity.get('version') != '3.2.178':
+            if identity.get('component') != 'setup' or identity.get('version') != '3.2.179':
                 raise InstallationPending('executor_build_identity')
             with store.locked():
                 store.write('executor.json', json.dumps({'path':str(target),'sha256':digest,
@@ -373,7 +484,7 @@ def main(argv=None):
             environment = (state.get('operation') or {}).get('environment', {})
             from pc_agent.platform.linux.enrollment_origin import configured_endpoint_origin
             configured_endpoint_origin(environment)
-            for name in ('ENDPOINT_AGENT_DEPLOYMENT_ENVIRONMENT','CANARY_ENVIRONMENT','CANARY_APPROVED'):
+            for name in ('ENDPOINT_AGENT_DEPLOYMENT_ENVIRONMENT','CANARY_ENVIRONMENT','CANARY_APPROVED','ENDPOINT_AGENT_ORIGIN'):
                 if name in environment:
                     os.environ[name] = environment[name]
                 else:
@@ -425,10 +536,7 @@ def main(argv=None):
                     legacy_signature=args.legacy_kit_signature, legacy_core=args.core_rpm)
                 paths = retain_inputs([args.core_rpm] + ([args.user_sensor_rpm] if args.user_sensor_rpm else []), store, verifier)
                 source = verify_pair(paths[0], paths[1] if len(paths) == 2 else None, verifier)
-                if source['version'] == '3.2.178':
-                    proof, execution = verifier(paths[0]), store.json('executor.json')
-                    if proof.setup_sha256 != execution['sha256'] or proof.source_revision != execution['source_revision']:
-                        raise InstallationPending('coordinator_not_bound_by_signed_source')
+                assert_executor_binding(source, verifier(paths[0]), store.json('executor.json'))
                 if args.action == 'remove' and not backend.matches('install', source):
                     raise InstallationPending('remove_source_not_installed')
                 coordinator.operate(args.action, source, paths, device_id=device)
