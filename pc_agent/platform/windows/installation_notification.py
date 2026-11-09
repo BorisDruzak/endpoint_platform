@@ -64,11 +64,11 @@ class InstallationHTTPSClient:
 
 
 def _sender(data_root):
-    from .support_access_native import assert_bootstrap_file
+    from .support_bootstrap import assert_bootstrap_file, read_optional_bootstrap_ascii
     from pc_agent.device_credential import read_device_credential
-    for name in ('device-credential','endpoint-ca.crt','endpoint-origin'):
+    for name in ('device-credential','endpoint-ca.crt'):
         assert_bootstrap_file(data_root/name)
-    if (data_root/'endpoint-origin').read_text(encoding='ascii').strip() != _ORIGIN:
+    if read_optional_bootstrap_ascii(data_root/'endpoint-origin', default=_ORIGIN) != _ORIGIN:
         raise ValueError('INSTALLATION_AUTHORITY_UNAVAILABLE')
     return InstallationHTTPSClient(data_root/'endpoint-ca.crt',read_device_credential(data_root/'device-credential'))
 

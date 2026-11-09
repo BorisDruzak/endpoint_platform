@@ -56,3 +56,20 @@ def assert_bootstrap_file(path: Path):
                 ntsecuritycon.FILE_GENERIC_READ|ntsecuritycon.FILE_GENERIC_WRITE|ntsecuritycon.DELETE)
         if sid not in allowed or ace[1]&~allowed[sid]:
             raise ValueError('support_enrollment_unavailable')
+
+
+def read_optional_bootstrap_ascii(path: Path, *, default: str) -> str:
+    """Default only for a missing leaf under an existing, non-reparse directory.
+
+    Origin policy belongs to the caller. Existing files retain all bootstrap
+    protection checks; access errors and dangling links never imply absence.
+    """
+    reject_links(path)
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        if not stat.S_ISDIR(path.parent.stat().st_mode):
+            raise ValueError('support_enrollment_unavailable')
+        return default
+    assert_bootstrap_file(path)
+    return path.read_text(encoding='ascii').strip()
