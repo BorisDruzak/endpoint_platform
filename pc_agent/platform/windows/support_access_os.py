@@ -316,7 +316,7 @@ $out=@();foreach($name in @('OpenSSH.Client~~~~0.0.1.0','OpenSSH.Server~~~~0.0.1
         # PowerShell owns the entire fixed servicing interval. No timeout-based
         # success inference, uninstall, WSUS/GPO change or alternate download.
         return run_fixed_powershell(r'''
-$names=@($env:ENDPOINT_SUPPORT_FOD_NAMES|ConvertFrom-Json)
+$names=ConvertFrom-Json -InputObject $env:ENDPOINT_SUPPORT_FOD_NAMES
 if(!$names.Count -or @($names|Where-Object {$_ -notin @('OpenSSH.Client~~~~0.0.1.0','OpenSSH.Server~~~~0.0.1.0')}).Count){throw 'names'}
 if($env:ENDPOINT_SUPPORT_FOD_OPERATION -cnotmatch '^[0-9a-f]{32}$'){throw 'operation'}
 function ServiceState {Get-CimInstance Win32_Service -Filter "Name='sshd'" | Select-Object Name,State,StartMode,PathName,StartName,ProcessId | ConvertTo-Json -Compress}
