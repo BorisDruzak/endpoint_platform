@@ -86,6 +86,8 @@ async def linux_lease_may_resume(session,row,now):
 
 
 async def consume_linux_native_ticket(session,row,ticket,now,request_id):
+    from .disabled_intent import linux_disabled_authority,inherited_disabled_intent
+    disabled_intent=inherited_disabled_intent(row,await linux_disabled_authority(session,row))
     resume=await linux_lease_may_resume(session,row,now)
     ticket.support_rebind_until=None
     # Preserve the original expiry and approved principal/operator keys even
@@ -96,4 +98,5 @@ async def consume_linux_native_ticket(session,row,ticket,now,request_id):
     row.installation_access_pending_until=None
     await installation_audit(session,row,'native_rebound',request_id=request_id,
         details={'event_id':str(ticket.event_id),'generation_id':str(ticket.generation_id),
-            'linux_lease_resumed':resume,'original_expires_at':utc(row.expires_at).isoformat() if row.expires_at else None})
+            'linux_lease_resumed':resume,'original_expires_at':utc(row.expires_at).isoformat() if row.expires_at else None,
+            'linux_disabled_intent':disabled_intent})
