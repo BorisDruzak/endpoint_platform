@@ -15,7 +15,7 @@ async def linux_disabled_authority(session, row):
     its exact revision/generation/credential and reference real causal native
     events. No old False event or native_rebound(False) alone conveys intent.
     """
-    if row.platform != 'linux_amd64' or row.enabled or row.revoked_at is not None or row.reset_registration_allowed:
+    if row.platform != 'linux_amd64' or row.enabled or row.reset_registration_allowed:
         return None
     events = (await session.scalars(select(AuditEvent).where(
         AuditEvent.object_kind == 'support_access', AuditEvent.object_identifier == str(row.id),
@@ -23,6 +23,8 @@ async def linux_disabled_authority(session, row):
             'support_access.registration_reset_authorized', 'support_access.component_removed',
             'support_access.installation_access_granted', 'support_access.installation_access_native_rebound']))
         .order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc()).limit(1000))).all()
+    if row.revoked_at is not None and (not events or events[0].action != 'support_access.component_removed'):
+        return None
     revision, generation = row.revision, row.generation
     newer_sequence, native_generation = None, None
     for index, event in enumerate(events):
@@ -31,10 +33,9 @@ async def linux_disabled_authority(session, row):
             return None
         if event.action == 'support_access.policy_changed':
             return events[0] if event.actor_kind == 'admin' and details.get('enabled') is False else None
-        if (event.action != 'support_access.installation_access_native_rebound' or
+        if (event.action not in ('support_access.installation_access_native_rebound', 'support_access.component_removed') or
             event.actor_kind != 'device' or event.actor_identifier != str(row.device_id) or
-            details.get('device_id') != str(row.device_id) or details.get('linux_lease_resumed') is not False or
-            details.get('original_expires_at') != (utc(row.expires_at).isoformat() if row.expires_at else None)):
+            details.get('device_id') != str(row.device_id)):
             return None
         intent = details.get('linux_disabled_intent')
         if not isinstance(intent, dict) or intent.get('enabled') is not False:
@@ -44,6 +45,22 @@ async def linux_disabled_authority(session, row):
             type(intent.get('source_generation')) is not int or intent['source_generation'] != generation - 1 or
             intent.get('source_credential_id') != str(row.source_credential_id) or
             index + 1 == len(events) or intent.get('previous_audit_event_id') != str(events[index + 1].id)):
+            return None
+        if event.action == 'support_access.component_removed':
+            # Only the authenticated unregister's exact disabled transition can
+            # carry intent through its temporary component revocation. Manual
+            # revoke/reset and historical unmarked removal remain refusals.
+            if (type(details.get('generation')) is not int or details['generation'] != generation or
+                details.get('source_credential_id') != str(row.source_credential_id) or
+                'linux_prior_lease' not in details or details['linux_prior_lease'] is not None or
+                not isinstance(details.get('linux_removal_revoked_at'), str) or
+                (index == 0 and (row.revoked_at is None or
+                    details['linux_removal_revoked_at'] != utc(row.revoked_at).isoformat()))):
+                return None
+            revision, generation = intent['source_revision'], intent['source_generation']
+            continue
+        if (details.get('linux_lease_resumed') is not False or
+            details.get('original_expires_at') != (utc(row.expires_at).isoformat() if row.expires_at else None)):
             return None
         try:
             event_id = UUID(details['event_id'])
