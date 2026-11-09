@@ -40,6 +40,9 @@ async def support_snapshot(session, projection, credential_id):
     explicitly_disabled = not row.enabled and row.revoked_at is None and any(
         e.action == 'support_access.policy_changed' and e.details.get('revision') == row.revision
         and e.details.get('enabled') is False for e in events)
+    if row.platform == 'linux_amd64':
+        from endpoint_server.support_access.disabled_intent import linux_disabled_authority
+        explicitly_disabled = await linux_disabled_authority(session, row) is not None
     if not component_removed and not (row.revoked_at is None and row.enabled) and not explicitly_disabled:
         return
     projection.support_revision = row.revision

@@ -112,8 +112,10 @@ async def unregister(request:Request):
     async with request.app.state.session_provider() as session:
         row=await support_identity(session,request)
         from .native_rebind import capture_linux_lease
+        from .disabled_intent import linux_disabled_authority,inherited_disabled_intent
         now=datetime.now(UTC)
         prior_lease=capture_linux_lease(row,now)
+        disabled_intent=inherited_disabled_intent(row,await linux_disabled_authority(session,row))
         row.enabled=False;row.revoked_at=now;row.generation+=1;row.revision+=1
         await cancel_installation_access(session,row,'component_removed',request_id=audit_request_id(request),increment_revision=False,
             actor_kind='device',actor_identifier=row.device_id)
@@ -122,6 +124,7 @@ async def unregister(request:Request):
         row.access_verified_at=None;row.access_verified_by=None
         await audit(session,request,'component_removed',row,'device',row.device_id,extra_details={
             'linux_prior_lease':prior_lease,'generation':row.generation,
+            'linux_disabled_intent':disabled_intent,
             'source_credential_id':str(row.source_credential_id),'linux_removal_revoked_at':utc(row.revoked_at).isoformat()})
         await session.commit()
     return Response(status_code=204,headers={'Cache-Control':'no-store'})
