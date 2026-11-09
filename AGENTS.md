@@ -7,9 +7,9 @@
 
 # Canonical agent release
 
-- The primary published Windows agent is **3.2.177**; ALT Linux remains **3.2.156**. Read [`docs/releases/current-agent-release.json`](docs/releases/current-agent-release.json) and [`docs/releases/windows-3.2.177-setup.json`](docs/releases/windows-3.2.177-setup.json) for exact bytes, sources and qualification limits. The Console download serves177 and the single Windows AUTO campaign accepts twelve immutable installer versions. Policy12 is enabled/all_active/max2 with dynamic future admission. All6 initially available Windows PCs accepted177: test120 by verified clean Setup0, the other five by APPLIED/native0 with fresh independent Support1.0.1. Six offline172 PCs await fresh reconnect; legacy79 and other unqualified/unknown sources remain unsupported. Two removed test identities remain visible and receive no new work. Preserve all historical installer bytes and prior failure receipts.
-- The primary Windows installer is `C:\endpoint-platform-wix-build\setup177-lifecycle-25f2ad8\native-setup-build\releases\EndpointAgentSetup-3.2.177-x64.exe`, bound by `packaging/windows/initial-runtime-3.2.177.json`. Runtime source `25f2ad8a5e13991e4e76260da939d29aafba8674`, native packaging `d21bc3bba119a178607de6f64f620fb53eeadf01`; actual served SHA `9d06a8339c2ed3b2c563f2b5258ad9fdbef0962b6d85f79e6e88490ca7f426fc`, timestamped Valid publisher4D. Exact-source qualifications cover Foundation172 and176/client107. Provider-only parent digest fix `266e38e5c2ead35f95978da1b95cc7a4fadb2a82` compares original enrollment requests through the consumed claim; it changes no signed177 bytes. Signed Support1.0.1 remains independent of Core/observer; portable Microsoft10.4.0.0p1-Preview remains unchanged and its upstream non-production-ready limit stays explicit. Linux kit/source/metadata remain156 unchanged.
-- The primary Linux kit remains `C:\endpoint-platform-wix-build\unified-3.2.156\linux-kit\endpoint-alt-pilot-3.2.156-1.tar.gz`, published under `/srv/endpoint-platform-distribution/alt/endpoint-alt-pilot-3.2.156-1/`. Historical158 ALT singleton/kit evidence remains in the separate158 record; this Windows auto-update task publishes no new Linux release.
+- The primary published Windows agent is **3.2.177**; the primary native ALT Linux kit is **3.2.183**. Read [`docs/releases/current-agent-release.json`](docs/releases/current-agent-release.json), [`docs/releases/linux-3.2.183-native.json`](docs/releases/linux-3.2.183-native.json) and [`docs/releases/windows-3.2.177-setup.json`](docs/releases/windows-3.2.177-setup.json) for exact bytes, sources and qualification limits. The Console Windows download serves177 and the single Windows AUTO campaign accepts twelve immutable installer versions. Policy12 is enabled/all_active/max2 with dynamic future admission. All6 initially available Windows PCs accepted177: test120 by verified clean Setup0, the other five by APPLIED/native0 with fresh independent Support1.0.1. Six offline172 PCs await fresh reconnect; legacy79 and other unqualified/unknown sources remain unsupported. Two removed test identities remain visible and receive no new work. Preserve all historical installer bytes and prior failure receipts.
+- The primary Windows installer is `C:\endpoint-platform-wix-build\setup177-lifecycle-25f2ad8\native-setup-build\releases\EndpointAgentSetup-3.2.177-x64.exe`, bound by `packaging/windows/initial-runtime-3.2.177.json`. Runtime source `25f2ad8a5e13991e4e76260da939d29aafba8674`, native packaging `d21bc3bba119a178607de6f64f620fb53eeadf01`; actual served SHA `9d06a8339c2ed3b2c563f2b5258ad9fdbef0962b6d85f79e6e88490ca7f426fc`, timestamped Valid publisher4D. Exact-source qualifications cover Foundation172 and176/client107. Provider-only parent digest fix `266e38e5c2ead35f95978da1b95cc7a4fadb2a82` compares original enrollment requests through the consumed claim; it changes no signed177 bytes. Signed Support1.0.1 remains independent of Core/observer; portable Microsoft10.4.0.0p1-Preview remains unchanged and its upstream non-production-ready limit stays explicit. This Windows177 artifact is unchanged; the separately published native Linux183 kit is described below.
+- Native Linux183 is published at `/srv/endpoint-platform-distribution/alt/endpoint-alt-pilot-3.2.183-1/`, operator kit `C:/endpoint-platform-wix-build/linux178-native/kit183/endpoint-alt-pilot-3.2.183-1.tar.gz`, source `21fc543af8d4b8b24df83f29a27e4e2eeb86c268`, actual archive SHA `c5b552afa4aa27e4df73af0ce68be4ecc88729f30baf3a70e6f9d4c8c709a3f3`. Production provider `fd196e78b2c5cef00c86de79ca359147676f8b2f` uses additive49/50 only; staging `0b8ea9138011c1a4512737629d5a12b0269e4e7d` separately preserves Worktime51. Actual VM107 acceptance covers native0, same-card history/private4, modern full-wipe parent link, genuine user telemetry, expiry/revoke, manual disable through mixed online/offline rebind and root SSH with Core/updater/path stopped108.613629715seconds. See [receipt](docs/verification/2026-11-09-linux183-native-canary.md). Linux fleet rollout was not started, no global Linux enrollment campaign/network authority was created, and no actual production-Linux SSH acceptance is inferred. Use the native RPM coordinator, not Core-only OTA, to install privileged Support/helpers. The historical156 kit, signatures and Core-only OTA remain immutable; the exact signed156 pair is separately registered for rollback. Historical178-182 candidates remain unqualified.
 - Core **3.2.163**, source `b23857849ad5b877e67d0de3c28d297f9ae5d507`, is the current Windows preparation bridge with signed client1.0.5. Its artifact is `C:\endpoint-platform-wix-build\setup-client-3.2.163-b238578\EndpointCore-3.2.163-b238578.zip`; see [`docs/releases/core-3.2.163-setup-client.json`](docs/releases/core-3.2.163-setup-client.json). It is not a primary installer or Linux release. Historical Core162/client1.0.4 artifacts and reports remain immutable. Foundation156 uses the exact compatible Core155 return, identifier `endpoint-windows-core-3.2.155-setup-source-725739f`, before full Setup158; other qualified profiles retain Core157. Never weaken Core157's Foundation157 minimum. Preserve all failed attempt receipts.
 - Windows power-context patch Core **3.2.164**, source `1c2e54a06d1a7dfb6c2c2e0d2ef2cde2d0fe9896`, requires Foundation **3.2.158**. Immutable artifact: `C:\endpoint-platform-wix-build\core164-power-1c2e54a\EndpointCore-3.2.164-1c2e54a.zip`. See [`docs/releases/core-3.2.164-power-context.json`](docs/releases/core-3.2.164-power-context.json) for actual Endpoint cohort acceptance and limits. This patch does not promote a primary installer, change Foundation158 or replace the compatible163 bridge for Foundation156. Future full Setup media must include the corrected runtime in a new, separately qualified native version; historical installer bytes remain unchanged. Explicit Core cohort assignments do not enable the disabled full-Setup fleet policy or create persistent automatic assignment for future/offline agents.
 - The tested automatic Setup revision is `C:\endpoint-platform-wix-build\setup158-r3-5cb267d\releases\EndpointAgentSetup-3.2.158-r3-x64.exe`. Its wrapper source is `5cb267d3440511a62e466f49e6cc4ce80c3897a8`; native MSI/Core remain source `9423d9c27ea6b2d6c544c1bcdc1edb7cc9d15421`, bound by `packaging/windows/initial-runtime-3.2.158.json`. Exact original MSI and Core ZIP bytes are preserved. Clean Core/Foundation156 to full158 passed on test120 without workstation preparation after baseline acceptance; see [`docs/verification/2026-11-04-test120-clean156-full158.md`](docs/verification/2026-11-04-test120-clean156-full158.md). The earlier Foundation158/Core157 result remains historical. That earlier clean156 proof had no active user sensor and did not qualify its CPU/user telemetry; no Windows158 Core-only release or primary download promotion is implied.
@@ -172,6 +172,24 @@
   automatic-install bounds, strict SSH commands, expiry and cleanup. Keep secrets
   out of source/logs/reports; never upload operator/device private keys.
 
+- Apply the same diagnostic escalation to native Linux183 when telemetry/logs/receipts
+  cannot resolve the authorized incident: use independent `endpoint-support-access.service`
+  even with Core/updater stopped. Production first-install defaults explicitly bind
+  existing `root`/UID0 and the approved operator key for at most8hours after a healthy
+  Support1.0.0 report; later bounded diagnostic enable/renew is centrally authorized
+  within the requested incident. Existing manual policies/revoke/reset win; do not
+  create accounts, passwords, sudoers changes, permanent grants or automatic renewals.
+  Read Linux Device UUID, loopback port, administrator name/UID and public host key
+  together from the authenticated card. Follow the strict ordinary-gateway SSH
+  command in [Linux native Setup](docs/runbooks/LINUX_NATIVE_SETUP.md); the Windows
+  connection helper retains its Windows-only contract. A real root command is
+  proven on Stage VM107 only, not on every production Linux device.
+- Preserve explicit disabled-policy provenance across online/offline Linux native
+  reinstall. Only exact one-use native tickets and authenticated audited authority
+  may rebind keys. Unmarked/missing history, intervening policy/revoke/reset or
+  credential/revision/generation mismatch fails closed. Never backfill causal
+  events, edit fingerprints or change private keys as a diagnostic shortcut.
+
 # Production host
 
 - Historical first clean176/automatic Support evidence is preserved in
@@ -183,7 +201,7 @@
   are accepted in `docs/verification/2026-11-07-test120-installation-lifecycle177.md`.
   Keep historical failed evidence, exact-source qualifications and Linux156 separate.
 
-- Publish every new trusted agent/installer release into the single active default auto-enrollment campaign by default. Use the canonical publisher's transactional campaign inclusion; preserve its CIDRs, expiry, quota and usage. Any explicit diagnostic exclusion must be documented. Never create a separate version-specific campaign or expand network authority merely to publish a version. Historical expired/revoked campaigns retain their audit history.
+- Publish every new trusted Windows agent/installer release into the single active default Windows auto-enrollment campaign by default. Use the canonical publisher's transactional campaign inclusion; preserve its CIDRs, expiry, quota and usage. Any explicit diagnostic exclusion must be documented. Never create a separate version-specific campaign or expand network authority merely to publish a version. Historical expired/revoked campaigns retain their audit history. Linux native sources use the separate platform-bound native registry and separately approved Linux campaign authority; never insert a Linux source into a Windows policy or create/expand a campaign merely to publish a kit.
 
 - `osn_admin@192.168.100.19` (SSH host alias: `endpoint-platform-server`) is the production machine for the Endpoint Platform service.
 - Use this host for live testing and verification when that is necessary to complete the task. Treat changes, deployments, service restarts, configuration changes, and data changes as production operations.
@@ -199,5 +217,18 @@
 
 # Test host
 
-- `test-agent-lin@192.168.101.162` (SSH aliases: `test-agent` and `test-agent-lin`) is a dedicated non-production test machine for installing, reinstalling, and validating the Endpoint Platform agent and related functionality.
-- Use this host proactively for agent and integration tests. Changes, service restarts, and test data on this machine are permitted when they are needed for the task. SSH key authentication and passwordless `sudo` are configured for `test-agent-lin`.
+- The current dedicated Linux canary is pve1/VM107 `test-agent-lin`, hardware UUID
+  `db12fb5c-3732-487f-911f-80e31f79b29b`, hostname `alt-a2-pc86.sosnadmin.local`,
+  DHCP IPv4 `192.168.101.191`. Historical162 aliases are stale until freshly checked.
+  Its ordinary `osn-admin` has no sudo; do not add it. Existing root is explicitly
+  approved through the independently pinned support channel; the trusted hypervisor
+  guest agent remains a separate administrative recovery path.
+- VM107 stays enrolled on staging. Current Device
+  `5c51cb65-4ccd-4f19-87bc-b06c088d1e1a`/generation
+  `48238935-7663-4ac3-8102-fe978093d0e6` has native183 sequence11/ACK11 and genuine
+  active-user telemetry. Modern previous-card link points to
+  `ebd42535-32e7-4443-95a4-20da3cb0b157`; legacy29a8 history remains separate after
+  canonical fingerprint refusal. Preserve all historical private archives/receipts.
+  Dedicated native tests/restarts are authorized when required; preserve AD, CUPS,
+  user applications and the active KDE session. No reboot/logout/input injection
+  or unrelated production-workstation changes are implied.

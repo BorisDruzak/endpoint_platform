@@ -88,21 +88,21 @@ existing device action suffixes. Events POST `/agent/v1/installation/linux/event
 return the existing acknowledgement model. Exact route suffixes and schemas are
 frozen in a task interface report before later client implementation.
 
-- [ ] RED: Linux strict DTOs/unsafe inputs, cross-platform/unknown device refusal,
+- [x] RED: Linux strict DTOs/unsafe inputs, cross-platform/unknown device refusal,
   old Windows round-trip JSON unchanged; exact-source and causal replay failures.
-- [ ] Implement explicit persisted platform/Linux principal binding with legacy
+- [x] Implement explicit persisted platform/Linux principal binding with legacy
   Windows defaults, immutable LinuxNativeRelease source registry and additive0049.
   Native publish helper requires exact reviewed signed bytes/signer/source;
   no native admission from a version string or arbitrary device-supplied digest.
-- [ ] Implement Linux adapters through shared source/key/token/rebind/audit locks;
+- [x] Implement Linux adapters through shared source/key/token/rebind/audit locks;
   fresh reported Linux1.0.0 capability required before access. Add separately
   configured Linux automatic defaults, preserving all existing Windows defaults.
   Default Linux account/UID absent means unavailable, not guessed or inherited.
-- [ ] Extract injectable native-source resolution for shared accept_event;
+- [x] Extract injectable native-source resolution for shared accept_event;
   Linux events extend the same projection while Windows source checks stay exact.
-- [ ] GREEN focused tests, relevant old Windows support/lifecycle tests and
+- [x] GREEN focused tests, relevant old Windows support/lifecycle tests and
   migration checks. Do not run real PostgreSQL until root supplies isolated URL.
-- [ ] Commit atomic provider change; report interfaces, exact RED/GREEN commands,
+- [x] Commit atomic provider change; report interfaces, exact RED/GREEN commands,
   files/SHAs, security assumptions and outstanding real-PG gates for review.
 
 ### Task 2: Linux fresh enrollment and historical identity relation
@@ -121,17 +121,17 @@ existing one-use claims, CIDR/expiry/budget/admin approval, fingerprint builders
 capability/status exchange; a source-qualified claim/permanent identity bootstrap
 for the native coordinator. Preserved identity reinstall never consumes a claim.
 
-- [ ] RED: real existing Linux156 claimed identity without requestFK; correctly
+- [x] RED: real existing Linux156 claimed identity without requestFK; correctly
   re-derived same-domain fingerprint matches; changed hardware/consumed authority,
   another device or nonremoved parent refuses. Windows missing-request gate stays.
-- [ ] Define strict Linux DTOs and actual endpoint signatures in the interface
+- [x] Define strict Linux DTOs and actual endpoint signatures in the interface
   report before native client work. Reuse source-qualified Linux campaign authority;
   never enlarge networks/quotas or alter the default Windows AUTO campaign.
-- [ ] Implement request-bound digest derivation in original Claim/Request domains.
+- [x] Implement request-bound digest derivation in original Claim/Request domains.
   Historical legacy link requires explicit admin approval, consumed claim on the
   same removed/nonretired device and matching canonical hardware proof. No fake
   old EnrollmentRequest or FK edits. Record this compatibility ruling in spec.
-- [ ] GREEN actual public-builder tests, claim/idempotency/revalidation tests;
+- [x] GREEN actual public-builder tests, claim/idempotency/revalidation tests;
   commit scoped changes and report exact wire examples without any secrets.
 
 ### Task 3: Independent Linux support service
@@ -146,17 +146,17 @@ under `pc_agent/tests/linux` and `tests/packaging`.
 `run_service(...)` entrypoints documented in an interface report; standalone
 frozen Support1.0.0 package for RPM staging, with no Core/updater imports.
 
-- [ ] RED parsing/host pins/key roles/unsafe paths; exact NSS UID/account/admin
+- [x] RED parsing/host pins/key roles/unsafe paths; exact NSS UID/account/admin
   validation; monotonic expiry under API failure/clock rollback; child group death.
-- [ ] Implement separate private credential/config/keys outside Core paths; native
+- [x] Implement separate private credential/config/keys outside Core paths; native
   bootstrap reads current credential only during registration. Service uses only
   its own support token/CA and bounded HTTPS; no shell/string interpolation.
-- [ ] Implement loopback22222 native sshd and reverse tunnel, explicit key-only
+- [x] Implement loopback22222 native sshd and reverse tunnel, explicit key-only
   existing user authorization, no global sshd/PAM/authorized_keys edits. Verify
   sshd config using installed supported9.6 options before child start.
-- [ ] Implement independent auto-start supervision, safe process tree stop,
+- [x] Implement independent auto-start supervision, safe process tree stop,
   lease revision/expiry/revocation and bounded error codes with no raw exceptions.
-- [ ] GREEN unit and actual Linux descendant/sshd harness; commit and report.
+- [x] GREEN unit and actual Linux descendant/sshd harness; commit and report.
 
 ### Task 4: Signed native coordinator, offline queue and RPM ownership
 
@@ -171,18 +171,18 @@ entrypoints. **Produces:** documented root-only `endpoint-agent-setup install`,
 `upgrade`, `remove`, `reconcile` commands with exact native operation receipts;
 known successful settlement emits one ordered event after owner/lock release.
 
-- [ ] RED exact native input/signature verification, uncertain RPM/no replay,
+- [x] RED exact native input/signature verification, uncertain RPM/no replay,
   concurrent owner denial, genuine known0, final package state, symlink/owner races.
-- [ ] Implement canonical coordinator and retained verified execution snapshot
+- [x] Implement canonical coordinator and retained verified execution snapshot
   outside removed payload. Stage intent from ordinary RPM hooks, no fake native0;
   make unsupported direct RPM state visibly pending until sufficient reconciliation.
-- [ ] Implement protected causal outbox retaining UUID/credential/history, no raw
+- [x] Implement protected causal outbox retaining UUID/credential/history, no raw
   bearer records, bounded notifier after native owner exits, offline removal
   delivered before reinstall; exact Support/browser cleanup before marker removal.
-- [ ] Package independent Support/privileged helpers with native code ownership,
+- [x] Package independent Support/privileged helpers with native code ownership,
   boot/start enablement, normal uninstall cleanup, no background sender leftovers.
   Preserve package-owned code against Core OTA. Freeze new source before builds.
-- [ ] GREEN native RPM upgrade/removal/failure/rollback harness on isolated test
+- [x] GREEN native RPM upgrade/removal/failure/rollback harness on isolated test
   paths; commit scoped source/packaging changes and report actual limits.
 
 ### Task 5: Console Linux adapter and integration review
@@ -193,30 +193,42 @@ component, enrollment/history UI and tests, generated contracts, current runbook
 identity controls and existing-device removal/history views without Windows UI
 regression, plus documented canonical native Linux setup/uninstall commands.
 
-- [ ] RED Linux administrator/UID input, disabled projection, platform switching,
+- [x] RED Linux administrator/UID input, disabled projection, platform switching,
   history/parent and native pending messages; old Windows interactions unchanged.
-- [ ] Implement narrow Console adapter using server-verified platform; no private
+- [x] Implement narrow Console adapter using server-verified platform; no private
   credential exposure, no client attestation falsely called actual SSH success.
-- [ ] GREEN UI/typecheck/build; review the combined source, contracts and native
+- [x] GREEN UI/typecheck/build; review the combined source, contracts and native
   closure; run appropriate full/real-PG suites in a guarded disposable database.
-- [ ] Commit integration only after task and whole-branch review findings resolved.
+- [x] Commit integration only after task and whole-branch review findings resolved.
 
 ### Task 6: Root deployment, immutable Linux build and live acceptance
 
-- [ ] Capture baseline proofs, native package/OS/host identity and available space.
+- [x] Capture baseline proofs, native package/OS/host identity and available space.
   APT archive cleanup preserved credential/identity/config/CA hashes and CorePID;
   only690MB remained, so measure build footprint/storage before staging.
-- [ ] Resolve explicit existing Linux administrative principal for actual reserve
+- [x] Resolve explicit existing Linux administrative principal for actual reserve
   SSH without adding sudo/accounts. Preserve current domain/graphical state.
-- [ ] Back up provider/database/config/policies; deploy compatible additive schema
+- [x] Back up provider/database/config/policies; deploy compatible additive schema
   and exact source after checks; prove existing Windows support/native continuity.
-- [ ] Build/sign new source-bound ALT178 Core/UserSensor/Support and kit, verify
+- [x] Build/sign new source-bound ALT183 Core/UserSensor/Support and kit, verify
   actual signature/digests/closure/ownership, publish candidate only as needed.
-- [ ] Execute all spec native/ordinary/offline/clean/rebind/expiry gates on VM107;
+- [x] Execute all spec native/ordinary/offline/clean/rebind/expiry gates on VM107;
   genuinely accepted active-user samples before/after stopped-Core/updater test,
   two real admin SSH commands90seconds apart, restore original states and180second
   plus longer quiet stability proof. No unrelated production workstation changes.
-- [ ] Publish only after qualified live acceptance; verify actual served bytes;
+- [x] Publish only after qualified live acceptance; verify actual served bytes;
   update Linux canonical records/AGENTS/runbooks and leave Windows177 policy intact.
-- [ ] Preserve failure receipts, clean only owned temporary sessions/jobs/keys,
+- [x] Preserve failure receipts, clean only owned temporary sessions/jobs/keys,
   commit/push evidence and report exact acceptance vs outstanding fleet limits.
+
+
+## Final Task6 outcome
+
+Completed2026-11-09: native183 accepted on dedicated Stage VM107, production
+providerfd196e78/schema50 deployed, actual HTTPS native183 bytes/signatures verified.
+Stage0b8ea913 separately preserves Worktime51. Historical178-182 failures and the
+original disabled-rebind bootstrap refusal are retained. See
+[final acceptance and limits](../../verification/2026-11-09-linux183-native-canary.md).
+Linux fleet rollout/global enrollment authority was not enabled. Windows177/policy12
+and original media remain unchanged. Owned temporary-resource cleanup and final
+release documentation are recorded with the final verification.

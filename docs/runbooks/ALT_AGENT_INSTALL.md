@@ -6,18 +6,23 @@ CA trust, credentials and configuration are provisioned separately.
 
 ## Current native RPM workstation path
 
-For the signed 3.2.127-2 native distribution kit, use
-`packaging/alt/pilot/README.ru.md` and `tools/build_alt_pilot_kit.py`.
-It includes the separately installed CUPS repair and rollback/source RPMs,
-publisher RPM signatures, detached archive/manifest signatures and read-only
-preflight. Its public signing key requires independent fingerprint verification;
-environment CA and unique enrollment are supplied separately. A fresh install
-in a container is supplemental evidence, not acceptance on a separate test PC.
+The published native release is **3.2.183**, with independent Support1.0.0.
+Use [Linux native Setup](LINUX_NATIVE_SETUP.md) and the exact
+[release record](../releases/linux-3.2.183-native.json) for signed bytes, installation,
+ordinary removal/reinstall, offline recovery and qualification limits. The canonical
+coordinator verifies both RPMs and owns the known-native result. Existing-identity
+upgrades preserve UUID/credential/history. A fresh install requires separately
+approved bounded Linux enrollment authority; publication creates no new campaign.
 
-For the current headless Core layout, follow `packaging/alt/README.md` and build
-on ALT with `bash packaging/alt/build-rpm.sh --with-user-sensor`. Install the Core
-and optional user-sensor RPM together. The legacy offline layout documented below
-remains a separate path; do not run it against the current RPM release tree.
+The historical3.2.127-2 kit and its separate CUPS repair/rollback/source RPMs remain
+archived under `packaging/alt/pilot/README.ru.md`. Keep their original qualification
+and package ownership separate. Native183 media does not include a new CUPS release.
+
+Build the current headless layout on ALT using `packaging/alt/README.md` and
+`bash packaging/alt/build-rpm.sh --with-user-sensor`; freeze/review/sign its exact
+source before distribution. Install the paired archives through native Setup.
+Core-only runtime OTA must preserve RPM-owned privileged helpers and units.
+The legacy offline layout below remains a separate historical procedure.
 
 The optional package supplies KDE autostart and the restricted browser helper.
 For a session already running during installation, execute

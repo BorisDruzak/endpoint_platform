@@ -1,7 +1,10 @@
-# Linux native Setup178
+# Linux native Setup183
 
 This workflow owns the exact two RPMs, independent Support1.0.0 and source-bound
-installation facts. Linux primary156 and Windows177 publication remain separate.
+installation facts. Published native Linux183 and Windows177 remain separate.
+Exact signed media and scope: [Linux183 release](../releases/linux-3.2.183-native.json).
+Core-only OTA156 remains historical; privileged183 Support/Setup requires native RPM.
+No Linux fleet rollout or global Linux enrollment campaign was enabled.
 Run only as root. Do not invoke RPM again after an uncertain result.
 
 ## Trust the distribution before executing it
@@ -15,8 +18,8 @@ and verify both detached signatures before extracting or running any kit helper:
 ```sh
 gpg --homedir "$TRUST_HOME" --batch --import endpoint-rpm-release.asc
 gpg --homedir "$TRUST_HOME" --batch --with-colons --fingerprint --list-keys
-gpg --homedir "$TRUST_HOME" --batch --verify endpoint-alt-pilot-3.2.178-1.tar.gz.sig endpoint-alt-pilot-3.2.178-1.tar.gz
-gpg --homedir "$TRUST_HOME" --batch --verify endpoint-alt-pilot-3.2.178-1.manifest.sig endpoint-alt-pilot-3.2.178-1.manifest.json
+gpg --homedir "$TRUST_HOME" --batch --verify endpoint-alt-pilot-3.2.183-1.tar.gz.sig endpoint-alt-pilot-3.2.183-1.tar.gz
+gpg --homedir "$TRUST_HOME" --batch --verify endpoint-alt-pilot-3.2.183-1.manifest.sig endpoint-alt-pilot-3.2.183-1.manifest.json
 ```
 
 The trust-home path is an explicitly prepared operator directory. A downloaded
@@ -33,17 +36,17 @@ also requires all three existing explicit canary environment markers. Never chan
 origin or relax TLS to repair enrollment. Fresh enrollment uses the existing
 `provisioning.installation_id` and exact native source approved on the provider.
 
-From the verified new178 kit, before Core starts:
+From the verified new183 kit, before Core starts:
 
 ```sh
-./endpoint-agent-setup install --core-rpm ./endpoint-agent-3.2.178-alt6.x86_64.rpm --user-sensor-rpm ./endpoint-agent-user-sensor-3.2.178-alt6.x86_64.rpm --public-key ./endpoint-rpm-release.asc
+./endpoint-agent-setup install --core-rpm ./endpoint-agent-3.2.183-alt6.x86_64.rpm --user-sensor-rpm ./endpoint-agent-user-sensor-3.2.183-alt6.x86_64.rpm --public-key ./endpoint-rpm-release.asc
 ```
 
 Use `upgrade` for an existing installation. An ordinary removal uses the exact
 archives of the installed native version:
 
 ```sh
-endpoint-agent-setup remove --core-rpm /root/verified-kit/endpoint-agent-3.2.178-alt6.x86_64.rpm --user-sensor-rpm /root/verified-kit/endpoint-agent-user-sensor-3.2.178-alt6.x86_64.rpm
+endpoint-agent-setup remove --core-rpm /root/verified-kit/endpoint-agent-3.2.183-alt6.x86_64.rpm --user-sensor-rpm /root/verified-kit/endpoint-agent-user-sensor-3.2.183-alt6.x86_64.rpm --public-key /root/verified-kit/endpoint-rpm-release.asc
 ```
 
 No Device credential is accepted on the command line. Canonical credential and
@@ -114,7 +117,7 @@ Use the retained Setup executable for manual reconciliation while156 is installe
 ## Build and verification boundaries
 
 Freeze from a clean Git checkout matching the exact runtime source revision.
-`packaging/alt/build-rpm.sh` creates178/alt6 with Setup onefile and Support onedir
+`packaging/alt/build-rpm.sh` creates183/alt6 with Setup onefile and Support onedir
 outside Core's `/opt/endpoint-agent/versions` tree. Both RPMs contain the same
 final payload/source manifest. The build checks both native components' embedded
 `--build-info` source identity. Sign final RPM bytes only after freezing; never

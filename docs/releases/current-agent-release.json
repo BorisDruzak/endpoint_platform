@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "version": "3.2.177",
-  "status": "published_windows_qualified_online_rollout_accepted",
-  "verified_utc": "2026-11-07T00:45:22.653657+00:00",
+  "status": "published_windows177_and_linux183_native_scoped_canary_accepted",
+  "verified_utc": "2026-11-09T11:15:10.810918+00:00",
   "runtime_source_commit": "25f2ad8a5e13991e4e76260da939d29aafba8674",
   "windows_packaging_commit": "d21bc3bba119a178607de6f64f620fb53eeadf01",
-  "linux_kit_metadata_commit": "d007064792caa5f3b94d911c73b13214913a230c",
-  "verified_code_and_tests_commit": "266e38e5c2ead35f95978da1b95cc7a4fadb2a82",
+  "linux_kit_metadata_commit": "21fc543af8d4b8b24df83f29a27e4e2eeb86c268",
+  "verified_code_and_tests_commit": "fd196e78b2c5cef00c86de79ca359147676f8b2f",
   "canonical_rules": "AGENTS.md#canonical-agent-release",
   "windows": {
     "setup": {
@@ -148,34 +148,56 @@
     }
   },
   "linux": {
-    "distribution": "ALT 11 x86_64",
+    "version": "3.2.183",
+    "distribution": "ALT11.4 x86_64 / KDE6 / systemd258.9 qualified canary",
+    "runtime_source_commit": "21fc543af8d4b8b24df83f29a27e4e2eeb86c268",
+    "release_record": "docs/releases/linux-3.2.183-native.json",
     "core_rpm": {
-      "filename": "endpoint-agent-3.2.156-alt5.x86_64.rpm",
-      "sha256": "0287f55321b7f69ce5f3036c866ff416af376c907a087052afb0f833cade0e9b"
+      "filename": "endpoint-agent-3.2.183-alt6.x86_64.rpm",
+      "sha256": "063db934d957426bd1b9dc28ffaf16c2e00c30864d911d1f2d266d969fd04d56",
+      "size": 53636497
     },
     "user_sensor_rpm": {
-      "filename": "endpoint-agent-user-sensor-3.2.156-alt5.x86_64.rpm",
-      "sha256": "5688d7270c647fe87b2ce3ff37150c867d08dccc358b320e65e8fb58ef126daa"
+      "filename": "endpoint-agent-user-sensor-3.2.183-alt6.x86_64.rpm",
+      "sha256": "865b6c359d545d4092462b591ab909d2d6107fc0d050357cf4035f43b9c65298",
+      "size": 42164
+    },
+    "support": {
+      "version": "1.0.0",
+      "service": "endpoint-support-access.service",
+      "binary_sha256": "9712c68d687b8c46f06bff95513382298f4a3816049eede22328d08ad28d9b50",
+      "independent_of_core_and_updater": true,
+      "initial_access_hours_max": 8,
+      "explicit_existing_principal": "root UID0"
     },
     "kit": {
-      "name": "endpoint-alt-pilot-3.2.156-1",
-      "operator_directory": "C:\\endpoint-platform-wix-build\\unified-3.2.156\\linux-kit",
-      "server_directory": "/srv/endpoint-platform-distribution/alt/endpoint-alt-pilot-3.2.156-1",
-      "download_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.156-1/endpoint-alt-pilot-3.2.156-1.tar.gz",
-      "manifest_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.156-1/endpoint-alt-pilot-3.2.156-1.manifest.json",
+      "name": "endpoint-alt-pilot-3.2.183-1",
+      "schema_version": "endpoint_alt_native_kit_v3",
+      "operator_directory": "C:/endpoint-platform-wix-build/linux178-native/kit183",
+      "server_directory": "/srv/endpoint-platform-distribution/alt/endpoint-alt-pilot-3.2.183-1",
+      "download_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.183-1/endpoint-alt-pilot-3.2.183-1.tar.gz",
+      "manifest_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.183-1/endpoint-alt-pilot-3.2.183-1.manifest.json",
       "public_file_sha256": {
-        "endpoint-alt-pilot-3.2.156-1.manifest.json": "c74f20dbb15d92808e5b11da582cf1ae73c1760cfdd71c7686298a069f71a004",
-        "README.ru.md": "01afa7bec0ab05dd5598ef32f239fea2e4e5baa0c89168117541e01cb271e467",
+        "endpoint-alt-pilot-3.2.183-1.manifest.json": "f032ce98ab0f488ec581c57f5f4144b201db76d1b430bbaf0d2a38cb5eb5e603",
+        "endpoint-alt-pilot-3.2.183-1.tar.gz": "c5b552afa4aa27e4df73af0ce68be4ecc88729f30baf3a70e6f9d4c8c709a3f3",
+        "endpoint-alt-pilot-3.2.183-1.manifest.sig": "850ba02dd8c1116d411facf002095905036e59b68ecd30eb3c0ae99288d66541",
+        "endpoint-alt-pilot-3.2.183-1.tar.gz.sig": "ce87a6411b3b029ebeb4bd00cf679b54171890ebc7c7bc88065692921072ef5e",
         "endpoint-rpm-release.asc": "12175df39caa5a67336aeb002b5c71d3a9d3047961f5ad90cf959650044b456c",
-        "endpoint-alt-pilot-3.2.156-1.tar.gz.sig": "a071acb082481f9d59409f264aa3a0e8e579f7338890293961caff51bb11ef68",
-        "endpoint-alt-pilot-3.2.156-1.tar.gz": "071720bbda4c1fc81152a1fd4fa004c02b096f9ecf162bac996b2c0dd746f2c9",
-        "endpoint-alt-pilot-3.2.156-1.manifest.sig": "48d469638c3b8500e0de08ee8aaf37b2a2c5ce77d9d375f3403f495aea3c8362",
-        "endpoint-alt-pilot-3.2.156-1.tar.gz.sha256": "037660af3e1d80d5789aa918e147c1b56f444ce1d127013be735f0a2d0c149d0",
-        "endpoint-alt-pilot-3.2.156-1.manifest.sha256": "8e81de60068189db8d2ec6cb75441c4a550719903d74653b20e2ef71e37465b5"
+        "README.ru.md": "062a4c22db78190df8f03cc0e055bab643fc4292176a491ac8129dda3ea661eb",
+        "endpoint-alt-pilot-3.2.183-1.manifest.json.sha256": "e83323c87fbd525a40d890499d6c059845bbcf322ebcf7c2bf277e121fdabe9e",
+        "endpoint-alt-pilot-3.2.183-1.tar.gz.sha256": "49a5916989172abf6bf668c4b7fc78e511fdfee03b334b5a856fbf7e95b504e4"
       },
       "publisher_openpgp_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631"
     },
     "update": {
+      "mode": "native_rpm_coordinator",
+      "version": "3.2.183",
+      "operator_run": true,
+      "automatic_linux_fleet_enabled": false,
+      "kit_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.183-1/endpoint-alt-pilot-3.2.183-1.tar.gz",
+      "reason": "Independent privileged Support and Setup are RPM-owned and must not be delivered as Core-only OTA."
+    },
+    "historical_core_only_ota_unchanged": {
       "schema_version": "update_build_manifest_v1",
       "build_identifier": "agent-linux-unified32156-6ed41cd",
       "version": "3.2.156",
@@ -188,23 +210,41 @@
       "size": 21681357,
       "release_notes": "Unified agent with power history, resilient telemetry and installation recovery."
     },
+    "production_native_source_release_id": "f785e4e5-17fd-414b-9474-0d1e24cf2100",
     "qualified_native_paths": [
-      "155 to 156 to 155 to 156 using signed RPMs",
-      "identity/configuration/credential/CA preservation",
-      "fresh policy APPLIED and authenticated TLS connection",
-      "180-second quiet observation; stable processes and zero new power-event loss"
+      "Signed156 rollback and return183 native0 with retained private4; modern retained enrollment identity on VM107",
+      "Fresh native0 plus actual manual approval and modern previous-card history relation",
+      "Ordinary same-card reinstallation and fixed mixed online/offline rebind with manual disable preserved",
+      "Actual root SSH with Core/updater/path stopped for108.613629715seconds; expiry/revoke and fresh accepted user telemetry"
     ],
-    "version": "3.2.156",
-    "runtime_source_commit": "6ed41cd01d494e46111a452c2ae3a844f723175b"
+    "fleet_acceptance": false,
+    "qualification_limits": [
+      "Qualified on dedicated ALT11.4 x86_64/KDE6/systemd258.9 VM107 at192.168.101.191, retained on staging. No Linux fleet rollout or actual production-Linux SSH acceptance is inferred.",
+      "Native RPM Setup owns privileged Support/helpers; legacy Core-only OTA156 is unchanged and cannot deliver this native release.",
+      "Initial clean native0 waited for real manual enrollment approval (outer21); notification-only reconciliation completed without RPM replay. Fresh sessions use standard XDG autostart; existing active session was explicitly activated once.",
+      "No global production Linux enrollment campaign/network/quota was created. New registrations need separately bounded source-qualified authority; existing-identity upgrade consumes no new claim.",
+      "Historical legacy29a8 parent fingerprint mismatch remains refused; modern freshA-to-freshB relation and ordinary same-card history were verified. No credential/history merge.",
+      "Earlier offline5 bootstrap refusal and canonical administrator reset remain historical; fixed mixed online8/9 and offline10/11 completed without manual repair.",
+      "Audit-provenance evidence is bounded to1000 relevant events; missing/unmarked history fails closed and requires fresh explicit authority, never implicit access.",
+      "Physical USB/print jobs and other distro/session/source profiles are not qualified by this test. Windows177/policy12 and historical media remain unchanged."
+    ]
   },
   "provider": {
-    "source_commit": "266e38e5c2ead35f95978da1b95cc7a4fadb2a82",
-    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-266e38e5c2ea",
-    "database_schema": "0048_installation_lifecycle",
+    "source_commit": "fd196e78b2c5cef00c86de79ca359147676f8b2f",
+    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-fd196e78b2c5",
+    "database_schema": "0050_linux_enrollment_binding",
     "gateway_pid_preserved": 24963,
-    "exporter_pid_preserved": 107695,
-    "installation_defaults_unchanged": true,
-    "report": "docs/verification/2026-11-07-test120-installation-lifecycle177.md"
+    "exporter_pid_after_deployment": 334584,
+    "windows_installation_defaults_unchanged": true,
+    "linux_initial_defaults": {
+      "enabled": true,
+      "existing_admin_username": "root",
+      "existing_admin_uid": 0,
+      "existing_approved_operator_key_only": true,
+      "access_hours": 8
+    },
+    "stage_worktime51_deployed_to_production": false,
+    "report": "docs/verification/2026-11-09-linux183-native-canary.md"
   },
   "verification": {
     "full_project_baseline": "6808 passed,470 skipped,7 existing warnings,821.80s before the narrow candidate visibility extension",
@@ -226,11 +266,11 @@
     "UserSensor/activity telemetry on120 is verified before and after controlled Core restart; previously deferred Yandex26.10 browser telemetry is not claimed.",
     "Support needs Windows, network, Endpoint/gateway and an existing verified administrator; initial access is at most8h and is not renewed by polling/retry.",
     "Portable OpenSSH fallback retains the previously accepted upstream Preview/non-production-ready limitation.",
-    "No new Linux release; preserved ALT156 metadata has not been requalified by this Windows task."
+    "Linux native183 is separately published and qualified on Stage VM107; historical156 media and Core-only OTA are preserved. No Linux fleet rollout or production-Linux SSH acceptance is implied."
   ],
   "operator_evidence_directory": "C:/Users/admin-2/.codex/worktrees/pilot-support-channel/endpoint/.superpowers/sdd/2026-11-07-installation-lifecycle",
   "update_rule": "Immutable signed bytes, Console source canary, source qualification, dynamic all_active/max2, observed acceptance, canonical same-row primary promotion",
-  "record_role": "Current Windows177 primary and unchanged ALT156 kit; retained version-named older sections are historical checkpoints",
+  "record_role": "Current Windows177 primary and separately published native ALT183 kit; retained version-named older sections and historical_* fields are historical checkpoints",
   "qualified_existing_device_release_record": "docs/releases/windows-3.2.177-setup.json",
   "automatic_full_setup": {
     "revision": 12,
@@ -244,13 +284,21 @@
     "safe_code": null
   },
   "live_provider": {
-    "source_commit": "266e38e5c2ead35f95978da1b95cc7a4fadb2a82",
-    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-266e38e5c2ea",
-    "database_schema": "0048_installation_lifecycle",
+    "source_commit": "fd196e78b2c5cef00c86de79ca359147676f8b2f",
+    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-fd196e78b2c5",
+    "database_schema": "0050_linux_enrollment_binding",
     "gateway_pid_preserved": 24963,
-    "exporter_pid_preserved": 107695,
-    "installation_defaults_unchanged": true,
-    "report": "docs/verification/2026-11-07-test120-installation-lifecycle177.md"
+    "exporter_pid_after_deployment": 334584,
+    "windows_installation_defaults_unchanged": true,
+    "linux_initial_defaults": {
+      "enabled": true,
+      "existing_admin_username": "root",
+      "existing_admin_uid": 0,
+      "existing_approved_operator_key_only": true,
+      "access_hours": 8
+    },
+    "stage_worktime51_deployed_to_production": false,
+    "report": "docs/verification/2026-11-09-linux183-native-canary.md"
   },
   "clean156_full_setup": {
     "status": "qualified_clean156_native_update_applied",
@@ -942,5 +990,81 @@
     "report": "docs/verification/2026-11-07-test120-installation-lifecycle177.md"
   },
   "historical_current_checkpoint": "docs/releases/windows-3.2.176-current-checkpoint.json",
-  "historical_user_sensor_cause_and_corrected176": "docs/verification/2026-11-07-test120-usersensor-cause-clean176.md"
+  "historical_user_sensor_cause_and_corrected176": "docs/verification/2026-11-07-test120-usersensor-cause-clean176.md",
+  "linux_primary_previous156": {
+    "distribution": "ALT 11 x86_64",
+    "core_rpm": {
+      "filename": "endpoint-agent-3.2.156-alt5.x86_64.rpm",
+      "sha256": "0287f55321b7f69ce5f3036c866ff416af376c907a087052afb0f833cade0e9b"
+    },
+    "user_sensor_rpm": {
+      "filename": "endpoint-agent-user-sensor-3.2.156-alt5.x86_64.rpm",
+      "sha256": "5688d7270c647fe87b2ce3ff37150c867d08dccc358b320e65e8fb58ef126daa"
+    },
+    "kit": {
+      "name": "endpoint-alt-pilot-3.2.156-1",
+      "operator_directory": "C:\\endpoint-platform-wix-build\\unified-3.2.156\\linux-kit",
+      "server_directory": "/srv/endpoint-platform-distribution/alt/endpoint-alt-pilot-3.2.156-1",
+      "download_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.156-1/endpoint-alt-pilot-3.2.156-1.tar.gz",
+      "manifest_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.156-1/endpoint-alt-pilot-3.2.156-1.manifest.json",
+      "public_file_sha256": {
+        "endpoint-alt-pilot-3.2.156-1.manifest.json": "c74f20dbb15d92808e5b11da582cf1ae73c1760cfdd71c7686298a069f71a004",
+        "README.ru.md": "01afa7bec0ab05dd5598ef32f239fea2e4e5baa0c89168117541e01cb271e467",
+        "endpoint-rpm-release.asc": "12175df39caa5a67336aeb002b5c71d3a9d3047961f5ad90cf959650044b456c",
+        "endpoint-alt-pilot-3.2.156-1.tar.gz.sig": "a071acb082481f9d59409f264aa3a0e8e579f7338890293961caff51bb11ef68",
+        "endpoint-alt-pilot-3.2.156-1.tar.gz": "071720bbda4c1fc81152a1fd4fa004c02b096f9ecf162bac996b2c0dd746f2c9",
+        "endpoint-alt-pilot-3.2.156-1.manifest.sig": "48d469638c3b8500e0de08ee8aaf37b2a2c5ce77d9d375f3403f495aea3c8362",
+        "endpoint-alt-pilot-3.2.156-1.tar.gz.sha256": "037660af3e1d80d5789aa918e147c1b56f444ce1d127013be735f0a2d0c149d0",
+        "endpoint-alt-pilot-3.2.156-1.manifest.sha256": "8e81de60068189db8d2ec6cb75441c4a550719903d74653b20e2ef71e37465b5"
+      },
+      "publisher_openpgp_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631"
+    },
+    "update": {
+      "schema_version": "update_build_manifest_v1",
+      "build_identifier": "agent-linux-unified32156-6ed41cd",
+      "version": "3.2.156",
+      "platform": "linux_amd64",
+      "channel": "stable",
+      "artifact_url": "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/agent-linux-unified32156-6ed41cd",
+      "artifact_name": "endpoint-agent-linux_amd64-3.2.156.tar.gz",
+      "archive_type": "tar.gz",
+      "sha256": "c2fb732693884e7779a95cf9fbbc931d5fd7253435ecb7483c5e722162981370",
+      "size": 21681357,
+      "release_notes": "Unified agent with power history, resilient telemetry and installation recovery."
+    },
+    "qualified_native_paths": [
+      "155 to 156 to 155 to 156 using signed RPMs",
+      "identity/configuration/credential/CA preservation",
+      "fresh policy APPLIED and authenticated TLS connection",
+      "180-second quiet observation; stable processes and zero new power-event loss"
+    ],
+    "version": "3.2.156",
+    "runtime_source_commit": "6ed41cd01d494e46111a452c2ae3a844f723175b"
+  },
+  "current_provider": {
+    "source_commit": "fd196e78b2c5cef00c86de79ca359147676f8b2f",
+    "server_path": "/opt/endpoint-platform/releases/endpoint-platform-fd196e78b2c5",
+    "schema": "0050_linux_enrollment_binding",
+    "health_verified_utc": "2026-11-09T11:39:02.777294+00:00",
+    "windows177_and_policy12_unchanged": true,
+    "stage_worktime51_deployed_to_production": false
+  },
+  "historical_windows177_provider_checkpoint": {
+    "source_commit": "266e38e5c2ead35f95978da1b95cc7a4fadb2a82",
+    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-266e38e5c2ea",
+    "database_schema": "0048_installation_lifecycle",
+    "gateway_pid_preserved": 24963,
+    "exporter_pid_preserved": 107695,
+    "installation_defaults_unchanged": true,
+    "report": "docs/verification/2026-11-07-test120-installation-lifecycle177.md"
+  },
+  "historical_windows177_live_provider_checkpoint": {
+    "source_commit": "266e38e5c2ead35f95978da1b95cc7a4fadb2a82",
+    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-266e38e5c2ea",
+    "database_schema": "0048_installation_lifecycle",
+    "gateway_pid_preserved": 24963,
+    "exporter_pid_preserved": 107695,
+    "installation_defaults_unchanged": true,
+    "report": "docs/verification/2026-11-07-test120-installation-lifecycle177.md"
+  }
 }

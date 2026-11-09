@@ -2,7 +2,7 @@
   "schema_version": 1,
   "version": "3.2.183",
   "kind": "linux_native_candidate",
-  "status": "staging_clean_native_accepted_live_gates_in_progress",
+  "status": "historical_candidate_promoted_after_final_acceptance",
   "source_revision": "21fc543af8d4b8b24df83f29a27e4e2eeb86c268",
   "source_fix": "d365b5a0117b74b080bf65185dff7aaa49213136",
   "publisher_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
@@ -87,5 +87,6 @@
     "post_restore_sensor_health_ready_at": "2026-11-09T10:16:52.211579Z",
     "rpm_verify_exit": 0,
     "manual_revocation_closed_active_root_session_at": "2026-11-09T10:16:31.935511Z"
-  }
+  },
+  "final_release_record": "docs/releases/linux-3.2.183-native.json"
 }

@@ -1,0 +1,338 @@
+{
+  "schema_version": 1,
+  "version": "3.2.183",
+  "kind": "linux_native_primary",
+  "status": "published_native_scoped_canary_accepted",
+  "source_revision": "21fc543af8d4b8b24df83f29a27e4e2eeb86c268",
+  "source_fix": "d365b5a0117b74b080bf65185dff7aaa49213136",
+  "publisher_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+  "frozen_manifest_sha256": "3f1ef0bd24f51109335dc266f593961ee51c7be7869f5650bb668c6634914a1e",
+  "native_packages": {
+    "core": {
+      "nevra": "endpoint-agent-3.2.183-alt6.x86_64",
+      "signer_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+      "source_revision": "21fc543af8d4b8b24df83f29a27e4e2eeb86c268",
+      "frozen_manifest_sha256": "3f1ef0bd24f51109335dc266f593961ee51c7be7869f5650bb668c6634914a1e",
+      "sha256": "063db934d957426bd1b9dc28ffaf16c2e00c30864d911d1f2d266d969fd04d56",
+      "version": "3.2.183",
+      "package": "endpoint-agent",
+      "setup_sha256": "0d8873428f01b90376b2609aadbfb322034e7e472984212c78dffd011075bb56"
+    },
+    "sensor": {
+      "nevra": "endpoint-agent-user-sensor-3.2.183-alt6.x86_64",
+      "signer_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+      "source_revision": "21fc543af8d4b8b24df83f29a27e4e2eeb86c268",
+      "frozen_manifest_sha256": "3f1ef0bd24f51109335dc266f593961ee51c7be7869f5650bb668c6634914a1e",
+      "sha256": "865b6c359d545d4092462b591ab909d2d6107fc0d050357cf4035f43b9c65298",
+      "version": "3.2.183",
+      "package": "endpoint-agent-user-sensor",
+      "setup_sha256": "0d8873428f01b90376b2609aadbfb322034e7e472984212c78dffd011075bb56"
+    }
+  },
+  "kit": {
+    "endpoint-alt-pilot-3.2.183-1.manifest.json": {
+      "size": 1005,
+      "sha256": "f032ce98ab0f488ec581c57f5f4144b201db76d1b430bbaf0d2a38cb5eb5e603"
+    },
+    "endpoint-alt-pilot-3.2.183-1.tar.gz": {
+      "size": 71370015,
+      "sha256": "c5b552afa4aa27e4df73af0ce68be4ecc88729f30baf3a70e6f9d4c8c709a3f3"
+    }
+  },
+  "detached_signatures": {
+    "endpoint-alt-pilot-3.2.183-1.manifest.sig": {
+      "size": 438,
+      "sha256": "850ba02dd8c1116d411facf002095905036e59b68ecd30eb3c0ae99288d66541"
+    },
+    "endpoint-alt-pilot-3.2.183-1.tar.gz.sig": {
+      "size": 438,
+      "sha256": "ce87a6411b3b029ebeb4bd00cf679b54171890ebc7c7bc88065692921072ef5e"
+    }
+  },
+  "source_publication": {
+    "environment": "production",
+    "origin": "https://endpoint.sosnadmin.local",
+    "observed_utc": "2026-11-09T11:10:54.204679+00:00",
+    "release_id": "f785e4e5-17fd-414b-9474-0d1e24cf2100",
+    "rollback156_release_id": "4c360770-c56e-412e-aa12-d5fc51c07db1",
+    "mandatory_real_verifier": true,
+    "reviewed_by": "codex-linux183-production"
+  },
+  "native_installation_attempted": true,
+  "native_exit_code": 0,
+  "initial_outer_setup_exit_code": 21,
+  "bootstrap_complete": true,
+  "staging_source_qualified": true,
+  "primary_promoted": true,
+  "fleet_acceptance": false,
+  "verification_record": "docs/verification/2026-11-09-linux183-native-canary.md",
+  "limits": [
+    "Qualified on dedicated ALT11.4 x86_64/KDE6/systemd258.9 VM107 at192.168.101.191, retained on staging. No Linux fleet rollout or actual production-Linux SSH acceptance is inferred.",
+    "Native RPM Setup owns privileged Support/helpers; legacy Core-only OTA156 is unchanged and cannot deliver this native release.",
+    "Initial clean native0 waited for real manual enrollment approval (outer21); notification-only reconciliation completed without RPM replay. Fresh sessions use standard XDG autostart; existing active session was explicitly activated once.",
+    "No global production Linux enrollment campaign/network/quota was created. New registrations need separately bounded source-qualified authority; existing-identity upgrade consumes no new claim.",
+    "Historical legacy29a8 parent fingerprint mismatch remains refused; modern freshA-to-freshB relation and ordinary same-card history were verified. No credential/history merge.",
+    "Earlier offline5 bootstrap refusal and canonical administrator reset remain historical; fixed mixed online8/9 and offline10/11 completed without manual repair.",
+    "Audit-provenance evidence is bounded to1000 relevant events; missing/unmarked history fails closed and requires fresh explicit authority, never implicit access.",
+    "Physical USB/print jobs and other distro/session/source profiles are not qualified by this test. Windows177/policy12 and historical media remain unchanged."
+  ],
+  "live_checkpoints": {
+    "device_id": "5c51cb65-4ccd-4f19-87bc-b06c088d1e1a",
+    "previous_device_id": "ebd42535-32e7-4443-95a4-20da3cb0b157",
+    "generation_id": "48238935-7663-4ac3-8102-fe978093d0e6",
+    "installed_event_id": "1cb4f59b-ce86-40fb-bba6-cbea58017f76",
+    "installed_received_at": "2026-11-09T10:10:40.563072+00:00",
+    "automatic_support_expires_at": "2026-11-09T18:10:41.647320Z",
+    "actual_root_ssh_at": "2026-11-09T10:12:05.248885+00:00",
+    "pre_stop_sensor_health_ready_at": "2026-11-09T10:12:43.113901Z",
+    "exec_snapshot_directory_set_unchanged": true,
+    "stopped_core_root_ssh_commands": 3,
+    "stopped_core_ssh_interval_boot_seconds": 108.6136297149933,
+    "task_related_services_restored_at": "2026-11-09T10:14:50.752309Z",
+    "post_restore_stable_seconds": 193.3206946089922,
+    "post_restore_sensor_health_ready_at": "2026-11-09T10:16:52.211579Z",
+    "rpm_verify_exit": 0,
+    "manual_revocation_closed_active_root_session_at": "2026-11-09T10:16:31.935511Z",
+    "final_sequence": 11,
+    "final_acknowledged": 11,
+    "final_event_id": "cdb1cd1d-ec06-43ed-9282-74e74070f3aa",
+    "final_private4_unchanged": true,
+    "fixed_mixed_online_offline_without_manual_recovery": true,
+    "automatic_initial_grants_total": 1,
+    "final_root_ssh_utc": "2026-11-09T11:03:57.403863Z",
+    "final_operator_attestation_utc": "2026-11-09T11:04:12Z",
+    "final_diagnostic_policy_revision": 15,
+    "final_diagnostic_expires_at": "2026-11-09T13:00:41.039000Z",
+    "post_final_native_stable_seconds": 265.6207100409956,
+    "longer_post156_stable_seconds": 650.673001276009,
+    "final_user_sensor_last_seen_at": "2026-11-09T10:57:40.071910Z",
+    "final_activity_last_observed_at": "2026-11-09T10:58:15.073032Z"
+  },
+  "verified_utc": "2026-11-09T11:15:10.810918+00:00",
+  "provider_source_revision": "fd196e78b2c5cef00c86de79ca359147676f8b2f",
+  "staging_provider_source_revision": "0b8ea9138011c1a4512737629d5a12b0269e4e7d",
+  "production_native_source_release_id": "f785e4e5-17fd-414b-9474-0d1e24cf2100",
+  "rollback156_native_source_release_id": "4c360770-c56e-412e-aa12-d5fc51c07db1",
+  "public_directory": "/srv/endpoint-platform-distribution/alt/endpoint-alt-pilot-3.2.183-1",
+  "download_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.183-1/endpoint-alt-pilot-3.2.183-1.tar.gz",
+  "operator_kit": "C:/endpoint-platform-wix-build/linux178-native/kit183/endpoint-alt-pilot-3.2.183-1.tar.gz",
+  "served_https": {
+    "verified_utc": "2026-11-09T11:15:10.810918+00:00",
+    "origin": "https://endpoint.sosnadmin.local",
+    "download_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.183-1/endpoint-alt-pilot-3.2.183-1.tar.gz",
+    "files": {
+      "endpoint-alt-pilot-3.2.183-1.manifest.json": {
+        "size": 1005,
+        "sha256": "f032ce98ab0f488ec581c57f5f4144b201db76d1b430bbaf0d2a38cb5eb5e603",
+        "head_status": 200,
+        "content_length": 1005,
+        "content_disposition": "attachment",
+        "nosniff": "nosniff",
+        "actual_https_get_verified": true
+      },
+      "endpoint-alt-pilot-3.2.183-1.tar.gz": {
+        "size": 71370015,
+        "sha256": "c5b552afa4aa27e4df73af0ce68be4ecc88729f30baf3a70e6f9d4c8c709a3f3",
+        "head_status": 200,
+        "content_length": 71370015,
+        "content_disposition": "attachment",
+        "nosniff": "nosniff",
+        "actual_https_get_verified": true
+      },
+      "endpoint-alt-pilot-3.2.183-1.manifest.sig": {
+        "size": 438,
+        "sha256": "850ba02dd8c1116d411facf002095905036e59b68ecd30eb3c0ae99288d66541",
+        "head_status": 200,
+        "content_length": 438,
+        "content_disposition": "attachment",
+        "nosniff": "nosniff",
+        "actual_https_get_verified": true
+      },
+      "endpoint-alt-pilot-3.2.183-1.tar.gz.sig": {
+        "size": 438,
+        "sha256": "ce87a6411b3b029ebeb4bd00cf679b54171890ebc7c7bc88065692921072ef5e",
+        "head_status": 200,
+        "content_length": 438,
+        "content_disposition": "attachment",
+        "nosniff": "nosniff",
+        "actual_https_get_verified": true
+      },
+      "endpoint-rpm-release.asc": {
+        "size": 1319,
+        "sha256": "12175df39caa5a67336aeb002b5c71d3a9d3047961f5ad90cf959650044b456c",
+        "head_status": 200,
+        "content_length": 1319,
+        "content_disposition": "attachment",
+        "nosniff": "nosniff",
+        "actual_https_get_verified": true
+      },
+      "README.ru.md": {
+        "size": 5582,
+        "sha256": "062a4c22db78190df8f03cc0e055bab643fc4292176a491ac8129dda3ea661eb",
+        "head_status": 200,
+        "content_length": 5582,
+        "content_disposition": "attachment",
+        "nosniff": "nosniff",
+        "actual_https_get_verified": true
+      },
+      "endpoint-alt-pilot-3.2.183-1.manifest.json.sha256": {
+        "size": 109,
+        "sha256": "e83323c87fbd525a40d890499d6c059845bbcf322ebcf7c2bf277e121fdabe9e",
+        "head_status": 200,
+        "content_length": 109,
+        "content_disposition": "attachment",
+        "nosniff": "nosniff",
+        "actual_https_get_verified": true
+      },
+      "endpoint-alt-pilot-3.2.183-1.tar.gz.sha256": {
+        "size": 102,
+        "sha256": "49a5916989172abf6bf668c4b7fc78e511fdfee03b334b5a856fbf7e95b504e4",
+        "head_status": 200,
+        "content_length": 102,
+        "content_disposition": "attachment",
+        "nosniff": "nosniff",
+        "actual_https_get_verified": true
+      }
+    },
+    "both_detached_signatures_valid": true,
+    "publisher_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+    "archive_members_match_signed_manifest": true,
+    "tls_and_hostname_verification_enabled": true,
+    "rejected_directory_listing_and_write": {
+      "directory": 403,
+      "post": 403
+    },
+    "served_media_is_exact_native_verified_media": true,
+    "fleet_started": false
+  },
+  "provider_deployment": {
+    "started_utc": "2026-11-09T11:03:05.795096+00:00",
+    "old_release": "/opt/endpoint-platform/releases/endpoint-platform-266e38e5c2ea",
+    "new_release": "/opt/endpoint-platform/releases/endpoint-platform-fd196e78b2c5",
+    "provider_source": "fd196e78b2c5cef00c86de79ca359147676f8b2f",
+    "native_source": "21fc543af8d4b8b24df83f29a27e4e2eeb86c268",
+    "before": {
+      "endpoint-platform.service": {
+        "MainPID": "113284",
+        "NRestarts": "0",
+        "ActiveState": "active"
+      },
+      "endpoint-platform-worker.service": {
+        "MainPID": "113361",
+        "NRestarts": "0",
+        "ActiveState": "active"
+      }
+    },
+    "gateway_before": {
+      "MainPID": "24963",
+      "NRestarts": "0",
+      "ActiveState": "active"
+    },
+    "ssh_before": {
+      "MainPID": "889",
+      "NRestarts": "0",
+      "ActiveState": "active"
+    },
+    "configuration_before_sha256": "7b648c1332368ace1070832f642e526975b71fba1b2f15d42871865e4c2f0db5",
+    "linux_defaults_added": [
+      "SUPPORT_LINUX_INSTALL_AUTO_ENABLE",
+      "SUPPORT_LINUX_INSTALL_OPERATOR_PUBLIC_KEYS",
+      "SUPPORT_LINUX_INSTALL_ADMIN_USERNAME",
+      "SUPPORT_LINUX_INSTALL_ADMIN_UID",
+      "SUPPORT_LINUX_INSTALL_ACCESS_HOURS"
+    ],
+    "phase": "production_provider_accepted_linux_media_not_yet_published",
+    "schema_before": "0048_installation_lifecycle",
+    "stable_before": {
+      "windows_fleet_policy": {
+        "revision": 12,
+        "enabled": true,
+        "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+        "scope": "all_active",
+        "device_ids": [],
+        "max_parallel": 2
+      },
+      "support_configuration_sha256": "831d803b5e404c379b0b7166688c0b4f988e3c24224829bf57e79f94f4161584",
+      "windows_campaign_authority_sha256": "90649646057c19432f2f7ead1a3edae8972381503c649bdd94b69cf2a194093a"
+    },
+    "completed_utc": "2026-11-09T11:03:11.592237+00:00",
+    "schema_after": "0050_linux_enrollment_binding",
+    "health": {
+      "status": "ok",
+      "service": "endpoint-platform",
+      "database": "ok",
+      "version": "0.0.0"
+    },
+    "after": {
+      "endpoint-platform.service": {
+        "MainPID": "334471",
+        "NRestarts": "0",
+        "ActiveState": "active"
+      },
+      "endpoint-platform-worker.service": {
+        "MainPID": "334472",
+        "NRestarts": "0",
+        "ActiveState": "active"
+      }
+    },
+    "exporter_after": {
+      "MainPID": "334584",
+      "NRestarts": "0",
+      "ActiveState": "active"
+    },
+    "windows_authority_unchanged": true,
+    "windows177_bytes_unchanged": true,
+    "gateway_and_ordinary_ssh_unchanged": true,
+    "configuration_after_sha256": "8703ea9248b417129d2ad5cef818a685a6e0e9bab8c43b89c9839b8d093e6cc1",
+    "root_free_bytes": 615436288,
+    "rolled_back": false
+  },
+  "live_publication_gate": {
+    "version": "3.2.183",
+    "native_source": "21fc543af8d4b8b24df83f29a27e4e2eeb86c268",
+    "canonical_provider_fix": "fd196e78b2c5cef00c86de79ca359147676f8b2f",
+    "staging_provider_source": "0b8ea9138011c1a4512737629d5a12b0269e4e7d",
+    "actual_mixed_online_offline_native0_ack11_without_manual_recovery": true,
+    "actual_stopped_core_updater_root_ssh_interval_seconds": 108.6136297149933,
+    "genuine_accepted_sensor_after_final11": "2026-11-09T10:57:40.071910Z",
+    "genuine_accepted_activity_after_final11": "2026-11-09T10:58:15.073032Z",
+    "final_native_quiet_seconds": 265.6207100409956,
+    "short_expiry_held_session_closed_utc": "2026-11-09T10:57:20.160147+00:00",
+    "short_expiry_deadline_utc": "2026-11-09T10:57:27.688000Z",
+    "initial_automatic_grants": 1,
+    "independent_review": "PASS after mixed-flow fix",
+    "focused_provider_tests": 224,
+    "independent_review_tests": 23,
+    "actual_alt_native_tests": 57,
+    "built_rpm_probe_passed": true,
+    "primary_promotion_authorized_by_existing_task": true
+  },
+  "staging_source_publication": {
+    "environment": "staging",
+    "origin": "https://endpoint-staging.sosnadmin.local",
+    "observed_utc": "2026-11-09T10:03:32.162879+00:00",
+    "release_id": "0279b8fa-adf6-4658-b7d4-b0eddbf6ca3c",
+    "mandatory_real_verifier": true
+  },
+  "final_post_cleanup_verification": {
+    "production_observed_utc": "2026-11-09T11:39:02.777294+00:00",
+    "staging_observed_utc": "2026-11-09T11:38:32.101497+00:00",
+    "production_health_database_ok": true,
+    "production_services_unchanged_zero_restarts": true,
+    "windows177_policy12_authority_and_all8_public_files_unchanged": true,
+    "native_sequence_acknowledged": 11,
+    "fresh_accepted_sensor_at": "2026-11-09T11:37:40.071312+00:00",
+    "fresh_accepted_activity_at": "2026-11-09T11:38:30.071131+00:00",
+    "final_support_revision": 15,
+    "final_support_expires_at": "2026-11-09T13:00:41.039+00:00",
+    "actual_strict_root_ssh_after_cleanup_utc": "2026-11-09T11:37:59.311741Z",
+    "temporary_build_mount_regular_bytes_released": 779956375,
+    "production_duplicate_input_bytes_released": 172152523,
+    "production_root_free_bytes": 756146176,
+    "isolated_pg55446_stopped": true,
+    "stage_owned_compat_clone_dropped": true,
+    "native_journal_private_identity_history_and_backups_preserved": true,
+    "operator_proofs_directory": "C:\\endpoint-platform-wix-build\\linux178-native",
+    "rulings_record": "docs/verification/2026-11-09-linux183-rulings.md"
+  }
+}
