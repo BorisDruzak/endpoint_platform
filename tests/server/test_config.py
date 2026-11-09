@@ -140,14 +140,12 @@ def test_policy_sensor_flags_are_default_enabled_and_explicitly_disableable(tmp_
         "ENDPOINT_ACTIVITY_SENSOR_ENABLED",
         "ENDPOINT_BROWSER_SENSOR_ENABLED",
         "ENDPOINT_DLP_AUDIT_ENABLED",
-        "ENDPOINT_WORKTIME_ENABLED",
     )
     attributes = (
         "endpoint_policy_enabled",
         "endpoint_activity_sensor_enabled",
         "endpoint_browser_sensor_enabled",
         "endpoint_dlp_audit_enabled",
-        "worktime_enabled",
     )
     assert all(getattr(default_settings, attribute) is True for attribute in attributes)
 
@@ -355,3 +353,20 @@ def test_load_secret_file_rejects_group_or_world_readable_file(tmp_path: Path) -
 
     with pytest.raises(ValueError, match="group or world readable"):
         load_secret_file(secret)
+
+
+def test_staging_worktime_flags_require_explicit_opt_in(tmp_path: Path) -> None:
+    environment = _environment(tmp_path)
+    settings = Settings.from_environment(environment)
+    assert settings.worktime_enabled is False
+    assert settings.worktime_helpdesk_enabled is False
+    environment['ENDPOINT_WORKTIME_ENABLED'] = 'true'
+    environment['ENDPOINT_WORKTIME_HELPDESK_ENABLED'] = 'true'
+    settings = Settings.from_environment(environment)
+    assert settings.worktime_enabled is True
+    assert settings.worktime_helpdesk_enabled is True
+    environment['ENDPOINT_WORKTIME_ENABLED'] = 'false'
+    environment['ENDPOINT_WORKTIME_HELPDESK_ENABLED'] = 'false'
+    settings = Settings.from_environment(environment)
+    assert settings.worktime_enabled is False
+    assert settings.worktime_helpdesk_enabled is False

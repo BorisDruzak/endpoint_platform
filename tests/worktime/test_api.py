@@ -7,7 +7,8 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from endpoint_server.auth.employee_sessions import require_employee, EmployeePrincipal
+from endpoint_server.auth.employee_sessions import EmployeePrincipal
+from endpoint_server.auth.worktime_sessions import require_worktime_employee as require_employee
 from endpoint_server.db.base import Base
 from endpoint_server.db.models import ConfirmedIdentity, ScopedRoleGrant
 from endpoint_server.worktime.router import router
@@ -84,7 +85,7 @@ async def test_history_omits_previous_day_carry_event(client):
     assert [e['action'] for e in response.json()['events']] == ['end']
 
 
-async def test_hr_correction_uses_scoped_target_preserves_actor_and_prevents_self_approval(client):
+async def test_hr_correction_uses_scoped_target_preserves_actor_and_records_immediately(client):
     from endpoint_server.worktime.models import Correction
     http,app,people = client
     principal = app.dependency_overrides[require_employee]()
@@ -98,8 +99,9 @@ async def test_hr_correction_uses_scoped_target_preserves_actor_and_prevents_sel
     assert result.status_code == 200
     record = result.json()
     assert record['person_id'] == str(people[1]) and record['actor_id'] == str(people[0])
+    assert record['decision']=='recorded' and record['approval'] is None
     assert (await http.post(f'/api/employee/worktime/corrections/{record["id"]}/decision',
-        json=dict(decision='approved',comment='',idempotency_key=str(uuid4())))).status_code == 409
+        json=dict(decision='approved',comment='',idempotency_key=str(uuid4())))).status_code == 410
     assert (await http.post(f'/api/employee/worktime/people/{people[2]}/corrections',json=body)).status_code == 403
     from dataclasses import replace
     app.dependency_overrides[require_employee] = lambda: replace(principal,achieved_acr='low')
@@ -129,5 +131,8 @@ async def test_finalized_month_api_version_list_read_export_and_scope(client):
     assert 'attachment' in export.headers['content-disposition'] and document['source_digest'] in export.text
     assert ',28800,' in export.text
     assert (await http.get(f'/api/employee/worktime/timesheets/{document["id"]}')).json() == document
-    assert (await http.post(f'/api/employee/worktime/people/{people[0]}/timesheets/finalize',json=body)).status_code == 403
+    assert (await http.post(f'/api/employee/worktime/people/{people[0]}/timesheets/finalize',json=body)).status_code == 200
     assert (await http.post(f'/api/employee/worktime/people/{people[2]}/timesheets/finalize',json=body)).status_code == 403
+    from dataclasses import replace
+    app.dependency_overrides[require_employee] = lambda: replace(principal,achieved_acr='low')
+    assert (await http.post(f'/api/employee/worktime/people/{people[0]}/timesheets/finalize',json=body)).status_code == 403

@@ -152,7 +152,10 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0050_linux_enrollment_binding"]
+    assert script.get_heads() == ["0051_staging_linux_worktime"]
+    merge = script.get_revision("0051_staging_linux_worktime")
+    assert merge.is_merge_point
+    assert merge.down_revision == ("0050_linux_enrollment_binding", "0044_worktime_helpdesk")
 
 
 def test_candidate_visibility_migration_preserves_legacy_default_and_roundtrip(update_migration_database_urls):

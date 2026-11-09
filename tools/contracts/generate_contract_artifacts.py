@@ -1076,6 +1076,8 @@ def render_artifacts(output_root: Path) -> dict[Path, str]:
     rendered[Path('contracts/openapi/endpoint-platform-console-power-v1.yaml')] = _yaml_document(
         _admin_cancellation_openapi(power=True)
     )
+    from tools.contracts.worktime_contract import worktime_openapi
+    rendered[Path('contracts/openapi/endpoint-platform-worktime-v1.yaml')] = _yaml_document(worktime_openapi())
 
     for filename, fixture in FIXTURES.items():
         rendered[Path("tests/fixtures/contracts") / filename] = _json_document(fixture)

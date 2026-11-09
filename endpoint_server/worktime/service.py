@@ -50,6 +50,12 @@ def serialize(row):
             if column.name != 'fingerprint'}
 
 
+def correction_document(row, approval=None):
+    """No historical decision means recorded; never synthesize an approval."""
+    return dict(**serialize(row), decision=approval.decision if approval is not None else 'recorded',
+                approval=serialize(approval) if approval is not None else None)
+
+
 async def lock_person(session, person_id):
     """Identity lock also serializes initial row creation and all person writes."""
     # Identity imports are deferred so pure projections can run independently.
@@ -144,29 +150,14 @@ async def request_correction(session, person_id, actor_id, start, end, status, r
     row = Correction(id=uuid4(), person_id=person_id, actor_id=actor_id, idempotency_key=key, fingerprint=fingerprint(payload),
         started_at=utc(start), ended_at=utc(end), status=status, reason=reason.strip(), created_at=now)
     session.add(row)
-    audit(session, person_id, actor_id, 'correction_requested', row.id, now)
+    audit(session, person_id, actor_id, 'correction_recorded', row.id, now)
     await session.flush()
     return row
 
 
 async def decide_correction(session, correction, actor_id, decision, comment, key, now):
-    await lock_person(session, correction.person_id)
-    if actor_id in (correction.person_id,correction.actor_id) or decision not in ('approved', 'rejected'):
-        raise ValueError('A correction requires an independent authorized reviewer')
-    payload = dict(correction_id=correction.id, decision=decision, comment=comment)
-    previous = await session.scalar(select(Approval).where(Approval.correction_id == correction.id))
-    if previous:
-        if previous.idempotency_key != key or previous.fingerprint != fingerprint(payload) or previous.actor_id != actor_id:
-            raise ValueError('Correction already has an immutable decision')
-        return previous
-    if await session.scalar(select(Approval.id).where(Approval.idempotency_key == key)):
-        raise ValueError('Idempotency key belongs to another decision')
-    row = Approval(id=uuid4(), correction_id=correction.id, actor_id=actor_id, decision=decision, comment=comment.strip(),
-        idempotency_key=key, fingerprint=fingerprint(payload), created_at=now)
-    session.add(row)
-    audit(session, correction.person_id, actor_id, 'correction_' + decision, row.id, now)
-    await session.flush()
-    return row
+    """Retired capability, including callers outside the HTTP API."""
+    raise ValueError('Correction decisions are retired; corrections are recorded immediately')
 
 
 async def schedule_for(session, person_id, day):
@@ -186,10 +177,13 @@ async def personnel_data(session, person_id, start, end):
     explanation_rows = list((await session.scalars(select(Explanation).where(Explanation.person_id == person_id,
         Explanation.started_at < end, Explanation.ended_at > start))).all())
     pairs = list((await session.execute(select(Correction, Approval).outerjoin(Approval, Approval.correction_id == Correction.id)
-        .where(Correction.person_id == person_id, Correction.started_at < end, Correction.ended_at > start))).all())
-    approved = [SimpleNamespace(id=c.id, started_at=c.started_at, ended_at=c.ended_at, status=c.status, approved_at=a.created_at)
-                for c, a in pairs if a and a.decision == 'approved']
-    return events, explanation_rows, pairs, approved
+        .where(Correction.person_id == person_id, Correction.started_at < end, Correction.ended_at > start)
+        .order_by(Correction.created_at,Correction.id))).all())
+    applied = [SimpleNamespace(id=c.id, started_at=c.started_at, ended_at=c.ended_at, status=c.status,
+                applied_at=a.created_at if a is not None else c.created_at,
+                source='approved_correction' if a is not None else 'recorded_correction')
+                for c, a in pairs if a is None or a.decision == 'approved']
+    return events, explanation_rows, pairs, applied
 
 
 async def activity_segments(session, person_id, start, end):
@@ -282,8 +276,8 @@ async def pending_requests(session, person_id, *, start=None, end=None):
 async def day_report(session, person_id, day, now=None, *, include_activity=True):
     now = utc(now or datetime.now(UTC))
     start, end = day_bounds(day, TIMEZONE)
-    events, explanations, pairs, approved = await personnel_data(session, person_id, start, end)
-    work, totals = project_work(events, approved, start, end, now)
+    events, explanations, pairs, applied = await personnel_data(session, person_id, start, end)
+    work, totals = project_work(events, applied, start, end, now)
     schedule = await schedule_for(session, person_id, day)
     scheduled = schedule_windows(schedule.definition, day, shift_days=(day,)) if schedule else []
     yesterday = await schedule_for(session, person_id, day - timedelta(days=1))
@@ -299,7 +293,7 @@ async def day_report(session, person_id, day, now=None, *, include_activity=True
         coverage=dict(state='UNKNOWN' if unknown == 86400 else 'PARTIAL' if unknown else 'MEASURED', measured_seconds=86400-unknown, unknown_seconds=unknown),
         schedule=[dict(started_at=a.isoformat(), ended_at=b.isoformat()) for a,b in scheduled],
         explanations=[serialize(e) for e in explanations],
-        corrections=[dict(**serialize(c), decision=a.decision if a else 'pending', approval=serialize(a) if a else None) for c,a in pairs],
+        corrections=[correction_document(c,a) for c,a in pairs],
         pending_explanations=[dict(**serialize(r), state='pending')
                               for r in await pending_requests(session, person_id,start=start,end=end)])
 
@@ -432,13 +426,13 @@ async def finalize_timesheet(session, person_id, actor_id, month, reason, key, n
     """Finalize one closed month atomically under the same person serialization lock."""
     now = utc(now)
     await lock_person(session,person_id)
-    if actor_id == person_id or not reason.strip():
-        raise ValueError('Monthly approval requires an independent reviewer and a reason')
+    if not reason.strip():
+        raise ValueError('Monthly finalization requires a reason')
     payload = dict(month=month,reason=reason)
     previous = await replay(session,Timesheet,person_id,key,payload)
     if previous:
         if previous.finalized_by != actor_id:
-            raise ValueError('Idempotency key belongs to a different reviewer')
+            raise ValueError('Idempotency key belongs to a different finalizer')
         return previous
     try:
         first = date.fromisoformat(month+'-01')
@@ -451,10 +445,6 @@ async def finalize_timesheet(session, person_id, actor_id, month, reason, key, n
     if end > now:
         raise ValueError('Only a closed calendar month can be finalized')
     await ensure_report_available(session,person_id,start)
-    pending = await session.scalar(select(Correction.id).outerjoin(Approval,Approval.correction_id==Correction.id)
-        .where(Correction.person_id==person_id,Correction.started_at<end,Correction.ended_at>start,Approval.id.is_(None)).limit(1))
-    if pending:
-        raise ValueError('Resolve pending corrections before finalizing the month')
     source_events = list((await session.scalars(select(WorkEvent).where(WorkEvent.person_id==person_id,
         WorkEvent.occurred_at>=start,WorkEvent.occurred_at<end).order_by(WorkEvent.occurred_at))).all())
     days = []

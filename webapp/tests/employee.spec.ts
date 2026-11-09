@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
+import { readFile } from 'node:fs/promises'
 
 /** Contract fixtures exercise the browser only; they do not establish live SSO acceptance. */
 const reportDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Yekaterinburg', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
@@ -15,6 +16,7 @@ async function fixture(page: Page, roles: string[] = []) {
   let status = 'ENDED'
   let explanations: object[] = []
   const timesheets: Record<string, unknown>[] = []
+  let corrections: Record<string, unknown>[] = []
   await page.route('**/api/**', async route => {
     const req = route.request(), url = new URL(req.url()), path = url.pathname
     const body = req.postDataJSON() as Record<string, unknown> | null
@@ -22,12 +24,13 @@ async function fixture(page: Page, roles: string[] = []) {
     let data: unknown
     if (path.startsWith('/api/admin')) return route.fulfill({ status: 403, json: { detail: 'Wrong realm' } })
     if (path === '/api/employee/session') data = { person_id: personId, department_id: 'department', csrf_token: 'test-employee-csrf', grants: roles.map(role => ({ role, department_id: role === 'manager' ? 'department' : null })) }
-    else if (path.endsWith('/day')) data = { ...baseDay(url.searchParams.get('day')!, status, url.searchParams.get('person_id') ?? personId), explanations }
+    else if (path.endsWith('/day')) data = { ...baseDay(url.searchParams.get('day')!, status, url.searchParams.get('person_id') ?? personId), explanations, corrections }
     else if (path.endsWith('/categories')) data = { categories: [{ code: 'meeting', label: 'Совещание', requires_comment: false }, { code: 'other', label: 'Другое', requires_comment: true }] }
-    else if (path.endsWith('/history')) data = { events: [], explanations, corrections: [], approvals: [] }
-    else if (path.endsWith('/month') || path.endsWith('/report')) { const month = url.searchParams.get('month')!, person = url.searchParams.get('person_id') ?? personId; data = { person_id: person, month, timezone: 'Asia/Yekaterinburg', days: [baseDay(`${month}-01`, 'WORKING', person), baseDay(reportDay, 'WORKING', person)], totals: baseDay(reportDay).totals } }
+    else if (path.endsWith('/history')) data = { events: [], explanations, corrections, approvals: [] }
+    else if (path.endsWith('/month') || path.endsWith('/report')) { const month = url.searchParams.get('month')!, person = url.searchParams.get('person_id') ?? personId; const updated = baseDay(reportDay, 'WORKING', person); updated.corrections = corrections as never[]; if (corrections.some(item => item.status === 'BREAK')) updated.totals = { ...updated.totals, work_seconds: 3600, break_seconds: 3600 }; data = { person_id: person, month, timezone: 'Asia/Yekaterinburg', days: [baseDay(`${month}-01`, 'WORKING', person), updated], totals: updated.totals } }
     else if (path.endsWith('/transitions')) { status = ({ start: 'WORKING', break: 'BREAK', resume: 'WORKING', off_pc: 'OFF_PC', end: 'ENDED' } as Record<string, string>)[String(body?.action)]; data = { id: 'event', status } }
     else if (path.endsWith('/explanations')) { explanations = [{ ...body, id: 'explanation' }]; data = explanations[0] }
+    else if (path.endsWith('/corrections')) { corrections = [{ ...body, id: 'correction', person_id: path.includes('/people/') ? targetPersonId : personId, decision: 'recorded' }]; data = corrections[0] }
     else if (path.endsWith('/people')) data = { people: [{ person_id: targetPersonId, department_id: 'department', status: 'WORKING' }] }
     else if (path.endsWith('/approvals')) data = { corrections: [{ id: 'correction', person_id: targetPersonId, actor_id: '00000000-0000-4000-8000-000000000006', started_at: `${reportDay}T03:00:00Z`, ended_at: `${reportDay}T04:00:00Z`, status: 'OFF_PC', reason: 'Работа с документами', decision: 'pending' }] }
     else if (path.endsWith('/decision')) data = { decision: body?.decision }
@@ -95,19 +98,26 @@ test('day transitions and correction preserve employee authority', async ({ page
     await expect(page.getByText('Подтверждено: 2 ч 00 мин')).toBeVisible()
   }
   await page.getByLabel('Обоснование корректировки').fill('Работа с документами вне компьютера')
-  await page.getByRole('button', { name: 'Отправить на согласование' }).click()
+  await page.getByRole('button', { name: 'Сохранить корректировку' }).click()
   await expect.poll(() => calls.filter(call => call.path.endsWith('/corrections')).length).toBe(1)
+  await expect(page.getByText(/Корректировка ·.*Учтено/)).toBeVisible()
+  expect(calls.every(call => !call.path.endsWith('/approvals') && !call.path.endsWith('/decision'))).toBe(true)
+  await page.screenshot({ path: 'test-results/employee/correction-recorded-desktop.png', fullPage: true })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page.getByText(/Корректировка ·.*Учтено/)).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.screenshot({ path: 'test-results/employee/correction-recorded-mobile.png', fullPage: true })
   expect(calls.filter(call => call.method === 'POST').every(call => !Object.hasOwn(call.body ?? {}, 'person_id') && !!call.body?.idempotency_key && call.csrf === 'test-employee-csrf')).toBe(true)
 })
 
-test('manager reviews an allowed employee and approves a correction', async ({ page }) => {
+test('manager reads an allowed employee without any approval workflow', async ({ page }) => {
   const calls = await fixture(page, ['manager'])
   await page.goto('/employee/manager')
   await page.getByRole('button', { name: new RegExp(`Сотрудник ${targetPersonId} ·`) }).click()
   await expect(page.getByRole('heading', { name: 'Рабочий день сотрудника' })).toBeVisible()
-  await page.getByRole('button', { name: 'Согласовать', exact: true }).click()
-  await expect.poll(() => calls.filter(call => call.path.endsWith('/decision')).length).toBe(1)
-  expect(calls.find(call => call.path.endsWith('/decision'))?.body).toMatchObject({ decision: 'approved' })
+  await expect(page.getByRole('button', { name: 'Согласовать', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Согласования', exact: true })).toHaveCount(0)
+  expect(calls.every(call => !call.path.endsWith('/approvals') && !call.path.endsWith('/decision'))).toBe(true)
 })
 
 test('HR month export and versioned schedule input', async ({ page }) => {
@@ -119,6 +129,24 @@ test('HR month export and versioned schedule input', async ({ page }) => {
   await page.getByLabel('Дата начала графика').fill(reportDay)
   await page.getByRole('button', { name: 'Сохранить график' }).click()
   await expect.poll(() => calls.filter(call => call.path.endsWith('/schedules') && call.method === 'POST').length).toBe(1)
+})
+
+test('HR correction refreshes the monthly totals and CSV without navigation', async ({ page }) => {
+  const calls = await fixture(page, ['hr'])
+  await page.goto('/employee/reports')
+  await page.getByLabel('Сотрудник табеля').selectOption(targetPersonId)
+  await expect(page.getByText('Подтверждено за месяц: 2 ч 00 мин')).toBeVisible()
+  const form = page.getByRole('region', { name: 'Кадровая корректировка' })
+  await form.getByRole('combobox').selectOption('BREAK')
+  await form.getByLabel('Обоснование корректировки').fill('Исправил пропущенный перерыв')
+  await form.getByRole('button', { name: 'Сохранить корректировку' }).click()
+  await expect(page.getByText('Подтверждено за месяц: 1 ч 00 мин')).toBeVisible()
+  await expect(page.getByRole('cell', { name: 'Учтено', exact: true })).toBeVisible()
+  const downloadEvent = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Экспорт CSV' }).click()
+  const download = await downloadEvent
+  expect(await readFile((await download.path())!, 'utf8')).toContain(`${reportDay};3600;3600;0;`)
+  expect(calls.filter(call => call.path.endsWith('/report') && call.method === 'GET').length).toBe(2)
 })
 
 test('DLP officer has separate events, policy and sensor navigation', async ({ page }) => {
@@ -172,14 +200,14 @@ test('HR targets correction and preserves finalized monthly versions', async ({ 
   await page.getByLabel('Месяц табеля').fill(previousMonth)
   await page.getByLabel('Сотрудник табеля').selectOption(targetPersonId)
   const correction = page.getByRole('region', { name: 'Кадровая корректировка' })
-  await correction.getByLabel('Обоснование корректировки').fill('Подтверждено руководителем')
-  await correction.getByRole('button', { name: 'Отправить на согласование' }).click()
+  await correction.getByLabel('Обоснование корректировки').fill('Работа с документами')
+  await correction.getByRole('button', { name: 'Сохранить корректировку' }).click()
   await expect.poll(() => calls.filter(call => call.path === `/api/employee/worktime/people/${targetPersonId}/corrections`).length).toBe(1)
-  await page.getByLabel('Основание фиксации табеля').fill('Проверены отметки и согласования')
+  await page.getByLabel('Основание фиксации табеля').fill('Сохранены отметки сотрудника')
   await page.getByRole('button', { name: 'Зафиксировать новую версию табеля' }).click()
   await expect(page.getByRole('heading', { name: `Табель ${previousMonth} · Версия 1` })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Скачать зафиксированный табель CSV' })).toHaveAttribute('href', '/api/employee/worktime/timesheets/00000000-0000-4000-8000-000000000004/export')
-  expect(calls.find(call => call.path.endsWith('/timesheets/finalize'))?.body).toMatchObject({ month: previousMonth, reason: 'Проверены отметки и согласования' })
+  expect(calls.find(call => call.path.endsWith('/timesheets/finalize'))?.body).toMatchObject({ month: previousMonth, reason: 'Сохранены отметки сотрудника' })
 })
 
 test('privileged API step-up challenge opens only the fixed employee MFA entry', async ({ page }) => {
@@ -189,47 +217,25 @@ test('privileged API step-up challenge opens only the fixed employee MFA entry',
   await expect(page.getByRole('link', { name: 'Подтвердить вход с MFA' })).toHaveAttribute('href', '/auth/employee/step-up')
 })
 
-test('pure HR approves through the scoped approval entry', async ({ page }) => {
-  const calls = await fixture(page, ['hr'])
-  await page.goto('/employee/reports')
-  await page.getByRole('link', { name: 'Согласования', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Согласования корректировок' })).toBeVisible()
-  await page.getByRole('button', { name: 'Согласовать', exact: true }).click()
-  await expect.poll(() => calls.filter(call => call.path.endsWith('/decision')).length).toBe(1)
-  expect(calls.find(call => call.path.endsWith('/decision'))?.body).toMatchObject({ decision: 'approved' })
-  expect(calls.every(call => !call.path.startsWith('/api/admin'))).toBe(true)
+test('retired approvals URLs redirect without queues or decision calls for every employee role', async ({ page }) => {
+  for (const roles of [[], ['manager'], ['hr']]) {
+    const calls = await fixture(page, roles)
+    await page.goto('/employee/approvals?person_id=00000000-0000-4000-8000-000000000099')
+    await expect(page.getByRole('heading', { name: 'Мой рабочий день' })).toBeVisible()
+    await expect(page).toHaveURL(/\/employee$/)
+    await expect(page.getByRole('link', { name: 'Согласования', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Согласовать', exact: true })).toHaveCount(0)
+    expect(calls.every(call => !call.path.endsWith('/approvals') && !call.path.endsWith('/decision') && !call.path.includes('00000000-0000-4000-8000-000000000099'))).toBe(true)
+  }
 })
 
-test('HR author denial remains visible and does not remove the pending correction', async ({ page }) => {
-  await fixture(page, ['hr'])
-  await page.route('**/api/employee/worktime/approvals', route => route.fulfill({ json: { corrections: [{ id: 'correction', person_id: targetPersonId, actor_id: personId, started_at: `${reportDay}T03:00:00Z`, ended_at: `${reportDay}T04:00:00Z`, status: 'OFF_PC', reason: 'Работа с документами', decision: 'pending' }] } }))
-  let decisions = 0
-  await page.route('**/api/employee/worktime/corrections/correction/decision', route => { decisions++; return route.fulfill({ status: 409, json: { detail: 'Author cannot approve the same correction' } }) })
-  await page.goto('/employee/approvals')
-  await page.getByRole('button', { name: 'Согласовать', exact: true }).click()
-  await expect(page.getByRole('alert')).toHaveText('Данные изменились или переход недоступен. Обновите страницу.')
-  await expect(page.getByText('Работа с документами', { exact: true })).toBeVisible()
-  expect(decisions).toBe(1)
-})
-
-test('a department-scoped HR queue cannot be redirected to foreign personnel by URL', async ({ page }) => {
-  const calls = await fixture(page, ['hr'])
-  await page.route('**/api/employee/session', route => route.fulfill({ json: { person_id: personId, department_id: 'allowed-department', csrf_token: 'test-employee-csrf', privileged_assurance: true, grants: [{ role: 'hr', department_id: 'allowed-department' }] } }))
-  await page.route('**/api/employee/worktime/approvals', route => route.fulfill({ json: { corrections: [] } }))
-  await page.goto('/employee/approvals?person_id=00000000-0000-4000-8000-000000000099')
-  await expect(page.getByText('Ожидающих корректировок нет.')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Согласовать', exact: true })).toHaveCount(0)
-  expect(calls.every(call => !call.path.includes('00000000-0000-4000-8000-000000000099'))).toBe(true)
-})
-
-test('a department denial clears the old approval queue and never displays error payload personnel', async ({ page }) => {
-  await fixture(page, ['hr'])
-  await page.goto('/employee/approvals')
-  await expect(page.getByText('Работа с документами', { exact: true })).toBeVisible()
-  await page.route('**/api/employee/worktime/approvals', route => route.fulfill({ status: 403, json: { detail: 'Foreign department', corrections: [{ person_id: 'foreign-person', reason: 'PRIVATE-FOREIGN-REASON' }] } }))
+ test('a department denial clears old personnel data and does not leak error details', async ({ page }) => {
+  await fixture(page, ['manager'])
+  await page.goto('/employee/manager')
+  await expect(page.getByRole('button', { name: new RegExp(`Сотрудник ${targetPersonId} ·`) })).toBeVisible()
+  await page.route('**/api/employee/worktime/people', route => route.fulfill({ status: 403, json: { detail: 'Foreign department', people: [{ person_id: 'PRIVATE-FOREIGN-PERSON' }] } }))
   await page.getByRole('button', { name: 'Обновить список' }).click()
   await expect(page.getByRole('alert')).toHaveText('Нет прав на эти данные или действие.')
-  await expect(page.getByText('Работа с документами', { exact: true })).toHaveCount(0)
-  await expect(page.getByText('PRIVATE-FOREIGN-REASON', { exact: true })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Согласовать', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: new RegExp(`Сотрудник ${targetPersonId} ·`) })).toHaveCount(0)
+  await expect(page.getByText('PRIVATE-FOREIGN-PERSON', { exact: true })).toHaveCount(0)
 })

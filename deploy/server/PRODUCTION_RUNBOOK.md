@@ -32,9 +32,19 @@ until the production preflight in the next section succeeds:
 ```powershell
 $releaseCommit = git rev-parse --short=12 HEAD
 $releaseArchive = Join-Path $env:TEMP "endpoint-platform-$releaseCommit.tar.gz"
-& tools/release/build_console_server_archive.ps1 -OutputPath $releaseArchive
+& tools/release/build_console_server_archive.ps1 -OutputPath $releaseArchive -PythonExecutable python
 tar -tzf $releaseArchive | Select-String 'webapp/dist/(index.html|assets/)'
 ```
+
+Use the repository-supported Python3.12 interpreter (or pass its absolute path
+as `-PythonExecutable`). The Windows native tar stages the source; the server-only
+`tools/release/normalize_server_archive.py` writer then preserves every regular
+payload byte and emits directories0755/files0644, uid/gid0 and root names.
+It uses the committed timestamp, sorted members and deterministic gzip metadata,
+rejects links/traversal/duplicate or foreign roots, and refuses an existing output.
+These rules do not modify Agent/native packages or older qualified server archives.
+Record the final archive SHA256, full member inventory and individual file digests
+before upload. Never replace an earlier qualified archive to correct its headers.
 
 ## 2. Re-check production conditions
 
@@ -117,12 +127,12 @@ Remove-Item -LiteralPath $releaseArchive
 ```bash
 release_commit="$(sudo cat /etc/endpoint-platform/release-commit)"
 release_dir="/opt/endpoint-platform/releases/endpoint-platform-${release_commit}"
-sudo tar -xzf "/tmp/endpoint-platform-${release_commit}.tar.gz" -C /opt/endpoint-platform/releases
-sudo rm -f "/tmp/endpoint-platform-${release_commit}.tar.gz"
+# Apply the protected extraction/closure gate below before creating any venv.
+# The uploaded archive and reviewed inventory are retained as evidence.
+sudo test -d "${release_dir}"
 sudo python3.12 -m venv "${release_dir}/venv"
 sudo "${release_dir}/venv/bin/pip" install --upgrade pip
 sudo "${release_dir}/venv/bin/pip" install -r "${release_dir}/requirements-server.txt"
-sudo chown -R root:root "${release_dir}"
 previous_release="$(sudo readlink -f /opt/endpoint-platform/current 2>/dev/null || true)"
 if [ -n "${previous_release}" ]; then
   printf '%s\n' "${previous_release}" | sudo install -o root -g root -m 0644 /dev/stdin /etc/endpoint-platform/previous-release
@@ -130,13 +140,48 @@ fi
 sudo ln -sfn "${release_dir}" /opt/endpoint-platform/current
 ```
 
+The extraction/closure gate is mandatory for both initial installation and an
+upgrade. Run it before the venv command above; retain exclusive release control
+until the actual source and metadata have been verified. Use a NEW root0700
+operator directory under physical `/root` and exclusively create its root0700
+`unpack` child. Reject existing namespaces, symlinked ancestors, unexpected
+owners/modes/ACLs or an existing destination; do not adopt or recursively chown
+an existing tree. Verify the uploaded SHA256/size and reviewed member inventory.
+
+In that protected directory run root `umask 022`, then explicitly invoke GNU tar:
+
+```bash
+sudo sh -c 'umask 022; exec /usr/bin/tar --no-same-owner --no-same-permissions -xzf "$1" -C "$2"' \
+  sh /root/NEW-REVIEWED-RELEASE/archive.tar.gz /root/NEW-REVIEWED-RELEASE/unpack
+```
+
+Before ANY venv creation, pip command, import or selector change, compare the
+complete physical tree to the reviewed archive inventory: exact paths/counts,
+every regular file's size/SHA256 and bytes, directories0755/files0644, uid/gid0,
+no symlinks, special files, group/other writes, special bits or POSIX named/default
+ACL grants. Check every existing ancestor's physical ownership and permissions;
+the enclosing private operator/unpack directories must remain0700 throughout.
+Do not infer a safe result from `--no-same-owner`, root ownership, successful tar
+exit or a later recursive chown. Root tar otherwise preserves archived permissions.
+An old qualified archive with0666/0777 headers requires its own reviewed inventory
+and explicit safe extraction/verification; its original bytes stay immutable.
+
+Only after this full closure passes, require that private source and release
+parent share a filesystem and that the final version directory is absent. Move
+the verified root using `mv -T --no-clobber` to its fixed release destination.
+Record the prepared root's device/inode beforehand; require source absence and
+the identical destination device/inode afterward, then repeat the full closure.
+A skipped move, copy fallback or uncertain outcome is a stop, never adoption or
+blind retry. Only then run the existing venv/Settings/migration procedure. Keep
+the archive, member/digest manifest and both metadata checks with the release.
+
 Install the non-secret assets from the operator worktree. Enable the Nginx
 configuration symlink for validation only; Nginx remains stopped until the
 loopback API health check passes:
 
 ```powershell
-scp deploy/server/endpoint-platform.service deploy/server/endpoint-platform-worker.service deploy/server/endpoint-platform-migrate.service deploy/server/endpoint-platform.nginx.conf endpoint-platform-server:/tmp/
-ssh endpoint-platform-server "sudo install -o root -g root -m 0644 /tmp/endpoint-platform.service /etc/systemd/system/endpoint-platform.service; sudo install -o root -g root -m 0644 /tmp/endpoint-platform-worker.service /etc/systemd/system/endpoint-platform-worker.service; sudo install -o root -g root -m 0644 /tmp/endpoint-platform-migrate.service /etc/systemd/system/endpoint-platform-migrate.service; sudo install -o root -g root -m 0644 /tmp/endpoint-platform.nginx.conf /etc/nginx/sites-available/endpoint-platform; sudo ln -sfn /etc/nginx/sites-available/endpoint-platform /etc/nginx/sites-enabled/endpoint-platform; sudo rm -f /tmp/endpoint-platform.service /tmp/endpoint-platform-worker.service /tmp/endpoint-platform-migrate.service /tmp/endpoint-platform.nginx.conf; sudo systemctl daemon-reload"
+scp deploy/server/endpoint-platform.service deploy/server/endpoint-platform-worker.service deploy/server/endpoint-platform-migrate.service deploy/server/endpoint-platform.nginx.conf deploy/server/endpoint-alt-distribution.nginx.conf endpoint-platform-server:/tmp/
+ssh endpoint-platform-server "sudo install -o root -g root -m 0644 /tmp/endpoint-platform.service /etc/systemd/system/endpoint-platform.service; sudo install -o root -g root -m 0644 /tmp/endpoint-platform-worker.service /etc/systemd/system/endpoint-platform-worker.service; sudo install -o root -g root -m 0644 /tmp/endpoint-platform-migrate.service /etc/systemd/system/endpoint-platform-migrate.service; sudo install -d -o root -g root -m 0755 /etc/nginx/snippets; sudo install -o root -g root -m 0644 /tmp/endpoint-alt-distribution.nginx.conf /etc/nginx/snippets/endpoint-alt-distribution.conf; sudo install -o root -g root -m 0644 /tmp/endpoint-platform.nginx.conf /etc/nginx/sites-available/endpoint-platform; sudo ln -sfn /etc/nginx/sites-available/endpoint-platform /etc/nginx/sites-enabled/endpoint-platform; sudo rm -f /tmp/endpoint-platform.service /tmp/endpoint-platform-worker.service /tmp/endpoint-platform-migrate.service /tmp/endpoint-platform.nginx.conf /tmp/endpoint-alt-distribution.nginx.conf; sudo systemctl daemon-reload"
 ```
 
 Validate the configured application before any public listener is enabled:
@@ -276,8 +321,9 @@ df -h /
 ```
 
 Require at least 10 GiB free and verify the workstation and uploaded archive
-SHA-256 values match. Extract the archive to its immutable release directory,
-create its Python 3.12 venv, and install `requirements-server.txt` before
+SHA-256 values match. Apply section4's protected extraction/full closure gate
+to the immutable release directory BEFORE creating its Python3.12 venv or
+installing `requirements-server.txt`, and finish dependency/Settings validation before
 switching `current`. Do not copy credentials, CA files, or local build caches
 into the release directory. The archive contains the Console bundle, Setup
 release importer, Browser Sensor source and Browser Sensor release importer;
@@ -377,3 +423,84 @@ new target to resolve uncertainty. Exact replay may succeed after the original
 attestation window expires. Source/contract/PostgreSQL test success establishes
 API behavior only; it is separate from provider deployment, native recovery,
 first targeting and fleet acceptance.
+# Callback-safe access logging
+
+The site asset defines `endpoint_platform_path_only` in nginx's HTTP context.
+Both HTTP and HTTPS servers write `/var/log/nginx/endpoint-platform.access.log`
+with method, `$uri`, status, bytes and timing, excluding query strings and
+Referer. Exact `/auth/admin/callback` and `/auth/employee/callback` locations
+discard nginx's unformatted upstream errors because those include raw URLs.
+Other nginx error diagnostics and application authentication audits remain.
+The API unit keeps `--no-access-log`; nginx supplies safe HTTP access metrics.
+
+For the existing `.19` installation, copy the reviewed config-only helper and
+the reviewed site asset to a private operator staging directory. Record both
+source revisions and file hashes. Run the default plan before explicit apply:
+
+```bash
+sudo python3 apply_query_safe_nginx.py --site endpoint-platform \
+  --source endpoint-platform.nginx.conf --source-sha256 REVIEWED_ASSET_SHA256
+sudo python3 apply_query_safe_nginx.py --site endpoint-platform \
+  --source endpoint-platform.nginx.conf --source-sha256 REVIEWED_ASSET_SHA256 --apply
+```
+
+`tools/release/apply_query_safe_nginx.py` requires the existing physical,
+root-owned `sites-available/endpoint-platform` and its exact enabled symlink.
+It locks configuration changes, validates an isolated complete nginx candidate,
+rejects concurrent edits and unexpected non-logging differences (including
+removed includes or custom callback proxy/access behavior), backs up the old bytes under
+`/var/backups/query-safe-nginx/endpoint-platform/<old-sha256>.conf`, atomically installs,
+runs `nginx -t` and reloads nginx only when changed. Failure restores and
+validates/reloads the original. No app restart, environment flag, TLS, DB or
+unrelated site is modified. An unchanged asset causes no reload.
+
+The canonical HTTPS asset retains the real ALT distribution snippet include
+already used on `.19`. First-time installation copies the reviewed
+`endpoint-alt-distribution.nginx.conf` to that exact snippet path before the
+site is installed, following `ALT_DISTRIBUTION.md`; no empty placeholder is
+invented. Existing download locations, network ACLs and TLS paths must remain
+identical before the config-only helper accepts a repair.
+
+The config backup namespace is independently root-owned; it must not enter,
+chown or widen `/var/backups/endpoint-platform`, which can be a PostgreSQL-owned
+database backup directory. The helper rejects unexpected ownership instead of
+changing it. Existing earlier config receipts remain at their recorded paths.
+The default plan validates the nearest existing backup ancestor before creating
+any directory, so an incompatible ownership layout is rejected during planning.
+
+The helper also accepts the independent `helpdesk` profile using that
+repository's reviewed asset and separate backup/log paths; it never merges
+the services. It supports only the approved existing `.19` layout. A staging
+host with different site names, paths or proxy ports requires its own reviewed
+profile; do not replace it with the production asset.
+
+Before apply, run `tools/release/verify_query_safe_nginx.py --site endpoint-platform
+--asset endpoint-platform.nginx.conf` where nginx is installed. This starts an
+independent temporary loopback process with a deliberately failing upstream;
+it verifies 502 callback path/status/metrics and zero synthetic code/state/
+Referer sentinel occurrences. It never reads private historical logs or touches
+the live nginx service. Keep existing private log retention/access controls;
+this procedure does not print, copy or delete historical credential-bearing logs.
+
+
+## WorkTime Helpdesk staging adapter
+
+For this explicitly approved .118 upgrade only, use
+`tools/release/worktime_helpdesk_staging.py` with a reviewed immutable server
+archive from section1, installed as release.py with the archive in a root-owned
+0700 `/root/worktime-helpdesk-20261105-<commit12>` capsule; regular inputs0600.
+JSON stdin requires mode prepare|activate, absolute archive path, full commit,
+archive sha256 and expiry epoch within15min. Run with `/usr/bin/python3.12 -I -B
+<root>/release.py --run` through the approved staging transport. Preserve each
+phase's receipt. Prepare keeps current services running; activation follows the
+stop/verified-backup/switch/migrate/start sequence above. For the return-navigation
+follow-up, schema44/currentee86a9458a0c are fixed guards; both enabled handoff
+flags remain unchanged. The migration service confirms the existing head without
+changing schema.
+Failure restores the old selector/services, retaining additive migration44;
+never rerun a consumed activation or downgrade local identities/history.
+Enable `ENDPOINT_WORKTIME_HELPDESK_ENABLED=true` and Helpdesk
+`WORKTIME_HANDOFF_ENABLED=true` only after both exact releases pass staging
+health/TLS and credential-protected provider checks. Back up exact environment
+bytes privately, change only these flags, then use separate systemd services.
+Leave the staging services running as requested. Production is outside scope.

@@ -3,6 +3,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from endpoint_contracts.worktime_companion import CompanionDeviceActionV1
@@ -61,6 +62,32 @@ async def test_claim_reconnect_restart_and_ack_are_durable(setup):
         await acknowledge(restarted, device_id=device, body=body, origin=ORIGIN,authority_client=AUTH, now=NOW+timedelta(minutes=2))
         await restarted.commit()
     assert (await poll(session, device_id=device, user_login='domain\\alice', origin=ORIGIN,authority_client=AUTH, now=NOW+timedelta(hours=1))).request_id is None
+
+
+async def test_helpdesk_person_uses_worktime_authority_for_poll_and_actions(setup):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    session, person, device, request, _ = setup
+    identity = await session.scalar(select(ConfirmedIdentity).where(
+        ConfirmedIdentity.person_id == person))
+    identity.authority_kind = 'helpdesk'; identity.ad_object_guid = None
+    identity.issuer = 'https://helpdesk.example.test'
+    await session.commit()
+    authority = SimpleNamespace(resolve=AsyncMock(side_effect=ValueError('AD GUID required')),
+        resolve_worktime_person=AsyncMock(return_value=SimpleNamespace(person_id=person)))
+    reply = await poll(session, device_id=device, user_login='domain\\alice',
+        origin=ORIGIN, authority_client=authority, now=NOW)
+    assert reply.request_id == request.id
+    await acknowledge(session, device_id=device, origin=ORIGIN, now=NOW,
+        authority_client=authority, body=CompanionDeviceActionV1(request_id=request.id,
+            lease_id=reply.lease_id, action='present', user_login='domain\\alice'))
+    authority.resolve_worktime_person.side_effect = ValueError('Person revoked')
+    with pytest.raises(HTTPException):
+        await acknowledge(session, device_id=device, origin=ORIGIN, now=NOW,
+            authority_client=authority, body=CompanionDeviceActionV1(request_id=request.id,
+                lease_id=reply.lease_id, action='reason', user_login='domain\\alice'))
+    authority.resolve.assert_not_awaited()
+    assert authority.resolve_worktime_person.await_count >= 3
 
 
 async def test_wrong_account_device_unknown_and_revoked_binding_never_open(setup):

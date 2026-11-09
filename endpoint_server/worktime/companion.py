@@ -37,7 +37,10 @@ async def _eligible(session, device_id, user_login, now, request_id=None, *, aut
     if identity is None or identity.state != 'active' or identity.revoked_at is not None or authority_client is None:
         return key, []
     try:
-        current = await authority_client.resolve(identity.issuer, identity.subject, identity.ad_object_guid)
+        if getattr(identity, 'authority_kind', 'oidc') == 'helpdesk':
+            current = await authority_client.resolve_worktime_person(identity.person_id)
+        else:
+            current = await authority_client.resolve(identity.issuer, identity.subject, identity.ad_object_guid)
         if current.person_id != person:
             return key, []
     except Exception:

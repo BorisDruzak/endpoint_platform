@@ -37,6 +37,24 @@ def test_generated_realm_has_no_secrets_and_federation_is_secure_readonly():
     assert "users" not in realm
 
 
+def test_disabled_account_does_not_disappear_from_imported_identity_validation():
+    # Keycloak26.8.1 validates imported users by LDAP UUID using this same search
+    # filter. Excluding disabled UAC values looks like deletion and can cascade
+    # local subject/OTP removal. Account-state denial belongs to MSAD/bind auth.
+    module = load_module()
+    realm = module.build_realm(pilot(), module.EXACT_PILOT_DN)
+    ldap = realm["components"]["org.keycloak.storage.UserStorageProvider"][0]
+    assert ldap["config"]["customUserSearchFilter"] == ["(objectCategory=person)"]
+    assert ldap["config"]["removeInvalidUsersEnabled"] == ["false"]
+    assert ldap["config"]["usersDn"] == [module.EXACT_PILOT_DN]
+    assert ldap["config"]["searchScope"] == ["0"]
+    assert ldap["config"]["editMode"] == ["READ_ONLY"]
+    assert ldap["config"]["cachePolicy"] == ["NO_CACHE"]
+    state_mapper = next(x for x in ldap["subComponents"]["org.keycloak.storage.ldap.mappers.LDAPStorageMapper"]
+                        if x["providerId"] == "msad-user-account-control-mapper")
+    assert state_mapper["config"]["always.read.enabled.value.from.ldap"] == ["true"]
+
+
 @pytest.mark.parametrize("bad", ["http://endpoint.sosnadmin.local/cb", "https://endpoint.sosnadmin.local/*", "https://evil.example/cb", "https://user:pw@endpoint.sosnadmin.local/cb", "https://endpoint.sosnadmin.local/cb?x=1"])
 def test_redirects_reject_insecure_wildcard_foreign_and_credential_urls(bad):
     redirects = pilot()
@@ -49,6 +67,7 @@ def test_clients_are_independent_confidential_pkce_and_no_password_grant():
     realm = load_module().build_realm(pilot(), "OU=Pilot,DC=sosnadmin,DC=local")
     assert {c["clientId"] for c in realm["clients"]} == set(pilot())
     for client in realm["clients"]:
+        assert set(client["defaultClientScopes"]) == {"basic", "profile", "email", "acr"}
         assert client["redirectUris"] == [pilot()[client["clientId"]]]
         assert client["publicClient"] is False
         assert client["directAccessGrantsEnabled"] is False
@@ -124,3 +143,14 @@ def test_exact_pilot_uses_object_scope_to_avoid_keycloak_subtree_base_exclusion(
         return scope != 2 or dn != result_dn
     assert retained(int(config["searchScope"][0]), dn)
     assert not retained(2, dn)
+
+
+def test_each_confidential_client_has_only_its_own_access_and_introspection_audience():
+    realm = load_module().build_realm(pilot(), "OU=Pilot,DC=sosnadmin,DC=local")
+    for client in realm["clients"]:
+        audience = next(m for m in client["protocolMappers"] if m["name"] == "self-introspection-audience")
+        assert audience["protocol"] == "openid-connect"
+        assert audience["protocolMapper"] == "oidc-audience-mapper"
+        assert audience["config"] == {"included.client.audience": client["clientId"],
+            "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true",
+            "userinfo.token.claim": "false"}

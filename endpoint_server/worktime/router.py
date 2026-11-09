@@ -13,7 +13,8 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 
 from endpoint_server.auth.authorization import authorize_person
-from endpoint_server.auth.employee_sessions import EmployeePrincipal, require_employee
+from endpoint_server.auth.employee_sessions import EmployeePrincipal
+from endpoint_server.auth.worktime_sessions import require_worktime_employee as require_employee
 from endpoint_server.db.models.identity import ConfirmedIdentity, ScopedRoleGrant
 from . import service
 from .domain import TIMEZONE, utc
@@ -137,6 +138,8 @@ async def transaction(request):
 
 
 async def visible_people(session, principal, action='worktime.read'):
+    if getattr(principal,'auth_source','oidc')=='helpdesk':
+        return [principal.identity]
     grants = (await session.scalars(select(ScopedRoleGrant).where(ScopedRoleGrant.identity_id == principal.identity.id,
         ScopedRoleGrant.revoked_at.is_(None)))).all()
     roles = {'manager','hr','worktime_admin'} if action == 'worktime.read' else {'hr','worktime_admin','manager'}
@@ -240,7 +243,8 @@ async def post_correction(body: CorrectionInput, request: Request, principal: Em
     async with transaction(request) as session:
         await authorize_person(session,principal,target,'worktime.write')
         row = await service.request_correction(session,target,target,body.started_at,body.ended_at,body.status,body.reason,body.idempotency_key,datetime.now(UTC))
-        return dict(**service.serialize(row),decision='pending',approval=None)
+        approval = await session.scalar(select(Approval).where(Approval.correction_id==row.id))
+        return service.correction_document(row,approval)
 
 
 @router.post('/people/{person_id}/corrections')
@@ -249,18 +253,13 @@ async def hr_correction(person_id: UUID, body: CorrectionInput, request: Request
         await authorize_person(session,principal,person_id,'worktime.hr')
         row = await service.request_correction(session,person_id,principal.identity.person_id,body.started_at,body.ended_at,
             body.status,body.reason,body.idempotency_key,datetime.now(UTC))
-        return dict(**service.serialize(row),decision='pending',approval=None)
+        approval = await session.scalar(select(Approval).where(Approval.correction_id==row.id))
+        return service.correction_document(row,approval)
 
 
-@router.post('/corrections/{correction_id}/decision')
+@router.post('/corrections/{correction_id}/decision',deprecated=True)
 async def post_decision(correction_id: UUID, body: DecisionInput, request: Request, principal: EmployeePrincipal=Depends(require_employee)):
-    async with transaction(request) as session:
-        row = await session.get(Correction,correction_id)
-        if row is None:
-            raise HTTPException(404,'Correction not found')
-        await authorize_person(session,principal,row.person_id,'worktime.approve')
-        decision = await service.decide_correction(session,row,principal.identity.person_id,body.decision,body.comment,body.idempotency_key,datetime.now(UTC))
-        return service.serialize(decision)
+    raise HTTPException(410,'Correction decisions are retired; corrections are recorded immediately')
 
 
 @router.get('/people')
@@ -278,21 +277,9 @@ async def get_people(request: Request, principal: EmployeePrincipal=Depends(requ
             status=states.get(p.person_id,'ENDED')) for p in rows]}
 
 
-@router.get('/approvals')
+@router.get('/approvals',deprecated=True)
 async def get_approvals(request: Request, principal: EmployeePrincipal=Depends(require_employee)):
-    async with transaction(request) as session:
-        targets = []
-        for target in await visible_people(session,principal):
-            try:
-                await authorize_person(session,principal,target.person_id,'worktime.approve')
-            except HTTPException as error:
-                if error.status_code != 403:
-                    raise
-            else:
-                targets.append(target.person_id)
-        rows = (await session.scalars(select(Correction).outerjoin(Approval,Approval.correction_id==Correction.id)
-            .where(Correction.person_id.in_(targets),Approval.id.is_(None)).order_by(Correction.created_at).limit(500))).all()
-        return {'corrections':[dict(**service.serialize(c),decision='pending',approval=None) for c in rows]}
+    raise HTTPException(410,'The correction approval queue is retired')
 
 
 @router.get('/history')
@@ -303,7 +290,7 @@ async def get_history(request: Request, day: date, person_id: UUID | None=None, 
         start,end = service.day_bounds(day,TIMEZONE)
         events,explanations,pairs,_ = await service.personnel_data(session,target,start,end)
         return dict(events=[service.serialize(e) for e in events if start<=utc(e.occurred_at)<end],explanations=[service.serialize(e) for e in explanations],
-            corrections=[dict(**service.serialize(c),decision=a.decision if a else 'pending',approval=service.serialize(a) if a else None) for c,a in pairs],
+            corrections=[service.correction_document(c,a) for c,a in pairs],
             approvals=[service.serialize(a) for _,a in pairs if a])
 
 
@@ -364,7 +351,6 @@ async def configure_policy(body: PolicyInput, request: Request, principal: Emplo
 async def finalize_month(person_id: UUID, body: FinalizeInput, request: Request, principal: EmployeePrincipal=Depends(require_employee)):
     async with transaction(request) as session:
         await authorize_person(session,principal,person_id,'worktime.hr')
-        await authorize_person(session,principal,person_id,'worktime.approve')
         row = await service.finalize_timesheet(session,person_id,principal.identity.person_id,body.month,body.reason,
             body.idempotency_key,datetime.now(UTC))
         return await service.timesheet_document(session,row)

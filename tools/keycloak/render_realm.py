@@ -52,6 +52,16 @@ def validate_component_exports(collection):
             validate_component_exports(component.get("subComponents", {}))
 
 
+def self_audience_mapper(client_id):
+    if client_id not in CLIENTS:
+        raise ValueError("Only the fixed confidential application clients are supported")
+    return {"name": "self-introspection-audience", "protocol": "openid-connect",
+            "protocolMapper": "oidc-audience-mapper",
+            "config": {"included.client.audience": client_id, "access.token.claim": "true",
+                       "id.token.claim": "false", "introspection.token.claim": "true",
+                       "userinfo.token.claim": "false"}}
+
+
 def execution(authenticator, requirement="REQUIRED", **extra):
     return {"authenticator": authenticator, "authenticatorFlow": False,
             "requirement": requirement, **extra}
@@ -93,7 +103,7 @@ def build_realm(redirects: dict[str, str], users_dn: str, *, enable_clients=Fals
                            "id.token.signed.response.alg": "RS256",
                            "default.acr.values": MFA_ACR if name != "worktime-employee" else "urn:sosnadmin:loa:1",
                            "minimum.acr.value": "2" if name != "worktime-employee" else "1"},
-            "defaultClientScopes": ["profile", "email", "acr"],
+            "defaultClientScopes": ["basic", "profile", "email", "acr"],
             "optionalClientScopes": [],
             "protocolMappers": [{
                 "name": "ad-object-guid", "protocol": "openid-connect",
@@ -102,7 +112,7 @@ def build_realm(redirects: dict[str, str], users_dn: str, *, enable_clients=Fals
                            "jsonType.label": "String", "id.token.claim": "true",
                            "access.token.claim": "true", "userinfo.token.claim": "true",
                            "introspection.token.claim": "true"},
-            }],
+            }, self_audience_mapper(name)],
         })
     ldap_config = {
         "enabled": "true", "priority": "0", "vendor": "ad", "editMode": "READ_ONLY",
@@ -116,7 +126,11 @@ def build_realm(redirects: dict[str, str], users_dn: str, *, enable_clients=Fals
         "searchScope": "0" if users_dn == EXACT_PILOT_DN else "2",
         "usernameLDAPAttribute": "sAMAccountName", "rdnLDAPAttribute": "cn",
         "uuidLDAPAttribute": "objectGUID", "userObjectClasses": "person, organizationalPerson, user",
-        "customUserSearchFilter": "(&(objectCategory=person)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))",
+        # Imported-user UUID validation uses this same filter. Disabled accounts
+        # must stay visible, or Keycloak can delete their local subject and OTP.
+        # LDAP/MSAD account-state authentication rejects disabled logins.
+        "customUserSearchFilter": "(objectCategory=person)",
+        "removeInvalidUsersEnabled": "false",
         "pagination": "true", "batchSizeForSync": "100",
         "fullSyncPeriod": "-1", "changedSyncPeriod": "-1",
         "connectionTimeout": "5000", "readTimeout": "5000",
@@ -130,7 +144,7 @@ def build_realm(redirects: dict[str, str], users_dn: str, *, enable_clients=Fals
                        "read.only": ["true"], "always.read.value.from.ldap": ["true"],
                        "is.mandatory.in.ldap": ["true" if user_attr == "username" else "false"]}})
     attribute_mappers.append({"name": "msad-account-state", "providerId": "msad-user-account-control-mapper",
-        "config": {}})
+        "config": {"always.read.enabled.value.from.ldap": ["true"]}})
     realm = {
         "realm": "sosnadmin", "enabled": True, "sslRequired": "all",
         "registrationAllowed": False, "registrationEmailAsUsername": False,

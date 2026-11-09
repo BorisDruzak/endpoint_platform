@@ -14,12 +14,14 @@ class ConfirmedIdentity(OwnershipRecord, Base):
     __table_args__ = (
         UniqueConstraint('issuer', 'subject', name='uq_confirmed_identity_subject'),
         CheckConstraint("state IN ('active','revoked')", name='ck_confirmed_identity_state'),
+        CheckConstraint("(authority_kind = 'oidc' AND ad_object_guid IS NOT NULL) OR (authority_kind = 'helpdesk' AND ad_object_guid IS NULL AND admin_user_id IS NULL)",name='ck_confirmed_identity_authority'),
     )
     person_id: Mapped[UUID] = mapped_column(unique=True, nullable=False)
     department_id: Mapped[UUID | None] = mapped_column()
     issuer: Mapped[str] = mapped_column(String(512), nullable=False)
     subject: Mapped[str] = mapped_column(String(255), nullable=False)
-    ad_object_guid: Mapped[UUID] = mapped_column(unique=True, nullable=False)
+    authority_kind: Mapped[str] = mapped_column(String(16),nullable=False,default='oidc',server_default='oidc')
+    ad_object_guid: Mapped[UUID | None] = mapped_column(unique=True, nullable=True)
     state: Mapped[str] = mapped_column(String(16), nullable=False)
     admin_user_id: Mapped[UUID | None] = mapped_column(ForeignKey('admin_users.id'), unique=True)
     confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

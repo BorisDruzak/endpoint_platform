@@ -15,7 +15,7 @@ const day = { person_id: 'person-a', day: '2026-10-27', timezone: 'Asia/Yekateri
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 function setup(entry = '/employee?day=2026-10-27', grants: EmployeeGrant[] = session.grants) {
-  const fetch = vi.fn(async (path: string, _init?: RequestInit): Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }> => ({ ok: true, status: 200, json: async () => path === '/api/employee/session' ? { ...session, grants }
+  const fetch = vi.fn(async (path: string, _init?: RequestInit): Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }> => ({ ok: true, status: 200, json: async () => (path === '/api/employee/session' || path === '/api/employee/worktime/session') ? { ...session, grants }
     : path.includes('/categories') ? { categories: [{ code: 'meeting', label: 'Совещание', requires_comment: true }] }
       : path.includes('/history') ? { events: [], explanations: [], corrections: [], approvals: [] }
         : path.includes('/month') ? { month: '2026-10', days: [day], totals: day.totals }
@@ -28,9 +28,26 @@ function setup(entry = '/employee?day=2026-10-27', grants: EmployeeGrant[] = ses
 it('uses an employee SSO entry without an admin session or password form', () => {
   const fetch = setup('/employee/login')
   expect(screen.getByRole('heading', { name: 'Вход сотрудника' })).toBeTruthy()
-  expect(screen.getByRole('link', { name: 'Войти с доменной учётной записью' }).getAttribute('href')).toBe('/auth/employee/login')
+  expect(screen.getByRole('link', { name: 'Войти через AD' }).getAttribute('href')).toBe('/auth/employee/login?worktime=1')
   expect(screen.queryByLabelText('Пароль')).toBeNull()
-  expect(fetch).not.toHaveBeenCalled()
+  expect(fetch.mock.calls.map(([path]) => path)).toEqual(['/api/employee/worktime/login-options'])
+})
+
+it('preserves a companion target through an expired session and the SSO entry', async () => {
+  const query = '?day=2026-10-27&request_id=00000000-0000-4000-8000-000000000002'
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 401, json: async () => ({ detail: 'Session expired' }) })))
+  render(<MemoryRouter initialEntries={[`/employee${query}`]}><App /></MemoryRouter>)
+  expect(await screen.findByRole('heading', { name: 'Вход сотрудника' })).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Войти через AD' }).getAttribute('href')).toBe(`/auth/employee/login${query}&worktime=1`)
+})
+
+it.each([
+  '?day=2026-10-27&request_id=https://foreign.example',
+  '?day=2026-10-27&day=2026-10-28&request_id=00000000-0000-4000-8000-000000000002',
+  '?return_to=https://foreign.example',
+])('drops unsafe or ambiguous companion login context: %s', query => {
+  setup(`/employee/login${query}`)
+  expect(screen.getByRole('link', { name: 'Войти через AD' }).getAttribute('href')).toBe('/auth/employee/login?worktime=1')
 })
 
 it('keeps work and UNKNOWN evidence independent, selects a keyboard interval and sends scoped explanation', async () => {
@@ -59,7 +76,7 @@ it('revalidates on focus and ignores a late response from the previous employee'
   let release: (value: { ok: boolean; status: number; json: () => Promise<unknown> }) => void = () => {}
   fetch.mockImplementationOnce(() => new Promise(resolve => { release = resolve }))
   fireEvent.click(screen.getByRole('button', { name: 'Обновить' }))
-  fetch.mockImplementation(async (path: string) => ({ ok: true, status: 200, json: async () => path === '/api/employee/session'
+  fetch.mockImplementation(async (path: string) => ({ ok: true, status: 200, json: async () => (path === '/api/employee/session' || path === '/api/employee/worktime/session')
     ? { ...session, person_id: 'person-b', csrf_token: 'new-csrf' }
     : path.includes('/categories') ? { categories: [] } : path.includes('/history') ? { events: [], explanations: [], corrections: [], approvals: [] }
       : { ...day, person_id: 'person-b', totals: { ...day.totals, work_seconds: 7200 } } }))
@@ -135,14 +152,24 @@ it('does not resolve or display a foreign request from a deep link', async () =>
   expect(fetch.mock.calls.every(([path]) => !path.includes('00000000-0000-4000-8000-000000000003'))).toBe(true)
 })
 
-it('gives a pure HR account its approval entry without loading a department roster', async () => {
+it('redirects the retired approval route without fetching an approval queue', async () => {
   const fetch = setup('/employee/approvals', [{ role: 'hr', department_id: 'department-a' }])
-  fetch.mockImplementation(async (path: string) => ({ ok: true, status: 200, json: async () => path === '/api/employee/session' ? { ...session, grants: [{ role: 'hr', department_id: 'department-a' }] } : { corrections: [{ id: 'review-1', person_id: 'person-b', started_at: '2026-10-27T03:00:00Z', ended_at: '2026-10-27T04:00:00Z', status: 'OFF_PC', reason: 'Подтверждённая служебная работа', decision: 'pending' }] } }))
-  expect(await screen.findByRole('heading', { name: 'Согласования корректировок' })).toBeTruthy()
-  fireEvent.click(await screen.findByRole('button', { name: 'Согласовать' }))
-  await waitFor(() => expect(fetch.mock.calls.some(([path]) => path.endsWith('/review-1/decision'))).toBe(true))
-  expect(screen.getByRole('link', { name: 'Согласования' })).toBeTruthy()
-  expect(fetch.mock.calls.every(([path]) => !path.endsWith('/people'))).toBe(true)
+  expect(await screen.findByRole('heading', { name: 'Мой рабочий день' })).toBeTruthy()
+  expect(screen.queryByRole('link', { name: 'Согласования' })).toBeNull()
+  expect(fetch.mock.calls.every(([path]) => !path.includes('/approvals') && !path.endsWith('/decision'))).toBe(true)
+})
+
+it('saves a self correction directly with CSRF and no approval request', async () => {
+  const fetch = setup()
+  const submit = await screen.findByRole('button', { name: 'Сохранить корректировку' })
+  fireEvent.change(screen.getByLabelText('Обоснование корректировки'), { target: { value: 'Работал с документами' } })
+  fireEvent.click(submit)
+  await waitFor(() => expect(fetch.mock.calls.filter(([path]) => path.endsWith('/corrections'))).toHaveLength(1))
+  const write = fetch.mock.calls.find(([path]) => path.endsWith('/corrections'))!
+  expect(JSON.parse(write[1]!.body as string)).toMatchObject({ reason: 'Работал с документами', status: 'WORKING' })
+  expect(JSON.parse(write[1]!.body as string)).not.toHaveProperty('person_id')
+  expect(new Headers(write[1]!.headers).get('x-csrf-token')).toBe('employee-csrf')
+  expect(fetch.mock.calls.every(([path]) => !path.includes('/approvals') && !path.endsWith('/decision'))).toBe(true)
 })
 
 it('fails closed on a revoked session and clears personnel content', async () => {

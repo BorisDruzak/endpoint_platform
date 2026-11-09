@@ -395,3 +395,92 @@ expires after 7 days and must not become a permanent employee identity. No
 automatic renewal, expiry extension, deletion or group assignment is provided.
 Application-side identity linking still requires exact canonical AD GUID and
 the appropriate roles/MFA checks; account creation grants no application role.
+
+### Pilot token claims and stock basic scope
+
+Each confidential BFF client has its own direct `oidc-audience-mapper` with
+`included.client.audience` equal to that exact client ID. Access-token and
+introspection inclusion are enabled; ID-token and userinfo inclusion are false.
+Strict audience checks remain enabled. Keycloak26.8.1 may materialize the false
+userinfo default on mapper-list reads while omitting it on client-detail reads;
+the repair helper recognizes only that exact false default and preserves the
+original receipt when resuming an interrupted additive mapper operation.
+
+Explicitly imported clients must include default scopes `basic`, `profile`,
+`email`, and `acr`. The stock `basic` scope provides the access/introspection
+`sub` mapper and the `AUTH_TIME` session-note mapper. Omitting it produced an
+active introspection response without `sub`; both BFF validation contracts
+correctly rejected that response. The bounded `--add-basic-client-scope` mode
+checks the existing scope's exact stock mapper definition and absence of role
+mappings, then plans only associations to the three fixed clients. Only adding
+`--apply` permits bodyless audited `PUT` calls to their exact
+`default-client-scopes/{scopeId}` endpoints. Existing scopes, optional scopes,
+client secrets, direct mappers, MFA settings, redirects and flags are checked
+before/after. Its root-private nonsecret receipt is never overwritten.
+
+The complete provider contract was compared before this correction:
+
+| Claim or check | Source and pilot evidence |
+| --- | --- |
+| ID signature, issuer, audience, expiry, subject, nonce, access-token hash | Authlib validates the signed RS256 ID token; each client's audience remains its own ID. |
+| `ad_object_guid` | Direct LDAP-backed mapper, canonical pilot AD GUID in ID/access/introspection. |
+| Exact privileged `acr` | Existing `acr` scope and required OTP/LoA2 flow; signed `urn:sosnadmin:loa:2`. |
+| `sid` | Keycloak core session claim, required by Endpoint and checked when present by Helpdesk. |
+| Introspection `active`, `iss`, `client_id`, future numeric `exp` | Core introspection response; exact authority comparisons remain enabled. |
+| Introspection `sub` matching signed ID subject | Stock `basic` scope; missing before its reviewed association. |
+| Access/introspection own-client audience | Separate direct mapper per client; all six wrong-client combinations reject. |
+| Refresh continuity and rotation | Same issuer/subject/GUID/session/ACR, online refresh with `revokeRefreshToken=true` and zero reuse. |
+
+After the reviewed audience and basic-scope changes, fresh private browser PKCE
+exchanges against the real HTTPS provider passed for all three clients. The
+actual Endpoint `OIDCProvider` performed code exchange, strict introspection and
+rotating refresh for each; employee and Helpdesk clients reused SSO without
+another password prompt. All six wrong-client introspections returned inactive.
+The Helpdesk client was exercised through Endpoint's provider implementation;
+Helpdesk BFF routes and application session revocation require their separate
+acceptance. Active application SSO flags remained false. Earlier failure reports
+are preserved outside Git alongside the current boolean-only evidence.
+
+Pinned implementation references:
+[stock basic scope](https://github.com/keycloak/keycloak/blob/26.8.1/services/src/main/java/org/keycloak/protocol/oidc/OIDCLoginProtocolFactory.java),
+[additive audited scope binding](https://github.com/keycloak/keycloak/blob/26.8.1/services/src/main/java/org/keycloak/services/resources/admin/ClientResource.java).
+
+### Preserve the imported identity when an AD account is disabled
+
+The provider filter must remain `(objectCategory=person)` within the approved
+exact user DN and OBJECT search scope for this pilot. Do not exclude disabled
+AD accounts in this filter: Keycloak also uses it to validate an imported user
+by LDAP UUID. A disabled object that disappears from that query can be treated
+as deleted. With Keycloak26.8.1's default invalid-user removal, even an Admin
+REST user lookup can remove the local subject and its OTP credentials; restoring
+AD enabled state then imports a different local subject. This failure was
+observed in the synthetic pilot and confirmed against backup metadata.
+
+Require `removeInvalidUsersEnabled=false`, existing `cachePolicy=NO_CACHE`, and
+`always.read.enabled.value.from.ldap=true` on the existing
+`msad-user-account-control-mapper`. These retain local identity/OTP while reading
+AD enabled state fresh. READ_ONLY federation remains mandatory. Password-bind
+denial alone does not demonstrate rejection of an existing SSO cookie; the
+cookie/new-authorization path requires its own acceptance.
+
+The bounded `--preserve-ldap-identities` mode makes no user or credential
+queries. Its default plan pins the existing realm, provider and MSAD mapper IDs,
+checks both component read paths and NO_CACHE, then describes only the two
+provider fields and the one existing mapper flag. Explicit `--apply` is a
+separate reviewed gate. It records a root-private nonsecret receipt, changes the
+MSAD flag first and provider retention fields second through audited component
+updates, and verifies all other configuration is unchanged. Any partial failure
+stops; the receipt is preserved and automatic mixed-state retry is prohibited.
+
+Before any disable/restore acceptance, record the original subject hash,
+federation link, canonical AD GUID and credential type/count metadata. Confirm
+the same metadata after restoration. If a subject or OTP has already disappeared,
+preserve forensic state and use a separately reviewed database recovery plan;
+do not delete/reimport users, reset credentials or enroll another OTP to force
+an acceptance result. The earlier three-client and Keycloak logout results do
+not establish AD disable/restore durability or application BFF acceptance.
+
+Pinned behavior:
+[LDAP imported-user validation](https://github.com/keycloak/keycloak/blob/26.8.1/federation/ldap/src/main/java/org/keycloak/storage/ldap/LDAPStorageProvider.java),
+[invalid imported-user removal](https://github.com/keycloak/keycloak/blob/26.8.1/model/storage-private/src/main/java/org/keycloak/storage/UserStorageManager.java),
+[MSAD enabled-state evaluation](https://github.com/keycloak/keycloak/blob/26.8.1/federation/ldap/src/main/java/org/keycloak/storage/ldap/mappers/msad/MSADUserAccountControlStorageMapper.java).

@@ -195,9 +195,19 @@ async def test_real_authlib_code_pkce_and_signed_id_token():
     assert query['code_challenge']==[base64.urlsafe_b64encode(hashlib.sha256(('v'*43).encode()).digest()).rstrip(b'=').decode()]
     assert query['nonce']==['expected-nonce']
     assert query['response_type']==['code']
+    assert 'acr_values' not in query
     token,claims,expiry=await provider.exchange('employee','https://endpoint.example/auth/employee/callback','code','expected-nonce','v'*43)
     assert claims['sub']=='CaseSensitive'
     assert expiry.timestamp()<=int(datetime.now(UTC).timestamp())+200
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(('realm','step_up'), [('admin',False),('employee',True)])
+async def test_privileged_entry_explicitly_requests_mfa_without_changing_employee_default(realm,step_up):
+    from urllib.parse import parse_qs,urlsplit
+    provider=provider_fixture()
+    url=await provider.authorize(realm,'https://endpoint.example/auth/'+realm+'/callback','state','expected-nonce','v'*43,step_up=step_up)
+    assert parse_qs(urlsplit(url).query)['acr_values']==[provider.settings.admin_required_acr]
 
 
 @pytest.mark.asyncio
