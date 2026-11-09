@@ -17,6 +17,34 @@ def module():
         pytest.fail('in-box OpenSSH provisioning is not implemented')
 
 
+def test_serviced_os_files_accept_protected_hardlinks_but_reject_reparse(tmp_path, monkeypatch):
+    """Windows servicing shares a protected inode with WinSxS by design."""
+    import os
+    import win32security as security
+    from pc_agent.platform.windows import support_access_native as native
+    root=tmp_path/'System32/OpenSSH';root.mkdir(parents=True)
+    payload=root/'ssh.exe';payload.write_bytes(b'Windows servicing fixture')
+    os.link(payload,tmp_path/'winsxs-copy.exe')
+    assert payload.stat().st_nlink==2
+    monkeypatch.setattr(native,'windows_root',lambda:tmp_path)
+    descriptor=security.SECURITY_DESCRIPTOR()
+    descriptor.SetSecurityDescriptorOwner(security.ConvertStringSidToSid('S-1-5-18'),False)
+    acl=security.ACL();acl.AddAccessAllowedAce(2,0x1f01ff,security.ConvertStringSidToSid('S-1-5-18'))
+    descriptor.SetSecurityDescriptorDacl(True,acl,False)
+    monkeypatch.setattr(security,'GetNamedSecurityInfo',lambda *args:descriptor)
+    module().assert_os_path(payload)
+    # An ordinary user write ACE remains forbidden even for a serviced inode.
+    acl.AddAccessAllowedAce(2,2,security.ConvertStringSidToSid('S-1-5-32-545'))
+    descriptor.SetSecurityDescriptorDacl(True,acl,False)
+    with pytest.raises(ValueError):module().assert_os_path(payload)
+    acl.DeleteAce(1);descriptor.SetSecurityDescriptorDacl(True,acl,False)
+    from types import SimpleNamespace
+    original=Path.lstat
+    monkeypatch.setattr(Path,'lstat',lambda p:SimpleNamespace(st_mode=0,st_file_attributes=0x400)
+                        if p==payload else original(p))
+    with pytest.raises(ValueError):module().assert_os_path(payload)
+
+
 class Servicing:
     def __init__(self, states, *, outcome='complete', previous=None):
         self.states = dict(states)

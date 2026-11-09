@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 
 PROFILE = 'windows-openssh-fod-v1'
@@ -121,7 +122,7 @@ def _hash(path):
 
 def assert_os_path(path):
     """Windows servicing owners may write code; ordinary users may only read it."""
-    from .support_access_native import windows_root, reject_links, TRUSTED_SIDS
+    from .support_access_native import windows_root, TRUSTED_SIDS
     import win32security as security
     root = windows_root()/'System32'/'OpenSSH'
     if path != root and path.parent != root:
@@ -130,7 +131,13 @@ def assert_os_path(path):
     trusted = set(TRUSTED_SIDS) | {installer}
     # Include parents: replacing a protected leaf through a writable parent is unsafe.
     for current in (windows_root(), windows_root()/'System32', root, path):
-        reject_links(current)
+        # Serviced Windows files are hardlinked to WinSxS. Their shared inode
+        # has the same protected owner/DACL; only redirection is forbidden here.
+        # Private Endpoint identity files retain their stricter single-link rule.
+        for item in (*reversed(current.parents), current):
+            info=item.lstat()
+            if stat.S_ISLNK(info.st_mode) or getattr(info,'st_file_attributes',0)&0x400:
+                raise ValueError('support_dependency_signature_invalid')
         info = security.GetNamedSecurityInfo(str(current), security.SE_FILE_OBJECT,
             security.OWNER_SECURITY_INFORMATION | security.DACL_SECURITY_INFORMATION)
         if security.ConvertSidToStringSid(info.GetSecurityDescriptorOwner()) not in trusted:
