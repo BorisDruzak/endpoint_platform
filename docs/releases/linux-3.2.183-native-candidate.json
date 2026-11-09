@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "version": "3.2.183",
+  "kind": "linux_native_candidate",
+  "status": "staging_clean_native_accepted_live_gates_in_progress",
+  "source_revision": "21fc543af8d4b8b24df83f29a27e4e2eeb86c268",
+  "source_fix": "d365b5a0117b74b080bf65185dff7aaa49213136",
+  "publisher_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+  "frozen_manifest_sha256": "3f1ef0bd24f51109335dc266f593961ee51c7be7869f5650bb668c6634914a1e",
+  "native_packages": {
+    "core": {
+      "nevra": "endpoint-agent-3.2.183-alt6.x86_64",
+      "signer_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+      "source_revision": "21fc543af8d4b8b24df83f29a27e4e2eeb86c268",
+      "frozen_manifest_sha256": "3f1ef0bd24f51109335dc266f593961ee51c7be7869f5650bb668c6634914a1e",
+      "sha256": "063db934d957426bd1b9dc28ffaf16c2e00c30864d911d1f2d266d969fd04d56",
+      "version": "3.2.183",
+      "package": "endpoint-agent",
+      "setup_sha256": "0d8873428f01b90376b2609aadbfb322034e7e472984212c78dffd011075bb56"
+    },
+    "sensor": {
+      "nevra": "endpoint-agent-user-sensor-3.2.183-alt6.x86_64",
+      "signer_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+      "source_revision": "21fc543af8d4b8b24df83f29a27e4e2eeb86c268",
+      "frozen_manifest_sha256": "3f1ef0bd24f51109335dc266f593961ee51c7be7869f5650bb668c6634914a1e",
+      "sha256": "865b6c359d545d4092462b591ab909d2d6107fc0d050357cf4035f43b9c65298",
+      "version": "3.2.183",
+      "package": "endpoint-agent-user-sensor",
+      "setup_sha256": "0d8873428f01b90376b2609aadbfb322034e7e472984212c78dffd011075bb56"
+    }
+  },
+  "kit": {
+    "endpoint-alt-pilot-3.2.183-1.manifest.json": {
+      "size": 1005,
+      "sha256": "f032ce98ab0f488ec581c57f5f4144b201db76d1b430bbaf0d2a38cb5eb5e603"
+    },
+    "endpoint-alt-pilot-3.2.183-1.tar.gz": {
+      "size": 71370015,
+      "sha256": "c5b552afa4aa27e4df73af0ce68be4ecc88729f30baf3a70e6f9d4c8c709a3f3"
+    }
+  },
+  "detached_signatures": {
+    "endpoint-alt-pilot-3.2.183-1.manifest.sig": {
+      "size": 438,
+      "sha256": "850ba02dd8c1116d411facf002095905036e59b68ecd30eb3c0ae99288d66541"
+    },
+    "endpoint-alt-pilot-3.2.183-1.tar.gz.sig": {
+      "size": 438,
+      "sha256": "ce87a6411b3b029ebeb4bd00cf679b54171890ebc7c7bc88065692921072ef5e"
+    }
+  },
+  "source_publication": {
+    "environment": "staging",
+    "origin": "https://endpoint-staging.sosnadmin.local",
+    "observed_utc": "2026-11-09T10:03:32.162879+00:00",
+    "release_id": "0279b8fa-adf6-4658-b7d4-b0eddbf6ca3c",
+    "mandatory_real_verifier": true
+  },
+  "native_installation_attempted": true,
+  "native_exit_code": 0,
+  "initial_outer_setup_exit_code": 21,
+  "bootstrap_complete": true,
+  "staging_source_qualified": false,
+  "primary_promoted": false,
+  "fleet_acceptance": false,
+  "verification_record": "docs/verification/2026-11-09-linux183-native-canary.md",
+  "limits": [
+    "Initial native0 awaited manual enrollment approval; canonical notification-only reconciliation completed installed1/ACK1 without RPM replay.",
+    "Existing active graphical session used explicit standard XDG autostart; automatic fresh-login behavior is not inferred.",
+    "Production provider/public Linux156 and Windows177 remain unchanged.",
+    "Final ordinary/offline/compatibility/rebind/expiry and post-stop stability gates remain pending."
+  ],
+  "live_checkpoints": {
+    "device_id": "5c51cb65-4ccd-4f19-87bc-b06c088d1e1a",
+    "previous_device_id": "ebd42535-32e7-4443-95a4-20da3cb0b157",
+    "generation_id": "48238935-7663-4ac3-8102-fe978093d0e6",
+    "installed_event_id": "1cb4f59b-ce86-40fb-bba6-cbea58017f76",
+    "installed_received_at": "2026-11-09T10:10:40.563072+00:00",
+    "automatic_support_expires_at": "2026-11-09T18:10:41.647320Z",
+    "actual_root_ssh_at": "2026-11-09T10:12:05.248885+00:00",
+    "pre_stop_sensor_health_ready_at": "2026-11-09T10:12:43.113901Z",
+    "exec_snapshot_directory_set_unchanged": true,
+    "stopped_core_root_ssh_commands": 3,
+    "stopped_core_ssh_interval_boot_seconds": 108.6136297149933,
+    "task_related_services_restored_at": "2026-11-09T10:14:50.752309Z",
+    "post_restore_stable_seconds": 193.3206946089922,
+    "post_restore_sensor_health_ready_at": "2026-11-09T10:16:52.211579Z",
+    "rpm_verify_exit": 0,
+    "manual_revocation_closed_active_root_session_at": "2026-11-09T10:16:31.935511Z"
+  }
+}

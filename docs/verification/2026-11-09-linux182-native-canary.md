@@ -1,4 +1,4 @@
-# Linux182 native canary: acceptance in progress
+# Linux182 native canary: rejected snapshot leak
 
 This is a staging candidate, not a primary release or fleet qualification. Production Windows177 and Linux156 are unchanged.
 
@@ -19,3 +19,14 @@ The actual old SSH host pin correctly failed strict checking after reinstall16. 
 Fullclean identity linking, fresh-install user telemetry and final independent SSH/stability remain pending. Do not promote182 from this checkpoint alone.
 
 Two actual Root commands at08:50:45Z and08:52:38Z succeeded with Core/update/path stopped, separated by112.602939562 kernel boot seconds. Support parent1022012 and binary were unchanged. Core and the update path were restored at08:52:39Z, then the owned fallback timer was stopped. Staging had accepted fresh resumed-Sensor data at08:49:44Z before the intentional stop; WSS closed at08:50:43Z as expected.
+
+
+Final qualification failed. Successful `os.execv` from inside `snapshot(executable)` bypassed Python context cleanup. Eight abandoned182 Setup copies, each17,892,856bytes and exactly matching the immutable Setup digest, consumed143,142,848bytes. Retry then reported frozen `libstdc++.so.6` extraction failure. The distinct183 source fix moves only the exec boundary after snapshot cleanup and retains all ownership, byte/conflict, current-version and unknown-native guards. Signed182 bytes remain unchanged and are not promoted.
+
+Further actual182 receipts: retained-owner rollback to the exact signed156 pair and return to182 both accepted native0/outer0, sequences17 and18. Offline removal19 and reinstall20 both had known native0 and outer21 while the owned temporary route blocked staging; after its removal, notification-only recovery delivered removed19 before installed20 at09:02:47Z, acknowledged20 and completed bootstrap/registration without RPM replay. The historical incomplete Support cleanup19 remains visible.
+
+Complete online removal21 accepted native0/outer0/ACK21 with full cleanup. Exact owned roots were archived, and the lost old credential was revoked with a truthful canonical root-operator audit; old29a8 card/history remained nonretired. The first fresh install had native0 and required manual notification-only capacity recovery before genuine manual registration. Its original outer21 is retained and is not unattended qualification. The old legacy consumed claim and fresh request did not match in the same Claim HMAC domain, so previous-card approval correctly returned409. No fingerprint, claim, history or permission was rewritten; that historical card stays separate. A new canonical baseline was approved separately through the real Console administrator session.
+
+Fresh card ebd42535-32e7-4443-95a4-20da3cb0b157 then accepted native1/ACK1, bootstrap and registration. A healthy Support report automatically enabled the existing root/operator key for eight hours until17:21:29Z. A real strict-pinned Root SSH command succeeded at09:28:30Z without manual Support enablement. After explicit standard XDG autostart in the existing genuine KDE session and assignment of the existing test telemetry policy to this new card, fresh accepted Sensor09:32:57Z and activity09:33:12Z were observed. Core ran706seconds without restart. Native removal2 accepted0/outer0/ACK2 with full cleanup; that genuine modern baseline is retained for the positive full-wipe parent-link test in183.
+
+Only proven task-owned public duplicate caches were reclaimed after exact immutable offhost-byte and no-process-reference checks. Private identities, enrollment capability/delivery records, original native failures, historical installer bytes, AD and the graphical session were preserved. No production release or Windows177 policy changed.

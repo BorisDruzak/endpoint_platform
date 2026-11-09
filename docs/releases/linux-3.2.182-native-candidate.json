@@ -2,7 +2,7 @@
   "schema_version": 1,
   "version": "3.2.182",
   "kind": "linux_native_candidate",
-  "status": "signed_staging_native_acceptance_in_progress",
+  "status": "rejected_exec_handoff_snapshot_leak",
   "source_revision": "1534e7a76a566be99ffcf1b4b3a57eeee4abb725",
   "source_fix": "89ea6fff27e866df288005fd6effcc8f9cf52d80",
   "publisher_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
@@ -67,7 +67,8 @@
   "limits": [
     "Actual182 ordinary remove15/reinstall16 accepted; fullclean identity and final stability gates remain pending.",
     "Sensor activation after the legacy181 recovery was an explicit one-time fixture action, not evidence of automatic fresh-install activation.",
-    "Production provider and public Linux156 remain unchanged; Windows177 unchanged."
+    "Production provider and public Linux156 remain unchanged; Windows177 unchanged.",
+    "Not qualified or promoted: confirmed exec snapshot leak requires distinct immutable183."
   ],
   "live_checkpoints": {
     "device_id": "29a8bed4-2894-40f7-89fb-07b3c7f633fe",
@@ -104,6 +105,40 @@
     "stopped_core_first_root_ssh_utc": "2026-11-09T08:50:45.669357Z",
     "actual_stopped_core_root_ssh_commands": 2,
     "stopped_core_ssh_interval_boot_seconds": 112.60293956199894,
-    "task_related_services_restored": true
+    "task_related_services_restored": true,
+    "freshA": {
+      "device_id": "ebd42535-32e7-4443-95a4-20da3cb0b157",
+      "generation_id": "81906025-a169-4371-99f3-93e5a54c22b9",
+      "installed_event_id": "3522676c-1562-4f7f-934e-1ab36a95129d",
+      "initial_native_exit_code": 0,
+      "initial_outer_setup_exit_code": 21,
+      "notification_only_recovery_exit_code": 0,
+      "sequence": 1,
+      "acknowledged": 1,
+      "bootstrap_complete": true,
+      "automatic_support_access_deadline": "2026-11-09T17:21:29.500411Z",
+      "actual_root_ssh_utc": "2026-11-09T09:28:30.661038Z",
+      "sensor_last_seen_at": "2026-11-09T09:32:57.072862Z",
+      "activity_last_observed_at": "2026-11-09T09:33:12.067970Z",
+      "fresh_card_test_policy_explicitly_assigned": true,
+      "standard_user_autostart_explicitly_invoked": true,
+      "unattended_clean_install_qualified": false,
+      "removed_event_id": "9a9c9cd8-9292-436f-84ad-5d471f76b3e0",
+      "removed_native_exit_code": 0,
+      "removed_outer_setup_exit_code": 0,
+      "removed_sequence": 2,
+      "removed_acknowledged": 2
+    }
+  },
+  "qualification_failure": {
+    "observed_utc": "2026-11-09T09:43:12.161085Z",
+    "cause": "retain_executor invoked real os.execv inside a temporary verification snapshot context; successful exec bypassed cleanup",
+    "confirmed_abandoned_setup_snapshots": 8,
+    "confirmed_abandoned_bytes": 143142848,
+    "effect": "Repeated native vendor entry and retry consumed temporary disk space and prevented frozen bootstrap extraction",
+    "recovery": "Only exact completed public duplicates, confirmed against the immutable offhost182 Setup and unused by all processes, were removed; native journals and retained executors remained unchanged",
+    "source_fix": "d365b5a0117b74b080bf65185dff7aaa49213136",
+    "replacement_candidate": "3.2.183",
+    "historical_artifact_bytes_preserved": true
   }
 }
