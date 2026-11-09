@@ -66,30 +66,31 @@ new186 runtime binding/release record, existing canonical publishing procedures.
 
 - [x] RED build contract proves new Support omits the Preview archive/executables
   while retaining exact metadata required for old owned cleanup.
-- [ ] Implement build input distinction; use Support1.1.1 and agent186, author
+- [x] Implement build input distinction; use Support1.1.1 and agent186, author
   runtime contract before freeze; include signed108 and retain all old packages.
-- [ ] Build/sign immutable new media with trusted timestamped publisher. Inspect
+- [x] Build/sign immutable new media with trusted timestamped publisher. Inspect
   exact sources, resources, signatures and frozen independent import closure.
-- [ ] Run relevant tests/build/contract checks; publish hidden candidate with
+- [x] Run relevant tests/build/contract checks; publish hidden candidate with
   canonical immutable source and transactional default campaign authority.
 
 ## Task4 — actual177 forward update and recovery acceptance
 
 Files: scoped verification receipt, runbook/rules/release records only.
 
-- [ ] Install via real canonical177→186 assignment on120; capture native0, private4,
+- [x] Install via real canonical177→186 assignment on120; capture native0, private4,
   exact versions,180s stable services/WSS and accepted genuine user telemetry.
-- [ ] Prove in-box binary selection and real strict SSH with Core/updater/observer
+- [x] Prove in-box binary selection and real strict SSH with Core/updater/observer
   stopped; restore them and prove fresh accepted activity afterward.
-- [ ] Exercise bounded child/service/network/updater failures and normal reboot;
+- [x] Exercise bounded child/service/network/updater failures and normal reboot;
   retain all receipts, do not replay an unknown native operation.
-- [ ] Record actual limits and preserve primary/fleet scope. Commit/push exact
+- [x] Record actual limits and preserve primary/fleet scope. Commit/push exact
   source/docs; remove only owned test scratch and leave operational services ready.
 
 ## Confirmed185 follow-up — recapture and modern source recovery
 
-185 failed before MSI and canonically restored177. Preserve its native21 hold
-until a signed observer can attest the completed recovery. Build a distinct186;
+185 failed before MSI and canonically restored177. Its actual signed108 report
+closed the original job FAILED21 at2026-11-09T21:15:11.785449Z after185.12seconds
+of genuine source observation. Build a distinct186;
 184/185 media and failure history remain immutable.
 
 - RED/GREEN ordinary native reinstall recapture of a published retained archive,

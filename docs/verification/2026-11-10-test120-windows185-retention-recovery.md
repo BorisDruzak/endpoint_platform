@@ -7,8 +7,9 @@ Device `c87eaa22-4fd1-4830-bc11-88142afda87e` / DESKTOP-9ST5HO2 /
 
 The native wrapper began2026-11-09T20:06:04.905445Z and returned known21 at
 20:08:14.860614Z with MSI_EVIDENCE_FAILED. No185 native acceptance or Support
-migration is claimed. The original server job remains recovery_required until
-an actual authenticated signed observer proves its completed source recovery.
+migration is claimed. The original server job closed FAILED/native21 at
+2026-11-09T21:15:11.785449Z after actual authenticated signed108 proof of
+completed source recovery (`native_failed_source_restored`).
 Neither candidate185 nor184 is qualified or promoted.
 
 ## Cause and actual recovery
@@ -38,6 +39,15 @@ This diagnostic submitted no progress report and changed no native state. A
 descriptor hash is attributed observer evidence, not independent server access
 to the filesystem. Signed108 must repeat all checks around a fresh180-second
 strict source observation before the server may close the original job FAILED21.
+
+The signed observer-only maintenance installed108 at21:10:41Z, retaining the
+original107 slot, task schedule/security, source job, native journals and private4.
+Its ordinary21:11:31Z trigger repeated those checks and observed185.12seconds,
+six samples, one genuine UserSensor and CPU maximum0.0065percent. The authenticated
+report closed the original job FAILED21; it did not accept185, replay MSI, alter
+selectors or write synthetic progress. This prepared177/client108 source was
+disclosed separately for the first186 canary and was not qualified as an
+unattended177/client107 profile.
 
 ## Forward fixes
 

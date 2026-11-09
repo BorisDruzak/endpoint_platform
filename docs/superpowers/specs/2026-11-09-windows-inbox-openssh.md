@@ -11,7 +11,7 @@ unrelated server/Helpdesk/Linux state. Reuse the existing isolated worktree.
 
 ## Decision
 
-Build a distinct Windows185 candidate and Support1.1.1. Use only the operating
+Build a distinct Windows186 candidate and Support1.1.1. Use only the operating
 system OpenSSH Client/Server Feature on Demand, verified Microsoft signatures and
 canonical System32 paths. Retain the separate EndpointSupportAccess service,
 loopback listener22222, outbound gateway2222, exact device/gateway pins, existing

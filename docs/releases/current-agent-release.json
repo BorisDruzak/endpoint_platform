@@ -1265,6 +1265,15 @@
   },
   "windows_candidates": [
     {
+      "version": "3.2.186",
+      "record": "docs/releases/windows-3.2.186-setup.json",
+      "status": "candidate_test120_nominal177_qualified_faults_and_reboot_accepted",
+      "qualified_source_foundation": "3.2.177",
+      "evidence_assignment_id": "1c0176f2-02e4-4e09-978f-c59bd14c3eeb",
+      "download_published": false,
+      "fleet_promoted": false
+    },
+    {
       "version": "3.2.185",
       "record": "docs/releases/windows-3.2.185-setup.json",
       "status": "candidate_failed_before_native_retention_conflict_do_not_promote",

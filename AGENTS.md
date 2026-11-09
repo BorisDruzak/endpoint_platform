@@ -15,11 +15,14 @@
 
 # Current Worktime server deployment
 
-- At 2026-11-09T16:49Z production and staging Endpoint API/worker run the same
-  runtime `818d2897b1d4b86bd0a90ed75729bdaa0d5f3170`, schema
+- At 2026-11-09T21:06:44Z production and staging Endpoint API/worker run the same
+  runtime `24461a70286ec1b70c8c08369c1ac0787aeb3087`, schema
   `0051_staging_linux_worktime`. This supersedes the provider revisions recorded
   at the historical agent-release acceptance checkpoints below; immutable
-  Windows177/Linux183 artifacts and their qualifications are unchanged.
+  Windows177/Linux183 artifacts and their qualifications are unchanged. The narrow
+  signed108 source-recovery contract is included; no schema/configuration or
+  Helpdesk deployment was performed for the186 candidate. See the
+  [186 receipt](docs/verification/2026-11-10-test120-windows186-inbox-openssh.md).
 - Production Helpdesk runs the scoped backport `1dc2be0d358dec13b12c4861d4f43419c70672d8`,
   schema153, with Worktime handoff enabled to the fixed production employee
   portal. Endpoint SSO/Worktime/Helpdesk login are enabled. After the user's
@@ -41,7 +44,7 @@
 
 # Canonical agent release
 
-- The primary published Windows agent is **3.2.177**; the primary native ALT Linux kit is **3.2.183**. Read [`docs/releases/current-agent-release.json`](docs/releases/current-agent-release.json), [`docs/releases/linux-3.2.183-native.json`](docs/releases/linux-3.2.183-native.json) and [`docs/releases/windows-3.2.177-setup.json`](docs/releases/windows-3.2.177-setup.json) for exact bytes, sources and qualification limits. The Console Windows download serves177 and the single Windows AUTO campaign accepts fourteen immutable installer versions. Policy12 is enabled/all_active/max2 with dynamic future admission. All6 initially available Windows PCs accepted177: test120 by verified clean Setup0, the other five by APPLIED/native0 with fresh independent Support1.0.1. Six offline172 PCs await fresh reconnect; legacy79 and other unqualified/unknown sources remain unsupported. Two removed test identities remain visible and receive no new work. Preserve all historical installer bytes and prior failure receipts.
+- The primary published Windows agent is **3.2.177**; the primary native ALT Linux kit is **3.2.183**. Read [`docs/releases/current-agent-release.json`](docs/releases/current-agent-release.json), [`docs/releases/linux-3.2.183-native.json`](docs/releases/linux-3.2.183-native.json) and [`docs/releases/windows-3.2.177-setup.json`](docs/releases/windows-3.2.177-setup.json) for exact bytes, sources and qualification limits. The Console Windows download serves177 and the single Windows AUTO campaign accepts fifteen immutable installer versions. Policy12 is enabled/all_active/max2 with dynamic future admission. All6 initially available Windows PCs accepted177: test120 by verified clean Setup0, the other five by APPLIED/native0 with fresh independent Support1.0.1. Six offline172 PCs await fresh reconnect; legacy79 and other unqualified/unknown sources remain unsupported. Two removed test identities remain visible and receive no new work. Preserve all historical installer bytes and prior failure receipts.
 - The primary Windows installer is `C:\endpoint-platform-wix-build\setup177-lifecycle-25f2ad8\native-setup-build\releases\EndpointAgentSetup-3.2.177-x64.exe`, bound by `packaging/windows/initial-runtime-3.2.177.json`. Runtime source `25f2ad8a5e13991e4e76260da939d29aafba8674`, native packaging `d21bc3bba119a178607de6f64f620fb53eeadf01`; actual served SHA `9d06a8339c2ed3b2c563f2b5258ad9fdbef0962b6d85f79e6e88490ca7f426fc`, timestamped Valid publisher4D. Exact-source qualifications cover Foundation172 and176/client107. Provider-only parent digest fix `266e38e5c2ead35f95978da1b95cc7a4fadb2a82` compares original enrollment requests through the consumed claim; it changes no signed177 bytes. Signed Support1.0.1 remains independent of Core/observer; portable Microsoft10.4.0.0p1-Preview remains unchanged and its upstream non-production-ready limit stays explicit. This Windows177 artifact is unchanged; the separately published native Linux183 kit is described below.
 - Native Linux183 is published at `/srv/endpoint-platform-distribution/alt/endpoint-alt-pilot-3.2.183-1/`, operator kit `C:/endpoint-platform-wix-build/linux178-native/kit183/endpoint-alt-pilot-3.2.183-1.tar.gz`, source `21fc543af8d4b8b24df83f29a27e4e2eeb86c268`, actual archive SHA `c5b552afa4aa27e4df73af0ce68be4ecc88729f30baf3a70e6f9d4c8c709a3f3`. Production provider `fd196e78b2c5cef00c86de79ca359147676f8b2f` uses additive49/50 only; staging `0b8ea9138011c1a4512737629d5a12b0269e4e7d` separately preserves Worktime51. Actual VM107 acceptance covers native0, same-card history/private4, modern full-wipe parent link, genuine user telemetry, expiry/revoke, manual disable through mixed online/offline rebind and root SSH with Core/updater/path stopped108.613629715seconds. See [receipt](docs/verification/2026-11-09-linux183-native-canary.md). Linux fleet rollout was not started, no global Linux enrollment campaign/network authority was created, the initial VM receipt alone does not qualify production Linux SSH; the subsequent explicit physical cohort below supplies separate acceptance. Use the native RPM coordinator, not Core-only OTA, to install privileged Support/helpers. Subsequent explicitly authorized physical105/190/210 acceptance is recorded in `docs/verification/2026-11-09-linux183-physical-cohort.md`: actual production root SSH with Core/updater stopped on each, accepted domain-user telemetry and preserved identity/domain state. The210 historical158 path required archival of an exact redundant production drop-in after canonical not-started recovery; do not generalize that administratively prepared continuation to unattended historical sources or arbitrary drop-ins. No automatic Linux fleet rollout is enabled. The historical156 kit, signatures and Core-only OTA remain immutable; the exact signed156 pair is separately registered for rollback. Historical178-182 candidates remain unqualified.
 - Core **3.2.163**, source `b23857849ad5b877e67d0de3c28d297f9ae5d507`, is the current Windows preparation bridge with signed client1.0.5. Its artifact is `C:\endpoint-platform-wix-build\setup-client-3.2.163-b238578\EndpointCore-3.2.163-b238578.zip`; see [`docs/releases/core-3.2.163-setup-client.json`](docs/releases/core-3.2.163-setup-client.json). It is not a primary installer or Linux release. Historical Core162/client1.0.4 artifacts and reports remain immutable. Foundation156 uses the exact compatible Core155 return, identifier `endpoint-windows-core-3.2.155-setup-source-725739f`, before full Setup158; other qualified profiles retain Core157. Never weaken Core157's Foundation157 minimum. Preserve all failed attempt receipts.
@@ -59,6 +62,20 @@
 
 # Canonical Windows update workflow
 
+- Hidden signed186/Support1.1.1 uses only Windows-serviced OpenSSH and observer108.
+  Actual test120177/client107-to186 repeat is APPLIED/native0/185.119seconds,
+  private4 and genuine user telemetry, without workstation repair for that job.
+  Qualification53c243c3-c346-4000-a16e-f1dd0777b0af covers only exact186/source177,
+  evidence1c0176f2-02e4-4e09-978f-c59bd14c3eeb, through2026-12-09T22:04:33.615258Z.
+  Real domain SSH passed with Core/updater stopped and observer disabled, after
+  owned tunnel/service crashes, bounded HTTPS authority loss and normal reboot;
+  post-boot UserSensor is accepted. Keys/private4/original grant expiry survived;
+  foreign global SSH/configuration/firewall are unchanged. Only120 is updated:
+  download/fleet12 remain177, Linux183 unchanged. Missing-FoD provisioning and a
+  real bundled-Preview migration are not live-qualified on this provisioned PC.
+  Preserve the first prepared177/client108 result separately, without inferring
+  unattended source qualification from it. See the [186 record](docs/releases/windows-3.2.186-setup.json)
+  and [acceptance receipt](docs/verification/2026-11-10-test120-windows186-inbox-openssh.md).
 - Hidden candidate184/Support1.1.0 is retained without qualification or promotion.
   Its177-to184 test120 job accepted native0/185.318seconds/private4/sensor1, but
   first Support activation compensated to1.0.1. The first-publish readiness race
@@ -67,8 +84,10 @@
   receipts. See docs/releases/windows-3.2.184-setup.json and
   docs/verification/2026-11-10-test120-windows184-support-first-start.md.
 - Hidden185 contains that readiness fix but its real177 canary failed before MSI
-  on retained-storage recapture after ordinary reinstall. Keep its known21 job
-  and exact media; source177 is canonically rolled-back/preparation_cancelled.
+  on retained-storage recapture after ordinary reinstall. Its original job is
+  FAILED21/native_failed_source_restored after actual signed108/185.12seconds
+  source proof; retain exact media/history. Source177 was canonically
+  rolled-back/preparation_cancelled, with no MSI replay or journal/selector repair.
   New186 journals recapture before creating payload and signed108 adds read-only
   source recovery attestation. Server settlement must retain FAILED21, original
   attempt, trusted exact177 catalog, fresh108/WSS/real active-user proof; unknown

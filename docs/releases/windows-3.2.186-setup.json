@@ -1,0 +1,224 @@
+{
+  "schema_version": 1,
+  "version": "3.2.186",
+  "platform": "windows_amd64",
+  "status": "candidate_test120_nominal177_qualified_faults_and_reboot_accepted",
+  "runtime_source_commit": "24461a70286ec1b70c8c08369c1ac0787aeb3087",
+  "windows_packaging_commit": "bed58fe48be6d1bcbb2aaa0c8fa1e560e805c699",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.186.json",
+  "setup": {
+    "filename": "EndpointAgentSetup-3.2.186-x64.exe",
+    "sha256": "67fd0d7ded0eed838491f4f3c056da15567d768f9d71c78f22937013ea0e4115",
+    "size": 166967400,
+    "release_id": "398de4ed-3c79-49f1-9942-8379efba70b3",
+    "download_published": false,
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+    "operator_path": "C:/endpoint-platform-wix-build/setup186-inbox-24461a7/native-setup-build/releases/EndpointAgentSetup-3.2.186-x64.exe"
+  },
+  "msi": {
+    "sha256": "cc7ffe8c6fac0e5f7cd9ce20e8a95e0d4949a166907f80d02bb61392d411fc97",
+    "size": 125157376,
+    "product_code": "{0ED9B2CB-5148-491C-AEDD-85753C04E276}"
+  },
+  "support": {
+    "component_version": "1.1.1",
+    "sha256": "388cba7b86be31831d6761cccd5770fd21dbbdd4670fa04274193cf65c107cd4",
+    "size": 10144944,
+    "profile": "windows-openssh-fod-v1",
+    "bundled_preview_archive": false,
+    "actual_test120_os_version": "9.5.6.4",
+    "missing_fod_provisioning_live_qualified": false,
+    "bundled_preview_to_fod_live_qualified": false,
+    "test120_inbox_activation_verified": true,
+    "policy_revision": 9,
+    "policy_generation": 5,
+    "grant_expiry_preserved": "2026-11-10T00:21:04.142624Z",
+    "operator_attestation_at": "2026-11-09 22:05:42.607299+00:00"
+  },
+  "observer": {
+    "version": "1.0.8",
+    "sha256": "11e4793a2064726f956ce9eac12c50e04b785012cacb161e6fed154ef9447a66",
+    "source_commit": "0d8f7451d020422757b4e8bc87a1d4b81b337b3a",
+    "authenticode": "Valid with timestamp"
+  },
+  "setup_update_release_id": "a4615295-d023-457e-84b6-cb0cf87617f4",
+  "test120": {
+    "device_id": "c87eaa22-4fd1-4830-bc11-88142afda87e",
+    "prepared_source_acceptance": {
+      "id": "efc1f83f-5836-4d0d-99cf-a1e9d689dcc7",
+      "release_id": "a4615295-d023-457e-84b6-cb0cf87617f4",
+      "status": "applied",
+      "safe_code": "setup_post_restart_confirmed",
+      "assigned_at": "2026-11-09 21:16:07.435065+00:00",
+      "updated_at": "2026-11-09 21:25:37.522925+00:00",
+      "started_at": "2026-11-09 21:16:54.196595+00:00",
+      "finished_at": "2026-11-09 21:25:37.522925+00:00",
+      "attempt_id": "5241ccb8-2a66-4ada-973d-9a12eeb1fce3",
+      "source_foundation_version": "3.2.177",
+      "source_core_version": "3.2.177",
+      "source_client_version": "1.0.8",
+      "last_report": {
+        "attempt_id": "5241ccb8-2a66-4ada-973d-9a12eeb1fce3",
+        "phase": "applied",
+        "safe_code": "setup_post_restart_confirmed",
+        "proof": {
+          "foundation_version": "3.2.186",
+          "core_version": "3.2.186",
+          "source_revision": "24461a70286ec1b70c8c08369c1ac0787aeb3087",
+          "msi_sha256": "cc7ffe8c6fac0e5f7cd9ce20e8a95e0d4949a166907f80d02bb61392d411fc97",
+          "native_phase": "accepted",
+          "exit_code": 0,
+          "native_verified": true,
+          "core_verified": true,
+          "provenance_verified": true,
+          "pending": false,
+          "services_verified": true,
+          "companions_restored": true,
+          "private": {
+            "credential": true,
+            "identity": true,
+            "origin": true,
+            "ca": true
+          },
+          "soak": {
+            "duration_seconds": 185.087,
+            "samples": 6,
+            "sensor_count": 1,
+            "sensor_cpu_percent_max": 0.0063,
+            "services_stable": true,
+            "companions_stable": true,
+            "connected": true
+          }
+        }
+      }
+    },
+    "nominal_source_assignment_id": "1c0176f2-02e4-4e09-978f-c59bd14c3eeb",
+    "nominal_source_client": "1.0.7",
+    "nominal_source_foundation": "3.2.177",
+    "nominal_source_accepted": true,
+    "nominal_source_acceptance": {
+      "id": "1c0176f2-02e4-4e09-978f-c59bd14c3eeb",
+      "release_id": "a4615295-d023-457e-84b6-cb0cf87617f4",
+      "status": "applied",
+      "safe_code": "setup_post_restart_confirmed",
+      "assigned_at": "2026-11-09 21:43:18.503450+00:00",
+      "updated_at": "2026-11-09 21:53:21.120454+00:00",
+      "started_at": "2026-11-09 21:44:02.088574+00:00",
+      "finished_at": "2026-11-09 21:53:21.120454+00:00",
+      "attempt_id": "2f51aa95-fa20-4770-9721-c38d28f182f7",
+      "source_foundation_version": "3.2.177",
+      "source_core_version": "3.2.177",
+      "source_client_version": "1.0.7",
+      "last_report": {
+        "attempt_id": "2f51aa95-fa20-4770-9721-c38d28f182f7",
+        "phase": "applied",
+        "safe_code": "setup_post_restart_confirmed",
+        "proof": {
+          "foundation_version": "3.2.186",
+          "core_version": "3.2.186",
+          "source_revision": "24461a70286ec1b70c8c08369c1ac0787aeb3087",
+          "msi_sha256": "cc7ffe8c6fac0e5f7cd9ce20e8a95e0d4949a166907f80d02bb61392d411fc97",
+          "native_phase": "accepted",
+          "exit_code": 0,
+          "native_verified": true,
+          "core_verified": true,
+          "provenance_verified": true,
+          "pending": false,
+          "services_verified": true,
+          "companions_restored": true,
+          "private": {
+            "credential": true,
+            "identity": true,
+            "origin": true,
+            "ca": true
+          },
+          "soak": {
+            "duration_seconds": 185.119,
+            "samples": 6,
+            "sensor_count": 1,
+            "sensor_cpu_percent_max": 0.0063,
+            "services_stable": true,
+            "companions_stable": true,
+            "connected": true
+          }
+        }
+      }
+    },
+    "installation": {
+      "state": "installed",
+      "sequence": 8,
+      "event_id": "29b4cb5f-6731-53e7-9719-a64b21ffb24b",
+      "generation_id": "234f8c4d-a9ec-5d5b-b11d-0cf758988310",
+      "received_at": "2026-11-09 21:49:43.948045+00:00",
+      "support_revision": 7,
+      "support_generation": 4,
+      "support_auto_eligible": false,
+      "support_rebind_until": null
+    },
+    "final_presence": {
+      "client_version": "1.0.8",
+      "foundation_version": "3.2.186",
+      "core_version": "3.2.186",
+      "ready": true,
+      "safe_code": null,
+      "last_seen_at": "2026-11-09 22:05:54.849485+00:00"
+    },
+    "postboot_sensor": {
+      "observation_id": "e68bf620-12f7-4acc-acf0-02f9024591ca",
+      "observed_at": "2026-11-09 22:06:20.282903+00:00",
+      "received_at": "2026-11-09 22:06:21.362138+00:00",
+      "activity_listener_state": "READY",
+      "user_sensor_last_seen_at": "2026-11-09 22:06:19.836028+00:00"
+    },
+    "postboot_activity": {
+      "observation_id": "cfe08f86-6eaf-4b41-ab40-1b79f099363a",
+      "last_observed_at": "2026-11-09 22:06:19.836028+00:00",
+      "session_state": "ACTIVE",
+      "user_login": "DESKTOP-9ST5HO2\\test_agent_win"
+    },
+    "fault_acceptance": {
+      "core_and_updaters_stopped_actual_domain_ssh": true,
+      "core_stopped_seconds": 263.281,
+      "owned_tunnel_child_crash_automatic_recovery": true,
+      "owned_service_crash_scm_automatic_recovery": true,
+      "policy_outage_closed_children_listener_and_actual_ssh": true,
+      "policy_outage_negative_observed_after_seconds": 65.8,
+      "network_return_automatic_reconnection": true,
+      "normal_reboot_boot_record_id": 8704,
+      "normal_reboot_utc": "2026-11-09T21:59:59.6703227Z",
+      "actual_admin_ssh_before_interactive_login": true,
+      "keys_and_private_four_preserved": true,
+      "foreign_global_ssh_config_keys_firewall_unchanged": true,
+      "temporary_rule_and_three_validation_tasks_removed": true
+    }
+  },
+  "source_qualifications": [
+    {
+      "id": "53c243c3-c346-4000-a16e-f1dd0777b0af",
+      "release_id": "a4615295-d023-457e-84b6-cb0cf87617f4",
+      "sha256": "67fd0d7ded0eed838491f4f3c056da15567d768f9d71c78f22937013ea0e4115",
+      "source_foundation": "3.2.177",
+      "evidence_assignment_id": "1c0176f2-02e4-4e09-978f-c59bd14c3eeb",
+      "qualified_at": "2026-11-09 22:04:33.615258+00:00",
+      "expires_at": "2026-12-09 22:04:33.615258+00:00",
+      "evidence_code": "native0_sensor_source_verified"
+    }
+  ],
+  "fleet_promoted": false,
+  "primary_windows_unchanged": "3.2.177",
+  "primary_linux_unchanged": "3.2.183",
+  "verification": "docs/verification/2026-11-10-test120-windows186-inbox-openssh.md",
+  "verified_utc": "2026-11-09T22:13:12.0316996Z",
+  "server_runtime": {
+    "production_and_staging_source": "24461a70286ec1b70c8c08369c1ac0787aeb3087",
+    "schema": "0051_staging_linux_worktime",
+    "configuration_or_migration_changes": false
+  },
+  "default_campaign": {
+    "id": "09e62472-a6ae-49ab-aaaa-6613836b4423",
+    "trusted_installer_count": 15,
+    "authority_and_usage_preserved": true
+  },
+  "server_snapshot_utc": "2026-11-09 22:06:26.437539+00:00"
+}

@@ -169,12 +169,24 @@ shell command.
 
 ## Installation and operating-system dependencies
 
-### Setup184 candidate / Support1.1.0
+### Setup186 candidate / Support1.1.1
 
-The separately registered184 candidate uses Windows-serviced OpenSSH capabilities
+The separately registered186 candidate uses Windows-serviced OpenSSH capabilities
 and the existing independent outbound tunnel. It does not contain portable SSH
 executables or the Preview ZIP. Its source scope is177 forward on test120; primary
 downloads and the fleet target remain177 until a separate promotion.
+
+Historical184/Support1.1.0 passed native installation but its first-start
+readiness failed;185 fixed readiness and failed before MSI on retained archive
+recapture after ordinary reinstall. Keep both immutable packages and receipts.
+186 includes both corrections and signed observer108. Its first177/client108
+prepared-source canary remains separately attributed. A subsequent ordinary177
+reinstall restored107, and the same186 bytes passed that nominal source without
+workstation repair: native0/185.119seconds/real sensor/private4. Only that repeat
+assignment qualified exact186/source177. Real strict domain SSH also passed with
+Core/updater stopped and observer disabled, after owned tunnel/service crashes,
+bounded policy-network loss and normal reboot. Genuine post-boot telemetry passed.
+See the [186 receipt](../verification/2026-11-10-test120-windows186-inbox-openssh.md).
 
 Preparation checks the fixed Client/Server capabilities before stopping active
 Support. Missing features use only Windows FoD, without changing WSUS, GPOs or
