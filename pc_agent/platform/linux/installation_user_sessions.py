@@ -70,7 +70,8 @@ def session_context(sid):
     import pwd
     try:
         session = properties(run(['/usr/bin/loginctl', 'show-session', sid, '--no-pager',
-            '--property=Active,Remote,Class,Type,User,State,TimestampMonotonic,Leader']))
+            *[argument for name in ('Active','Remote','Class','Type','User','State','TimestampMonotonic','Leader')
+                for argument in ('--property', name)]]))
     except (VerificationError, OSError):
         if sid not in session_ids():
             return None

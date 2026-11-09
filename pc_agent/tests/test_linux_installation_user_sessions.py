@@ -3,6 +3,73 @@ from pathlib import Path
 from pc_agent.tests.test_linux_installation_lifecycle import MemoryStore
 
 
+def test_loginctl_property_selection_allows_owned_stop_and_same_session_resume(monkeypatch, tmp_path):
+    """loginctl treats a comma list as one unknown property and returns no rows."""
+    import stat
+    import sys
+    from types import SimpleNamespace
+    from pc_agent.platform.linux import installation_user_sessions as s
+
+    runtime = tmp_path/'1000'
+    runtime.mkdir()
+    boot = tmp_path/'boot_id'
+    boot.write_text('test-boot')
+    real_path = type(tmp_path)
+    class FixturePath(real_path):
+        def lstat(self, *args, **kwargs):
+            if self == runtime:
+                return SimpleNamespace(st_mode=stat.S_IFDIR | 0o700, st_uid=1000,
+                    st_dev=1, st_ino=2)
+            return super().lstat(*args, **kwargs)
+    def fixture_path(value):
+        if value == '/run/user': return FixturePath(tmp_path)
+        if value == '/proc/sys/kernel/random/boot_id': return boot
+        return real_path(value)
+    monkeypatch.setattr(s, 'Path', fixture_path)
+    monkeypatch.setitem(sys.modules, 'pwd', SimpleNamespace(getpwuid=lambda uid:
+        SimpleNamespace(pw_name='fixture', pw_dir=str(tmp_path/'home'))))
+    monkeypatch.setattr(s, 'read_session_environment', lambda *_: {'digest':'a'*64})
+    session = {'User':'1000', 'TimestampMonotonic':'5953791332', 'Remote':'no',
+        'Leader':'2657', 'Type':'x11', 'Class':'user', 'Active':'yes', 'State':'active'}
+    unit = {'LoadState':'loaded', 'UnitFileState':'disabled', 'ActiveState':'active',
+        'FragmentPath':'/usr/lib/systemd/user/endpoint-user-sensor.service', 'DropInPaths':'',
+        'InactiveEnterTimestampMonotonic':'0', 'ActiveEnterTimestampMonotonic':'10'}
+    actions = []
+    def command(argv, **kwargs):
+        if argv[:2] == ['/usr/bin/loginctl', 'list-sessions']:
+            return b'6 1000 fixture seat0\n'
+        if argv[:2] == ['/usr/bin/loginctl', 'show-session']:
+            selected = []
+            for i, arg in enumerate(argv):
+                if arg == '--property': selected.append(argv[i+1])
+                elif arg.startswith('--property='): selected.append(arg.split('=', 1)[1])
+            return ''.join(f'{key}={session[key]}\n' for key in selected if key in session).encode()
+        if 'show' in argv:
+            return ''.join(f'{key}={value}\n' for key, value in unit.items()).encode()
+        if 'stop' in argv:
+            actions.append('stop')
+            unit.update(ActiveState='inactive', InactiveEnterTimestampMonotonic='20')
+        elif 'restart' in argv:
+            actions.append('restart')
+            unit.update(ActiveState='active', ActiveEnterTimestampMonotonic='30')
+        else:
+            assert 'daemon-reload' in argv
+        return b''
+    monkeypatch.setattr(s, 'run', command)
+    store = MemoryStore()
+    store.data['state.json'] = {'operation':{'id':'a'*32, 'action':'upgrade'}}
+    assert s.handoff_active_sensors(stop=True, store=store) == [
+        {'session':'6', 'uid':1000, 'status':'stopped_owned'}]
+    receipt = store.data['sensor-handoff.json']['1000']
+    assert receipt['context']['session'] == session
+    assert receipt['phase'] == 'stopped'
+    assert s.handoff_active_sensors(store=store, retained_only=True) == [
+        {'session':'6', 'uid':1000, 'status':'resumed_owned_stop'}]
+    assert store.data['sensor-handoff.json']['1000']['phase'] == 'consumed'
+    assert unit['UnitFileState'] == 'disabled'
+    assert actions == ['stop', 'restart']
+
+
 def test_only_existing_active_graphical_user_session_is_eligible():
     from pc_agent.platform.linux.installation_user_sessions import session_uid
     good = {'Active':'yes','Remote':'no','Class':'user','Type':'x11','User':'1000','State':'active'}
