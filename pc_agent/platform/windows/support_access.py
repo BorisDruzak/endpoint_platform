@@ -12,7 +12,7 @@ from pathlib import Path
 import re
 import uuid
 
-COMPONENT_VERSION = '1.0.1'
+COMPONENT_VERSION = '1.1.0'
 SERVICE_NAME = 'EndpointSupportAccess'
 MAX_LEASE_SECONDS = 86400
 LOCAL_PORT = 22222
@@ -312,6 +312,7 @@ def install_support_access(data_root: Path, install_root: Path, *, origin: str,
             current = json.loads(config_path.read_text(encoding='utf-8'))
             if current.get('device_id') != device_id or current.get('origin') != origin:
                 raise ValueError('support_identity_conflict')
+        activation.snapshot_configuration(config_path)
         dependencies = ops.dependencies(previous=current.get('dependencies') if current else None,
             existing=activation.old is not None or activation.state is not None)
         tunnel_key = public_key(ops.key(root, 'tunnel_ed25519'))
@@ -331,6 +332,7 @@ def install_support_access(data_root: Path, install_root: Path, *, origin: str,
             # Only an explicit authenticated central reset grant permits rotation.
             # Never restore revoked keys if the second registration reply is lost.
             activation.stop()
+            activation.invalidate_configuration_compensation()
             ops.rotate_keys(root)
             tunnel_key=public_key(ops.key(root,'tunnel_ed25519'))
             host_key=public_key(ops.key(root,'host_ed25519'))
@@ -347,6 +349,7 @@ def install_support_access(data_root: Path, install_root: Path, *, origin: str,
         atomic_write(config_path, json.dumps(dict(device_id=device_id,origin=origin,
             credential_id=credential_id,component_version=COMPONENT_VERSION,dependencies=dependencies)))
         ops.protect(config_path)
+        activation.require_initialized_readiness()
         activation.apply(reload=True)
         return dict(installed=True,component_version=COMPONENT_VERSION,device_id=device_id)
 
@@ -366,6 +369,15 @@ def uninstall_support_access(*, _ops=None, _client=None) -> dict:
         revoked = False
         if root.exists():
             assert_private(root)
+            servicing=root/'os-servicing.json'
+            if servicing.exists():
+                assert_private(servicing)
+                if servicing.stat().st_size>8192:
+                    raise RuntimeError('support_dependency_recovery_required')
+                record=json.loads(servicing.read_bytes())
+                if (not isinstance(record,dict) or record.get('schema_version')!=1
+                        or record.get('state') not in {'complete','failed','reboot_required','conflict','installed_unverified'}):
+                    raise RuntimeError('support_dependency_recovery_required')
             try:
                 if _client is None:
                     for name in ('support.json','credential','ca.pem'):
@@ -381,7 +393,8 @@ def uninstall_support_access(*, _ops=None, _client=None) -> dict:
         ops.remove_service()
         ops.remove_runtime()
         for name in ('credential','support.json','ca.pem','host_ed25519','host_ed25519.pub',
-                     'tunnel_ed25519','tunnel_ed25519.pub','authorized_keys','known_hosts','sshd_config','sshd.pid','tunnel.log'):
+                     'tunnel_ed25519','tunnel_ed25519.pub','authorized_keys','known_hosts','sshd_config','sshd.pid','tunnel.log',
+                     'os-servicing.json','readiness-request.json','readiness.json'):
             path = root/name
             if path.exists():
                 assert_private(path)

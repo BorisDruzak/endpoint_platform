@@ -140,6 +140,10 @@ def validate_windows_admin(username: str):
 
 
 def verify_dependencies(dependencies: dict):
+    if dependencies.get('profile') == 'windows-openssh-fod-v1':
+        from .support_access_os import verify_os_snapshot
+        verify_os_snapshot(dependencies)
+        return
     if 'profile' in dependencies:
         from .support_access_bundle import verify_profile
         verify_profile(dependencies)
@@ -188,6 +192,48 @@ class PayloadActivation:
         self.stopped=False
         self.compensated=False
         self.backup_created=False
+        self.configuration=None
+        self.configuration_compensation=True
+
+    def snapshot_configuration(self,path):
+        self.config_path=Path(path)
+        if self.config_path.exists():
+            self.ops.private(self.config_path)
+            self.configuration=self.config_path.read_bytes()
+            credential=self.config_path.parent/'credential'
+            self.authority=hashlib.sha256(credential.read_bytes()).hexdigest() if credential.exists() else None
+
+    def invalidate_configuration_compensation(self):
+        # An authenticated central reset/new key generation cannot be undone.
+        self.configuration_compensation=False
+
+    def _restore_configuration(self):
+        if self.configuration is None:
+            return
+        credential=self.config_path.parent/'credential'
+        current=hashlib.sha256(credential.read_bytes()).hexdigest() if credential.exists() else None
+        if current!=self.authority and self.configuration_compensation:
+            raise RuntimeError('support_payload_recovery_required')
+        self.ops.private(self.config_path)
+        old=json.loads(self.configuration)
+        new=json.loads(self.config_path.read_bytes())
+        if any(old.get(k)!=new.get(k) for k in ('device_id','origin')):
+            raise RuntimeError('support_payload_recovery_required')
+        if not self.configuration_compensation:
+            # Authorized reset keeps every NEW key, token and credential binding.
+            # Only restore the old image's compatible dependency selection.
+            if 'dependencies' not in old:return
+            new['dependencies']=old['dependencies']
+            restored=json.dumps(new)
+        else:
+            if old.get('credential_id')!=new.get('credential_id'):
+                raise RuntimeError('support_payload_recovery_required')
+            restored=self.configuration.decode('utf-8')
+        atomic_write(self.config_path,restored)
+        self.ops.protect(self.config_path)
+
+    def require_initialized_readiness(self):
+        self.ops.prepare_readiness(self.target,self.candidate,self.config_path)
 
     def __enter__(self):
         import shutil
@@ -248,6 +294,11 @@ class PayloadActivation:
                 # cannot be proved. Never overwrite a possibly mapped image.
                 self.compensated=True
                 raise
+            try:self._restore_configuration()
+            except BaseException:
+                # Preserve both signed images and unknown authority ownership.
+                self.compensated=True
+                raise
             if moved:
                 if self.old:os.replace(self.previous,self.target)
                 elif self.target.exists():self.target.unlink()
@@ -263,6 +314,8 @@ class PayloadActivation:
     def __exit__(self,*exc):
         if self.pending.exists():self.pending.unlink()
         try:
+            if exc[0] is not None and not self.compensated:
+                self._restore_configuration()
             if exc[0] is not None and self.stopped and not self.compensated:
                 self.ops.restore_service(self.target,self.state)
             if self.backup_created and not self.applied and self.previous.exists() and not self.compensated:
@@ -326,6 +379,14 @@ $v=(Get-Item -LiteralPath $p).VersionInfo
             'running':win32serviceutil.QueryServiceStatus(SERVICE_NAME)[1]==win32service.SERVICE_RUNNING}
         finally:win32service.CloseServiceHandle(service);win32service.CloseServiceHandle(manager)
 
+    def prepare_readiness(self,target,candidate,config_path):
+        from uuid import uuid4
+        assert_private(config_path)
+        self._ready_root=config_path.parent
+        self._ready_request={'nonce':uuid4().hex,'image_sha256':candidate['sha256']}
+        path=self._ready_root/'readiness-request.json'
+        atomic_write(path,json.dumps(self._ready_request,sort_keys=True));self.protect(path)
+
     def prove_service_ready(self,target):
         import win32service,win32serviceutil,win32process
         from .support_access import SERVICE_NAME
@@ -333,12 +394,28 @@ $v=(Get-Item -LiteralPath $p).VersionInfo
         win32serviceutil.WaitForServiceStatus(SERVICE_NAME,win32service.SERVICE_RUNNING,30)
         with OwnedImageProcesses(target) as processes:
             if not processes.handles:raise RuntimeError('support_service_not_ready')
-            deadline=time.monotonic()+3
+            request=getattr(self,'_ready_request',None)
+            deadline=time.monotonic()+(90 if request is not None else 3)
             while True:
                 if (win32serviceutil.QueryServiceStatus(SERVICE_NAME)[1]!=win32service.SERVICE_RUNNING
                     or any(win32process.GetExitCodeProcess(handle)!=259 for handle in processes.handles)):
                     raise RuntimeError('support_service_not_ready')
-                if time.monotonic()>=deadline:return
+                if request is not None:
+                    from .support_access_readiness import matches,dependency_digest
+                    root=self._ready_root
+                    try:
+                        for name in ('readiness.json','support.json','credential'):assert_private(root/name)
+                        if (root/'readiness.json').stat().st_size>2048:raise ValueError()
+                        record=json.loads((root/'readiness.json').read_bytes())
+                        config=json.loads((root/'support.json').read_bytes())
+                        verify_dependencies(config['dependencies'])
+                        pids={win32process.GetProcessId(handle) for handle in processes.handles}
+                        if matches(record,request,device_id=config['device_id'],
+                            credential_sha256=hashlib.sha256((root/'credential').read_bytes()).hexdigest(),
+                            dependency_sha256=dependency_digest(config['dependencies']),active_pids=pids):return
+                    except (OSError,ValueError,KeyError,TypeError):pass
+                elif time.monotonic()>=deadline:return
+                if time.monotonic()>=deadline:raise RuntimeError('support_service_not_ready')
                 time.sleep(.25)
 
     def restore_service(self,target,state):
@@ -453,20 +530,14 @@ $v=(Get-Item -LiteralPath $p).VersionInfo
         assert_private(path)
 
     def dependencies(self, *, previous=None, existing=False):
-        # Read-only OS preference. Never query/install Windows capabilities or
-        # change firewall, global sshd, registry, PATH or vendor installation.
-        from . import support_access_bundle as bundle
-        if isinstance(previous,dict) and 'profile' in previous:
-            if previous.get('profile')!=bundle.PROFILE:
-                raise ValueError('support_dependency_migration_unsupported')
-            result=bundle.verify_profile(previous)
-        else:
-            try:
-                result=self.os_dependencies()
-            except Exception:
-                if existing:
-                    raise ValueError('support_dependency_migration_unsupported') from None
-                result=bundle.install()
+        from .support_access_os import PROFILE,WindowsFOD,ensure_inbox_openssh
+        if previous and previous.get('profile') not in {None,PROFILE,'bundled-openssh-v1'}:
+            raise ValueError('support_dependency_migration_unsupported')
+        if previous and previous.get('profile')=='bundled-openssh-v1':
+            from .support_access_bundle import verify_profile
+            verify_profile(previous) # Retain the exact old compensation input.
+        root=production_roots()[0]
+        result=ensure_inbox_openssh(WindowsFOD(root))
         self._keygen=result['keygen']
         return result
 
@@ -787,6 +858,14 @@ class SupportChildren:
         self.job = None
         self.remote_port = None
         self.confirmation=None
+        self.dependencies_validated=False
+
+    def select_dependencies(self,dependencies):
+        verify_dependencies(dependencies)
+        if dependencies!=self.dependencies:
+            self.stop()
+            self.dependencies=dependencies
+        self.dependencies_validated=True
 
     def start(self, policy):
         from .support_access import sshd_config, tunnel_command, _ssh_path
@@ -794,6 +873,7 @@ class SupportChildren:
         self.remote_port = policy.remote_port
         self.confirmation=ForwardConfirmation(policy.remote_port)
         verify_dependencies(self.dependencies)
+        self.dependencies_validated=True
         from dataclasses import replace
         policy=replace(policy,windows_admin_username=validate_windows_admin(policy.windows_admin_username))
         assert_private(self.root)
@@ -801,6 +881,8 @@ class SupportChildren:
             assert_private(self.root/name)
         config=sshd_config(self.root,policy)
         if self.dependencies.get('profile')=='bundled-openssh-v1':
+            config+='ModuliFile '+_ssh_path(Path(self.dependencies['sshd']).parent/'moduli')+'\n'
+        elif self.dependencies.get('profile')=='windows-openssh-fod-v1' and self.dependencies.get('moduli_sha256'):
             config+='ModuliFile '+_ssh_path(Path(self.dependencies['sshd']).parent/'moduli')+'\n'
         for name, data in [
             ('authorized_keys','\n'.join(policy.operator_public_keys)+'\n'),

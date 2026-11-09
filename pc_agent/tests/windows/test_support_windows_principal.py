@@ -72,7 +72,7 @@ def test_sshd_render_rejects_configuration_patterns(tmp_path,name):
 
 
 def test_domain_capability_has_distinct_component_version():
-    assert support.COMPONENT_VERSION=='1.0.1'
+    assert tuple(int(p) for p in support.COMPONENT_VERSION.split('.'))>=(1,0,1)
 
 
 @pytest.mark.parametrize('name',[r'CONTOSO\Operator','D'*16+'\\user','D'*15+'\\'+'u'*49,'user@domain','DOMAIN\\user\nMatch all'])
@@ -125,4 +125,4 @@ def test_actual_service_loop_attests_its_compiled_version_on_status():
             calls.append((operation,body));stop.set();return raw
     service.run_supervisor(DEVICE,Client(),Children(),stop)
     assert calls==[('status',{'installed':True,'tunnel_connected':False,'last_error_code':None,
-                              'component_version':'1.0.1'})]
+                              'component_version':support.COMPONENT_VERSION})]

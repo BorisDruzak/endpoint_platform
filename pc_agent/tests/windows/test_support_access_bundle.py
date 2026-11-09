@@ -51,30 +51,44 @@ def test_closed_archive_rejects_malicious_members(archive,tmp_path,attack):
 @pytest.mark.parametrize('existing',[False,True])
 def test_valid_os_profile_is_preferred_without_bundle_or_mutation(monkeypatch,existing):
     from pc_agent.platform.windows import support_access_native as native
-    profile={'keygen':'verified-os-keygen'}
-    monkeypatch.setattr(native.WindowsSupportOps,'os_dependencies',lambda _:profile)
+    from pc_agent.platform.windows import support_access_os as os_runtime
+    from pc_agent.tests.windows.test_support_access_os import Servicing,CLIENT,SERVER
+    profile={'profile':os_runtime.PROFILE,'keygen':'verified-os-keygen'}
+    adapter=Servicing({CLIENT:'Installed',SERVER:'Installed'})
+    adapter.verify=lambda:profile
+    monkeypatch.setattr(os_runtime,'WindowsFOD',lambda root:adapter)
     monkeypatch.setattr(bundle(),'install',lambda:pytest.fail('valid OS must not install bundle'))
     ops=native.WindowsSupportOps()
     assert ops.dependencies(existing=existing)==profile and ops._keygen=='verified-os-keygen'
 
 
-def test_missing_os_uses_bundle_only_for_fresh_install(monkeypatch):
+def test_missing_os_uses_only_fixed_fod_preparation_not_preview(monkeypatch):
     from pc_agent.platform.windows import support_access_native as native
-    monkeypatch.setattr(native.WindowsSupportOps,'os_dependencies',lambda _:(_ for _ in ()).throw(ValueError('missing')))
-    profile={'profile':bundle().PROFILE,'keygen':'verified-bundle-keygen'}
-    monkeypatch.setattr(bundle(),'install',lambda:profile)
+    from pc_agent.platform.windows import support_access_os as os_runtime
+    from pc_agent.tests.windows.test_support_access_os import Servicing,CLIENT,SERVER
+    profile={'profile':os_runtime.PROFILE,'keygen':'verified-os-keygen'}
+    adapter=Servicing({CLIENT:'Installed',SERVER:'NotPresent'})
+    adapter.verify=lambda:profile
+    monkeypatch.setattr(os_runtime,'WindowsFOD',lambda root:adapter)
+    monkeypatch.setattr(bundle(),'install',lambda:pytest.fail('new media must not select Preview'))
     ops=native.WindowsSupportOps();assert ops.dependencies()==profile
-    assert ops._keygen=='verified-bundle-keygen'
-    with pytest.raises(ValueError,match='migration_unsupported'):ops.dependencies(previous={'keygen':'old'},existing=True)
+    assert ops._keygen=='verified-os-keygen'
+    assert ('install',(SERVER,)) in adapter.events
 
 
-def test_existing_exact_bundle_is_revalidated_and_reused(monkeypatch):
+def test_existing_exact_bundle_is_verified_and_retained_before_os_migration(monkeypatch):
     from pc_agent.platform.windows import support_access_native as native
+    from pc_agent.platform.windows import support_access_os as os_runtime
+    from pc_agent.tests.windows.test_support_access_os import Servicing,CLIENT,SERVER
     profile={'profile':bundle().PROFILE,'keygen':'existing-bundle-keygen'}
+    replacement={'profile':os_runtime.PROFILE,'keygen':'verified-os-keygen'}
     calls=[]
     monkeypatch.setattr(bundle(),'verify_profile',lambda p:calls.append(p) or p)
-    monkeypatch.setattr(native.WindowsSupportOps,'os_dependencies',lambda _:pytest.fail('bundle migration must not occur'))
-    assert native.WindowsSupportOps().dependencies(previous=profile,existing=True)==profile
+    adapter=Servicing({CLIENT:'Installed',SERVER:'Installed'})
+    adapter.verify=lambda:replacement
+    monkeypatch.setattr(os_runtime,'WindowsFOD',lambda root:adapter)
+    monkeypatch.setattr(bundle(),'remove',lambda:pytest.fail('retain old compensation bytes'))
+    assert native.WindowsSupportOps().dependencies(previous=profile,existing=True)==replacement
     assert calls==[profile]
 
 
@@ -84,7 +98,7 @@ def test_incompatible_migration_precedes_keys_registration_config_and_stop(monke
     class Ops(_PayloadTestOps,native.WindowsSupportOps):
         def protect(self,p):
             if not p.exists():p.mkdir(parents=True)
-        def os_dependencies(self):raise ValueError('missing OS')
+        def dependencies(self,**kwargs):raise ValueError('support_dependency_migration_unsupported')
         def key(self,*args):pytest.fail('keys must remain untouched')
         def stop_for_update(self,*args):pytest.fail('service must remain untouched')
     monkeypatch.setattr(bundle(),'install',lambda:pytest.fail('incompatible old payload must not publish bundle'))

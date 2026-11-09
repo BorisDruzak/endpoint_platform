@@ -17,6 +17,16 @@ def forbid_operator_browser_policy_registry(monkeypatch):
     monkeypatch.setattr(browser_policy.WindowsPolicyRegistry, '__init__', forbidden)
 
 
+@pytest.fixture(autouse=True)
+def forbid_operator_openssh_servicing(monkeypatch):
+    """Dependency tests must explicitly inject their own Windows FoD boundary."""
+    from pc_agent.platform.windows import support_access_os
+    def forbidden(*args, **kwargs):
+        pytest.fail('Test attempted operator Windows servicing; inject an isolated FoD adapter')
+    monkeypatch.setattr(support_access_os.WindowsFOD, 'capabilities', forbidden)
+    monkeypatch.setattr(support_access_os.WindowsFOD, 'install', forbidden)
+
+
 @pytest.fixture
 def protected_update_state_root(tmp_path):
     """Source state-machine fixtures use real trusted DACLs, never an ACL bypass."""

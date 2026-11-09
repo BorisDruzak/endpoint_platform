@@ -158,6 +158,7 @@ def test_http_origin_requires_canonical_https_hostname_and_no_userinfo_or_path(t
 
 
 class _PayloadTestOps:
+    def prepare_readiness(self,target,candidate,config_path):pass
     def activation_lock(self):
         import contextlib
         return contextlib.nullcontext()
@@ -192,7 +193,7 @@ def test_registration_reuses_existing_keys_and_persists_only_independent_credent
         def status(self,**kwargs):pytest.fail('installer cannot attest runtime version')
         def register(self, body):
             assert 'device_token' not in body
-            assert body['component_version'] == '1.0.1'
+            assert body['component_version'] == support.COMPONENT_VERSION
             return dict(device_id=DEVICE, support_token=TOKEN, credential_id=CREDENTIAL_ID, policy={'enabled':False})
     (tmp_path/'signed.exe').write_bytes(b'signed-fixture')
     ops = Ops()

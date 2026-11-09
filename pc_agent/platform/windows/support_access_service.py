@@ -35,7 +35,8 @@ def _enrollment_origin(agent: Path) -> str:
     validate_origin(origin)
     return origin
 
-def run_supervisor(device_id, client, children, stop: Event, *, publish=lambda state: None):
+def run_supervisor(device_id, client, children, stop: Event, *, publish=lambda state: None,
+                   refresh_dependencies=None):
     """Keep the lease cutoff responsive while DNS/TLS/policy requests block."""
     supervisor = SupportSupervisor(device_id,children)
     incoming = Queue(maxsize=8)
@@ -44,14 +45,25 @@ def run_supervisor(device_id, client, children, stop: Event, *, publish=lambda s
         while not stop.is_set():
             delay = 10
             try:
+                dependencies=None
+                if refresh_dependencies is not None:
+                    try:
+                        dependencies=refresh_dependencies()
+                    except Exception:
+                        incoming.put(('dependency_invalid',None))
+                        client.status(connected=False,error='dependency_unavailable')
+                        stop.wait(delay)
+                        continue
+                # Slow signature/catalog validation must finish BEFORE a fresh
+                # policy fetch. Never pair old authority with new dependencies.
                 policy = client.policy()
-                incoming.put(('policy',policy))
+                incoming.put(('policy',(policy,dependencies,time.monotonic())))
                 delay = max(5,min(30,policy.get('poll_after_seconds',30)))
                 connected = supervisor.state == 'tunnel_connected'
                 error = {'process_failed':'tunnel_failed','invalid_policy':'configuration_conflict',
-                         'expired':'policy_unavailable'}.get(supervisor.state)
+                         'expired':'policy_unavailable','dependency_unavailable':'dependency_unavailable'}.get(supervisor.state)
                 policy = client.status(connected=connected,error=error)
-                incoming.put(('policy',policy))
+                incoming.put(('policy',(policy,dependencies,time.monotonic())))
             except SupportHTTPError as error:
                 if error.status in {401,403,404,410}:
                     incoming.put(('revoked',None))
@@ -63,6 +75,7 @@ def run_supervisor(device_id, client, children, stop: Event, *, publish=lambda s
     worker = Thread(target=policy_worker,name='support-policy',daemon=True)
     worker.start()
     previous = None
+    initialized=False
     try:
         while not stop.is_set():
             try:
@@ -72,13 +85,32 @@ def run_supervisor(device_id, client, children, stop: Event, *, publish=lambda s
             else:
                 if kind == 'revoked':
                     supervisor.stop('revoked')
+                elif kind == 'dependency_invalid':
+                    initialized=False
+                    children.dependencies_validated=False
+                    supervisor.stop('dependency_unavailable')
                 else:
                     try:
-                        supervisor.accept(value,now=datetime.now(timezone.utc),monotonic_now=time.monotonic())
-                    except ValueError:
-                        pass
+                        policy,dependencies,fetched=value
+                        if time.monotonic()-fetched>5:
+                            supervisor.stop('expired')
+                            continue
+                        if dependencies is not None:
+                            if hasattr(children,'select_dependencies'):
+                                children.select_dependencies(dependencies)
+                            else:
+                                children.dependencies=dependencies
+                                children.dependencies_validated=True
+                        supervisor.accept(policy,now=datetime.now(timezone.utc),monotonic_now=time.monotonic())
+                        initialized=True
+                        previous=None # A fresh disabled policy also proves initialization.
+                    except (ValueError,OSError):
+                        initialized=False
+                        children.dependencies_validated=False
+                        supervisor.stop('dependency_unavailable')
             supervisor.tick(monotonic_now=time.monotonic())
-            if previous != supervisor.state:
+            if previous != supervisor.state and (refresh_dependencies is None or initialized or
+                    supervisor.state in {'revoked','expired','dependency_unavailable','process_failed','invalid_policy'}):
                 previous = supervisor.state
                 publish(previous)
     finally:
@@ -94,9 +126,33 @@ def load_service(root: Path):
     if (root/'support.json').stat().st_size>16384 or (root/'credential').stat().st_size>128 or (root/'ca.pem').stat().st_size>65536:
         raise ValueError('invalid_support_configuration')
     config = json.loads((root/'support.json').read_text(encoding='utf-8'))
-    verify_dependencies(config['dependencies'])
+    if config['dependencies'].get('profile')!='windows-openssh-fod-v1':
+        verify_dependencies(config['dependencies'])
     client = SupportHTTPClient(config['origin'],root/'ca.pem',(root/'credential').read_text().strip())
     return config['device_id'],client,SupportChildren(root,config['dependencies'])
+
+
+def os_dependency_monitor(root,children):
+    from pc_agent.platform.windows.support_access_os import OSDependencyMonitor,snapshot_unchanged,signed_os_dependencies
+    from pc_agent.platform.windows.support_access_native import WindowsSupportOps,atomic_write
+    import hashlib
+    config_path=root/'support.json'
+    initial=json.loads(config_path.read_bytes())
+    credential=hashlib.sha256((root/'credential').read_bytes()).hexdigest()
+    def persist(old,new):
+        ops=WindowsSupportOps()
+        with ops.activation_lock():
+            for path in (config_path,root/'credential'):assert_private(path)
+            current=json.loads(config_path.read_bytes())
+            if (any(current.get(k)!=initial.get(k) for k in ('device_id','origin','credential_id'))
+                or hashlib.sha256((root/'credential').read_bytes()).hexdigest()!=credential
+                or current['dependencies'] not in (old,new)):
+                raise ValueError('support_dependency_changed')
+            if current['dependencies']!=new:
+                current['dependencies']=new
+                atomic_write(config_path,json.dumps(current,sort_keys=True));ops.protect(config_path)
+    return OSDependencyMonitor(children.dependencies,unchanged=snapshot_unchanged,
+        validate=signed_os_dependencies,persist=persist)
 
 
 def install_from_enrollment():
@@ -116,6 +172,13 @@ def install_from_enrollment():
 
 
 def main():
+    if sys.argv[1:]==['--inspect-os']:
+        from pc_agent.platform.windows.support_access_os import signed_os_dependencies
+        try:
+            value=signed_os_dependencies()
+        except Exception:
+            print(json.dumps({'valid':False,'error':'support_dependency_signature_invalid'}));return 1
+        print(json.dumps({'valid':True,'dependencies':value}));return 0
     if sys.argv[1:] == ['--install']:
         try:
             result = install_from_enrollment()
@@ -129,6 +192,7 @@ def main():
             known.update({'unsafe_support_path','invalid_support_origin','support_signature_invalid',
                           'support_payload_recovery_required','support_service_not_ready','support_install_busy',
                           'support_bundle_invalid','support_bundle_signature_invalid','support_dependency_migration_unsupported'})
+            known.add('support_dependency_recovery_required')
             code = str(error) if str(error) in known else 'support_install_failed'
             print(json.dumps({'installed':False,'error':code}))
             return 1
@@ -165,8 +229,16 @@ def main():
                 servicemanager.LogInfoMsg('EndpointSupportAccess: configuration_unavailable; disabled')
                 self.stop_event.wait()
                 return
+            refresh=None
+            if children.dependencies.get('profile')=='windows-openssh-fod-v1':
+                refresh=os_dependency_monitor(root,children).refresh
+            def publish(state):
+                from pc_agent.platform.windows.support_access_readiness import publish_initialized
+                servicemanager.LogInfoMsg('EndpointSupportAccess: '+state)
+                try:publish_initialized(root,children,state)
+                except Exception:pass # No fabricated readiness on writer/authority failure.
             run_supervisor(device,client,children,self.stop_event,
-                publish=lambda state:servicemanager.LogInfoMsg('EndpointSupportAccess: '+state))
+                publish=publish,refresh_dependencies=refresh)
 
         def SvcStop(self):
             self.ReportServiceStatus(win32service.SERVICE_STOP_PENDING)

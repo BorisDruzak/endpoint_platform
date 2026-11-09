@@ -126,6 +126,7 @@ _SUPPORT_ERROR_CODES = frozenset({
     'unsafe_support_path','invalid_support_origin','support_signature_invalid',
     'support_payload_recovery_required','support_service_not_ready','support_install_busy',
     'support_bundle_invalid','support_bundle_signature_invalid','support_dependency_migration_unsupported'})
+_SUPPORT_ERROR_CODES = _SUPPORT_ERROR_CODES | {'support_dependency_recovery_required'}
 
 
 def safe_support_error_code(value) -> str:
