@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "version": "3.2.185",
+  "platform": "windows_amd64",
+  "status": "candidate_failed_before_native_retention_conflict_do_not_promote",
+  "runtime_source_commit": "bdeeb119e45cc4f9508b8087eddfdbea450b8010",
+  "windows_packaging_commit": "dc1ad9b86a3ed89d5ba76eb12ed95abcafb298e5",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.185.json",
+  "setup": {
+    "filename": "EndpointAgentSetup-3.2.185-x64.exe",
+    "sha256": "c70079a91788f12bde1ff03ebb4b9979f2b5eff362601fa3a399f99d69d9aed0",
+    "size": 166953432,
+    "release_id": "202f0c34-9c1e-4fd6-a57a-f5e64e8b8b9a",
+    "download_published": false,
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+    "operator_path": "C:/endpoint-platform-wix-build/setup185-inbox-bdeeb11/native-setup-build/releases/EndpointAgentSetup-3.2.185-x64.exe"
+  },
+  "msi": {
+    "sha256": "2aa06795688ca07b5d712b1657dc72abd228eab1a1651464e63f54214b3c35d9",
+    "size": 125149184,
+    "product_code": "{C59B27A1-A2F3-44DA-8C63-68735842D712}"
+  },
+  "support": {
+    "component_version": "1.1.1",
+    "sha256": "15c5ee018056e9934cf276c2df331527e1b7b34ebe5a04e84f3187f3480dc85a",
+    "size": 10144944,
+    "profile": "windows-openssh-fod-v1",
+    "bundled_preview_archive": false,
+    "migration_qualified": false
+  },
+  "setup_update_release_id": "1d01f7fc-8a76-45b4-9b4c-7a7564da7beb",
+  "test120": {
+    "device_id": "c87eaa22-4fd1-4830-bc11-88142afda87e",
+    "assignment_id": "e035d5f8-4f76-45b2-803a-55e1f9570334",
+    "attempt_id": "89b1640c-fff7-49a3-9901-1222ec4e8569",
+    "source_foundation": "3.2.177",
+    "source_client": "1.0.7",
+    "native_exit": 21,
+    "server_status": "recovery_required",
+    "canonical_local_recovery": "rolled-back preparation_cancelled",
+    "source_restored": "3.2.177",
+    "native_acceptance": false,
+    "complete_support_acceptance": false
+  },
+  "source_qualifications": [],
+  "fleet_promoted": false,
+  "primary_windows_unchanged": "3.2.177",
+  "primary_linux_unchanged": "3.2.183",
+  "verification": "docs/verification/2026-11-10-test120-windows185-retention-recovery.md"
+}

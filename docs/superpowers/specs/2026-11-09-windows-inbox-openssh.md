@@ -79,9 +79,9 @@ promotion. This task is limited to120; do not expand fleet177 policy or Linux.
 2. RED/GREEN tests cover FoD absent/failure/reboot/concurrent changes; migration
    and compensation; trusted OS replacement versus tamper; validator blocking
    beyond lease expiry; unchanged credentials/manual revoke; source/native holds.
-3. Inspect signed185 EXE/MSI/Core/Support source/bytes/toolchain and ensure no new
+3. Inspect signed186 EXE/MSI/Core/Support source/bytes/toolchain and ensure no new
    Preview payload. Existing signed177/observer107 and Linux183 remain immutable.
-4. Actual canonical177→185 assignment accepts native0, retained private identity,
+4. Actual canonical177→186 assignment accepts native0, retained private identity,
    stable services, fresh WSS and genuine accepted user telemetry for at least
    180 seconds. Longer observation and normal reboot/session restoration are
    separate acceptance facts, not inferred from version/heartbeat.
@@ -100,3 +100,13 @@ Implementation checkpoint: immutable184 accepted its native177 update but first
 Support activation compensated. Preserve its failed receipt and media. The new185
 fix waits for Win32 missing readiness records; repeat177 forward acceptance from
 an ordinary reinstall, with no manual readiness-file preparation.
+
+185 exposed a separate pre-native retained-storage recapture conflict after
+ordinary reinstall. Preserve its known21 and completed canonical177 restoration;
+new186 must journal recapture before payload creation. Signed observer108 may
+attest only this attempt's protected preparation_cancelled recovery read-only,
+with exact original source/private state and fresh180-second active-user proof.
+An additive server descriptor closes the original job FAILED21 only. Unknown
+native outcomes and unrelated terminal journals retain ownership. Keep177/client107
+as the nominal forward qualification baseline; administrative observer recovery
+does not qualify that unattended update path. See the185 verification receipt.

@@ -59,15 +59,15 @@ new OS module and focused service/native fixture tests.
 - [x] GREEN focused/broader Windows Support, native/Setup and lifecycle tests.
   Review whole branch for trust, dynamic calls, races and irreversible outcomes.
 
-## Task3 — immutable185 build and candidate publication
+## Task3 — immutable186 build and candidate publication
 
 Files: Windows support build spec/resource helper, component/runtime version,
-new185 runtime binding/release record, existing canonical publishing procedures.
+new186 runtime binding/release record, existing canonical publishing procedures.
 
 - [x] RED build contract proves new Support omits the Preview archive/executables
   while retaining exact metadata required for old owned cleanup.
-- [ ] Implement build input distinction; bump Support1.1.1 and agent185, author
-  runtime contract before freeze; retain observer107 and all old packages.
+- [ ] Implement build input distinction; use Support1.1.1 and agent186, author
+  runtime contract before freeze; include signed108 and retain all old packages.
 - [ ] Build/sign immutable new media with trusted timestamped publisher. Inspect
   exact sources, resources, signatures and frozen independent import closure.
 - [ ] Run relevant tests/build/contract checks; publish hidden candidate with
@@ -77,7 +77,7 @@ new185 runtime binding/release record, existing canonical publishing procedures.
 
 Files: scoped verification receipt, runbook/rules/release records only.
 
-- [ ] Install via real canonical177→185 assignment on120; capture native0, private4,
+- [ ] Install via real canonical177→186 assignment on120; capture native0, private4,
   exact versions,180s stable services/WSS and accepted genuine user telemetry.
 - [ ] Prove in-box binary selection and real strict SSH with Core/updater/observer
   stopped; restore them and prove fresh accepted activity afterward.
@@ -85,3 +85,24 @@ Files: scoped verification receipt, runbook/rules/release records only.
   retain all receipts, do not replay an unknown native operation.
 - [ ] Record actual limits and preserve primary/fleet scope. Commit/push exact
   source/docs; remove only owned test scratch and leave operational services ready.
+
+## Confirmed185 follow-up — recapture and modern source recovery
+
+185 failed before MSI and canonically restored177. Preserve its native21 hold
+until a signed observer can attest the completed recovery. Build a distinct186;
+184/185 media and failure history remain immutable.
+
+- RED/GREEN ordinary native reinstall recapture of a published retained archive,
+  including partial dual-location residue and crashes. Validate current exact native
+  package/source and immutable capture before creating payload; journal materialization
+  none→copying→complete without changing the old receipt/operation/history.
+- Add read-only observer108 attestation for this attempt's terminal rolled-back,
+  preparation_cancelled stage, protected binding/inputs/owner, dead owners, absent
+  native/reboot attempt, exact original selectors and healthy source/private4.
+- Add typed native_failed_source_restored proof. Server must retain known21,
+  original assignment/attempt/frozen source, exact trusted source catalog, fresh108,
+  source WSS and genuine active-user telemetry after native start; keep legacy paths.
+- Test rejection of mismatches/unknown holds and stable180s source recovery, deploy
+  the narrow verified server contract, then let actual signed108 settle185 FAILED.
+- Rebaseline canonically and prove the new186 release from177 without treating
+  an administratively prepared recovery as unattended source qualification.

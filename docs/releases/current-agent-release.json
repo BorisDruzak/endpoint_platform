@@ -1265,6 +1265,13 @@
   },
   "windows_candidates": [
     {
+      "version": "3.2.185",
+      "record": "docs/releases/windows-3.2.185-setup.json",
+      "status": "candidate_failed_before_native_retention_conflict_do_not_promote",
+      "download_published": false,
+      "fleet_promoted": false
+    },
+    {
       "version": "3.2.184",
       "record": "docs/releases/windows-3.2.184-setup.json",
       "status": "candidate_native_accepted_support_first_start_failed_do_not_promote",
