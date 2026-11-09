@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from pc_agent.tests.windows.test_installer_fence import native_protected_root
-from pc_agent.tests.windows.test_installation_lifecycle import DEVICE, TX1, TX2, NATIVE, ack
+from pc_agent.tests.windows.test_installation_lifecycle import DEVICE, TX1, TX2, NATIVE, ack, add
 
 
 @pytest.fixture
@@ -115,3 +115,19 @@ def test_optional_leaf_requires_accessible_real_parent(tmp_path, monkeypatch, de
         monkeypatch.setattr(Path, 'stat', denied)
     with pytest.raises((OSError, ValueError)):
         read_optional_bootstrap_ascii(parent/'endpoint-origin', default='https://endpoint.sosnadmin.local')
+
+
+def test_invalid_protected_ca_keeps_facts_pending_before_any_connection(enrolled, monkeypatch):
+    from pc_agent.platform.windows import installation_notification as notification
+    data, paths, box = enrolled
+    add(box, action='installed')
+    before = (box.root/'journal.json').read_bytes()
+    monkeypatch.setattr(notification, 'outbox_for', lambda _:box)
+    monkeypatch.setattr(notification.http.client, 'HTTPSConnection',
+        lambda *a, **kw:pytest.fail('invalid CA reached the network'))
+    # The fixture's protected CA-COPY is not a valid certificate. Use the actual
+    # SSLContext and sender here, including the missing-origin default path.
+    assert notification.deliver_retained(paths) == 'pending'
+    assert len(box.pending(DEVICE)) == 1
+    assert (box.root/'journal.json').read_bytes() == before
+    assert not (data/'endpoint-origin').exists()
