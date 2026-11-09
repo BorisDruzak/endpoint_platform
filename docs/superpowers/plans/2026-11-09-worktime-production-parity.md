@@ -7,7 +7,9 @@ Helpdesk-login changes, transfer to production, equal server versions, and a che
 of existing agent/Worktime integration. Preserve production data, installed signed
 Windows177/Linux183 media, device identities, fleet policy12, Support grants and
 the employee/admin/DLP authorization boundaries. Helpdesk repository code is a
-read-only contract source; do not edit or deploy Helpdesk code from this workspace.
+read-only contract source by default. The later explicit user exception authorizes
+only the SSO/Worktime backport in the isolated Helpdesk checkout; its main server
+directory and unrelated staging features remain protected.
 No inferred HR attendance, fabricated administrator session or ambiguous person
 mapping. Existing Activity telemetry remains separate from personnel records.
 
@@ -79,3 +81,20 @@ document dynamic cross-repository relationships. Do not reindex centrally.
 - Stop/remove only owned temporary test resources, retain protected backups and
   recovery evidence, update release/deployment/runbook records, commit/push scoped
   changes and report exact common revision, tests, live results and limits.
+
+## Execution result — 2026-11-09
+
+Tasks1–4 completed: common Endpoint runtime818d2897 is active on both servers at
+schema51. The separately authorized selective Helpdesk backport1dc2be0d is active
+in production at schema153 after exact-SHA full CI42651948275 and actual isolated
+staging/canonical deployment gates. Main Helpdesk staging evolved independently
+to b9361e0f/schema158 and was preserved. Paired production Worktime authentication
+is enabled; Helpdesk AD login remains off pending confirmed identity bindings.
+
+Task5 technical verification and owned-resource cleanup completed. Fresh accepted
+production Windows177/Linux183 user activity and typed TLS context reads passed.
+Existing agent Worktime source matches; no new agent build was necessary. Genuine
+employee handoff awaits a real complete employee profile/session. Bindings and
+schedules are empty, so live-person native prompts are not qualified. No employee
+or attendance data were invented. See the [durable receipt](../../verification/2026-11-09-worktime-production-parity.md)
+for exact tests, observed runtime identities, preserved failures and limitations.

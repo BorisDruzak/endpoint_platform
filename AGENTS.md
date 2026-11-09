@@ -5,6 +5,34 @@
 - The approved local Helpdesk server-code source is `C:\Users\admin-2\CodexProjects\pc_client\server`. Use it solely to check and analyze Helpdesk code from this workspace. Changes there are prohibited: do not edit, commit, push, or create worktrees in that directory.
 - The shallow, sparse, read-only snapshot at `C:\Users\admin-2\Documents\endpoint-helpdesk-agent-source`, from branch `codex/helpdesk-process-model` at commit `8be364000089d70bac3ccf9aaef4f84397ca21a7`, remains an approved limited agent-contract reference. It intentionally contains only `pc_agent/`, `shared/tool_contracts.py`, `shared/builtin_tool_descriptors.py`, `shared/redaction.py`, `pytest.ini`, `requirements-ci.txt`, and the agent capability document. Do not expand it without a demonstrated runtime or test dependency.
 
+- On 2026-11-09 the user explicitly authorized one scoped exception: transfer
+  only SSO/Worktime from Helpdesk staging to production. The accepted backport is
+  `1dc2be0d358dec13b12c4861d4f43419c70672d8`, branch
+  `codex/worktime-production-sso`, isolated checkout
+  `C:/Users/admin-2/CodexProjects/pc_client/.worktrees/production-6cca48e5`.
+  The main approved read-only server directory above remains unchanged. This
+  exception does not authorize wholesale staging promotion or unrelated Helpdesk work.
+
+# Current Worktime server deployment
+
+- At 2026-11-09T16:49Z production and staging Endpoint API/worker run the same
+  runtime `818d2897b1d4b86bd0a90ed75729bdaa0d5f3170`, schema
+  `0051_staging_linux_worktime`. This supersedes the provider revisions recorded
+  at the historical agent-release acceptance checkpoints below; immutable
+  Windows177/Linux183 artifacts and their qualifications are unchanged.
+- Production Helpdesk runs the scoped backport `1dc2be0d358dec13b12c4861d4f43419c70672d8`,
+  schema153, with Worktime handoff enabled to the fixed production employee
+  portal. Endpoint SSO/Worktime/Helpdesk login are enabled. Helpdesk AD login
+  remains disabled pending confirmed identity bindings; normal password login
+  remains available. Local Endpoint administrators remain available.
+- Main Helpdesk staging independently advanced to
+  `b9361e0f04c1738b09536dcf832e201a8f5cb04f`, schema158. Its unrelated features
+  were preserved. Do not describe the complete Helpdesk repositories as identical.
+- No production person/binding/schedule/category or attendance facts were invented.
+  Genuine production employee handoff and live native Worktime prompts remain
+  distinct acceptance gates. See the [deployment receipt](docs/verification/2026-11-09-worktime-production-parity.md)
+  for actual CI, database preservation, fresh accepted agent telemetry and limits.
+
 # Canonical agent release
 
 - The primary published Windows agent is **3.2.177**; the primary native ALT Linux kit is **3.2.183**. Read [`docs/releases/current-agent-release.json`](docs/releases/current-agent-release.json), [`docs/releases/linux-3.2.183-native.json`](docs/releases/linux-3.2.183-native.json) and [`docs/releases/windows-3.2.177-setup.json`](docs/releases/windows-3.2.177-setup.json) for exact bytes, sources and qualification limits. The Console Windows download serves177 and the single Windows AUTO campaign accepts twelve immutable installer versions. Policy12 is enabled/all_active/max2 with dynamic future admission. All6 initially available Windows PCs accepted177: test120 by verified clean Setup0, the other five by APPLIED/native0 with fresh independent Support1.0.1. Six offline172 PCs await fresh reconnect; legacy79 and other unqualified/unknown sources remain unsupported. Two removed test identities remain visible and receive no new work. Preserve all historical installer bytes and prior failure receipts.
