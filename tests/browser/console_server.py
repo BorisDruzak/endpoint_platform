@@ -79,7 +79,7 @@ async def _serve(root: Path) -> None:
     async with sessions() as session:
         session.add(AdminUser(
             username="console-e2e", password_digest=hash_password("console-e2e-password"),
-            scopes=["updates:write"],
+            scopes=["dlp:read", "dlp:write", "updates:write"],
         ))
         device = Device(device_identifier="console-e2e-device", display_name="Тестовый компьютер")
         lab_device = Device(device_identifier="console-e2e-lab", display_name="Лабораторный Agent")

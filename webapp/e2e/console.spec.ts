@@ -37,7 +37,7 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
     await expect(page.getByRole('columnheader', { name: 'Foundation / Launcher' })).toBeVisible()
     await expect(page.getByText('Core новее Foundation · информационно')).toBeVisible()
     const unknown = page.getByRole('row').filter({ hasText: 'Без Foundation' })
-    await expect(unknown.getByText('В сети', { exact: true })).toBeVisible()
+    await expect(unknown.getByText('Установка не подтверждена · в сети', { exact: true })).toBeVisible()
     await expect(unknown.getByText('Неизвестна')).toBeVisible()
     await page.getByLabel('Core Agent ниже версии', { exact: true }).fill('3.2.82')
     await page.getByLabel('Foundation ниже версии', { exact: true }).fill('3.2.83')
