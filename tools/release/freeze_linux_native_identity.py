@@ -16,6 +16,6 @@ def freeze_identity(root, component):
     stage = Path(tempfile.mkdtemp(prefix='endpoint-native-source-'))
     target = stage/'linux-native-build.json'
     target.write_text(json.dumps({'schema_version':'endpoint_linux_native_build_v1','component':component,
-        'version':'1.0.0' if component == 'support' else '3.2.181','source_revision':revision,
+        'version':'1.0.0' if component == 'support' else '3.2.182','source_revision':revision,
         'source_files':files},sort_keys=True,separators=(',',':')),encoding='ascii')
     return str(target)
