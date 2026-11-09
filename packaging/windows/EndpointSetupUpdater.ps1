@@ -2,7 +2,7 @@
 param([Parameter(Mandatory)][ValidateSet('Install','Run')][string]$Mode)
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
-$script:ClientVersion='1.0.7'
+$script:ClientVersion='1.0.8'
 $script:Publisher='4D4C23389F5FF77BC4EB32044761019EAE8FB776'
 $script:Origin='https://endpoint.sosnadmin.local'
 $script:ProgramFiles=[Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
@@ -481,6 +481,127 @@ function Get-SetupCanonicalHash($value){
  $hash=[Security.Cryptography.SHA256]::Create()
  try{return ([BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes((ConvertTo-SetupCanonicalJson $value))))).Replace('-','').ToLowerInvariant()}finally{$hash.Dispose()}
 }
+function Get-SetupTextHash([string]$text){
+ $hash=[Security.Cryptography.SHA256]::Create()
+ try{return ([BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($text)))).Replace('-','').ToLowerInvariant()}finally{$hash.Dispose()}
+}
+function Read-AdministrativeRecord([string]$path,[switch]$PublicState){
+ if($PublicState){
+  Assert-NoReparse $path;$acl=Get-Acl -LiteralPath $path
+  if(!$acl.AreAccessRulesProtected -or $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -cnotin @('S-1-5-18','S-1-5-32-544')){throw 'unsafe_state_acl'}
+  $readers=@('S-1-5-80-327494974-20047353-929432329-1920152597-707704661','S-1-5-80-1102781572-1373263041-1070489469-7526906-1468061691')
+  foreach($ace in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])){
+   $sid=$ace.IdentityReference.Value
+   if($ace.AccessControlType -ne 'Allow' -or ($sid -cnotin @('S-1-5-18','S-1-5-32-544') -and ($sid -cnotin $readers -or ([int]$ace.FileSystemRights -band (-bnot 0x1200a9))))){throw 'unsafe_state_acl'}
+  }
+ }else{Assert-AdministrativePath $path}
+ Initialize-FileEvidence
+ $before=[EndpointSetupFileEvidence]::Read($path)
+ $value=Read-BoundedJson $path 65536
+ if(!$value -or [EndpointSetupFileEvidence]::Read($path) -cne $before){throw 'recovery_record_changed'}
+ return $value
+}
+function Assert-StagedOwnerDead($owner){
+ if(!$owner -or $owner.pid -isnot [int] -or $owner.pid -lt 1 -or $owner.created -le 0 -or $owner.sid -cne 'S-1-5-18' -or $owner.elevated -cne $true -or $owner.hash -cnotmatch '^[0-9a-f]{64}$'){throw 'recovery_owner_invalid'}
+ if(!('EndpointSetupOwnerEvidence' -as [type])){
+ Add-Type -TypeDefinition @"
+using System;using System.IO;using System.Runtime.InteropServices;
+public static class EndpointSetupOwnerEvidence {
+ [DllImport("kernel32.dll",SetLastError=true)] static extern IntPtr OpenProcess(uint access,bool inherit,int pid);
+ [DllImport("kernel32.dll",SetLastError=true)] static extern bool GetProcessTimes(IntPtr p,out long created,out long exited,out long kernel,out long user);
+ [DllImport("kernel32.dll",SetLastError=true)] static extern uint WaitForSingleObject(IntPtr p,uint milliseconds);
+ [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr p);
+ public static void RequireDead(int pid,long created){
+  IntPtr p=OpenProcess(0x00101000,false,pid);
+  if(p==IntPtr.Zero){if(Marshal.GetLastWin32Error()==87)return;throw new IOException("owner_death_unverified");}
+  try{long c,e,k,u;if(!GetProcessTimes(p,out c,out e,out k,out u))throw new IOException("owner_times_unavailable");
+   if(c==created&&WaitForSingleObject(p,0)!=0)throw new IOException("owner_alive");
+  }finally{CloseHandle(p);}
+ }
+}
+"@
+ }
+ [EndpointSetupOwnerEvidence]::RequireDead($owner.pid,[long]$owner.created)
+}
+function Test-RecoveryTask($operation,$inputsRecord,[string]$cache){
+ try{
+  $scheduler=New-Object -ComObject Schedule.Service;$scheduler.Connect()
+  try{$task=$scheduler.GetFolder('\').GetTask('EndpointStagedRecovery-'+$operation)}catch{
+   # Canonical cleanup removes the exact task after terminal recovery. Only
+   # actual not-found is absence; denied/unavailable must keep native ownership.
+   $cause=$_.Exception.GetBaseException()
+   if($cause.HResult -eq -2147024894 -and ($cause -is [Runtime.InteropServices.COMException] -or $cause -is [IO.FileNotFoundException])){return $true}
+   return $false
+  }
+  if((Get-SetupTextHash ([string]$task.Xml)) -cne $inputsRecord.task_sha256){return $false}
+  $descriptor=[Security.AccessControl.RawSecurityDescriptor]::new($task.GetSecurityDescriptor(7))
+  if($descriptor.Owner.Value -cnotin @('S-1-5-18','S-1-5-32-544') -or !$descriptor.DiscretionaryAcl){return $false}
+  foreach($ace in $descriptor.DiscretionaryAcl){if($ace.AceQualifier -ne 'AccessAllowed' -or $ace.SecurityIdentifier.Value -cnotin @('S-1-5-18','S-1-5-32-544')){return $false}}
+  $principal=[string]$task.Definition.Principal.UserId
+  $sid=if($principal.StartsWith('S-1-')){[Security.Principal.SecurityIdentifier]::new($principal)}else{([Security.Principal.NTAccount]::new($principal)).Translate([Security.Principal.SecurityIdentifier])}
+  if($task.Definition.Actions.Count -ne 1 -or $task.Definition.Actions.Item(1).Path -cne (Join-Path $cache 'EndpointAgentSetup.exe') -or $task.Definition.Actions.Item(1).Arguments -cne ('--recover-staged-update '+$operation) -or $sid.Value -cne 'S-1-5-18' -or $task.Definition.Principal.LogonType -ne 5 -or $task.Definition.Principal.RunLevel -ne 1){return $false}
+  return $true
+ }catch{return $false}
+}
+function Get-SelectorTreeHash([string]$selectorHex,[string]$selectorPath){
+ Assert-NoReparse $selectorPath
+ $raw=[IO.File]::ReadAllBytes($selectorPath)
+ if(([BitConverter]::ToString($raw)).Replace('-','').ToLowerInvariant() -cne $selectorHex){throw 'source_selector_changed'}
+ $selector=[Text.Encoding]::UTF8.GetString($raw)|ConvertFrom-Json
+ if($selector.version -cnotmatch '^3\.2\.[0-9]+$'){throw 'source_selector_invalid'}
+ $manifest=Read-BoundedJson (Join-Path $script:AgentRoot ('versions\'+$selector.version+'\endpoint-update-manifest.json')) 4194304
+ if(!$manifest -or !@($manifest.files).Count){throw 'source_manifest_missing'}
+ $lines=[Text.StringBuilder]::new()
+ $files=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
+ $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+ # Native manifests need not arrive sorted; match manifest_files' canonical
+ # path order and its legitimate empty package metadata files.
+ foreach($item in $manifest.files){
+  if(!$item.path -or $item.sha256 -cnotmatch '^[0-9a-f]{64}$' -or ($item.size -isnot [int] -and $item.size -isnot [long]) -or $item.size -lt 0 -or !$seen.Add($item.path)){throw 'source_manifest_invalid'}
+  $files.Add($item.path,$item)
+ }
+ $names=[string[]]@($files.Keys);[Array]::Sort($names,[StringComparer]::Ordinal)
+ foreach($name in $names){$item=$files[$name];[void]$lines.Append($item.path+[char]0+[string]$item.size+[char]0+$item.sha256+"`n")}
+ return Get-SetupTextHash $lines.ToString()
+}
+function Get-SourceRecoveryDescriptor($job,$after){
+ try{
+  if($job.native_exit -ne 21 -or $job.native_started -cne $true -or (Test-CoreOrNativeBusy) -or [version]$job.before.core.version -lt [version]'3.2.177'){return $null}
+  foreach($part in @('foundation','core')){foreach($field in @('version','source_revision','package_sha256')){if(!$job.before.$part.$field -or $after.$part.$field -cne $job.before.$part.$field){return $null}}}
+  if($after.core.origin -cne 'msi' -or $after.core.version -cne $after.foundation.version -or $after.core.package_sha256 -cne $after.foundation.package_sha256 -or $after.core.source_revision -cne $after.foundation.source_revision -or $after.foundation.product_code -cne $job.before.foundation.product_code){return $null}
+  foreach($value in @($after.foundation.native_verified,$after.core.verified,$after.provenance.verified)){if($value -isnot [bool] -or !$value){return $null}}
+  if($after.pending.active_or_degraded -isnot [bool] -or $after.pending.active_or_degraded -or $after.provenance.conflict -isnot [bool] -or $after.provenance.conflict){return $null}
+  foreach($name in @('native-continuation.json','transaction.json')){if(Test-Path -LiteralPath (Join-Path $script:InstallerState $name)){return $null}}
+  $stage=Read-AdministrativeRecord (Join-Path $script:InstallerState 'staged-update.json') -PublicState;$operation=[string]$stage.binding.operation_id
+  if($stage.schema_version -cne 'endpoint_windows_staged_update_v1' -or $stage.phase -cne 'rolled-back' -or $stage.safe_code -cne 'preparation_cancelled' -or $stage.switched_at -or $stage.attempt_id -or $operation -cnotmatch '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$' -or $operation -ceq $job.previous_native_id -or (Get-SetupCanonicalHash $stage.binding) -cne $stage.binding_sha256){return $null}
+  foreach($field in @('version','source_revision','package_sha256','product_code')){if($stage.binding.old_release.$field -cne $job.before.foundation.$field){return $null}}
+  if($stage.binding.new_release.version -cne $job.release.version -or $stage.binding.new_release.source_revision -cne $job.release.source_revision -or $stage.binding.new_release.package_sha256 -cne $job.release.msi_sha256 -or $stage.binding.candidate_version -cne $job.release.version -or $stage.binding.candidate_source_revision -cne $job.release.source_revision){return $null}
+  $start=[DateTimeOffset]::Parse($job.native_created).UtcDateTime;$end=[DateTimeOffset]::Parse($job.native_ended).UtcDateTime;$created=[DateTime]::FromFileTimeUtc([long]$stage.owner.created)
+  if($end -lt $start -or $created -lt $start -or $created -gt $end){return $null}
+  $root=Join-Path $script:InstallerState ('staged-recovery\'+$operation)
+  if(Test-Path -LiteralPath (Join-Path $root 'reboot.json')){return $null}
+  $inputsRecord=Read-AdministrativeRecord (Join-Path $root 'inputs.json');$owner=Read-AdministrativeRecord (Join-Path $root 'owner.json')
+  $inputNames=@('schema_version','operation_id','owner','package_sha256','files','service_states','task_sha256','boot')
+  $ownerNames=@('schema_version','operation_id','binding_sha256','original_owner','owner')
+  if(@($inputsRecord.psobject.Properties).Count -ne $inputNames.Count -or @($owner.psobject.Properties).Count -ne $ownerNames.Count){return $null}
+  foreach($name in $inputNames){if($inputsRecord.psobject.Properties.Name -cnotcontains $name){return $null}}
+  foreach($name in $ownerNames){if($owner.psobject.Properties.Name -cnotcontains $name){return $null}}
+  if($inputsRecord.boot -isnot [string] -or !$inputsRecord.boot.Length -or $inputsRecord.boot.Length -gt 128 -or $inputsRecord.task_sha256 -cnotmatch '^[0-9a-f]{64}$' -or @($inputsRecord.service_states.psobject.Properties).Count -ne 3){return $null}
+  foreach($name in @('EndpointAgent','EndpointAgentUpdater','EndpointBrowserPolicy')){if($inputsRecord.service_states.$name -cnotin @('Running','Stopped','Absent')){return $null}}
+  if($inputsRecord.schema_version -ne 1 -or $inputsRecord.operation_id -cne $operation -or $inputsRecord.package_sha256 -cne $job.release.msi_sha256 -or (Get-SetupCanonicalHash $inputsRecord.owner) -cne (Get-SetupCanonicalHash $stage.owner) -or $owner.schema_version -ne 1 -or $owner.operation_id -cne $operation -or $owner.binding_sha256 -cne $stage.binding_sha256 -or (Get-SetupCanonicalHash $owner.original_owner) -cne (Get-SetupCanonicalHash $stage.owner)){return $null}
+  Assert-StagedOwnerDead $stage.owner;Assert-StagedOwnerDead $owner.owner
+  $cache=Join-Path ([IO.Path]::GetDirectoryName($script:AgentRoot)) ('installer-cache\msi-'+$job.release.msi_sha256)
+  Assert-AdministrativePath $cache
+  $names=@('EndpointAgentSetup.exe','EndpointAgent.msi','EndpointAgent.release.json','Install-EndpointAgentCanary.ps1')
+  if(@($inputsRecord.files.psobject.Properties).Count -ne 4){return $null}
+  foreach($name in $names){$leaf=Join-Path $cache $name;Assert-AdministrativePath $leaf;if($inputsRecord.files.$name -cnotmatch '^[0-9a-f]{64}$' -or (Get-FileHash -LiteralPath $leaf).Hash.ToLowerInvariant() -cne $inputsRecord.files.$name){return $null}}
+  if($inputsRecord.files.'EndpointAgentSetup.exe' -cne $job.release.sha256 -or $inputsRecord.files.'EndpointAgent.msi' -cne $job.release.msi_sha256 -or !(Test-RecoveryTask $operation $inputsRecord $cache)){return $null}
+  if((Get-SelectorTreeHash $stage.binding.selected_before (Join-Path $script:AgentRoot 'current.json')) -cne $stage.binding.selected_tree_sha256_before){return $null}
+  $previous=Join-Path $script:AgentRoot 'previous.json'
+  if($null -ne $stage.binding.previous_before){if((Get-SelectorTreeHash $stage.binding.previous_before $previous) -cne $stage.binding.previous_tree_sha256_before){return $null}}elseif(Test-Path -LiteralPath $previous){return $null}
+  return [ordered]@{schema_version='windows_setup_source_recovery_v1';operation_id=$operation;binding_sha256=$stage.binding_sha256;inputs_sha256=(Get-SetupCanonicalHash $inputsRecord);owner_sha256=(Get-SetupCanonicalHash $owner);target_version=$job.release.version;target_source_revision=$job.release.source_revision;target_msi_sha256=$job.release.msi_sha256;target_setup_sha256=$job.release.sha256;source_product_code=$after.foundation.product_code}
+ }catch{return $null}
+}
 function Test-RecoveredTargetBinding($job,$after){
  try{
   if($job.native_exit -ne 21 -or $job.native_stage -cne 'accepted' -or $job.native_started -cne $true -or !$job.release -or (Test-CoreOrNativeBusy)){return $false}
@@ -574,6 +695,23 @@ function Invoke-NativeSetup($job,[string]$setup){
  }
  $job.native_exit=[int]$process.ExitCode;$job.native_ended=[DateTime]::UtcNow.ToString('o');$process.Dispose();Save-Job $job
 }
+function Complete-RestoredSource($job,[string]$setup,$after,$descriptor){
+ # The canonical native owner already restored the source. This observer only
+ # verifies it, including its original companion scope, and preserves exit21.
+ $soak=Observe-InstalledRuntime $job $job.before.core.version $job
+ $fresh=Read-SetupPreflight $setup
+ $checked=Get-SourceRecoveryDescriptor $job $fresh
+ $proof=New-NativeProof $job $fresh 'unchanged' 21 ([bool]$soak.companions_stable)
+ $proof.soak=$soak;$proof.source_recovery=$checked
+ if((Test-CoreOrNativeBusy) -or !$checked -or (Get-SetupCanonicalHash $checked) -cne (Get-SetupCanonicalHash $descriptor) -or !(Test-NativeProofHealthy $proof) -or !(Test-RecoveredTargetSoak $soak)){
+  Send-Progress $job 'recovery_required' $null 'native_exit_requires_recovery';return
+ }
+ $hello=Get-ClientHello
+ if(!$hello.ready -or $hello.client_version -cne '1.0.8' -or $hello.core_version -cne $job.before.core.version -or $hello.foundation_version -cne $job.before.foundation.version){Send-Progress $job 'recovery_required' $null 'native_exit_requires_recovery';return}
+ $accepted=Invoke-EndpointJson 'POST' '/agent/v1/setup-updates/hello' $hello
+ if($accepted.device_id -cne $script:DeviceId -or $accepted.device_id -cne $job.device_id){throw 'setup_hello_device_differs'}
+ Send-Progress $job 'failed' $proof 'native_failed_source_restored'
+}
 function Complete-NativeJob($job,[string]$setup){
  if($job.native_exit -ne 0 -and $job.native_exit -ne 67){
   # Only a known provenance rejection can be settled by proving that its exact
@@ -582,6 +720,8 @@ function Complete-NativeJob($job,[string]$setup){
   if($job.phase -cne 'recovery_required'){Send-Progress $job 'recovery_required' $null 'native_exit_requires_recovery'}
   $after=Read-SetupPreflight $setup
   if(Test-RecoveredTargetBinding $job $after){Complete-RecoveredTarget $job $setup $after;return}
+  $sourceRecovery=Get-SourceRecoveryDescriptor $job $after
+  if($sourceRecovery){Complete-RestoredSource $job $setup $after $sourceRecovery;return}
   foreach($part in @('foundation','core')){
    foreach($field in @('version','source_revision')){
     if(!$job.before.$part.$field -or $after.$part.$field -cne $job.before.$part.$field){Send-Progress $job 'recovery_required' $null 'native_exit_requires_recovery';return}

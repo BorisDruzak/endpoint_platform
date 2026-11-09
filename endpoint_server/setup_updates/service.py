@@ -192,9 +192,6 @@ async def require_new_wss(session, job, release, now):
 
 async def require_recovered_target(session, job, release, report, now):
     """A recovered target releases ownership as FAILED, retaining native exit 21."""
-    from endpoint_server.context.models import ContextCurrent
-    from endpoint_server.policy.models import PolicyDeviceState, PolicySensorHealthCurrent
-    from endpoint_server.policy.service import resolve_effective_policy
     from .preparation import ACTIVE_PREPARATIONS
 
     proof = report.proof
@@ -205,7 +202,7 @@ async def require_recovered_target(session, job, release, report, now):
             or release is None or proof.foundation_version != release.version
             or proof.core_version != release.version or proof.source_revision != release.source_revision
             or proof.msi_sha256 != release.msi_sha256
-            or presence is None or presence.client_version not in {'1.0.6', '1.0.7'} or not presence.ready
+            or presence is None or presence.client_version not in {'1.0.6', '1.0.7', '1.0.8'} or not presence.ready
             or presence.foundation_version != release.version or presence.core_version != release.version
             or not -timedelta(seconds=30) <= now - utc(presence.last_seen_at) <= timedelta(seconds=90)
             or job.started_at is None or utc(presence.last_seen_at) <= utc(job.started_at)):
@@ -224,6 +221,14 @@ async def require_recovered_target(session, job, release, report, now):
             or now - utc(instance.last_seen_at) < -timedelta(seconds=30)
             or now - utc(connection.last_seen_at) < -timedelta(seconds=30)):
         raise SetupConflict('current Windows post-install WSS required')
+
+    await require_fresh_active_user(session, job, now)
+
+
+async def require_fresh_active_user(session, job, now):
+    from endpoint_server.context.models import ContextCurrent
+    from endpoint_server.policy.models import PolicyDeviceState, PolicySensorHealthCurrent
+    from endpoint_server.policy.service import resolve_effective_policy
 
     effective = await resolve_effective_policy(session, job.device_id)
     policy = await session.scalar(select(PolicyDeviceState).where(PolicyDeviceState.device_id == job.device_id))
@@ -250,6 +255,55 @@ async def require_recovered_target(session, job, release, report, now):
         raise SetupConflict('fresh post-install activity required')
 
 
+async def require_restored_source(session, job, release, report, now):
+    """Terminal preparation cancellation is FAILED21, never target acceptance."""
+    from endpoint_contracts.runtime_payload import version_tuple
+    from endpoint_server.db.models import WindowsSetupRelease
+    from .preparation import ACTIVE_PREPARATIONS
+
+    proof, descriptor = report.proof, report.proof.source_recovery
+    presence = await session.scalar(select(SetupClientPresence).where(SetupClientPresence.device_id == job.device_id))
+    if (job.status != 'recovery_required' or job.safe_code != 'native_exit_requires_recovery'
+            or job.attempt_id is None or job.attempt_id != report.attempt_id or job.started_at is None
+            or release is None or version_tuple(proof.foundation_version) < (3, 2, 177)
+            or proof.core_version != proof.foundation_version
+            or job.source_core_version != proof.core_version or job.source_foundation_version != proof.foundation_version
+            or job.source_client_version not in {'1.0.7', '1.0.8'}
+            or descriptor.target_version != release.version or descriptor.target_source_revision != release.source_revision
+            or descriptor.target_msi_sha256 != release.msi_sha256 or descriptor.target_setup_sha256 != release.sha256
+            or presence is None or presence.client_version != '1.0.8' or not presence.ready
+            or presence.core_version != proof.core_version or presence.foundation_version != proof.foundation_version
+            or not -timedelta(seconds=30) <= now - utc(presence.last_seen_at) <= timedelta(seconds=90)
+            or utc(presence.last_seen_at) <= utc(job.started_at)):
+        raise SetupConflict('known native21 and fresh qualified source recovery required')
+    catalog = await session.scalar(select(WindowsSetupRelease).where(WindowsSetupRelease.version == proof.foundation_version))
+    if (catalog is None or catalog.retired_at is not None or catalog.agent_version != proof.core_version
+            or catalog.msi_source_commit != proof.source_revision or catalog.msi_sha256 != proof.msi_sha256
+            or catalog.product_code != descriptor.source_product_code
+            or catalog.authenticode_status != 'valid' or catalog.msi_authenticode_status != 'valid'
+            or not catalog.authenticode_publisher or catalog.authenticode_publisher != catalog.msi_authenticode_publisher):
+        raise SetupConflict('exact trusted immutable source installer required')
+    competing = await session.scalar(select(UpdateTarget.id).where(UpdateTarget.device_id == job.device_id,
+        UpdateTarget.status.in_(['assigned', 'requested', 'scheduled'])))
+    preparations = (await session.scalars(select(SetupPreparation).where(SetupPreparation.device_id == job.device_id,
+        (SetupPreparation.assignment_id == job.id) | SetupPreparation.status.in_(ACTIVE_PREPARATIONS)))).all()
+    if competing or any(item.status != 'completed' for item in preparations):
+        raise SetupConflict('completed preparation and no competing update required')
+    instance = await session.scalar(select(DeviceInstance).where(DeviceInstance.device_id == job.device_id)
+        .order_by(*latest_instance_order()).limit(1))
+    connection = await session.scalar(select(DeviceSession).where(DeviceSession.device_id == job.device_id,
+        DeviceSession.closed_at.is_(None)).order_by(DeviceSession.created_at.desc(), DeviceSession.id.desc()).limit(1))
+    if (instance is None or connection is None or connection.device_instance_id != instance.id
+            or instance.platform != 'windows_amd64' or instance.agent_version != proof.core_version
+            or instance.launcher_version != proof.foundation_version or utc(connection.expires_at) <= now
+            or utc(connection.created_at) > now + timedelta(seconds=30)
+            or any(value is None or utc(value) <= utc(job.started_at)
+                or not -timedelta(seconds=30) <= now - utc(value) <= timedelta(seconds=90)
+                for value in (instance.last_seen_at, connection.last_seen_at))):
+        raise SetupConflict('fresh matching source WSS required')
+    await require_fresh_active_user(session, job, now)
+
+
 async def record_progress(session, device_id, assignment_id, report, *, now=None):
     report = SetupProgressV1.model_validate(report.model_dump() if isinstance(report, SetupProgressV1) else report)
     now = now_utc(now)
@@ -269,6 +323,10 @@ async def record_progress(session, device_id, assignment_id, report, *, now=None
             if report.safe_code == 'native_exit_requires_recovery' and safe_code != report.safe_code:
                 raise SetupConflict('unknown native hold cannot be promoted to a known exit')
     payload = report.model_dump(mode='json')
+    # Preserve pre108 terminal wire receipts exactly. Only the new optional
+    # descriptor is omitted when absent; existing explicit nulls keep meaning.
+    if payload.get('proof') is not None and payload['proof'].get('source_recovery') is None:
+        payload['proof'].pop('source_recovery', None)
     if job.status == report.phase:
         if job.last_report == payload:
             return job
@@ -287,6 +345,8 @@ async def record_progress(session, device_id, assignment_id, report, *, now=None
     release = await session.get(SetupRelease, job.release_id)
     if report.safe_code == 'native_failed_target_recovered':
         await require_recovered_target(session, job, release, report, now)
+    elif report.safe_code == 'native_failed_source_restored':
+        await require_restored_source(session, job, release, report, now)
     elif report.phase == 'failed' and job.status == 'recovery_required':
         presence = await session.scalar(select(SetupClientPresence).where(SetupClientPresence.device_id == device_id))
         recovery = await session.scalar(select(SetupPreparation).where(SetupPreparation.assignment_id == job.id)

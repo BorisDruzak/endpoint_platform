@@ -94,7 +94,7 @@ async def test_client_readiness_is_required_and_one_active_assignment(db, state)
         await assignment(db, state)
 
 
-@pytest.mark.parametrize('client_version', ['1.0.6', '1.0.7'])
+@pytest.mark.parametrize('client_version', ['1.0.6', '1.0.7', '1.0.8'])
 async def test_qualified_executor_accepts_setup_and_native_start(db, state, client_version):
     device, *_ = state
     await record_presence(db, device.id, dict(client_version=client_version, ready=True,
@@ -103,7 +103,7 @@ async def test_qualified_executor_accepts_setup_and_native_start(db, state, clie
     assert job.status == 'installing' and job.source_client_version == client_version
 
 
-@pytest.mark.parametrize('client_version', ['1.0.1', '1.0.8'])
+@pytest.mark.parametrize('client_version', ['1.0.1', '1.0.9'])
 async def test_unqualified_executor_cannot_accept_setup_even_with_fresh_ready_presence(db, state, client_version):
     device, *_ = state
     await record_presence(db, device.id, dict(client_version=client_version, ready=True, core_version='3.2.157'), now=NOW)

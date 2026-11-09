@@ -13,7 +13,7 @@ WindowsVersion = Annotated[str, StringConstraints(pattern=r'^(0|[1-9][0-9]*)\.(0
 SourceRevision = Annotated[str, StringConstraints(pattern=r'^[0-9a-f]{40}$')]
 
 QUALIFIED_SETUP_CLIENT_VERSION = '1.0.6'
-QUALIFIED_SETUP_CLIENT_VERSIONS = ('1.0.5', QUALIFIED_SETUP_CLIENT_VERSION, '1.0.7')
+QUALIFIED_SETUP_CLIENT_VERSIONS = ('1.0.5', QUALIFIED_SETUP_CLIENT_VERSION, '1.0.7', '1.0.8')
 LEGACY_SETUP_CLIENT_VERSION = '1.0.4'
 ACTIVE_SETUP_PHASES = ('assigned', 'downloading', 'verified', 'installing', 'verifying', 'recovery_required')
 TERMINAL_SETUP_PHASES = ('applied', 'failed', 'rolled_back', 'blocked', 'cancelled', 'already_current')
@@ -74,6 +74,20 @@ class SetupSoakProofV1(ContractModelV1):
     connected: Annotated[bool, Field(strict=True)]
 
 
+class SetupSourceRecoveryV1(ContractModelV1):
+    """Observer attestation of a protected pre-native preparation cancellation."""
+    schema_version: Literal['windows_setup_source_recovery_v1']
+    operation_id: UUID
+    binding_sha256: Sha256V1
+    inputs_sha256: Sha256V1
+    owner_sha256: Sha256V1
+    target_version: WindowsVersion
+    target_source_revision: SourceRevision
+    target_msi_sha256: Sha256V1
+    target_setup_sha256: Sha256V1
+    source_product_code: Annotated[str, StringConstraints(pattern=r'^\{[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}\}$')]
+
+
 class SetupNativeProofV1(ContractModelV1):
     foundation_version: WindowsVersion
     core_version: WindowsVersion
@@ -89,6 +103,7 @@ class SetupNativeProofV1(ContractModelV1):
     companions_restored: Annotated[bool, Field(strict=True)]
     private: SetupPrivateProofV1
     soak: SetupSoakProofV1 | None = None
+    source_recovery: SetupSourceRecoveryV1 | None = None
 
     @property
     def healthy(self):
@@ -114,6 +129,13 @@ class SetupProgressV1(ContractModelV1):
 
     @model_validator(mode='after')
     def require_real_completion(self):
+        source_restored = self.safe_code == 'native_failed_source_restored'
+        if source_restored:
+            if (self.phase != 'failed' or self.proof is None or self.proof.source_recovery is None
+                    or self.proof.soak is None or self.proof.soak.sensor_count < 1):
+                raise ValueError('source recovery descriptor and real active sensor required')
+        elif self.proof is not None and self.proof.source_recovery is not None:
+            raise ValueError('source recovery descriptor requires its failure diagnostic')
         target_recovered = self.safe_code == 'native_failed_target_recovered'
         if target_recovered:
             if (self.phase != 'failed' or self.proof is None or not self.proof.healthy

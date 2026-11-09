@@ -74,7 +74,7 @@ async def recovered(db, state):
 
 
 @pytest.mark.parametrize('completed_preparation', [False, True])
-@pytest.mark.parametrize('observer_version', ['1.0.6', '1.0.7'])
+@pytest.mark.parametrize('observer_version', ['1.0.6', '1.0.7', '1.0.8'])
 async def test_target_recovery_records_failed_once_preserves_source_and_native_21(db, recovered, completed_preparation, observer_version):
     r = recovered
     r.presence.client_version = observer_version
@@ -105,7 +105,7 @@ async def test_target_recovery_records_failed_once_preserves_source_and_native_2
         await qualify_release(db, r.release.id, r.job.id, actor='test-admin', request_id='not-qualification', now=r.when)
 
 
-@pytest.mark.parametrize('observer_version', ['1.0.5', '1.0.8', '1.1.0', '2.0.0'])
+@pytest.mark.parametrize('observer_version', ['1.0.5', '1.0.9', '1.1.0', '2.0.0'])
 async def test_target_recovery_rejects_unqualified_observer_versions(db, recovered, observer_version):
     r = recovered
     r.presence.client_version = observer_version
@@ -230,6 +230,17 @@ async def test_changed_terminal_target_recovery_replay_is_rejected(db, recovered
     changed['proof']['soak']['samples'] = 7
     with pytest.raises(SetupConflict):
         await record_progress(db, r.job.device_id, r.job.id, changed, now=r.when)
+
+
+async def test_legacy_terminal_proof_replay_keeps_original_report_shape(db, recovered):
+    r = recovered
+    await record_progress(db, r.job.device_id, r.job.id, r.report, now=r.when)
+    historic = r.report.model_dump(mode='json')
+    historic['proof'].pop('source_recovery', None)
+    r.job.last_report = historic
+    await db.flush()
+    await record_progress(db, r.job.device_id, r.job.id, r.report, now=r.when + timedelta(hours=1))
+    assert r.job.last_report == historic and 'source_recovery' not in r.job.last_report['proof']
 
 
 async def test_unchanged_activity_projection_with_fresh_observation_allows_target_recovery(db, recovered):
