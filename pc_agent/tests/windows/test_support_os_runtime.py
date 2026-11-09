@@ -186,6 +186,46 @@ def test_scm_running_without_initialized_record_cannot_retire_previous_payload(t
         ops.prove_service_ready(target)
 
 
+@pytest.mark.parametrize('missing_code',[2,3,5])
+def test_first_start_waits_for_win32_missing_readiness_before_accepting(tmp_path,monkeypatch,missing_code):
+    """GetNamedSecurityInfo raises pywintypes.error, not OSError, before publish."""
+    import sys,types,hashlib,pywintypes
+    from pc_agent.platform.windows import support_access_native as native
+    from pc_agent.platform.windows.support_access_readiness import make_record,dependency_digest
+    ops=native.WindowsSupportOps();ops._ready_root=tmp_path
+    request=ops._ready_request={'nonce':'a'*32,'image_sha256':'b'*64}
+    deps={'profile':'fixture'}
+    (tmp_path/'credential').write_text(TOKEN)
+    (tmp_path/'support.json').write_text(json.dumps({'device_id':DEVICE,'dependencies':deps}))
+    target=tmp_path/'EndpointSupportAccess.exe';target.write_bytes(b'fixture')
+    class Processes:
+        handles=[123]
+        def __init__(self,path):pass
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+    checks=[]
+    def private(path):
+        if path.name!='readiness.json':return
+        checks.append(path)
+        if len(checks)==1:raise pywintypes.error(missing_code,'GetNamedSecurityInfo','not published yet')
+        record=make_record(request,device_id=DEVICE,credential_sha256=hashlib.sha256(TOKEN.encode()).hexdigest(),dependency_sha256=dependency_digest(deps),state='tunnel_connected',pid=42)
+        path.write_text(json.dumps(record))
+    monkeypatch.setattr(ops,'assert_owned_service',lambda _:True)
+    monkeypatch.setattr(native,'OwnedImageProcesses',Processes)
+    monkeypatch.setattr(native,'assert_private',private)
+    monkeypatch.setattr(native,'verify_dependencies',lambda _:None)
+    monkeypatch.setitem(sys.modules,'win32service',types.SimpleNamespace(SERVICE_RUNNING=4))
+    monkeypatch.setitem(sys.modules,'win32serviceutil',types.SimpleNamespace(WaitForServiceStatus=lambda *a:None,QueryServiceStatus=lambda *a:(0,4)))
+    monkeypatch.setitem(sys.modules,'win32process',types.SimpleNamespace(GetExitCodeProcess=lambda _:259,GetProcessId=lambda _:42))
+    monkeypatch.setattr(native.time,'sleep',lambda _:None)
+    if missing_code==5:
+        with pytest.raises(pywintypes.error):ops.prove_service_ready(target)
+        assert len(checks)==1
+    else:
+        ops.prove_service_ready(target)
+        assert len(checks)==2
+
+
 @pytest.mark.parametrize('state',['complete','installed_unverified','servicing'])
 def test_uninstall_cleans_new_owned_metadata_but_preserves_uncertain_servicing(tmp_path,monkeypatch,state):
     from pc_agent.platform.windows import support_access as support,support_access_native as native

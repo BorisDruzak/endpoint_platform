@@ -388,7 +388,7 @@ $v=(Get-Item -LiteralPath $p).VersionInfo
         atomic_write(path,json.dumps(self._ready_request,sort_keys=True));self.protect(path)
 
     def prove_service_ready(self,target):
-        import win32service,win32serviceutil,win32process
+        import win32service,win32serviceutil,win32process,pywintypes
         from .support_access import SERVICE_NAME
         if not self.assert_owned_service(target):raise RuntimeError('support_service_not_ready')
         win32serviceutil.WaitForServiceStatus(SERVICE_NAME,win32service.SERVICE_RUNNING,30)
@@ -413,6 +413,11 @@ $v=(Get-Item -LiteralPath $p).VersionInfo
                         if matches(record,request,device_id=config['device_id'],
                             credential_sha256=hashlib.sha256((root/'credential').read_bytes()).hexdigest(),
                             dependency_sha256=dependency_digest(config['dependencies']),active_pids=pids):return
+                    except pywintypes.error as error:
+                        # SCM RUNNING can precede the first readiness publish.
+                        # GetNamedSecurityInfo's missing-file error is not an
+                        # OSError. Wait for proof; never accept absence as ready.
+                        if error.winerror not in (2,3):raise
                     except (OSError,ValueError,KeyError,TypeError):pass
                 elif time.monotonic()>=deadline:return
                 if time.monotonic()>=deadline:raise RuntimeError('support_service_not_ready')
