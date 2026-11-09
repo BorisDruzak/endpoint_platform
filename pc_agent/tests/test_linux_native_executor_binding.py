@@ -111,3 +111,74 @@ def test_retained_executor_accepts_only_current_frozen_setup_identity(tmp_path,m
     else:
         with pytest.raises(InstallationPending,match='executor_build_identity'): c.retain_executor(store)
         assert store.json('executor.json',missing=True) is None
+
+
+@pytest.mark.parametrize('existing_target', [False, True])
+def test_executor_releases_all_snapshots_before_exec_handoff(tmp_path, monkeypatch, existing_target):
+    from contextlib import contextmanager
+    import hashlib
+    from pathlib import Path
+    from types import SimpleNamespace
+    from pc_agent.platform.linux import installation_coordinator as c
+    payload = b'exact frozen setup bytes'
+    digest = hashlib.sha256(payload).hexdigest()
+    executable = tmp_path/'vendor-setup'
+    executable.write_bytes(payload)
+    private = tmp_path/'private'
+    private.mkdir()
+    target = private/('setup-'+digest)
+    if existing_target:
+        target.write_bytes(payload)
+    copies = []
+    @contextmanager
+    def snapshot(path):
+        copy = tmp_path/('snapshot-'+str(len(copies)))
+        copy.write_bytes(Path(path).read_bytes())
+        copies.append(copy)
+        try:
+            yield copy, hashlib.sha256(copy.read_bytes()).hexdigest()
+        finally:
+            copy.unlink()
+    class Handoff(BaseException):
+        pass
+    def execv(path, arguments):
+        # Inspect at entry, before exception unwinding can hide the leak.
+        assert copies and not any(copy.exists() for copy in copies)
+        assert path == str(target) and arguments == [str(target), 'upgrade']
+        assert target.read_bytes() == payload
+        raise Handoff
+    monkeypatch.setattr(c.sys, 'frozen', True, raising=False)
+    monkeypatch.setattr(c.sys, 'executable', str(executable))
+    monkeypatch.setattr(c.sys, 'argv', [str(executable), 'upgrade'])
+    # Windows lacks this POSIX flag; real node guards run in the native harness.
+    if not hasattr(c.os, 'O_NOFOLLOW'):
+        monkeypatch.setattr(c.os, 'O_NOFOLLOW', 0, raising=False)
+    monkeypatch.setattr(c, 'snapshot', snapshot)
+    monkeypatch.setattr(c.os, 'execv', execv)
+    with pytest.raises(Handoff):
+        c.retain_executor(SimpleNamespace(paths=SimpleNamespace(private=private)))
+
+
+def test_executor_preserves_conflicting_retained_target(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    import hashlib
+    from types import SimpleNamespace
+    from pc_agent.platform.linux import installation_coordinator as c
+    payload = b'exact frozen setup bytes'
+    digest = hashlib.sha256(payload).hexdigest()
+    executable = tmp_path/'vendor-setup'
+    executable.write_bytes(payload)
+    target = tmp_path/('setup-'+digest)
+    target.write_bytes(b'foreign retained bytes')
+    @contextmanager
+    def snapshot(path):
+        yield path, hashlib.sha256(path.read_bytes()).hexdigest()
+    def execv(*_):
+        pytest.fail('conflicting retained executor reached exec')
+    monkeypatch.setattr(c.sys, 'frozen', True, raising=False)
+    monkeypatch.setattr(c.sys, 'executable', str(executable))
+    monkeypatch.setattr(c, 'snapshot', snapshot)
+    monkeypatch.setattr(c.os, 'execv', execv)
+    with pytest.raises(InstallationPending, match='executor_conflict'):
+        c.retain_executor(SimpleNamespace(paths=SimpleNamespace(private=tmp_path)))
+    assert target.read_bytes() == b'foreign retained bytes'

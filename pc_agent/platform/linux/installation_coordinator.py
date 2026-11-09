@@ -445,7 +445,9 @@ def retain_executor(store):
                     output.write(chunk)
                 output.flush()
                 os.fsync(output.fileno())
-        os.execv(str(target), [str(target), *sys.argv[1:]])
+    # A successful exec never unwinds Python contexts. Validate the source again
+    # and remove every temporary verification copy before handing off.
+    os.execv(str(target), [str(target), *sys.argv[1:]])
 
 
 def rpm_scriptlet_invocation():

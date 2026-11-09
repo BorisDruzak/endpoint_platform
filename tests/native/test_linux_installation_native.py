@@ -7,6 +7,8 @@ import tempfile
 import hashlib
 import io
 import tarfile
+import sys
+import textwrap
 
 import pytest
 
@@ -64,6 +66,51 @@ def test_native_snapshot_detects_mutation_replacement_and_symlink(root):
     with pytest.raises((OSError, VerificationError)):
         with snapshot(link):
             pass
+
+
+@pytest.mark.parametrize('existing_target', [False, True])
+def test_native_executor_successful_real_exec_leaves_no_verification_snapshots(root, existing_target):
+    snapshots = root/'snapshots'
+    snapshots.mkdir(mode=0o700)
+    executable = root/'vendor-setup'
+    payload = ('#!'+sys.executable+'\n'+textwrap.dedent('''\
+        import hashlib, json, os, stat, sys
+        from pathlib import Path
+        target = Path(sys.argv[0])
+        info = target.stat()
+        print(json.dumps({'path':str(target), 'sha256':hashlib.sha256(target.read_bytes()).hexdigest(),
+            'mode':stat.S_IMODE(info.st_mode), 'uid':info.st_uid, 'nlink':info.st_nlink,
+            'snapshots':[p.name for p in Path(sys.argv[1]).iterdir()]}))
+    ''')).encode()
+    executable.write_bytes(payload)
+    executable.chmod(0o500)
+    digest = hashlib.sha256(payload).hexdigest()
+    state = root/'state'
+    state.mkdir(mode=0o700)
+    target = state/('setup-'+digest)
+    if existing_target:
+        target.write_bytes(payload)
+        target.chmod(0o500)
+    runner = '''\
+import sys, tempfile
+from pc_agent.platform.linux import installation_coordinator as c
+from pc_agent.platform.linux.installation_lifecycle import InstallationStore
+store = InstallationStore(sys.argv[2])
+store.prepare()
+tempfile.tempdir = sys.argv[3]
+sys.frozen = True
+sys.executable = sys.argv[1]
+sys.argv = [sys.executable, sys.argv[3]]
+c.retain_executor(store)
+raise RuntimeError('exec handoff returned')
+'''
+    result = subprocess.run([sys.executable, '-c', runner, str(executable), str(state), str(snapshots)],
+        capture_output=True, text=True, timeout=15)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {'path':str(target), 'sha256':digest,
+        'mode':0o500, 'uid':0, 'nlink':1, 'snapshots':[]}
+    assert list(snapshots.iterdir()) == []
+    assert target.read_bytes() == executable.read_bytes() == payload
 
 
 def test_real_rpm_install_upgrade_rollback_failure_remove_in_isolated_database(root):
