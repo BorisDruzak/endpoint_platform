@@ -390,8 +390,6 @@ def archive_retained_core(paths: WindowsUpdatePaths, evidence: CoreEvidence, *, 
     parent = _archive_directory(state_root(paths), 'retained')
     archive = _archive_directory(parent, evidence.digest)
     from .runtime_identity import _retained_payload_root
-    _archive_directory(archive, 'payload')
-    payload_root = _retained_payload_root(archive)
     expected = {
         'schema_version': 1, 'origin': 'retained_msi', 'phase': 'prepared',
         'transaction_id': transaction_id, 'identity_digest': evidence.digest,
@@ -416,6 +414,13 @@ def archive_retained_core(paths: WindowsUpdatePaths, evidence: CoreEvidence, *, 
         expected['transaction_id']=existing['transaction_id']
         if existing != json.loads(json.dumps(expected)):
             raise ProvenanceConflict()
+    # Reinstall may make a previously published retained version MSI-owned
+    # again. Journal its second physical copy before creating payload/. The
+    # capture and its historical publishing operation remain immutable.
+    from . import retained_storage
+    materializing = retained_storage.begin_native_recapture(paths, archive, json.loads(json.dumps(expected)))
+    _archive_directory(archive, 'payload')
+    payload_root = _retained_payload_root(archive)
     durable_state.durable_copy_file(package_path, archive / 'package.msi', source_root=package_path.parent,
         trusted_root=archive, max_bytes=512 * 1024 * 1024, expected_size=package_size,
         expected_sha256=package.sha256, protect=protect_state, validate=assert_state_security)
@@ -434,6 +439,8 @@ def archive_retained_core(paths: WindowsUpdatePaths, evidence: CoreEvidence, *, 
     msi_inventory.verify_installed(package, paths.install_root)
     durable_state.write_json_atomic(record, expected, trusted_root=archive,
         max_bytes=16 * 1024 * 1024, protect=protect_state)
+    if materializing is not None:
+        retained_storage.complete_native_recapture(archive, materializing)
     return archive
 
 

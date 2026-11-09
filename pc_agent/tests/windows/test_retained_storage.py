@@ -145,6 +145,136 @@ def test_v1_receipt_is_unchanged(retained):
     assert json.loads(before)["schema_version"] == 1
 
 
+def native_recapture(retained):
+    """Simulate ordinary native reinstall of the same immutable runtime."""
+    _, paths, archive, identity, _ = retained
+    record = json.loads((archive / 'receipt.json').read_bytes())
+    source = paths.versions_root / identity.version
+    (source / provenance.RETAINED_RECEIPT).unlink(missing_ok=True)
+    (source / provenance.MSI_MARKER).write_bytes(bytes.fromhex(record['original_marker_bytes']))
+    (source / provenance.MSI_MARKER).touch()
+    installer_fence.protect_state(source / provenance.MSI_MARKER)
+    evidence = provenance.CoreEvidence('msi', identity, bytes.fromhex(record['selector_bytes']),
+        bytes.fromhex(record['original_manifest_bytes']), bytes.fromhex(record['original_receipt_bytes']))
+    package = msi_inventory.read_package(archive / 'package.msi', record['package']['sha256'])
+    return lambda: provenance.archive_retained_core(paths, evidence, package_path=paths.install_root.parent / 'original.msi',
+        package=package, transaction_id=str(uuid4()))
+
+
+@pytest.mark.parametrize('broken_dual_location', [False, True])
+def test_native_reinstall_recaptures_published_archive_without_rewriting_history(retained, broken_dual_location):
+    storage, paths, archive, identity, binding = retained
+    target = promote(retained)
+    recapture = native_recapture(retained)
+    before = (archive / 'receipt.json').read_bytes()
+    if broken_dual_location:
+        (archive / 'payload').mkdir()
+        installer_fence.protect_state(archive / 'payload')
+    with durable_state.installer_mutation_checkpoints(lambda: None):
+        recapture()
+    value = json.loads((archive / 'storage.json').read_bytes())
+    assert value['phase'] == 'published'
+    assert value['legacy_materialization'] == 'complete'
+    assert value['operation_id'] == binding.operation_id
+    assert (archive / 'receipt.json').read_bytes() == before
+    assert target.is_dir()
+    assert storage.retained_payload_location(paths, archive.name) == runtime_identity._retained_payload_root(archive)
+    assert runtime_identity.verify_retained_archive(paths, archive.name).identity == identity
+
+
+@pytest.mark.parametrize('edge', ['copying', 'first-copy', 'complete-before', 'complete-after'])
+def test_native_recapture_resumes_after_each_durable_edge(retained, monkeypatch, edge):
+    _, paths, archive, identity, _ = retained
+    promote(retained)
+    recapture = native_recapture(retained)
+    write, copy = durable_state.write_json_atomic, durable_state.durable_copy_file
+    failed = False
+    def trip():
+        nonlocal failed
+        if not failed:
+            failed = True
+            raise OSError('interrupted native recapture')
+    def write_once(path, value, **kwargs):
+        journal = path.name == 'storage.json'
+        if journal and edge == 'complete-before' and value['legacy_materialization'] == 'complete':
+            trip()
+        result = write(path, value, **kwargs)
+        if journal and ((edge == 'copying' and value['legacy_materialization'] == 'copying')
+                        or (edge == 'complete-after' and value['legacy_materialization'] == 'complete')):
+            trip()
+        return result
+    def copy_once(source, destination, **kwargs):
+        result = copy(source, destination, **kwargs)
+        if edge == 'first-copy' and destination.name == 'pc_agent.exe':
+            trip()
+        return result
+    monkeypatch.setattr(durable_state, 'write_json_atomic', write_once)
+    monkeypatch.setattr(durable_state, 'durable_copy_file', copy_once)
+    with durable_state.installer_mutation_checkpoints(lambda: None):
+        with pytest.raises(OSError, match='interrupted native recapture'):
+            recapture()
+        recapture()
+    assert runtime_identity.verify_retained_archive(paths, archive.name).identity == identity
+    assert json.loads((archive / 'storage.json').read_bytes())['legacy_materialization'] == 'complete'
+
+
+def test_native_recapture_preserves_foreign_partial_payload(retained):
+    _, _, archive, _, _ = retained
+    promote(retained)
+    recapture = native_recapture(retained)
+    residue = archive / 'payload'
+    residue.mkdir()
+    foreign = residue / 'foreign-evidence'
+    foreign.write_bytes(b'keep')
+    installer_fence.protect_state(residue)
+    installer_fence.protect_state(foreign)
+    with durable_state.installer_mutation_checkpoints(lambda: None), pytest.raises(ValueError):
+        recapture()
+    assert foreign.read_bytes() == b'keep'
+
+
+@pytest.mark.parametrize('fault', ['missing-member', 'wrong-native', 'no-authority'])
+def test_recapture_rejects_changed_complete_archive_and_missing_native_authority(retained, monkeypatch, fault):
+    _, _, archive, _, _ = retained
+    promote(retained)
+    recapture = native_recapture(retained)
+    with durable_state.installer_mutation_checkpoints(lambda: None):
+        recapture()
+    original = (archive / 'storage.json').read_bytes()
+    if fault == 'missing-member':
+        (runtime_identity._retained_payload_root(archive) / 'pc_agent.exe').unlink()
+    elif fault == 'wrong-native':
+        def wrong(*_): raise ValueError('native owner differs')
+        monkeypatch.setattr(msi_inventory, 'verify_installed', wrong)
+    if fault == 'no-authority':
+        with pytest.raises(ValueError): recapture()
+    else:
+        with durable_state.installer_mutation_checkpoints(lambda: None), pytest.raises(ValueError): recapture()
+    assert (archive / 'storage.json').read_bytes() == original
+
+
+def test_recaptured_native_archive_can_be_republished_by_later_exact_operation(retained):
+    storage, paths, archive, identity, binding = retained
+    target = promote(retained)
+    recapture = native_recapture(retained)
+    with durable_state.installer_mutation_checkpoints(lambda: None):
+        recapture()
+        staged_state.advance_staged_update(paths, binding.operation_id, 'native-settled', 'rolling-back')
+        staged_state.advance_staged_update(paths, binding.operation_id, 'rolling-back', 'rolled-back')
+        next_binding = staged_state.StagedUpdateBinding(str(uuid4()), binding.old_release, release('3.2.124', 'c'),
+            binding.selected_before, None, identity.tree_sha256, None, '3.2.124', 'c' * 40, 'c' * 64)
+        owner = {'pid': os.getpid(), 'created': 1, 'hash': 'd' * 64, 'sid': 'S-1-5-18', 'elevated': True}
+        staged_state.begin_staged_update(paths, next_binding, owner)
+        for before, after in [('preparing', 'prepared'), ('prepared', 'switching'), ('switching', 'native-settled')]:
+            staged_state.advance_staged_update(paths, next_binding.operation_id, before, after)
+        assert target.resolve().parent == paths.versions_root.resolve() and target.name == identity.version
+        shutil.rmtree(target)
+        storage.promote_retained_payload(paths, archive.name, next_binding.operation_id)
+    assert runtime_identity.verify_retained_runtime(paths, identity.version).identity == identity
+    history = json.loads((archive / 'storage-history' / (binding.operation_id + '.json')).read_bytes())
+    assert history['operation_id'] == binding.operation_id and history['legacy_materialization'] == 'complete'
+
+
 def test_conflicting_destination_is_not_removed(retained):
     _, paths, archive, identity, _ = retained
     target = paths.versions_root / identity.version
