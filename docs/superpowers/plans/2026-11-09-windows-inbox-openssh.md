@@ -3,7 +3,7 @@
 > **For agentic workers:** Use superpowers:executing-plans inline, with one fresh
 > whole-branch review before native publication. Checkbox steps track completion.
 
-**Goal:** Qualify Windows177→184 on120 with OS-supported OpenSSH, independent
+**Goal:** Qualify Windows177→185 on120 with OS-supported OpenSSH, independent
 reserve access and proven forward-update recovery.
 
 **Architecture:** Keep existing signed Setup/native owner and separate Support.
@@ -36,37 +36,37 @@ OpenSSH FoD, PyInstaller/WiX4, existing Endpoint HTTPS/gateway and PostgreSQL.
 Files: new `pc_agent/platform/windows/support_access_os.py` and corresponding
 `pc_agent/tests/windows/test_support_access_os.py`; integrate WindowsSupportOps.
 
-- [ ] Capture fresh120 baseline through existing approved six-hour diagnostic
+- [x] Capture fresh120 baseline through existing approved six-hour diagnostic
   renewal and strict pinned SSH; record actual capability/source availability.
-- [ ] RED tests for a pure capability/servicing result validator and transition:
+- [x] RED tests for a pure capability/servicing result validator and transition:
   existing components require no install; missing components use only fixed FoD
   names; failure/reboot/conflicting firewall preserves old Support before stop.
-- [ ] Implement fixed bounded provisioning and complete OS dependency validation,
+- [x] Implement fixed bounded provisioning and complete OS dependency validation,
   with protected owned servicing receipt and no blind replay of unknown servicing.
-- [ ] GREEN focused tests and existing independent Support baseline; commit scoped.
+- [x] GREEN focused tests and existing independent Support baseline; commit scoped.
 
 ## Task2 — dependency migration, refresh and compensation
 
 Files: support_access.py, support_access_native.py, support_access_service.py,
 new OS module and focused service/native fixture tests.
 
-- [ ] RED migration177 bundled→FoD with unchanged keys/credential/grant; reject
+- [x] RED migration177 bundled→FoD with unchanged keys/credential/grant; reject
   tamper/profile conflict; restore old config if activation raises.
-- [ ] RED refresh on valid signed OS replacement, invalid/partial replacement,
+- [x] RED refresh on valid signed OS replacement, invalid/partial replacement,
   stable files avoiding repeated signature work, and stalled checker past expiry.
-- [ ] Implement fixed OS profile, worker-bound revalidation and locked snapshot
+- [x] Implement fixed OS profile, worker-bound revalidation and locked snapshot
   persistence; preserve main-loop expiry/revoke and actual dependency error report.
-- [ ] GREEN focused/broader Windows Support, native/Setup and lifecycle tests.
+- [x] GREEN focused/broader Windows Support, native/Setup and lifecycle tests.
   Review whole branch for trust, dynamic calls, races and irreversible outcomes.
 
-## Task3 — immutable184 build and candidate publication
+## Task3 — immutable185 build and candidate publication
 
 Files: Windows support build spec/resource helper, component/runtime version,
-new184 runtime binding/release record, existing canonical publishing procedures.
+new185 runtime binding/release record, existing canonical publishing procedures.
 
-- [ ] RED build contract proves new Support omits the Preview archive/executables
+- [x] RED build contract proves new Support omits the Preview archive/executables
   while retaining exact metadata required for old owned cleanup.
-- [ ] Implement build input distinction; bump Support1.1.0 and agent184, author
+- [ ] Implement build input distinction; bump Support1.1.1 and agent185, author
   runtime contract before freeze; retain observer107 and all old packages.
 - [ ] Build/sign immutable new media with trusted timestamped publisher. Inspect
   exact sources, resources, signatures and frozen independent import closure.
@@ -77,7 +77,7 @@ new184 runtime binding/release record, existing canonical publishing procedures.
 
 Files: scoped verification receipt, runbook/rules/release records only.
 
-- [ ] Install via real canonical177→184 assignment on120; capture native0, private4,
+- [ ] Install via real canonical177→185 assignment on120; capture native0, private4,
   exact versions,180s stable services/WSS and accepted genuine user telemetry.
 - [ ] Prove in-box binary selection and real strict SSH with Core/updater/observer
   stopped; restore them and prove fresh accepted activity afterward.

@@ -1262,5 +1262,14 @@
       "new_claims_only_for105190": true,
       "no_global_linux_fleet_enabled": true
     }
-  }
+  },
+  "windows_candidates": [
+    {
+      "version": "3.2.184",
+      "record": "docs/releases/windows-3.2.184-setup.json",
+      "status": "candidate_native_accepted_support_first_start_failed_do_not_promote",
+      "download_published": false,
+      "fleet_promoted": false
+    }
+  ]
 }

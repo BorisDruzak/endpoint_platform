@@ -11,7 +11,7 @@ unrelated server/Helpdesk/Linux state. Reuse the existing isolated worktree.
 
 ## Decision
 
-Build a distinct Windows184 candidate and Support1.1.0. Use only the operating
+Build a distinct Windows185 candidate and Support1.1.1. Use only the operating
 system OpenSSH Client/Server Feature on Demand, verified Microsoft signatures and
 canonical System32 paths. Retain the separate EndpointSupportAccess service,
 loopback listener22222, outbound gateway2222, exact device/gateway pins, existing
@@ -64,11 +64,11 @@ and must leave the existing working Support unchanged.
 ## Forward update and qualification
 
 Keep canonical signed full Setup/native owner, immutable source binding, canary,
-qualification and transactional candidate publisher. Author the184 runtime
+qualification and transactional candidate publisher. Author the185 runtime
 contract before freezing bytes. Support remains outside MSI/Core ownership and
 is activated only after known accepted native success. A failed/unknown native
 result cannot remove or replace the active channel; never repeat MSI on timeout.
-Qualify only exact Foundation177/client107 to184 in this task. Candidate exposure
+Qualify only exact Foundation177/client107 to185 in this task. Candidate exposure
 and trusted default AUTO campaign inclusion remain separate from primary/fleet
 promotion. This task is limited to120; do not expand fleet177 policy or Linux.
 
@@ -79,9 +79,9 @@ promotion. This task is limited to120; do not expand fleet177 policy or Linux.
 2. RED/GREEN tests cover FoD absent/failure/reboot/concurrent changes; migration
    and compensation; trusted OS replacement versus tamper; validator blocking
    beyond lease expiry; unchanged credentials/manual revoke; source/native holds.
-3. Inspect signed184 EXE/MSI/Core/Support source/bytes/toolchain and ensure no new
+3. Inspect signed185 EXE/MSI/Core/Support source/bytes/toolchain and ensure no new
    Preview payload. Existing signed177/observer107 and Linux183 remain immutable.
-4. Actual canonical177→184 assignment accepts native0, retained private identity,
+4. Actual canonical177→185 assignment accepts native0, retained private identity,
    stable services, fresh WSS and genuine accepted user telemetry for at least
    180 seconds. Longer observation and normal reboot/session restoration are
    separate acceptance facts, not inferred from version/heartbeat.
@@ -95,3 +95,8 @@ promotion. This task is limited to120; do not expand fleet177 policy or Linux.
 7. Record source/dependency/OS/build-specific limits. No arbitrary future Windows
    build or update-path qualification follows from one PC. Retain protected
    evidence, remove only owned scratch resources, update rules/runbooks/releases.
+
+Implementation checkpoint: immutable184 accepted its native177 update but first
+Support activation compensated. Preserve its failed receipt and media. The new185
+fix waits for Win32 missing readiness records; repeat177 forward acceptance from
+an ordinary reinstall, with no manual readiness-file preparation.

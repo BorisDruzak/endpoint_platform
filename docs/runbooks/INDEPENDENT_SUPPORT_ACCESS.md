@@ -169,6 +169,44 @@ shell command.
 
 ## Installation and operating-system dependencies
 
+### Setup184 candidate / Support1.1.0
+
+The separately registered184 candidate uses Windows-serviced OpenSSH capabilities
+and the existing independent outbound tunnel. It does not contain portable SSH
+executables or the Preview ZIP. Its source scope is177 forward on test120; primary
+downloads and the fleet target remain177 until a separate promotion.
+
+Preparation checks the fixed Client/Server capabilities before stopping active
+Support. Missing features use only Windows FoD, without changing WSUS, GPOs or
+adding download sources. An existing global SSH service/configuration/firewall is
+preserved. A missing default firewall name is reserved by a disabled, operation-
+bound rule before servicing; only that exact unchanged reservation may be removed.
+Unknown servicing, reboot requirements and conflicts retain durable receipts.
+Never replay DISM or remove the old channel to make the check pass.
+
+The OS profile verifies the complete OpenSSH PE/helper closure, Microsoft
+signatures, matching versions, hashes, protected owner/write ACLs and canonical
+non-reparse paths. TrustedInstaller hardlinks shared with WinSxS are expected;
+private Endpoint identity files still require a single link. Valid Windows
+servicing changes are revalidated by a fixed system PowerShell query in the policy
+worker. Slow validation cannot extend the main loop's60second lease. Invalid or
+partial replacement closes owned SSH children and reports a dependency failure.
+
+Activation requires a nonce/image/device/credential/dependency/PID-bound initialized
+service proof. SCM Running alone cannot retire the previous signed payload.
+Failed activation restores the previous compatible image/configuration while
+preserving explicit credential reset/revocation. Keys and grant expiry are not
+renewed by migration. The old private runtime can remain inert for compensation;
+its presence does not mean it is selected.
+
+`EndpointSupportAccess.exe --inspect-os` performs read-only validation and returns
+JSON. It installs no feature, registers no service and changes no access policy.
+Use the signed candidate for an exact target preflight. A successful preflight on
+a host with both capabilities installed does not qualify missing-feature or
+reboot-required FoD installation on that host.
+
+### Historical Setup176/177 / Support1.0.1
+
 Full Setup stages the signed independent helper at
 `C:\Program Files\Endpoint Platform\Agent\EndpointSupportAccess.exe`.
 Schema3 binds its exact bytes, MSI component/keypath and embedded uninstall
