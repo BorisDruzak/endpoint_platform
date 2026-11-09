@@ -44,7 +44,17 @@
 
 # Canonical agent release
 
-- Fleet186 follow-up, 2026-11-09T22:41Z: policy13 briefly enabled186/all_active/max2.
+- Current Windows rollout checkpoint, 2026-11-09T23:25Z: policy16 is paused on
+  hidden187/all_active/max2. Five187 native jobs accepted0 and genuine telemetry;
+ 27/29/22/120 have Support1.1.2, ADMIN-2 retains1.0.1 because missing Server FoD
+  provisioning failed in PowerShell5.1 array binding before DISM. All native
+  chains are terminal; preserve the known failed servicing receipt and old
+  working Support. Distinct188/Support1.1.3 must first test actual missing FoD
+  and Preview migration on ADMIN-2/source187, then untouched177 and186 profiles.
+  Do not manually prepare FoD or promote187. Windows primary177/Linux183 remain.
+  See [187 receipt](docs/verification/2026-11-10-windows187-fleet-auto.md).
+
+- Historical fleet186 checkpoint, 2026-11-09T22:41Z: policy13 briefly enabled186/all_active/max2.
   Four fleet jobs accepted native0 and genuine telemetry, but27/22/ADMIN-2 retained
   Support1.0.1. Independent SSH on27 proved optional `endpoint-origin` absent;
   lifecycle sender incorrectly required it and retained genuine177/186 facts.

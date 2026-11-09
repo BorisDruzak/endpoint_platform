@@ -120,8 +120,24 @@ chains. No protected files/journals are to be repaired manually.
 - [x] Accept only proven absent leaf under a real accessible parent; preserve
   exact fixed lifecycle authority and all existing file/ACL/link checks.
 - [x] Independent read-only source/design review; no blockers.
-- [ ] Freeze distinct187/Support1.1.2, new immutable signed media; keep observer108.
-- [ ] Console canary actual affected186 and untouched177; native0/private4/fresh
+- [x] Freeze distinct187/Support1.1.2, new immutable signed media; keep observer108.
+- [x] Console canary actual affected186 and untouched177; native0/private4/fresh
   user telemetry/180seconds AND ordered retained facts delivered/new Support/SSH.
-- [ ] Qualify both exact sources; preview/save all_active/max2, observe available
-  devices, promote verified bytes and document offline admission/expiry limits.
+- [x] Qualify both exact sources; preview/save all_active/max2 and observe actual
+  assignments. Preserve the second pause16 for the real missing-FoD failure on
+  ADMIN-2.187 was not primary-promoted; all five native chains completed.
+
+## Task6 — real PowerShell5.1 missing-FoD provisioning
+
+- [x] Diagnose actual ADMIN-2/source187 with Server FoD absent/old Preview. Preserve
+  known failed receipt, private identity, approved account/keys and native history.
+- [x] Reproduce production script under actual System32 WindowsPS5.1 with every
+  native service/firewall/servicing call isolated and AST safety checks. RED nested
+  Name binding; GREEN direct JSON assignment for one/two names. Reject invalid,
+  empty/nested inputs before PowerShell. Keep existing failure/reboot/unknown gates.
+- [x] Full Windows tests2611passed/4skipped and independent source/design review.
+- [ ] Freeze/build/sign distinct188/Support1.1.3, exact observer108, previous187 binding.
+- [ ] First actual missing-FoD/Preview migration on ADMIN-2/source187, no manual
+  FoD preparation; genuine native0/private identity/user telemetry and real SSH.
+- [ ] Native-source177 and186 canaries, exact qualifications, renewed all_active/max2,
+  observed cohort and same-row primary promotion with actual downloaded-byte proof.

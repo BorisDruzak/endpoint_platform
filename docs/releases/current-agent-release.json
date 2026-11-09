@@ -1265,6 +1265,15 @@
   },
   "windows_candidates": [
     {
+      "version": "3.2.187",
+      "record": "docs/releases/windows-3.2.187-setup.json",
+      "status": "origin_fix_qualified_missing_fod_failed_do_not_promote",
+      "download_published": false,
+      "fleet_promoted": false,
+      "historical_enabled_policy": 15,
+      "current_paused_policy": 16
+    },
+    {
       "version": "3.2.186",
       "record": "docs/releases/windows-3.2.186-setup.json",
       "status": "candidate_test120_nominal177_qualified_faults_and_reboot_accepted",
@@ -1287,5 +1296,23 @@
       "download_published": false,
       "fleet_promoted": false
     }
-  ]
+  ],
+  "current_windows_rollout": {
+    "release": "3.2.187",
+    "policy": {
+      "id": "0ab7e6f8-7f3b-42b4-9b62-e0718dd6a3fc",
+      "revision": 16,
+      "enabled": false,
+      "release_id": "d727a144-d1f6-4234-a0f3-a5976f4b886c",
+      "scope": "all_active",
+      "device_ids": [],
+      "max_parallel": 2,
+      "reason": "Pause new187 assignments to diagnose Windows OpenSSH capability installation failure on ADMIN2. Preserve running native chains and history.",
+      "updated_at": "2026-11-09 23:12:32.299575+00:00",
+      "updated_by": "root-operator-user-authorized-fleet187",
+      "safe_code": null
+    },
+    "next_candidate": "3.2.188",
+    "report": "docs/verification/2026-11-10-windows187-fleet-auto.md"
+  }
 }
