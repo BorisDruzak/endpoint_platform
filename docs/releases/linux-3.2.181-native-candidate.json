@@ -2,7 +2,7 @@
   "schema_version": 1,
   "version": "3.2.181",
   "kind": "linux_native_candidate",
-  "status": "native_lifecycle_and_independent_ssh_passed_administrative_gates_pending",
+  "status": "rejected_user_sensor_native_handoff_defect",
   "source_revision": "83e3bfce3ad82a774f7ae84585d0ddb213c2d32a",
   "publisher_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
   "frozen_manifest_sha256": "a8df42937130e6a2c145decca6b66a1e805f9627cb3145fdb0c7acdc4213a2a4",
@@ -99,5 +99,16 @@
     "Production provider, Linux primary156 and Windows177 distribution/policy remain unchanged."
   ],
   "operator_artifact_directory": "C:/endpoint-platform-wix-build/linux178-native",
-  "verification_receipt": "docs/verification/2026-11-08-linux181-native-canary.md"
+  "verification_receipt": "docs/verification/2026-11-08-linux181-native-canary.md",
+  "qualification_failure": {
+    "observed_utc": "2026-11-09T08:13:56.311026Z",
+    "gate": "complete owned UserSensor cleanup after ordinary native removal",
+    "cause": "loginctl comma-joined property selector returns no fields on ALT systemd258.9; genuine active session skipped",
+    "effect": "Sensor and KDE probe remained running from deleted signed181 images after native0 removal13",
+    "archive_or_credential_mutation_performed": false,
+    "legacy_recovery": "Exact signed image hashes, UID1000, kernel cgroup, PID/start/boot and native0 receipt verified before stopping the exact owned user service at2026-11-09T08:38:48Z",
+    "source_fix": "89ea6fff27e866df288005fd6effcc8f9cf52d80",
+    "replacement_candidate": "3.2.182",
+    "historical_artifact_bytes_preserved": true
+  }
 }

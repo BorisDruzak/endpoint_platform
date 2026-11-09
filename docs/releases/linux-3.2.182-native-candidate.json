@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "version": "3.2.182",
+  "kind": "linux_native_candidate",
+  "status": "signed_staging_native_acceptance_in_progress",
+  "source_revision": "1534e7a76a566be99ffcf1b4b3a57eeee4abb725",
+  "source_fix": "89ea6fff27e866df288005fd6effcc8f9cf52d80",
+  "publisher_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+  "frozen_manifest_sha256": "bf3ba2a978fa7d9daaf9793217756d394297f509593394ef4c9b407f62715e0e",
+  "native_packages": {
+    "core": {
+      "nevra": "endpoint-agent-3.2.182-alt6.x86_64",
+      "signer_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+      "source_revision": "1534e7a76a566be99ffcf1b4b3a57eeee4abb725",
+      "frozen_manifest_sha256": "bf3ba2a978fa7d9daaf9793217756d394297f509593394ef4c9b407f62715e0e",
+      "sha256": "7c9b778af9b5dd574d36084c901e810df02c6e6380d6a5126da5bf92d19dd081",
+      "version": "3.2.182",
+      "package": "endpoint-agent",
+      "setup_sha256": "b1887d18abadcc25a5d3cedeae69cecb4bf60aabb7c1b679d2d92283445bc523"
+    },
+    "sensor": {
+      "nevra": "endpoint-agent-user-sensor-3.2.182-alt6.x86_64",
+      "signer_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+      "source_revision": "1534e7a76a566be99ffcf1b4b3a57eeee4abb725",
+      "frozen_manifest_sha256": "bf3ba2a978fa7d9daaf9793217756d394297f509593394ef4c9b407f62715e0e",
+      "sha256": "5e8c73018addd92ace45bb317967a285591cad551870ba69e13dc944e330e323",
+      "version": "3.2.182",
+      "package": "endpoint-agent-user-sensor",
+      "setup_sha256": "b1887d18abadcc25a5d3cedeae69cecb4bf60aabb7c1b679d2d92283445bc523"
+    }
+  },
+  "kit": {
+    "endpoint-alt-pilot-3.2.182-1.tar.gz": {
+      "size": 71369068,
+      "sha256": "dded55c25fcf529fbbee5d1ce12ee600884b4c35babdabf7e3267b4fa3d37fb8"
+    },
+    "endpoint-alt-pilot-3.2.182-1.manifest.json": {
+      "size": 1005,
+      "sha256": "99cd15470dc1c4a454da19b6816c98004e769cb9832163b8c8e8ba679899e206"
+    }
+  },
+  "detached_signatures": {
+    "endpoint-alt-pilot-3.2.182-1.manifest.sig": {
+      "size": 438,
+      "sha256": "6b5d746259efe807b6afd88b86948293707beefc7e0e1db7fc0b22a5c004508c"
+    },
+    "endpoint-alt-pilot-3.2.182-1.tar.gz.sig": {
+      "size": 438,
+      "sha256": "6bc01bcdd7c7f225619e051d1bd253341bdf973e55a3924b9f8fe7240c2cbd57"
+    }
+  },
+  "source_publication": {
+    "environment": "staging",
+    "origin": "https://endpoint-staging.sosnadmin.local",
+    "observed_utc": "2026-11-09T08:43:32.446185+00:00",
+    "release_id": "2bce5164-b83b-4b9b-a0e4-f850c95a9a9f",
+    "mandatory_real_verifier": true
+  },
+  "native_installation_attempted": true,
+  "native_exit_code": 0,
+  "outer_setup_exit_code": 0,
+  "bootstrap_complete": true,
+  "staging_source_qualified": false,
+  "primary_promoted": false,
+  "fleet_acceptance": false,
+  "verification_record": "docs/verification/2026-11-09-linux182-native-canary.md",
+  "limits": [
+    "Actual182 ordinary remove15/reinstall16 accepted; fullclean identity and final stability gates remain pending.",
+    "Sensor activation after the legacy181 recovery was an explicit one-time fixture action, not evidence of automatic fresh-install activation.",
+    "Production provider and public Linux156 remain unchanged; Windows177 unchanged."
+  ],
+  "live_checkpoints": {
+    "device_id": "29a8bed4-2894-40f7-89fb-07b3c7f633fe",
+    "retained_install14": {
+      "native_exit_code": 0,
+      "outer_setup_exit_code": 0,
+      "sequence": 14,
+      "acknowledged": 14,
+      "private_files_preserved": 4
+    },
+    "ordinary_remove15": {
+      "event_id": "603b51c5-1b2c-440f-a52f-98769bbc97fd",
+      "native_exit_code": 0,
+      "outer_setup_exit_code": 0,
+      "sequence": 15,
+      "acknowledged": 15,
+      "support_cleanup": "complete",
+      "browser_cleanup": "complete",
+      "sensor_handoff_phase": "stopped",
+      "prior_sensor_pid_gone": true
+    },
+    "ordinary_reinstall16": {
+      "event_id": "c6dc55ea-2ee5-457c-8dfd-e9abb9100639",
+      "native_exit_code": 0,
+      "outer_setup_exit_code": 0,
+      "sequence": 16,
+      "acknowledged": 16,
+      "sensor_handoff_phase": "consumed",
+      "automatically_restored_owned_sensor": true,
+      "same_kde_session": true,
+      "disabled_boot_policy_preserved": true,
+      "private_files_preserved": 4
+    },
+    "stopped_core_first_root_ssh_utc": "2026-11-09T08:50:45.669357Z",
+    "actual_stopped_core_root_ssh_commands": 2,
+    "stopped_core_ssh_interval_boot_seconds": 112.60293956199894,
+    "task_related_services_restored": true
+  }
+}

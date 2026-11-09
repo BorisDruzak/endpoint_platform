@@ -1,0 +1,21 @@
+# Linux182 native canary: acceptance in progress
+
+This is a staging candidate, not a primary release or fleet qualification. Production Windows177 and Linux156 are unchanged.
+
+The final181 clean-removal guard found UserSensor579439 and KDE probe579454 alive in their exact owned user cgroup, executing deleted181 images. Native removal13 was known0 and server acknowledged; archival stopped before any move, fresh configuration or credential change. Actual ALT11.4/systemd258.9 loginctl returned no fields for a comma-joined property selector. Repeated property flags returned all eight fields. Source89ea6fff fixes only this argument selection, with an independently checked negative regression; all ownership and recovery guards remain.
+
+On9November2026, exact current source1534e7a76a566be99ffcf1b4b3a57eeee4abb725 passed33 focused tests on ALT, including all10 isolated native harness cases, plus the actual built-RPM probe. Portable Windows checks passed22 with11 explicit platform skips. Three isolated-harness pytest warnings concern absent asyncio-plugin configuration; these selected tests do not use asyncio fixtures.
+
+The new182 pair, frozen Setup and complete source closure were built from that clean exact Git revision. Existing pinned publisher signed both RPM header and payload, then kit/archive and manifest. Staging mandatory NativeRPMVerifier accepted both signatures and complete payload metadata before canonical source publication. The exact immutable metadata is in the182 candidate release record. Historical181 bytes remain untouched.
+
+Legacy181 recovery was separate from candidate acceptance: both remaining executable hashes matched the actual signed181 RPM payloads under the existing publisher. UID1000, exact cgroup membership, PID/start/boot and unchanged native13 journal were verified. Only the exact user service was stopped at08:38:48Z; KDE session6/Leader2657 remained active. This does not qualify181 or relax future installer ownership checks.
+
+Retained-identity install14 ran08:44:37–08:45:02Z, native0/outer0, sequence14 acknowledged14, bootstrap and registration complete. The original card and all four private files remained. UserSensor was explicitly started once in the existing genuine session as the fixture for the next native handoff test, without enabling its disabled boot policy. Fresh accepted sensor data at08:46:00Z, policy health READY and advancing activity at08:46:25Z were observed on staging. This initial fixture activation is not automatic fresh-install proof.
+
+Ordinary removal15 ran08:46:34-08:46:56Z: native0/outer0, sequence15ACK15, complete Support/browser cleanup, private4 preserved. The new loginctl path recorded an exact owned-session stop receipt; Sensor1019221 disappeared. Reinstall16 ran08:48:23-08:48:48Z: native0/outer0, sequence16ACK16, same card/generation/private4, bootstrap and registration complete. It consumed the durable receipt and automatically restored Sensor1022060 in unchanged KDE session6, preserving disabled boot policy. No manual sensor start was used for this reinstall.
+
+The actual old SSH host pin correctly failed strict checking after reinstall16. The new host key was read from the authenticated Console API and independently matched the native16 Root-protected host key public derivation before replacing only this UUID pin; the old pin was archived. A bounded one-hour diagnostic policy used the existing approved operator key/root account. At08:50:45Z a genuine strict-pinned Root SSH command succeeded while Core/update/path were stopped; independent Support PID1022012 and binary remained unchanged. A guarded five-minute restore timer was scheduled before stopping Core.
+
+Fullclean identity linking, fresh-install user telemetry and final independent SSH/stability remain pending. Do not promote182 from this checkpoint alone.
+
+Two actual Root commands at08:50:45Z and08:52:38Z succeeded with Core/update/path stopped, separated by112.602939562 kernel boot seconds. Support parent1022012 and binary were unchanged. Core and the update path were restored at08:52:39Z, then the owned fallback timer was stopped. Staging had accepted fresh resumed-Sensor data at08:49:44Z before the intentional stop; WSS closed at08:50:43Z as expected.
