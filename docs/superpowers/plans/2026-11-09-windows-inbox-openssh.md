@@ -107,3 +107,21 @@ of genuine source observation. Build a distinct186;
   the narrow verified server contract, then let actual signed108 settle185 FAILED.
 - Rebaseline canonically and prove the new186 release from177 without treating
   an administratively prepared recovery as unattended source qualification.
+
+## Task5 — fleet optional-origin notification correction
+
+Production fleet186 exposed valid retained177 enrollments without optional
+endpoint-origin: native/Core186 accepted but lifecycle delivery stayed pending,
+blocking Support activation. Policy14 paused new work without cancelling native
+chains. No protected files/journals are to be repaired manually.
+
+- [x] Reproduce with genuine protected Windows bootstrap files and real ordered
+  outbox; transport-only fake. RED missing-origin; existing-origin control passed.
+- [x] Accept only proven absent leaf under a real accessible parent; preserve
+  exact fixed lifecycle authority and all existing file/ACL/link checks.
+- [x] Independent read-only source/design review; no blockers.
+- [ ] Freeze distinct187/Support1.1.2, new immutable signed media; keep observer108.
+- [ ] Console canary actual affected186 and untouched177; native0/private4/fresh
+  user telemetry/180seconds AND ordered retained facts delivered/new Support/SSH.
+- [ ] Qualify both exact sources; preview/save all_active/max2, observe available
+  devices, promote verified bytes and document offline admission/expiry limits.
