@@ -22,9 +22,15 @@
   Windows177/Linux183 artifacts and their qualifications are unchanged.
 - Production Helpdesk runs the scoped backport `1dc2be0d358dec13b12c4861d4f43419c70672d8`,
   schema153, with Worktime handoff enabled to the fixed production employee
-  portal. Endpoint SSO/Worktime/Helpdesk login are enabled. Helpdesk AD login
-  remains disabled pending confirmed identity bindings; normal password login
-  remains available. Local Endpoint administrators remain available.
+  portal. Endpoint SSO/Worktime/Helpdesk login are enabled. After the user's
+  missing-AD-entry report, production Helpdesk AD login was enabled and verified
+  at 2026-11-09T16:59Z; its existing confidential `helpdesk-web` client uses the
+  same password-level assurance as staging. Normal password login and local
+  Endpoint administrators remain available. See the [AD correction receipt](docs/verification/2026-11-09-helpdesk-production-ad-entry.md).
+  Confirmed Helpdesk identity bindings are still empty: the visible AD entry and
+  valid provider redirect do not establish a successful employee login. Use the
+  canonical authenticated administrator propose/confirm workflow and independently
+  verified existing person/account/AD ownership; do not fabricate bindings.
 - Main Helpdesk staging independently advanced to
   `b9361e0f04c1738b09536dcf832e201a8f5cb04f`, schema158. Its unrelated features
   were preserved. Do not describe the complete Helpdesk repositories as identical.

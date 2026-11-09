@@ -1,5 +1,9 @@
 # Worktime, employee portal and scoped Helpdesk production promotion
 
+Follow-up: the initially disabled production Helpdesk AD entry described in this
+16:49Z snapshot was corrected at16:59Z. See the [AD activation receipt](2026-11-09-helpdesk-production-ad-entry.md)
+for current enabled settings, real browser redirect and remaining identity gate.
+
 Observed 2026-11-09T16:49Z. The user authorized transfer of the remaining Worktime,
 employee portal and Helpdesk-login changes and explicitly allowed only the
 SSO/Worktime Helpdesk backport. Production services were actually deployed, not

@@ -89,7 +89,9 @@ schema51. The separately authorized selective Helpdesk backport1dc2be0d is activ
 in production at schema153 after exact-SHA full CI42651948275 and actual isolated
 staging/canonical deployment gates. Main Helpdesk staging evolved independently
 to b9361e0f/schema158 and was preserved. Paired production Worktime authentication
-is enabled; Helpdesk AD login remains off pending confirmed identity bindings.
+is enabled. A follow-up corrected the omitted production Helpdesk AD activation:
+the entry and actual provider redirect passed at16:59Z. Confirmed identity
+bindings remain a separate employee-login prerequisite.
 
 Task5 technical verification and owned-resource cleanup completed. Fresh accepted
 production Windows177/Linux183 user activity and typed TLS context reads passed.
