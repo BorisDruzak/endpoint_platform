@@ -196,6 +196,18 @@ bound rule before servicing; only that exact unchanged reservation may be remove
 Unknown servicing, reboot requirements and conflicts retain durable receipts.
 Never replay DISM or remove the old channel to make the check pass.
 
+The188 missing-Server canary exposed two separate servicing limits: a540second
+caller timeout killed PowerShell while CBS continued for about15minutes; CBS
+then replaced the disabled nonce reservation with the Windows default Domain
+allow rule. Its v1 servicing receipt stays held and old Support stays active.
+An installed capability or a later CBS success does not reconstruct the helper's
+cleanup proof. Do not remove the replacement under nonce ownership. Preserve
+the original receipt and Windows session evidence for explicit audited recovery.
+Mass rollout remains paused; see the [188 receipt](../verification/2026-11-10-windows188-fleet-auto.md).
+If Server is missing but another global sshd already exists, preserve that
+service and block FoD preparation before mutation. It requires a separately
+authorized migration decision, rather than implicit installer ownership.
+
 The OS profile verifies the complete OpenSSH PE/helper closure, Microsoft
 signatures, matching versions, hashes, protected owner/write ACLs and canonical
 non-reparse paths. TrustedInstaller hardlinks shared with WinSxS are expected;

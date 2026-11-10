@@ -44,15 +44,19 @@
 
 # Canonical agent release
 
-- Current Windows rollout checkpoint, 2026-11-09T23:25Z: policy16 is paused on
-  hidden187/all_active/max2. Five187 native jobs accepted0 and genuine telemetry;
- 27/29/22/120 have Support1.1.2, ADMIN-2 retains1.0.1 because missing Server FoD
-  provisioning failed in PowerShell5.1 array binding before DISM. All native
-  chains are terminal; preserve the known failed servicing receipt and old
-  working Support. Distinct188/Support1.1.3 must first test actual missing FoD
-  and Preview migration on ADMIN-2/source187, then untouched177 and186 profiles.
-  Do not manually prepare FoD or promote187. Windows primary177/Linux183 remain.
-  See [187 receipt](docs/verification/2026-11-10-windows187-fleet-auto.md).
+- Current Windows rollout checkpoint, 2026-11-10T00:09Z: policy16 remains paused
+  on hidden187/all_active/max2.188/Support1.1.3 fixed the PS5.1 binding and its
+  ADMIN-2 native canary accepted0/191.404seconds/sensor1, but the540second timeout
+  killed the servicing witness. CBS later finalized exact Server session
+  31289507_3567631198 S_OK/no reboot/no repair after about15minutes; old Support101
+  remains active and original v1 receipt12f0efdddccd426f822bd3900495bbec stays
+  servicing. Windows replaced the disabled nonce reservation with its standard
+  Domain allow rule; global sshd remains Stopped/Manual0. Do not infer boundary
+  proof from installed files, remove an unowned rule or replay Add/MSI.188 is not
+  qualified/promoted.189 durable completion work is separate; missing-FoD and
+  native-forward source gates remain. Do not manually prepare OS components to
+  manufacture an unattended canary. Windows primary177/Linux183 remain unchanged.
+  See [188 receipt](docs/verification/2026-11-10-windows188-fleet-auto.md).
 
 - Historical fleet186 checkpoint, 2026-11-09T22:41Z: policy13 briefly enabled186/all_active/max2.
   Four fleet jobs accepted native0 and genuine telemetry, but27/22/ADMIN-2 retained
