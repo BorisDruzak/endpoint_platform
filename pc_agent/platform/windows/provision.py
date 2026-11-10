@@ -151,7 +151,7 @@ def install_enrolled_support(data_root: Path) -> dict:
         return {'installed':False,'error':'support_not_installed'}
     try:
         result = subprocess.run([str(executable),'--install'],shell=False,capture_output=True,
-            text=True,timeout=660,creationflags=subprocess.CREATE_NO_WINDOW)
+            text=True,timeout=None,creationflags=subprocess.CREATE_NO_WINDOW)
         if not isinstance(result.stdout,str) or len(result.stdout.encode('utf-8'))>4096:
             return {'installed':False,'error':'support_install_failed'}
         value = json.loads(result.stdout)

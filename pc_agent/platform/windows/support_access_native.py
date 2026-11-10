@@ -236,7 +236,6 @@ class PayloadActivation:
         self.ops.prepare_readiness(self.target,self.candidate,self.config_path)
 
     def __enter__(self):
-        import shutil
         self.lock=self.ops.activation_lock();self.lock.__enter__()
         try:
             self.state=self.ops.capture_service(self.target)
@@ -266,11 +265,6 @@ class PayloadActivation:
             finally:handle.Close()
             self.ops.protect(self.pending)
             self.candidate=self.ops.inspect_payload(self.pending)
-            if self.old:
-                shutil.copyfile(self.target,self.previous);self.ops.protect(self.previous)
-                self.backup_created=True
-                if self.ops.inspect_payload(self.previous)['sha256']!=self.old['sha256']:
-                    raise ValueError('support_payload_changed')
             self.changed=bool(not self.old or self.old['sha256']!=self.candidate['sha256'])
             return self
         except BaseException:
@@ -278,6 +272,23 @@ class PayloadActivation:
 
     def apply(self,*,reload):
         if not self.changed and not reload:return
+        # Slow dependency servicing may outlive its caller. Do not leave a
+        # rollback image before activation actually begins; an old orphan still
+        # retains the strict recovery hold in __enter__.
+        if self.previous.exists():
+            self.ops.private(self.previous)
+            raise RuntimeError('support_payload_recovery_required')
+        if self.old:
+            import shutil
+            self.ops.private(self.target)
+            if self.ops.inspect_payload(self.target)['sha256']!=self.old['sha256']:
+                raise ValueError('support_payload_changed')
+            shutil.copyfile(self.target,self.previous);self.ops.protect(self.previous)
+            self.backup_created=True
+            if self.ops.inspect_payload(self.previous)['sha256']!=self.old['sha256']:
+                raise ValueError('support_payload_changed')
+        elif self.target.exists():
+            raise ValueError('support_payload_changed')
         self.stop()
         moved=False
         try:

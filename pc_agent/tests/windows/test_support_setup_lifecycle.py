@@ -66,6 +66,7 @@ def test_installer_uses_staged_helper_without_passing_device_credential(monkeypa
     assert provision.install_enrolled_support(data) == {'installed': True}
     assert calls[0][0] == [str(staged), '--install']
     assert calls[0][1]['shell'] is False
+    assert calls[0][1]['timeout'] is None
 
 
 @pytest.mark.parametrize('schema,status', [(3, 'incomplete'), (3, 'complete'), (2, 'complete')])

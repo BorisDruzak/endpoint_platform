@@ -41,15 +41,17 @@ def ensure_inbox_openssh(ops):
         dependencies=ops.verify()
         ops.write_receipt(dict(previous,state='complete'))
         return dependencies
-    if previous and previous.get('state') not in {'complete', 'failed'}:
+    adopting = bool(previous and previous.get('schema_version') == 2 and previous.get('state') == 'servicing')
+    if previous and previous.get('state') not in {'complete', 'failed'} and not adopting:
         # File presence cannot settle a killed DISM/TrustedInstaller operation.
         raise ValueError('support_dependency_recovery_required')
-    if not missing:
+    if not missing and not adopting:
         return ops.verify()
-    receipt = {'schema_version': 1, 'state': 'servicing', 'capabilities': list(missing)}
-    ops.write_receipt(receipt)
+    receipt = previous if adopting else {'schema_version': 2, 'state': 'servicing', 'capabilities': list(missing)}
+    if not adopting:
+        ops.write_receipt(receipt)
     try:
-        result = ops.install(missing)
+        result = ops.completed_operation(previous) if adopting else ops.install(missing)
     except Exception:
         # Do not guess whether Windows servicing continued after caller loss.
         raise ValueError('support_dependency_recovery_required') from None
@@ -96,15 +98,42 @@ class OSDependencyMonitor:
         return deepcopy(verified)
 
 
-def run_fixed_powershell(script, *, variables=None, timeout=60):
+def run_fixed_powershell(script, *, variables=None, timeout=60, durable=False):
     from .support_access_native import windows_root
     system = windows_root() / 'System32'
-    environment = dict(os.environ, PSModulePath=str(system/'WindowsPowerShell/v1.0/Modules'))
+    environment = {k:v for k,v in os.environ.items() if k.casefold() != 'psmodulepath'}
+    environment['PSModulePath'] = str(system/'WindowsPowerShell/v1.0/Modules')
     environment.update(variables or {})
     prefix = "$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';"
-    result = subprocess.run([str(system/'WindowsPowerShell/v1.0/powershell.exe'),
+    command = [str(system/'WindowsPowerShell/v1.0/powershell.exe'),
         '-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand',
-        base64.b64encode((prefix+script).encode('utf-16-le')).decode()],
+        base64.b64encode((prefix+script).encode('utf-16-le')).decode()]
+    if durable:
+        # No inherited pipes, console or caller-owned kill-on-close Job. If the
+        # containing Job forbids breakaway CreateProcess fails before servicing.
+        import win32api, win32con, win32event, win32job, win32process
+        process, thread, _, _ = win32process.CreateProcess(None, subprocess.list2cmdline(command),
+            None, None, False, win32con.CREATE_SUSPENDED | win32con.CREATE_NO_WINDOW |
+            subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_BREAKAWAY_FROM_JOB,
+            environment, None, win32process.STARTUPINFO())
+        started = False
+        try:
+            # Nested Jobs can leave a child in a restrictive inner Job even
+            # when the outer Job allowed breakaway. Check before ANY code runs.
+            if win32job.IsProcessInJob(process, None):
+                raise ValueError('support_dependency_recovery_required')
+            win32process.ResumeThread(thread)
+            started = True
+            win32event.WaitForSingleObject(process, win32event.INFINITE)
+            if win32process.GetExitCodeProcess(process) != 0:
+                raise ValueError('support_dependency_recovery_required')
+        finally:
+            if not started:
+                win32process.TerminateProcess(process, 1)
+            win32api.CloseHandle(thread)
+            win32api.CloseHandle(process)
+        return None
+    result = subprocess.run(command,
         env=environment, capture_output=True, text=True, timeout=timeout,
         creationflags=subprocess.CREATE_NO_WINDOW)
     if result.returncode or len(result.stdout.encode('utf-8')) > 65536:
@@ -286,7 +315,7 @@ $out=@();foreach($name in @('OpenSSH.Client~~~~0.0.1.0','OpenSSH.Server~~~~0.0.1
         if self.path.stat().st_size > 8192:
             raise ValueError('support_dependency_recovery_required')
         value = json.loads(self.path.read_text(encoding='utf-8'))
-        if not isinstance(value, dict) or value.get('schema_version') != 1:
+        if not isinstance(value, dict) or value.get('schema_version') not in (1, 2):
             raise ValueError('support_dependency_recovery_required')
         if not isinstance(value.get('operation_id'),str) or not re.fullmatch('[0-9a-f]{32}',value['operation_id']):
             raise ValueError('support_dependency_recovery_required')
@@ -295,13 +324,13 @@ $out=@();foreach($name in @('OpenSSH.Client~~~~0.0.1.0','OpenSSH.Server~~~~0.0.1
 
     def write_receipt(self, value):
         from .support_access_native import atomic_write, WindowsSupportOps
-        if value['state']=='servicing':
+        if value['state']=='servicing' and 'operation_id' not in value:
             from uuid import uuid4
             boot=self.boot_state()
             if boot.get('pending') or not isinstance(boot.get('boot_id'),str):
                 raise ValueError('support_dependency_reboot_required')
             operation=uuid4().hex
-            self._metadata={'operation_id':operation,'boot_id':boot['boot_id'],
+            self._metadata={'operation_id':operation,'nonce':uuid4().hex,'boot_id':boot['boot_id'],
                 'firewall_reservation_name':'OpenSSH-Server-In-TCP',
                 'firewall_reservation_description':'Endpoint Support OpenSSH preparation '+operation}
         if self._metadata is None:raise ValueError('support_dependency_recovery_required')
@@ -310,21 +339,98 @@ $out=@();foreach($name in @('OpenSSH.Client~~~~0.0.1.0','OpenSSH.Server~~~~0.0.1
         self._metadata=result
         WindowsSupportOps().protect(self.path)
 
+    def operation_root(self, receipt):
+        from .support_access_native import assert_private
+        if (receipt.get('schema_version') != 2 or
+                any(not isinstance(receipt.get(k), str) or not re.fullmatch('[0-9a-f]{32}', receipt[k])
+                    for k in ('operation_id', 'nonce')) or
+                not isinstance(receipt.get('boot_id'), str) or
+                not isinstance(receipt.get('capabilities'), list) or
+                not receipt['capabilities'] or
+                receipt['capabilities'] != [n for n in CAPABILITIES if n in receipt['capabilities']]):
+            raise ValueError('support_dependency_recovery_required')
+        assert_private(self.root)
+        return self.root/('os-servicing-'+receipt['operation_id'])
+
+    def completed_operation(self, receipt):
+        """Only the exact protected worker proof can settle a lost caller."""
+        from .support_access_native import assert_private
+        import win32file, win32con
+        try:
+            root = self.operation_root(receipt)
+            assert_private(root)
+            lock = root/'worker.lock'
+            assert_private(lock)
+            # An orphan may publish then still own its cleanup interval.
+            handle = win32file.CreateFile(str(lock), win32con.GENERIC_READ, 0, None,
+                win32con.OPEN_EXISTING, 0x00200000, None)
+            try:
+                values = []
+                for name in ('baseline.json', 'completion.json'):
+                    path = root/name
+                    assert_private(path)
+                    if path.stat().st_size > 65536:raise ValueError()
+                    values.append(path.read_bytes())
+                baseline_raw, proof_raw = values
+                baseline, proof = json.loads(baseline_raw), json.loads(proof_raw)
+                request = {k:receipt[k] for k in ('schema_version','operation_id','nonce','boot_id','capabilities')}
+                if (set(baseline) != {'request','service','rule'} or baseline['request'] != request or
+                        set(proof) != {'request','baseline_sha256','result'} or proof['request'] != request or
+                        proof['baseline_sha256'] != hashlib.sha256(baseline_raw).hexdigest() or
+                        not isinstance(proof['result'],dict) or set(proof['result']) !=
+                        {'completed','restart_needed','boundary_preserved'} or
+                        any(type(v) is not bool for v in proof['result'].values())):
+                    raise ValueError()
+                return proof['result']
+            finally:handle.Close()
+        except Exception:
+            raise ValueError('support_dependency_recovery_required') from None
+
     def install(self, names):
         if not names or any(name not in CAPABILITIES for name in names):
             raise ValueError('support_dependency_install_failed')
         # PowerShell owns the entire fixed servicing interval. No timeout-based
         # success inference, uninstall, WSUS/GPO change or alternate download.
-        return run_fixed_powershell(r'''
+        from .support_access_native import WindowsSupportOps
+        root = self.operation_root(self._metadata)
+        if list(names) != self._metadata['capabilities'] or root.exists():
+            raise ValueError('support_dependency_recovery_required')
+        WindowsSupportOps().protect(root)
+        run_fixed_powershell(r'''
 $names=ConvertFrom-Json -InputObject $env:ENDPOINT_SUPPORT_FOD_NAMES
 if(!$names.Count -or @($names|Where-Object {$_ -notin @('OpenSSH.Client~~~~0.0.1.0','OpenSSH.Server~~~~0.0.1.0')}).Count){throw 'names'}
 if($env:ENDPOINT_SUPPORT_FOD_OPERATION -cnotmatch '^[0-9a-f]{32}$'){throw 'operation'}
+$root=$env:ENDPOINT_SUPPORT_FOD_ROOT
+$request=ConvertFrom-Json -InputObject $env:ENDPOINT_SUPPORT_FOD_REQUEST
+function ProtectFile {param($path);$acl=[Security.AccessControl.FileSecurity]::new();$acl.SetSecurityDescriptorSddlForm('O:SYG:SYD:P(A;;FA;;;SY)(A;;FA;;;BA)');[IO.File]::SetAccessControl($path,$acl)}
+function Persist {param($name,$value)
+ $path=Join-Path $root $name;$temporary=$path+'.new'
+ $bytes=[Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json -InputObject $value -Depth 16 -Compress))
+ $stream=[IO.File]::Open($temporary,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+ try {$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
+ ProtectFile $temporary;[IO.File]::Move($temporary,$path)
+}
+$lock=[IO.File]::Open((Join-Path $root 'worker.lock'),[IO.FileMode]::CreateNew,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+try {
+ ProtectFile (Join-Path $root 'worker.lock')
 function ServiceState {Get-CimInstance Win32_Service -Filter "Name='sshd'" | Select-Object Name,State,StartMode,PathName,StartName,ProcessId | ConvertTo-Json -Compress}
 function Properties {param($object);$out=[ordered]@{};foreach($p in ($object.CimInstanceProperties|Sort-Object Name)){$out[$p.Name]=$p.Value};return $out}
 function RuleState {param($rules);if(!$rules){return $null};if(@($rules).Count -ne 1){throw 'multiple rules'};$rule=@($rules)[0];@{rule=(Properties $rule);port=(Properties ($rule|Get-NetFirewallPortFilter));address=(Properties ($rule|Get-NetFirewallAddressFilter));app=(Properties ($rule|Get-NetFirewallApplicationFilter));service=(Properties ($rule|Get-NetFirewallServiceFilter));security=(Properties ($rule|Get-NetFirewallSecurityFilter));interface=(Properties ($rule|Get-NetFirewallInterfaceFilter));interface_type=(Properties ($rule|Get-NetFirewallInterfaceTypeFilter))}|ConvertTo-Json -Depth 12 -Compress}
 $service=ServiceState;$rule=@(Get-NetFirewallRule -PolicyStore PersistentStore -Name 'OpenSSH-Server-In-TCP' -ErrorAction SilentlyContinue)
 if($rule.Count -gt 1){throw 'rule'}
 $before=RuleState $rule;$owned=$null;$ok=$true;$restart=$false;$preserved=$true
+Persist 'baseline.json' @{request=$request;service=$service;rule=$before}
+$baseline=(Get-FileHash -LiteralPath (Join-Path $root 'baseline.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+function Complete {param($result);Persist 'completion.json' @{request=$request;baseline_sha256=$baseline;result=$result}}
+if($service -and 'OpenSSH.Server~~~~0.0.1.0' -in $names){
+ $existing=$service|ConvertFrom-Json
+ $expected=Join-Path ([Environment]::GetFolderPath('System')) 'OpenSSH\sshd.exe'
+ if($existing.PathName -ine $expected -and $existing.PathName -ine ('"'+$expected+'"')){
+  # A missing OS Server capability cannot authorize replacing a foreign global
+  # sshd service. Keep its process/configuration and the old Support untouched.
+  Complete @{completed=$false;restart_needed=$false;boundary_preserved=$true};return
+ }
+}
 if(!$rule.Count){
  # Reserve the default name with our durable operation nonce BEFORE servicing.
  # Absence followed by a default-shaped rule never establishes ownership.
@@ -334,7 +440,8 @@ if(!$rule.Count){
   $reserved=@(Get-NetFirewallRule -PolicyStore PersistentStore -Name 'OpenSSH-Server-In-TCP')
   if($reserved.Count -ne 1 -or $reserved[0].Description -cne $description -or (RuleState $reserved) -cne (RuleState @($created))){throw 'reservation conflict'}
   $owned=RuleState $reserved
- } catch {@{completed=$false;restart_needed=$false;boundary_preserved=$false}|ConvertTo-Json -Compress;exit 0}
+  Persist 'reservation.json' @{request=$request;baseline_sha256=$baseline;rule=$owned}
+ } catch {Complete @{completed=$false;restart_needed=$false;boundary_preserved=$false};return}
 }
 try {foreach($name in $names){$r=Add-WindowsCapability -Online -Name $name -ErrorAction Stop;$restart=$restart -or [bool]$r.RestartNeeded}}
 catch {$ok=$false}
@@ -350,9 +457,14 @@ if($owned){
 $now=ServiceState
 if($service){if($now -cne $service){$preserved=$false}}
 elseif($now){$created=$now|ConvertFrom-Json;if($created.State -ne 'Stopped' -or $created.StartMode -ne 'Manual'){$preserved=$false}}
-@{completed=[bool]$ok;restart_needed=[bool]$restart;boundary_preserved=[bool]$preserved}|ConvertTo-Json -Compress
+Complete @{completed=[bool]$ok;restart_needed=[bool]$restart;boundary_preserved=[bool]$preserved}
+} finally {$lock.Dispose()}
 ''', variables={'ENDPOINT_SUPPORT_FOD_NAMES': json.dumps(list(names)),
-               'ENDPOINT_SUPPORT_FOD_OPERATION': self._metadata['operation_id']}, timeout=540)
+               'ENDPOINT_SUPPORT_FOD_OPERATION': self._metadata['operation_id'],
+               'ENDPOINT_SUPPORT_FOD_ROOT': str(root),
+               'ENDPOINT_SUPPORT_FOD_REQUEST': json.dumps({k:self._metadata[k] for k in
+                   ('schema_version','operation_id','nonce','boot_id','capabilities')})}, timeout=None, durable=True)
+        return self.completed_operation(self._metadata)
 
     def verify(self):
         return signed_os_dependencies()

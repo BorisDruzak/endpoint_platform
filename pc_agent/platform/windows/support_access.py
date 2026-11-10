@@ -375,9 +375,13 @@ def uninstall_support_access(*, _ops=None, _client=None) -> dict:
                 if servicing.stat().st_size>8192:
                     raise RuntimeError('support_dependency_recovery_required')
                 record=json.loads(servicing.read_bytes())
-                if (not isinstance(record,dict) or record.get('schema_version')!=1
+                if (not isinstance(record,dict) or record.get('schema_version') not in (1,2)
                         or record.get('state') not in {'complete','failed','reboot_required','conflict','installed_unverified'}):
                     raise RuntimeError('support_dependency_recovery_required')
+                if record['schema_version']==2:
+                    from .support_access_os import WindowsFOD
+                    # Never erase state underneath an orphan still finishing.
+                    WindowsFOD(root).completed_operation(record)
             try:
                 if _client is None:
                     for name in ('support.json','credential','ca.pem'):

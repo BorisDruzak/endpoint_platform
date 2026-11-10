@@ -277,33 +277,153 @@ def test_completed_fod_with_transient_signature_failure_retries_only_verificatio
     assert not any(isinstance(e,tuple) and e[0]=='install' for e in ops.events)
 
 
-def test_concurrent_foreign_default_firewall_rule_is_never_deleted():
-    """Execute the actual fixed script with only in-memory cmdlet doubles."""
-    import ast
-    tree=ast.parse(Path(module().__file__).read_text())
-    cls=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='WindowsFOD')
-    method=next(n for n in cls.body if isinstance(n,ast.FunctionDef) and n.name=='install')
-    call=next(n for n in ast.walk(method) if isinstance(n,ast.Call)
-              and isinstance(n.func,ast.Name) and n.func.id=='run_fixed_powershell')
-    script=ast.literal_eval(call.args[0])
-    prefix=r'''
-$script:rule=$null
-function Prop($name,$value){[pscustomobject]@{Name=$name;Value=$value}}
-function MakeRule($description){[pscustomobject]@{Name='OpenSSH-Server-In-TCP';InstanceID='rule-id';Description=$description;Direction='Inbound';Action='Allow';Enabled='True';Profile='Any';PolicyStoreSourceType='Local';CimInstanceProperties=@((Prop 'Name' 'OpenSSH-Server-In-TCP'),(Prop 'Description' $description))}}
-function Get-CimInstance {param($ClassName,$Filter);return $null}
-function Get-NetFirewallRule {param($Name,$PolicyStore,$ErrorAction);if($script:rule){return $script:rule}}
-function New-NetFirewallRule {param($Name,$DisplayName,$Description,$Direction,$Action,$Enabled,$Protocol,$LocalPort,$Program,$Profile,$PolicyStore,$ErrorAction);$script:rule=MakeRule $Description;return $script:rule}
-function Add-WindowsCapability {param([switch]$Online,$Name,$ErrorAction);$script:rule=MakeRule 'Created by an unrelated administrator';@{RestartNeeded=$false}}
-function Remove-NetFirewallRule {param([Parameter(ValueFromPipeline=$true)]$InputObject,$ErrorAction);throw 'Must preserve concurrent foreign rule'}
-function Get-NetFirewallPortFilter {param([Parameter(ValueFromPipeline=$true)]$InputObject);[pscustomobject]@{Protocol='TCP';LocalPort='22';RemotePort='Any';CimInstanceProperties=@((Prop 'LocalPort' '22'))}}
-function Get-NetFirewallAddressFilter {param([Parameter(ValueFromPipeline=$true)]$InputObject);[pscustomobject]@{LocalAddress='Any';RemoteAddress='Any';CimInstanceProperties=@((Prop 'LocalAddress' 'Any'))}}
-function Get-NetFirewallApplicationFilter {param([Parameter(ValueFromPipeline=$true)]$InputObject);[pscustomobject]@{Program='Any';CimInstanceProperties=@((Prop 'Program' 'Any'))}}
-function Get-NetFirewallServiceFilter {param([Parameter(ValueFromPipeline=$true)]$InputObject);[pscustomobject]@{CimInstanceProperties=@((Prop 'Service' 'Any'))}}
-function Get-NetFirewallSecurityFilter {param([Parameter(ValueFromPipeline=$true)]$InputObject);[pscustomobject]@{CimInstanceProperties=@((Prop 'Authentication' 'NotRequired'))}}
-function Get-NetFirewallInterfaceFilter {param([Parameter(ValueFromPipeline=$true)]$InputObject);[pscustomobject]@{CimInstanceProperties=@((Prop 'InterfaceAlias' 'Any'))}}
-function Get-NetFirewallInterfaceTypeFilter {param([Parameter(ValueFromPipeline=$true)]$InputObject);[pscustomobject]@{CimInstanceProperties=@((Prop 'InterfaceType' 'Any'))}}
-'''
-    result=module().run_fixed_powershell(prefix+script,variables={
-        'ENDPOINT_SUPPORT_FOD_NAMES':json.dumps([SERVER]),
-        'ENDPOINT_SUPPORT_FOD_OPERATION':'a'*32},timeout=10)
-    assert result['boundary_preserved'] is False
+
+class DurableServicing(Servicing):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.completion = None
+    def completed_operation(self, previous):
+        self.events.append('adopt')
+        return self.completion
+
+
+def test_lost_caller_adopts_only_durable_v2_completion_without_add_replay():
+    ops = DurableServicing({CLIENT:'Installed', SERVER:'NotPresent'}, outcome='timeout')
+    with pytest.raises(ValueError, match='support_dependency_recovery_required'):
+        module().ensure_inbox_openssh(ops)
+    assert ops.receipt['schema_version'] == 2
+    ops.states[SERVER] = 'Installed'
+    ops.completion = {'completed':True, 'restart_needed':False, 'boundary_preserved':True}
+    ops.events.clear()
+    assert module().ensure_inbox_openssh(ops)['profile'] == module().PROFILE
+    assert ops.receipt['state'] == 'complete'
+    assert 'adopt' in ops.events
+    assert not any(isinstance(e,tuple) and e[0]=='install' for e in ops.events)
+
+
+@pytest.mark.parametrize('outcome,state,error', [
+    ({'completed':False,'restart_needed':False,'boundary_preserved':True}, 'failed','install_failed'),
+    ({'completed':True,'restart_needed':True,'boundary_preserved':True}, 'reboot_required','reboot_required'),
+    ({'completed':True,'restart_needed':False,'boundary_preserved':False}, 'conflict','firewall_conflict'),
+])
+def test_adopted_proof_keeps_original_result_classification(outcome,state,error):
+    ops=DurableServicing({CLIENT:'Installed',SERVER:'Installed'}, previous={
+        'schema_version':2,'state':'servicing','capabilities':[SERVER]})
+    ops.completion=outcome
+    with pytest.raises(ValueError,match='support_dependency_'+error):module().ensure_inbox_openssh(ops)
+    assert ops.receipt['state']==state
+    assert 'verify' not in ops.events
+
+
+def test_legacy_v1_unknown_never_adopts_a_new_proof():
+    ops=DurableServicing({CLIENT:'Installed',SERVER:'Installed'},previous={
+        'schema_version':1,'state':'servicing','capabilities':[SERVER]})
+    ops.completion={'completed':True,'restart_needed':False,'boundary_preserved':True}
+    with pytest.raises(ValueError,match='support_dependency_recovery_required'):module().ensure_inbox_openssh(ops)
+    assert 'adopt' not in ops.events
+
+
+@pytest.fixture
+def durable_files(tmp_path,monkeypatch):
+    import hashlib
+    from pc_agent.platform.windows import support_access_native as native
+    monkeypatch.setattr(native,'assert_private',lambda path:None)
+    ops=object.__new__(module().WindowsFOD)
+    ops.root=tmp_path;ops.path=tmp_path/'os-servicing.json'
+    request={'schema_version':2,'operation_id':'a'*32,'nonce':'b'*32,
+             'boot_id':'boot-before','capabilities':[SERVER]}
+    ops._metadata=dict(request,state='servicing')
+    folder=tmp_path/('os-servicing-'+request['operation_id']);folder.mkdir()
+    baseline=dict(request=request,service=None,rule=None)
+    raw=json.dumps(baseline).encode();(folder/'baseline.json').write_bytes(raw)
+    proof=dict(request=request,baseline_sha256=hashlib.sha256(raw).hexdigest(),
+               result={'completed':True,'restart_needed':False,'boundary_preserved':True})
+    (folder/'completion.json').write_text(json.dumps(proof))
+    (folder/'worker.lock').touch()
+    return ops,folder,proof
+
+
+def test_operation_proof_requires_matching_exact_request_and_baseline(durable_files):
+    ops,folder,proof=durable_files
+    assert ops.completed_operation(ops._metadata)==proof['result']
+
+
+@pytest.mark.parametrize('damage',['missing','partial','nonce','operation','capabilities','digest','baseline','result'])
+def test_invalid_durable_completion_stays_unknown(durable_files,damage):
+    ops,folder,proof=durable_files
+    if damage=='missing':(folder/'completion.json').unlink()
+    elif damage=='partial':(folder/'completion.json').write_text('{')
+    else:
+        if damage=='digest':proof['baseline_sha256']='0'*64
+        elif damage=='baseline':(folder/'baseline.json').write_text('{}')
+        elif damage=='result':proof['result']['completed']='true'
+        else:proof['request'][{'operation':'operation_id'}.get(damage,damage)]=[] if damage=='capabilities' else 'c'*32
+        (folder/'completion.json').write_text(json.dumps(proof))
+    with pytest.raises(ValueError,match='support_dependency_recovery_required'):
+        ops.completed_operation(ops._metadata)
+
+@pytest.mark.parametrize('state,active',[('servicing',False),('complete',True),('complete',False)])
+def test_uninstall_retains_orphan_evidence_and_refuses_active_worker(durable_files,monkeypatch,state,active):
+    import win32file,win32con
+    from pc_agent.platform.windows import support_access as support,support_access_native as native
+    from pc_agent.tests.windows.test_support_access import _PayloadTestOps
+    ops,folder,proof=durable_files
+    receipt=dict(ops._metadata,state=state);ops.path.write_text(json.dumps(receipt))
+    credential=ops.root/'credential';credential.write_text('fixture authority')
+    calls=[]
+    class Client:
+        def unregister(self):calls.append('unregister')
+    class Ops(_PayloadTestOps):
+        def remove_service(self):calls.append('stop')
+        def remove_payload(self,path):return False
+    monkeypatch.setattr(native,'production_roots',lambda:(ops.root,ops.root/'program'))
+    lock=win32file.CreateFile(str(folder/'worker.lock'),win32con.GENERIC_READ,0,None,win32con.OPEN_EXISTING,0,None) if active else None
+    try:
+        if state=='servicing' or active:
+            with pytest.raises((ValueError,RuntimeError),match='support_dependency_recovery_required'):
+                support.uninstall_support_access(_ops=Ops(),_client=Client())
+            assert not calls and credential.exists() and ops.path.exists()
+        else:
+            assert support.uninstall_support_access(_ops=Ops(),_client=Client())['revoked']
+            assert calls==['unregister','stop'] and not credential.exists()
+        assert (folder/'baseline.json').exists() and (folder/'completion.json').exists()
+    finally:
+        if lock:lock.Close()
+
+
+def test_payload_preflight_leaves_no_rollback_image_during_servicing_and_reentry(tmp_path):
+    from pc_agent.tests.windows.test_support_access import _PayloadTestOps
+    source=tmp_path/'candidate.exe';source.write_bytes(b'new')
+    target=tmp_path/'active.exe';target.write_bytes(b'old')
+    class Ops(_PayloadTestOps):
+        def protect(self,path):pass
+        def stop_for_update(self,path):pass
+        def install_service(self,path):pass
+    fod=DurableServicing({CLIENT:'Installed',SERVER:'NotPresent'},outcome='timeout')
+    with Ops().prepare_payload(source,target):
+        assert not target.with_suffix('.previous.exe').exists()
+        with pytest.raises(ValueError,match='recovery_required'):module().ensure_inbox_openssh(fod)
+        assert not target.with_suffix('.previous.exe').exists() and target.read_bytes()==b'old'
+    fod.states[SERVER]='Installed'
+    fod.completion={'completed':True,'restart_needed':False,'boundary_preserved':True}
+    fod.events.clear()
+    with Ops().prepare_payload(source,target) as activation:
+        assert module().ensure_inbox_openssh(fod)['profile']==module().PROFILE
+        activation.apply(reload=True)
+    assert target.read_bytes()==b'new'
+    assert not any(isinstance(e,tuple) and e[0]=='install' for e in fod.events)
+
+
+def test_payload_changed_during_slow_preflight_refuses_before_backup_or_stop(tmp_path):
+    from pc_agent.tests.windows.test_support_access import _PayloadTestOps
+    source=tmp_path/'candidate.exe';source.write_bytes(b'new')
+    target=tmp_path/'active.exe';target.write_bytes(b'old')
+    class Ops(_PayloadTestOps):
+        def protect(self,path):pass
+        def stop_for_update(self,path):pytest.fail('changed active image was stopped')
+    with pytest.raises(ValueError,match='support_payload_changed'):
+        with Ops().prepare_payload(source,target) as activation:
+            target.write_bytes(b'changed during servicing')
+            activation.apply(reload=True)
+    assert target.read_bytes()==b'changed during servicing'
+    assert not target.with_suffix('.previous.exe').exists()
