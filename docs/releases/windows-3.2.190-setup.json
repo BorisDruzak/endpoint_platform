@@ -69,6 +69,13 @@
     "stable_seconds": 182.684,
     "user_sensor_count": 1,
     "support_version_after": "1.0.1",
+    "support_activation_error": "support_dependency_firewall_conflict",
+    "operator_recovery": {
+      "support_version": "1.1.4",
+      "verified_utc": "2026-11-11T12:33:13.9506109Z",
+      "pinned_ssh_verified": true,
+      "native_setup_replayed": false
+    },
     "source_qualified": false,
     "verification": "docs/verification/2026-11-11-windows190-source177-canary.md"
   },

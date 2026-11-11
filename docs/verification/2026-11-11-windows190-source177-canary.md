@@ -22,9 +22,45 @@ grant had expired, and the tunnel was disconnected. The server receives
 the running service report. The new helper's local install result is stored
 in `%ProgramData%\Endpoint Platform\Installer\support-install-result.json`.
 SMB did not respond from the operator workstation or production Endpoint.
-The cause of the incomplete Support transition is unresolved. No source 177
-qualification or promotion was recorded. The Windows enrollment download
-remains 177, and enabled policy 17 still targets 189.
+This was the state before the operator recovery below.
+
+## Cause and recovery on 138
+
+The exact SSH identity on C1-ARHIT-S7 returned
+`support_dependency_firewall_conflict` from the local installer result. The
+signed 1.1.4 image was present in the Agent directory while SCM still ran
+1.0.1. The protected Windows capability operation
+`e28e180ade824ef0979840459d78ff06` recorded no initial default rule or global
+`sshd` service, the disabled nonce reservation and successful Server capability
+installation without a reboot. The completion record reported an unpreserved
+firewall boundary.
+
+Windows 10 build 19045 returned the new default `OpenSSH-Server-In-TCP`
+rule with `Profiles=0`, no `PackageFamilyName` property and
+`RemoteDynamicKeywordAddresses=null`. Every other field, including all
+associated filter sections, matched the stock template apart from localized
+status text. Setup 190 recognized only the earlier stock template with
+`Profiles=2`, a null `PackageFamilyName` and an empty array of dynamic
+keyword addresses.
+
+The operator revalidated the exact local rule and disabled only that rule.
+The recovery archived the known conflict receipt with its original SHA256
+and kept the protected baseline, reservation and completion. The signed 190
+helper activated Support 1.1.4 at 12:30:12Z with exit 0 using the installed
+OpenSSH capability. A key-authenticated SSH command verified the same pinned
+device. Global `sshd` remained stopped and manual, and the only SSH listener
+was `127.0.0.1:22222`. The temporary scheduled task was removed and the
+temporary grant ended. The 12:35Z read confirmed Support 1.1.4 and fresh
+UserSensor on the same Core 190 device, with the tunnel closed after expiry.
+
+Console cancelled the pending .146 canary at 12:34:43Z before native start.
+The source correction `a45435145ef22be415c601b836addf9a6215cb52` accepts the
+exact Windows 10 variant as a complete snapshot in both servicing and proof
+verification. PowerShell 5.1 tests proved recognition of the captured shape
+and rejection of a hybrid shape. The Windows Support suite reported 248
+passed and three skipped. The signed Setup 190 media remain unchanged.
+Source 177 remains unqualified for automatic 190 delivery. The Windows
+enrollment download remains 177, and enabled policy 17 still targets 189.
 
 An independent fleet preview found .120 eligible for 190 despite Core 190
 already occupying the target staging slot on Foundation 189. The signed

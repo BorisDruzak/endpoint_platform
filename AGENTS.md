@@ -44,12 +44,15 @@
 
 # Canonical agent release
 
-- Current Windows rollout checkpoint, 2026-11-11T12:20Z: direct 177-to-190 on
+- Current Windows rollout checkpoint, 2026-11-11T12:35Z: direct 177-to-190 on
   C1-ARHIT-S7 (.138) reached APPLIED/native0, 182.684 seconds of stable
   observation, fresh UserSensor and Windows x86_64 inventory. The independent
-  service still reports Support1.0.1. Source177 qualification and primary
-  promotion are withheld. The .146 pilot disconnected before native start
-  and remains assigned. Policy17 remains on189, and Windows177/Linux183
+  service initially retained Support1.0.1 because Setup190 rejected the stock
+  Windows 10 OpenSSH firewall rule. An operator recovery activated signed
+  Support1.1.4 on .138 and verified pinned SSH. The temporary lease was closed.
+  The .146 pilot was cancelled before native start. Source177 qualification
+  and primary promotion are withheld because signed Setup190 lacks the Windows
+  10 rule recognition fix. Policy17 remains on189, and Windows177/Linux183
   remain primary. The Core target-slot admission guard is committed and tested
   without a provider deployment. See the
   [177-to-190 receipt](docs/verification/2026-11-11-windows190-source177-canary.md).
