@@ -6317,6 +6317,7 @@ components:
             - "endpoint_platform"
             - "openvpn"
             - "directum"
+            - "ad_directum"
             - "ad_consultant"
           title: "Role"
           type: "string"
@@ -12833,6 +12834,7 @@ components:
             - "endpoint_platform"
             - "openvpn"
             - "directum"
+            - "ad_directum"
             - "ad_consultant"
           title: "Role"
         services:
