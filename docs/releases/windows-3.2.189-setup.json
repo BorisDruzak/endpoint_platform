@@ -2,7 +2,7 @@
   "schema_version": 1,
   "version": "3.2.189",
   "platform": "windows_amd64",
-  "status": "candidate_pending_native_qualification",
+  "status": "candidate_native_accepted_pending_support_ssh",
   "runtime_source_commit": "a28b1420343c8f7f3fd69484c5f9a05360105522",
   "windows_packaging_commit": "b4c047f4ebd886b1989ba2c2496104cec3f3e108",
   "runtime_source_binding": "packaging/windows/initial-runtime-3.2.189.json",
@@ -41,6 +41,15 @@
     "tree_sha256": "74e3c3fac756bfccd25755abacc9b2d134aefebdfba7fdd979b7035345f76d5a",
     "component_guid": "02C7E1C8-830E-4917-8F58-D68B7F85AA40",
     "source_file_count": 321
+  },
+  "test120_full_setup": {
+    "assignment_id": "a7370070-52f8-429c-bccc-e18867d185ff",
+    "source_foundation": "3.2.187",
+    "status": "applied",
+    "native_exit": 0,
+    "soak_seconds": 185.769,
+    "user_sensor_count": 1,
+    "independent_ssh_status": "blocked_platform_discovery"
   },
   "source_qualifications": [],
   "verification": "docs/verification/2026-11-11-test120-windows189-openssh.md"

@@ -44,14 +44,18 @@
 
 # Canonical agent release
 
-- Current Windows rollout checkpoint, 2026-11-11T09:49Z: policy16 remains paused
+- Current Windows rollout checkpoint, 2026-11-11T10:14Z: policy16 remains paused
   on hidden187/all_active/max2. Hidden signed189/Support1.1.4 passed the
   standalone missing OpenSSH Server capability trial on test120. Windows
   installed Server from NotPresent, the worker durably disabled only the new
   stock port22 rule, and the test restored the original global SSH and verified
-  login. Test120 remains Core/Foundation187 and reported Support1.1.4. Its
-  independent lease expired. No 189 Full Setup assignment or qualification
-  exists. Windows primary177/Linux183 remain current. See the
+  login. Test120 then applied Full Setup187 to189 with native0, 185.769 seconds
+  and one UserSensor. Production confirmed fresh active-user telemetry and
+  189 Core/Foundation. Its independent lease expired. Platform discovery
+  blocks renewal because current Windows inventory lacks architecture, with
+  probe_unavailable after repeat collection. Independent SSH with Core/updater
+  stopped remains unverified. No 189 source qualification exists.
+  Windows primary177/Linux183 remain current. See the
   [189 receipt](docs/verification/2026-11-11-test120-windows189-openssh.md).
 
 - Historical Windows rollout checkpoint, 2026-11-10T00:09Z: policy16 remains paused
