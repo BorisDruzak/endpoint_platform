@@ -44,18 +44,19 @@
 
 # Canonical agent release
 
-- Current Windows rollout checkpoint, 2026-11-11T10:14Z: policy16 remains paused
-  on hidden187/all_active/max2. Hidden signed189/Support1.1.4 passed the
-  standalone missing OpenSSH Server capability trial on test120. Windows
-  installed Server from NotPresent, the worker durably disabled only the new
-  stock port22 rule, and the test restored the original global SSH and verified
-  login. Test120 then applied Full Setup187 to189 with native0, 185.769 seconds
-  and one UserSensor. Production confirmed fresh active-user telemetry and
-  189 Core/Foundation. Its independent lease expired. Platform discovery
-  blocks renewal because current Windows inventory lacks architecture, with
-  probe_unavailable after repeat collection. Independent SSH with Core/updater
-  stopped remains unverified. No 189 source qualification exists.
-  Windows primary177/Linux183 remain current. See the
+- Current Windows rollout checkpoint, 2026-11-11T10:52Z: policy17 is enabled
+  on signed189/all_active/max2. Exact source Foundation187 is qualified through
+  2026-12-11T10:27Z. Test120 applied187 to189 with native0, 185.769 seconds and
+  one UserSensor. Support1.1.4 had already passed missing OpenSSH Server
+  installation and the verified stock port22 rule disable on this host. The
+  Windows CIM inventory probe exceeded five seconds as LocalService. Test120
+  applied the signed Core190 inventory fix using temporary scoped OTA directory
+  repair, with original owner and DACL restored. Core190/Foundation189 then
+  reported complete x86_64 inventory and UserSensor. Actual pinned Support SSH
+  passed with Core/updater stopped and observer disabled. The original service
+  states were restored. Two source187 fleet chains reached native switching. The
+  Core190 fix is assigned only to test120. Windows primary177/Linux183 remain
+  current. See the
   [189 receipt](docs/verification/2026-11-11-test120-windows189-openssh.md).
 
 - Historical Windows rollout checkpoint, 2026-11-10T00:09Z: policy16 remains paused

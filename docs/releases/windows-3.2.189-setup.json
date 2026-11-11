@@ -2,7 +2,7 @@
   "schema_version": 1,
   "version": "3.2.189",
   "platform": "windows_amd64",
-  "status": "candidate_native_accepted_pending_support_ssh",
+  "status": "qualified_windows_3.2.187_source_fleet_enabled",
   "runtime_source_commit": "a28b1420343c8f7f3fd69484c5f9a05360105522",
   "windows_packaging_commit": "b4c047f4ebd886b1989ba2c2496104cec3f3e108",
   "runtime_source_binding": "packaging/windows/initial-runtime-3.2.189.json",
@@ -49,8 +49,26 @@
     "native_exit": 0,
     "soak_seconds": 185.769,
     "user_sensor_count": 1,
-    "independent_ssh_status": "blocked_platform_discovery"
+    "independent_ssh_status": "verified_with_core_and_updater_stopped",
+    "independent_ssh_verified_at": "2026-11-11T10:48:26.8936370Z",
+    "inventory_repair_core": "3.2.190"
   },
-  "source_qualifications": [],
+  "source_qualifications": [
+    {
+      "id": "26e07f9f-39c6-40e1-b708-99c8234b3296",
+      "release_id": "d5ccba68-fc8c-4b75-a262-af322a2f72dd",
+      "sha256": "5f15ff87c1294e19d6c0debe3d5d30917bca54aca1f5a01280bb94e3998b03e9",
+      "source_foundation": "3.2.187",
+      "evidence_assignment_id": "a7370070-52f8-429c-bccc-e18867d185ff",
+      "qualified_at": "2026-11-11T10:27:08.103425Z",
+      "expires_at": "2026-12-11T10:27:08.103425Z"
+    }
+  ],
+  "fleet_policy": {
+    "revision": 17,
+    "scope": "all_active",
+    "max_parallel": 2,
+    "enabled_at": "2026-11-11T10:49:37.239664Z"
+  },
   "verification": "docs/verification/2026-11-11-test120-windows189-openssh.md"
 }
