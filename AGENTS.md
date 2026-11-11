@@ -44,7 +44,17 @@
 
 # Canonical agent release
 
-- Current Windows rollout checkpoint, 2026-11-11T11:51Z: all three first-wave
+- Current Windows rollout checkpoint, 2026-11-11T12:20Z: direct 177-to-190 on
+  C1-ARHIT-S7 (.138) reached APPLIED/native0, 182.684 seconds of stable
+  observation, fresh UserSensor and Windows x86_64 inventory. The independent
+  service still reports Support1.0.1. Source177 qualification and primary
+  promotion are withheld. The .146 pilot disconnected before native start
+  and remains assigned. Policy17 remains on189, and Windows177/Linux183
+  remain primary. The Core target-slot admission guard is committed and tested
+  without a provider deployment. See the
+  [177-to-190 receipt](docs/verification/2026-11-11-windows190-source177-canary.md).
+
+- Historical Windows rollout checkpoint, 2026-11-11T11:51Z: all three first-wave
   Windows187 to189 policy17 assignments on .27/.22/.29 accepted native0 with
   fresh UserSensor and Support1.1.4. Signed Full Setup190 contains the Windows
   CIM timeout fix. .27 qualified exact source189 through 2026-12-11T11:42Z.

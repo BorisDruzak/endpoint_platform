@@ -60,5 +60,17 @@
     ],
     "inventory_verified_after_install": true
   },
+  "source_177_canary": {
+    "device": "C1-ARHIT-S7",
+    "address": "192.168.101.138",
+    "assignment_id": "d195ec80-cdb5-496c-a6ea-1dbd7cf3f169",
+    "status": "applied",
+    "native_exit": 0,
+    "stable_seconds": 182.684,
+    "user_sensor_count": 1,
+    "support_version_after": "1.0.1",
+    "source_qualified": false,
+    "verification": "docs/verification/2026-11-11-windows190-source177-canary.md"
+  },
   "verification": "docs/verification/2026-11-11-windows190-inventory-fleet.md"
 }
