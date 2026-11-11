@@ -82,6 +82,7 @@ class RuntimeSettings:
     network_probe_allowed_suffixes: tuple[str, ...] = ()
     launcher_version: str | None = None
     package_managed_updates: bool = False
+    fallback_endpoint_origin: str | None = None
 
     def validate(self) -> None:
         for name in ("data_root", "install_root", "ca_file"):
@@ -102,6 +103,15 @@ class RuntimeSettings:
             raise ValueError("unsupported Endpoint transport mode")
         if not isinstance(self.migration_http_pull_fallback, bool):
             raise ValueError("migration HTTP pull fallback must be boolean")
+        if self.fallback_endpoint_origin is not None:
+            from pc_agent.transport.websocket import gateway_websocket_url
+
+            if self.transport_mode != "gateway_wss" or self.migration_http_pull_fallback:
+                raise ValueError("reserve Endpoint origin requires WSS without HTTP fallback")
+            gateway_websocket_url(self.fallback_endpoint_origin)
+            primary, reserve = urlsplit(self.endpoint_origin), urlsplit(self.fallback_endpoint_origin)
+            if (primary.hostname, primary.port or 443) == (reserve.hostname, reserve.port or 443):
+                raise ValueError("reserve Endpoint origin must be distinct from the primary")
         if self.package_managed_updates and (
             os.name != "posix" or self.transport_mode != "gateway_wss" or self.migration_http_pull_fallback
         ):
@@ -835,6 +845,7 @@ def _create_transport(
             ca_file=settings.ca_file,
             credential=credential,
             endpoint_origin=settings.endpoint_origin,
+            fallback_endpoint_origin=settings.fallback_endpoint_origin,
         )
         if not settings.migration_http_pull_fallback:
             return primary

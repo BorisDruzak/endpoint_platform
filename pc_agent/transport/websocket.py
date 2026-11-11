@@ -130,6 +130,7 @@ class WebSocketGatewayTransport:
         ca_file: Path,
         credential: str,
         endpoint_origin: str = DEFAULT_ENDPOINT_ORIGIN,
+        fallback_endpoint_origin: str | None = None,
         reconnect_policy: WebSocketReconnectPolicy | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         random_value: Callable[[], float] = random.random,
@@ -138,6 +139,7 @@ class WebSocketGatewayTransport:
         self._ca_file = Path(ca_file)
         self._credential = credential
         self._endpoint_origin = endpoint_origin
+        self._fallback_endpoint_origin = fallback_endpoint_origin
         self._reconnect_policy = reconnect_policy or WebSocketReconnectPolicy()
         self._sleep = sleep
         self._random_value = random_value
@@ -149,48 +151,49 @@ class WebSocketGatewayTransport:
         self._protocol_features: frozenset[str] = frozenset()
 
     async def connect(self, hello: AgentHelloV1) -> GatewayHelloV1:
+        origins = (self._endpoint_origin,)
+        if self._fallback_endpoint_origin is not None:
+            origins += (self._fallback_endpoint_origin,)
         for attempt in range(self._reconnect_policy.maximum_attempts):
-            try:
-                return await self._connect_once(hello)
-            except (GatewayCredentialRejected, GatewayTerminalError):
-                raise
-            except (
-                aiohttp.ClientConnectorCertificateError,
-                aiohttp.ClientConnectorSSLError,
-                ssl.SSLError,
-            ) as error:
-                raise GatewayTerminalError(type(error).__name__) from error
-            except aiohttp.WSServerHandshakeError as error:
-                if error.status in {401, 403}:
-                    raise GatewayCredentialRejected(
-                        "Endpoint Gateway rejected device credential"
-                    ) from error
-                if error.status in {404, 500, 501, 502, 503, 504}:
-                    await self._retry_unavailable(attempt, error)
-                    continue
-                if error.status in {400, 426}:
-                    raise GatewayProtocolIncompatible("Gateway WSS upgrade incompatible") from error
-                raise GatewayTerminalError(type(error).__name__) from error
-            except (
-                aiohttp.ClientConnectionError,
-                asyncio.TimeoutError,
-            ) as error:
-                await self._retry_unavailable(attempt, error)
-            except OSError as error:
-                raise GatewayTerminalError(type(error).__name__) from error
+            for origin in origins:
+                try:
+                    return await self._connect_classified(hello, origin)
+                except GatewayTransportUnavailable as error:
+                    unavailable = error
+            await self._retry_unavailable(attempt, unavailable)
         raise AssertionError("unreachable WSS reconnect state")
+
+    async def _connect_classified(self, hello: AgentHelloV1, origin: str) -> GatewayHelloV1:
+        try:
+            return await self._connect_once(hello, origin)
+        except (GatewayCredentialRejected, GatewayTerminalError):
+            raise
+        except (aiohttp.ClientConnectorCertificateError, aiohttp.ClientConnectorSSLError, ssl.SSLError) as error:
+            raise GatewayTerminalError(type(error).__name__) from error
+        except aiohttp.WSServerHandshakeError as error:
+            if error.status in {401, 403}:
+                raise GatewayCredentialRejected("Endpoint Gateway rejected device credential") from error
+            if error.status in {404, 500, 501, 502, 503, 504}:
+                raise GatewayTransportUnavailable(type(error).__name__) from error
+            if error.status in {400, 426}:
+                raise GatewayProtocolIncompatible("Gateway WSS upgrade incompatible") from error
+            raise GatewayTerminalError(type(error).__name__) from error
+        except (aiohttp.ClientConnectionError, asyncio.TimeoutError) as error:
+            raise GatewayTransportUnavailable(type(error).__name__) from error
+        except OSError as error:
+            raise GatewayTerminalError(type(error).__name__) from error
 
     async def _retry_unavailable(self, attempt: int, error: Exception) -> None:
         if attempt + 1 == self._reconnect_policy.maximum_attempts:
-            raise GatewayTransportUnavailable(type(error).__name__) from error
+            raise error
         delay = self._reconnect_policy.delay_after_failure(
             attempt,
             random_value=self._random_value(),
         )
         await self._sleep(delay)
 
-    async def _connect_once(self, hello: AgentHelloV1) -> GatewayHelloV1:
-        websocket_url = gateway_websocket_url(self._endpoint_origin)
+    async def _connect_once(self, hello: AgentHelloV1, origin: str) -> GatewayHelloV1:
+        websocket_url = gateway_websocket_url(origin)
         context = ssl.create_default_context(cafile=str(self._ca_file))
         connector = aiohttp.TCPConnector(ssl=context)
         trace = aiohttp.TraceConfig()

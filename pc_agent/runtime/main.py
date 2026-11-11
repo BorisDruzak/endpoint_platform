@@ -202,6 +202,11 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--fallback-endpoint-origin",
+        default=os.environ.get("ENDPOINT_AGENT_FALLBACK_ORIGIN", "").strip() or None,
+        help="use this trusted HTTPS Endpoint origin when the primary WSS route is unavailable",
+    )
+    parser.add_argument(
         "--transport-mode",
         choices=("gateway_http_pull", "gateway_wss"),
         default=os.environ.get(
@@ -311,6 +316,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         transport_mode=args.transport_mode,
         migration_http_pull_fallback=args.migration_http_pull_fallback,
         package_managed_updates=args.package_managed_updates,
+        fallback_endpoint_origin=args.fallback_endpoint_origin,
         launcher_version=args.launcher_version,
         network_probe_allowed_cidrs=_network_probe_values(
             args.network_probe_allowed_cidrs,
