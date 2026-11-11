@@ -22,18 +22,22 @@ def payload():
     }
 
 
-def test_exact_deb_becomes_manual_and_can_only_use_its_host_campaign():
+@pytest.mark.parametrize("address, hostname", [
+    ("192.168.100.30", "openvpn"),
+    ("192.168.100.27", "dirpost"),
+])
+def test_exact_deb_becomes_manual_and_can_only_use_its_host_campaign(address, hostname):
     now = datetime.now(UTC)
     record, _ = ubuntu_requests.build_request(
-        ubuntu_requests.UbuntuDebRequest.model_validate(payload()),
-        address=ip_address("192.168.100.30"), pepper=b"test", now=now,
+        ubuntu_requests.UbuntuDebRequest.model_validate(payload() | {"hostname": hostname}),
+        address=ip_address(address), pepper=b"test", now=now,
     )
     assert record.status == "waiting_approval"
     assert record.selected_campaign_id is None
     assert record.expires_at <= now + timedelta(minutes=20)
     campaign = ubuntu_requests.build_campaign(record, pepper=b"test", now=now)
     record.selected_campaign_id = campaign.id
-    assert campaign.allowed_cidrs == ["192.168.100.30/32"]
+    assert campaign.allowed_cidrs == [f"{address}/32"]
     assert campaign.max_uses == 1
     assert linux_campaign_allows(record, campaign, now=now)
     campaign.allowed_cidrs = ["192.168.100.0/24"]
@@ -43,6 +47,8 @@ def test_exact_deb_becomes_manual_and_can_only_use_its_host_campaign():
 @pytest.mark.parametrize("address, changes", [
     ("192.168.100.31", {}),
     ("192.168.100.19", {}),
+    ("192.168.100.27", {}),
+    ("192.168.100.31", {"hostname": "dirpost"}),
     ("192.168.100.30", {"package_sha256": "f" * 64}),
 ])
 def test_rejects_other_hosts_and_unreviewed_deb(address, changes):

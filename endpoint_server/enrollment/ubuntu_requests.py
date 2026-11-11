@@ -1,4 +1,4 @@
-"""Exact DEB intake for the two Ubuntu server roles in the first rollout."""
+"""Exact DEB intake for explicitly approved Ubuntu servers."""
 
 from datetime import UTC, datetime, timedelta
 from typing import Literal
@@ -31,7 +31,11 @@ PACKAGE_VERSION = "3.2.192-1ubuntu1"
 PACKAGE_SHA256 = "8affee69264c5cbdc76237ba83dfe5db91ab7a34562ee92f024d9d2b24471a7d"
 RELEASE_ID = "ubuntu-deb:" + PACKAGE_VERSION
 POLICY_RELEASE = UUID("fb725608-e7da-4c9c-bfa5-2038f2f18a5a")
-PILOT_HOSTS = {"192.168.100.30": "openvpn", "192.168.100.19": "endpointplatform"}
+PILOT_HOSTS = {
+    "192.168.100.19": "endpointplatform",
+    "192.168.100.27": "dirpost",
+    "192.168.100.30": "openvpn",
+}
 
 
 class UbuntuDebRequest(_SecretSafeContractModelV1):

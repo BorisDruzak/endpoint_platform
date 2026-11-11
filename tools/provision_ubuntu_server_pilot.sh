@@ -13,6 +13,7 @@ state=/var/lib/endpoint-agent-ubuntu
 unit=endpoint-agent.service
 
 role=${1:?Ubuntu role required}
+server_role=$role
 case "$role" in
     openvpn)
         expected_host=openvpn
@@ -27,6 +28,14 @@ case "$role" in
         ca=/etc/endpoint-platform/sosnadmin-local-ca.crt
         probe_user=osn_admin
         expected_services=(endpoint-platform.service endpoint-platform-worker.service nginx.service postgresql.service)
+        ;;
+    dirpost)
+        expected_host=dirpost
+        address=192.168.100.27
+        ca=/etc/apt/keyrings/endpoint-ubuntu-ca.crt
+        probe_user=flashvagon
+        expected_services=(postgresql@14-main.service)
+        server_role=
         ;;
     *) exit 2 ;;
 esac
@@ -152,7 +161,7 @@ apt-get install -y "$deb" >&2
 install -o root -g root -m 0644 "$ca" /etc/endpoint-agent-ubuntu/ca.crt
 site=/etc/endpoint-agent-ubuntu/site.conf
 dropin=/etc/systemd/system/endpoint-agent-ubuntu.service.d
-printf 'ENDPOINT_AGENT_SERVER_ROLE=%s\nENDPOINT_AGENT_FALLBACK_ORIGIN=%s:8443\n' "$role" "$origin" > "$tmp/site.conf"
+printf 'ENDPOINT_AGENT_SERVER_ROLE=%s\nENDPOINT_AGENT_FALLBACK_ORIGIN=%s:8443\n' "$server_role" "$origin" > "$tmp/site.conf"
 printf '[Service]\nEnvironmentFile=%s\n' "$site" > "$tmp/site-environment.conf"
 install -d -m 0755 "$dropin"
 for config in "$site" "$dropin/site-environment.conf"; do

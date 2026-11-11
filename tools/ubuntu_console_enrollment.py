@@ -17,6 +17,7 @@ from uuid import UUID, uuid4
 
 ORIGIN = "https://endpoint.sosnadmin.local"
 HOST_CA = {
+    "dirpost": Path("/etc/apt/keyrings/endpoint-ubuntu-ca.crt"),
     "openvpn": Path("/etc/apt/keyrings/endpoint-ubuntu-ca.crt"),
     "endpointplatform": Path("/etc/endpoint-platform/sosnadmin-local-ca.crt"),
 }
