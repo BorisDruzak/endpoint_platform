@@ -12,7 +12,7 @@ from pathlib import Path
 import re
 import uuid
 
-COMPONENT_VERSION = '1.1.4'
+COMPONENT_VERSION = '1.1.5'
 SERVICE_NAME = 'EndpointSupportAccess'
 MAX_LEASE_SECONDS = 86400
 LOCAL_PORT = 22222
