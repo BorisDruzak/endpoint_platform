@@ -39,6 +39,26 @@ def test_system_probe_converts_subprocess_timeout_to_collector_timeout(monkeypat
         SystemProbe().run(probe_module.LSBLK_COMMAND, 0.1, 128)
 
 
+def test_windows_inventory_accepts_a_cim_result_after_five_seconds(monkeypatch) -> None:
+    probe = SystemProbe()
+    monkeypatch.setattr(probe_module, "os", type("WindowsOS", (), {"name": "nt"}))
+
+    def run(command, timeout, limit):
+        if command == probe_module.WINDOWS_INVENTORY_COMMAND:
+            if timeout < 5.4:
+                raise TimeoutError("CIM inventory exceeded its budget")
+            return '{"system":{"architecture":"x86_64"}}'
+        assert command == probe_module.WINDOWS_PHYSICAL_STORAGE_COMMAND
+        assert timeout == 5.0
+        return "[]"
+
+    monkeypatch.setattr(probe, "run", run)
+    assert probe.windows_inventory() == {
+        "system": {"architecture": "x86_64"},
+        "storage_details": [],
+    }
+
+
 def test_system_probe_reads_only_the_requested_file_prefix(monkeypatch) -> None:
     """A capped context file read must not materialize the trailing source bytes."""
     requested: list[int] = []

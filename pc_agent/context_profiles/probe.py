@@ -13,6 +13,7 @@ import time
 
 
 MAX_PROBE_BYTES = 65_536
+WINDOWS_INVENTORY_TIMEOUT_SECONDS = 8.0
 TERMINATION_GRACE_SECONDS = 0.2
 _DRAIN_JOIN_GRACE_SECONDS = 0.2
 
@@ -131,7 +132,9 @@ class SystemProbe:
             return {}
         import json
         try:
-            value = json.loads(self.run(WINDOWS_INVENTORY_COMMAND, 5.0, MAX_PROBE_BYTES))
+            value = json.loads(
+                self.run(WINDOWS_INVENTORY_COMMAND, WINDOWS_INVENTORY_TIMEOUT_SECONDS, MAX_PROBE_BYTES)
+            )
         except (OSError, ValueError, TimeoutError):
             return {}
         if not isinstance(value, dict):
