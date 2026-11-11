@@ -112,8 +112,9 @@ def test_local_http_uses_total_deadline_while_response_is_incomplete(monkeypatch
         thread.join(timeout=2)
 
 
-def test_directum_uses_verified_service_and_http_and_reports_missing_broker(monkeypatch):
-    monkeypatch.setenv("ENDPOINT_AGENT_SERVER_ROLE", "directum")
+@pytest.mark.parametrize("role", ["directum", "ad_directum"])
+def test_directum_uses_verified_service_and_http_and_reports_missing_broker(monkeypatch, role):
+    monkeypatch.setenv("ENDPOINT_AGENT_SERVER_ROLE", role)
     probe = Probe()
     probe.platform_name = "windows"
     probe.server_service_state = lambda service: "missing" if service == "RabbitMQ" else "running"
@@ -126,12 +127,17 @@ def test_directum_uses_verified_service_and_http_and_reports_missing_broker(monk
 
     section = collect_server_health(probe)
     assert {item.mount for item in section.volumes} == {"C:\\", "S:\\"}
-    assert {item.name: item.status for item in section.services} == {
+    services = {
         "DirectumRXServiceRunner": "ok", "W3SVC": "ok", "RabbitMQ": "missing",
     }
-    assert {item.name: item.status for item in section.applications} == {
+    applications = {
         "directum_http": "ok", "directum_rabbitmq_tcp": "failed",
     }
+    if role == "ad_directum":
+        services.update(dict.fromkeys(("NTDS", "DNS", "Kdc", "Netlogon", "ADWS"), "ok"))
+        applications.update({"ad_dns_tcp": "ok", "ad_kerberos_tcp": "ok", "ad_ldap_tcp": "ok"})
+    assert {item.name: item.status for item in section.services} == services
+    assert {item.name: item.status for item in section.applications} == applications
 
 
 def test_ad_and_consultant_checks_are_independent(monkeypatch):

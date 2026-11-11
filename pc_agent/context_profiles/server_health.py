@@ -27,6 +27,10 @@ class Role:
     volumes: tuple[Volume, ...]
 
 
+_AD_SERVICES = ("NTDS", "DNS", "Kdc", "Netlogon", "ADWS")
+_DIRECTUM_SERVICES = ("DirectumRXServiceRunner", "W3SVC", "RabbitMQ")
+_WINDOWS_VOLUMES = (Volume("C:\\", 10), Volume("S:\\", 10))
+
 ROLES: dict[ServerRoleV1, Role] = {
     "endpoint_platform": Role(
         "linux",
@@ -38,14 +42,10 @@ ROLES: dict[ServerRoleV1, Role] = {
         "linux", ("openvpn-server@server.service", "openvpn-web.service"),
         (Volume("/", 5), Volume("/boot"), Volume("/var/lib/netctl", 10)),
     ),
-    "directum": Role(
-        "windows", ("DirectumRXServiceRunner", "W3SVC", "RabbitMQ"),
-        (Volume("C:\\", 10), Volume("S:\\", 10)),
-    ),
+    "directum": Role("windows", _DIRECTUM_SERVICES, _WINDOWS_VOLUMES),
+    "ad_directum": Role("windows", _AD_SERVICES + _DIRECTUM_SERVICES, _WINDOWS_VOLUMES),
     "ad_consultant": Role(
-        "windows",
-        ("NTDS", "DNS", "Kdc", "Netlogon", "ADWS", "W3SVC", "ConsServiceS400.2.24"),
-        (Volume("C:\\", 10), Volume("S:\\", 10)),
+        "windows", _AD_SERVICES + ("W3SVC", "ConsServiceS400.2.24"), _WINDOWS_VOLUMES,
     ),
 }
 
@@ -128,18 +128,24 @@ def _applications(probe: object, role: ServerRoleV1) -> list[ServerHealthApplica
             _http(probe, "openvpn_web_http", 8088, "/", {200, 303}),
             _listener("openvpn_udp_listener", probe.server_udp_listener, 1194),
         ]
-    if role == "directum":
-        return [
+    checks = []
+    if role in {"ad_directum", "ad_consultant"}:
+        checks.extend([
+            _listener("ad_dns_tcp", probe.server_tcp_listener, 53),
+            _listener("ad_kerberos_tcp", probe.server_tcp_listener, 88),
+            _listener("ad_ldap_tcp", probe.server_tcp_listener, 389),
+        ])
+    if role in {"directum", "ad_directum"}:
+        checks.extend([
             _http(probe, "directum_http", 80, "/", {200, 302}),
             _listener("directum_rabbitmq_tcp", probe.server_tcp_listener, 5672),
-        ]
-    return [
-        _listener("ad_dns_tcp", probe.server_tcp_listener, 53),
-        _listener("ad_kerberos_tcp", probe.server_tcp_listener, 88),
-        _listener("ad_ldap_tcp", probe.server_tcp_listener, 389),
-        _http(probe, "consultant_http", 80, "/cons/", {200}),
-        _listener("consultant_tcp", probe.server_tcp_listener, 20024),
-    ]
+        ])
+    if role == "ad_consultant":
+        checks.extend([
+            _http(probe, "consultant_http", 80, "/cons/", {200}),
+            _listener("consultant_tcp", probe.server_tcp_listener, 20024),
+        ])
+    return checks
 
 
 def _http(probe: object, name: str, port: int, path: str, expected: set[int]) -> ServerHealthApplicationV1:

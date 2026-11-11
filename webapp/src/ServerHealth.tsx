@@ -4,6 +4,7 @@ export const serverRoleLabels = {
   endpoint_platform: 'Endpoint Platform',
   openvpn: 'OpenVPN',
   directum: 'Directum RX',
+  ad_directum: 'AD и Directum RX',
   ad_consultant: 'AD и КонсультантПлюс',
 }
 
