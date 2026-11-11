@@ -44,7 +44,7 @@
 
 # Canonical agent release
 
-- Current Windows rollout checkpoint, 2026-11-11T14:36Z: signed Setup192
+- Current Windows rollout checkpoint, 2026-11-11T15:38Z: signed Setup192
   is a candidate with Support1.1.6. Setup retries a known transient activation
   error once after verifying restoration of the running prior Support image
   and its configuration and authority. The original Setup191 exception
@@ -54,8 +54,13 @@
   activated automatically without exercising the retry. Pinned reserve SSH
   passed with agent/updater stopped and the observer disabled. Test services
   and the prior access expiry were restored. Windows 10 source177
-  devices .144/.146/.170/.207 are offline. Do not enable Setup192 automatic
-  delivery or promote it before a successful direct Windows 10 source177 test.
+  devices .144/.146/.170/.207 were offline. Separate VM126 (Windows 10
+  build19045) updated directly from177/client107 to192 APPLIED/native0,
+  182.303 seconds, private4, fresh UserSensor and inventory. Support failed
+  with `support_install_failed` and retained1.0.1. The guest reported a
+  pending Windows servicing restart and missing OpenSSH Server. Do not
+  enable Setup192 automatic delivery or promote it until the direct Windows
+  10 source177 test also verifies automatic Support activation.
   Policy17 still targets189, and Windows177/Linux183 remain primary. See the
   [192 receipt](docs/verification/2026-11-11-windows192-support-activation.md).
 

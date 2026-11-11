@@ -77,7 +77,37 @@ local reachability probe after a second Wake-on-LAN attempt. The reachable
 MUNSLU-S2 (.2) was running Windows 11 build
 26100 with 3.2.177 and its existing external global sshd.
 
-No direct 177-to-192 Windows 10 test or source qualification was completed.
-Policy revision 17 continued targeting 3.2.189 under its existing source
-qualifications. No automatic assignments to 3.2.192 were enabled.
-Windows 3.2.177 remained the published download.
+## Direct Windows 10 update on VM 126
+
+VM 126 on pve1 installed Windows 10 Enterprise Evaluation 22H2, build 19045,
+from the Microsoft ISO. The downloaded SHA-256 matched Microsoft's published
+digest. The VM used a real local desktop session. The existing corporate
+signing CA was added to the clean guest so the unmodified 177 installer could
+pass Authenticode. Setup 177 installed with exit 0 at 15:24:34Z, registered
+`7ef51b73-670c-433b-a8e8-a299533c4193` at 192.168.101.79, and reported
+Core/Foundation 3.2.177, ready observer 1.0.7, and Support 1.0.1. Support 1.0.1
+already reported `tunnel_failed` before the update.
+
+Console assigned exact Setup 192 at 15:25:53Z. Assignment
+`50e660f2-d45b-4e19-97a4-ca7bbf3c1573`, attempt
+`11bd5008-7071-44fc-8a75-717b5603d763`, went directly from
+Core/Foundation 3.2.177 to 3.2.192. At 15:36:47Z it reached APPLIED,
+native exit 0, with the signed MSI and source, all four retained private
+materials, six stable samples over 182.303 seconds, and one genuine
+UserSensor. Observer 1.0.8 was ready at 15:37:22Z. Inventory collected at
+15:37:37Z confirmed ENDPT-W10-192, Windows 19045 x86_64, with no warnings.
+UserSensor supplied fresh telemetry after acceptance.
+
+Support did not upgrade. Setup recorded `support_install_failed` at
+15:33:30Z and the server still received Support 1.0.1. The read-only
+guest inspection found OpenSSH Client installed, OpenSSH Server absent,
+both CBS and Windows Update restart markers present, and no Support
+servicing receipt. DISM logged capability queries during the attempt.
+These observations do not identify the exact exception behind the generic
+Support result. The test used VM 126 only. The separate VM 100 SSH proof
+above is prior evidence.
+
+The direct native update passed. The complete Windows 10 release test
+remains failed at Support activation. No 3.2.192 qualification or fleet
+policy change was made. Production policy 17 still targets 3.2.189 under
+its existing source qualifications, and the published download remains 3.2.177.

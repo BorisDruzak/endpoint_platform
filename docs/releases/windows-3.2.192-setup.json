@@ -52,6 +52,26 @@
     "independent_ssh_with_core_and_updater_stopped": true,
     "direct_windows_10_source_177_verified": false
   },
+  "windows10_direct_canary": {
+    "hypervisor": "pve1",
+    "vm_id": 126,
+    "hostname": "ENDPT-W10-192",
+    "address": "192.168.101.79",
+    "os_build": "19045",
+    "device_id": "7ef51b73-670c-433b-a8e8-a299533c4193",
+    "assignment_id": "50e660f2-d45b-4e19-97a4-ca7bbf3c1573",
+    "attempt_id": "11bd5008-7071-44fc-8a75-717b5603d763",
+    "source_foundation": "3.2.177",
+    "source_core": "3.2.177",
+    "source_observer": "1.0.7",
+    "native_status": "applied",
+    "native_exit": 0,
+    "stable_seconds": 182.303,
+    "support_installed_automatically": false,
+    "support_error": "support_install_failed",
+    "active_support_version": "1.0.1",
+    "windows_servicing_restart_pending_observed": true
+  },
   "source_qualifications": [],
   "verification": "docs/verification/2026-11-11-windows192-support-activation.md"
 }
