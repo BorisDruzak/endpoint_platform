@@ -1,149 +1,134 @@
 {
   "schema_version": 1,
-  "version": "3.2.177",
-  "status": "published_windows177_and_linux183_native_scoped_canary_accepted",
-  "verified_utc": "2026-11-09T11:15:10.810918+00:00",
-  "runtime_source_commit": "25f2ad8a5e13991e4e76260da939d29aafba8674",
-  "windows_packaging_commit": "d21bc3bba119a178607de6f64f620fb53eeadf01",
+  "version": "3.2.192",
+  "status": "published_windows192_scoped_auto_and_linux183_native",
+  "verified_utc": "2026-11-11T16:58:14.859944+00:00",
+  "runtime_source_commit": "050b541ff0783678ef34df804455ba7f602660a6",
+  "windows_packaging_commit": "721b0ad9061d8120a186bd4424fbcdcf04ed55bd",
   "linux_kit_metadata_commit": "21fc543af8d4b8b24df83f29a27e4e2eeb86c268",
-  "verified_code_and_tests_commit": "fd196e78b2c5cef00c86de79ca359147676f8b2f",
+  "verified_code_and_tests_commit": "050b541ff0783678ef34df804455ba7f602660a6",
   "canonical_rules": "AGENTS.md#canonical-agent-release",
   "windows": {
     "setup": {
-      "filename": "EndpointAgentSetup-3.2.177-x64.exe",
-      "sha256": "9d06a8339c2ed3b2c563f2b5258ad9fdbef0962b6d85f79e6e88490ca7f426fc",
-      "size": 178729632,
+      "filename": "EndpointAgentSetup-3.2.192-x64.exe",
+      "sha256": "b2552b0c46b31d93821679fd41188dd7324e4830f98aee300a772eaa223239b9",
+      "size": 167018248,
+      "release_id": "7aaa9dc6-332a-4caf-a404-a40ed5508d84",
+      "download_published": true,
       "authenticode": "Valid with timestamp",
       "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
-      "operator_path": "C:/endpoint-platform-wix-build/setup177-lifecycle-25f2ad8/native-setup-build/releases/EndpointAgentSetup-3.2.177-x64.exe",
-      "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgentSetup-3.2.177-x64.exe",
+      "operator_path": "C:/endpoint-platform-wix-build/setup192-inbox-050b541/native-setup-build/releases/EndpointAgentSetup-3.2.192-x64.exe",
+      "download_verified_utc": "2026-11-11T16:58:14.859944+00:00",
+      "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgentSetup-3.2.192-x64.exe",
       "console_url": "https://endpoint.sosnadmin.local/admin/enrollment",
-      "download_url": "https://endpoint.sosnadmin.local/api/admin/console/installer/releases/0e47b04d-2335-4255-9028-22cfc1583d9c/download",
-      "release_id": "0e47b04d-2335-4255-9028-22cfc1583d9c"
+      "download_url": "https://endpoint.sosnadmin.local/api/admin/console/installer/releases/7aaa9dc6-332a-4caf-a404-a40ed5508d84/download"
     },
     "msi": {
-      "filename": "EndpointAgent-3.2.177-x64.msi",
-      "sha256": "d096726d6d0521a522fdb81d0b3ee551d583befba5d216c09a96332fd21359f3",
-      "size": 136970240,
-      "product_code": "{51548FA4-95F6-4448-B0E4-99CB47CF32A1}",
+      "filename": "EndpointAgent-3.2.192-x64.msi",
+      "sha256": "32d3888e7ee1ddbe15dc262200ac4365ea3279cbd52bab02077d0dde5e6ae1ff",
+      "size": 125198336,
+      "product_code": "{ED424664-ADA7-496F-8E49-D43E053091AB}",
       "authenticode": "Valid with timestamp"
     },
-    "runtime_source_binding": "packaging/windows/initial-runtime-3.2.177.json",
+    "runtime_source_binding": "packaging/windows/initial-runtime-3.2.192.json",
     "initial_runtime": {
       "file_count": 119,
-      "tree_sha256": "a7ae6717d994460b3a4815a94dc8377ab54fbc908014e54fe10f24d9aa61370c",
-      "component_guid": "3D98B33C-4437-46F3-A689-D22DB351799C",
-      "source_file_count": 302,
-      "native_helpers": "Fresh177 helpers; final packaging reused only exact177 C/B build output, not176 helpers",
-      "powershell_build": "7.6.9; WindowsPS5.1 failed attempts preserved and not released"
+      "tree_sha256": "1b1780da7a84ff449a5f7dae6c4900f761a7491aa1a053f359a6fa6ad0f3213e",
+      "component_guid": "899C0965-51BB-4603-B7B6-F5956C16BA13"
     },
     "full_setup_update": {
       "schema_version": "windows_setup_release_v1",
-      "release_identifier": "endpoint-windows-full-setup-3.2.177-25f2ad8",
-      "version": "3.2.177",
-      "artifact_name": "EndpointAgentSetup-3.2.177-x64.exe",
-      "sha256": "9d06a8339c2ed3b2c563f2b5258ad9fdbef0962b6d85f79e6e88490ca7f426fc",
-      "size": 178729632,
-      "source_revision": "25f2ad8a5e13991e4e76260da939d29aafba8674",
-      "msi_sha256": "d096726d6d0521a522fdb81d0b3ee551d583befba5d216c09a96332fd21359f3",
-      "tray_sha256": "728768280204c211fbaa6d416bd895f30b078fbf8b6514f89e9daca9880cb230",
-      "sensor_sha256": "de9348cd55f5a4e6608a6e8d8f5ff5756add2cce56de6761ae7c47ff5789a71f",
-      "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+      "release_identifier": "endpoint-windows-full-setup-3.2.192-050b541",
+      "version": "3.2.192",
+      "artifact_name": "EndpointAgentSetup-3.2.192-x64.exe",
+      "sha256": "b2552b0c46b31d93821679fd41188dd7324e4830f98aee300a772eaa223239b9",
+      "size": 167018248,
+      "source_revision": "050b541ff0783678ef34df804455ba7f602660a6",
+      "msi_sha256": "32d3888e7ee1ddbe15dc262200ac4365ea3279cbd52bab02077d0dde5e6ae1ff",
+      "tray_sha256": "c44daf86edf1411c79293eb0988548167f19231a2ae11b0bc8fe27c1f6e37e3b",
+      "sensor_sha256": "a5ed722437b6afc1b02018cbc5a54b8c1618c2a8c830b88ca2456c2b533d0515",
+      "release_id": "2bfa120d-b182-41b5-ae98-f3354638e96c",
       "policy": {
-        "revision": 12,
+        "id": "0ab7e6f8-7f3b-42b4-9b62-e0718dd6a3fc",
+        "revision": 18,
         "enabled": true,
-        "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
-        "scope": "all_active",
-        "device_ids": [],
+        "release_id": "2bfa120d-b182-41b5-ae98-f3354638e96c",
+        "scope": "selected",
+        "device_ids": [
+          "9285e667-a4fc-4748-9b33-2fe9e49ac488",
+          "a8d7937d-40cd-41fa-b32b-85253ec9a505",
+          "00aa5779-d229-4dce-a28c-1e668819eed2",
+          "01e39b54-34ea-4792-aa32-a9772f5c7a62"
+        ],
         "max_parallel": 2,
-        "reason": "Full Setup177 automatic updates with verified native lifecycle and independent support for all active and future qualified Windows devices in waves of two",
-        "updated_at": "2026-11-07T00:21:23.598806+00:00",
+        "reason": "Enable signed Windows 3.2.192 for four verified Windows 10 source 3.2.177 devices after the direct VM 126 test. Two concurrent chains on reconnect.",
+        "updated_at": "2026-11-11T16:55:29.195825+00:00",
+        "updated_by": "fc109962-be6c-450b-871a-51f730ba73d2",
         "safe_code": null
       },
       "source_qualifications": [
         {
-          "id": "13d53e38-deeb-4657-827a-f64cb402b67e",
-          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
-          "source_foundation": "3.2.172",
-          "evidence_assignment_id": "fa9c3a87-4c45-44e0-91c9-607d6bd428e4",
-          "qualified_at": "2026-11-07T00:10:08.224472+00:00",
-          "expires_at": "2026-12-07T00:10:08.224472+00:00"
-        },
-        {
-          "id": "4372c370-5e3e-471e-9145-f4ff3bcf1632",
-          "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
-          "source_foundation": "3.2.176",
-          "evidence_assignment_id": "7a0db343-d209-45c6-9038-b2c2f2062e76",
-          "qualified_at": "2026-11-06T23:32:51.074103+00:00",
-          "expires_at": "2026-12-06T23:32:51.074103+00:00"
+          "id": "2bd2dc24-164f-4f0e-bb8d-0ea368a0d51e",
+          "release_id": "2bfa120d-b182-41b5-ae98-f3354638e96c",
+          "source_foundation": "3.2.177",
+          "evidence_assignment_id": "7b9423f8-d856-4232-9f91-a082ab20d7eb",
+          "qualified_at": "2026-11-11T16:54:42.701006+00:00",
+          "expires_at": "2026-12-11T16:54:42.701006+00:00"
         }
       ]
     },
     "support_access": {
-      "component_version": "1.0.1",
-      "sha256": "69205b83e588c064d82c014c39afde0a9641ef11c86d8a2cee702fa7afc95c41",
-      "size": 16120000,
+      "component_version": "1.1.6",
+      "sha256": "4f5dc4be2e2e7440f80fedb098a530a3fc5dc6b680903956360e56f14531657e",
+      "size": 10154744,
+      "profile": "windows-openssh-fod-v1",
+      "bundled_preview_archive": false,
       "authenticode": "Valid with timestamp",
       "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
       "startup": "Auto LocalSystem independent of Core and observers",
       "default_initial_access_hours": 8,
       "automatic_renewal_on_retry_or_heartbeat": false,
       "explicit_manual_policy_precedence": true,
-      "native_reinstall_rebind": "One-use exact authenticated removed to installed stream; disabled intent preserved",
-      "test120_actual_domain_ssh_and_stopped_agent_proof": {
-        "passed": true,
-        "verified_utc": "2026-11-07T00:20:42.243992+00:00",
-        "version": "3.2.177",
-        "device_id": "c87eaa22-4fd1-4830-bc11-88142afda87e",
-        "previous_device_id": "a68f65b1-1ebf-45f2-84e6-6b67afac64a5",
-        "runtime_source": "25f2ad8a5e13991e4e76260da939d29aafba8674",
-        "native_source": "d21bc3bba119a178607de6f64f620fb53eeadf01",
-        "setup_sha256": "9d06a8339c2ed3b2c563f2b5258ad9fdbef0962b6d85f79e6e88490ca7f426fc",
-        "msi_sha256": "d096726d6d0521a522fdb81d0b3ee551d583befba5d216c09a96332fd21359f3",
-        "support_sha256": "69205b83e588c064d82c014c39afde0a9641ef11c86d8a2cee702fa7afc95c41",
-        "fresh_setup_exit_code": 0,
-        "native_event_exit_code": 0,
-        "native_event_id": "48ab9898-f671-5dee-a2db-5aa157aee3c2",
-        "private_four_preserved_during_fault": true,
-        "samples_before_after_advancing": true,
-        "independent_ssh_gap_seconds": 96.908636,
-        "same_support_pid": 6660,
-        "automatic_initial_access": true,
-        "manual_policy_writes": 0,
-        "policy_revision": 2,
-        "expires_at": "2026-11-07T08:14:14.517608Z",
-        "remote_port": 32009,
-        "database_history": {
-          "initial_grants": [
-            {
-              "details": {
-                "revision": 2,
-                "device_id": "c87eaa22-4fd1-4830-bc11-88142afda87e",
-                "expires_at": "2026-11-07T08:14:14.517608+00:00",
-                "defaults_digest": "84246a16ceaf3f2123629b85f36b8dd76c81c4fbf3546ab00eb34b08fce03697"
-              },
-              "created_at": "2026-11-07T00:14:14.544475+00:00"
-            }
-          ],
-          "previous_removed": "removed",
-          "manual_policy_writes": 0,
-          "previous_not_retired": true,
-          "previous_active_credentials": 0
+      "windows10_direct_canary": {
+        "hypervisor": "pve1",
+        "vm_id": 126,
+        "hostname": "ENDPT-W10-192",
+        "address": "192.168.101.79",
+        "os_build": "19045",
+        "device_id": "7ef51b73-670c-433b-a8e8-a299533c4193",
+        "source_foundation": "3.2.177",
+        "source_core": "3.2.177",
+        "source_observer": "1.0.7",
+        "assignment_id": "7b9423f8-d856-4232-9f91-a082ab20d7eb",
+        "attempt_id": "5996c18d-461d-4274-8d5b-f304f45e3eeb",
+        "native_status": "applied",
+        "native_exit": 0,
+        "accepted_utc": "2026-11-11T16:53:30.624102+00:00",
+        "stable_seconds": 182.174,
+        "user_sensor_count": 1,
+        "private_identity_preserved": {
+          "credential": true,
+          "identity": true,
+          "origin": true,
+          "ca": true
         },
-        "fresh_setup_client": {
-          "client_version": "1.0.7",
-          "foundation_version": "3.2.177",
-          "core_version": "3.2.177",
-          "ready": true,
-          "safe_code": null,
-          "last_seen_at": "2026-11-07T00:20:07.355436+00:00"
+        "windows_openssh_provisioned_automatically": true,
+        "windows_servicing_operation_id": "f1127fc9343b43069111d3488e6542ff",
+        "new_stock_tcp22_rule_disabled": true,
+        "global_sshd_state": "Stopped/Manual",
+        "support_installed_automatically": true,
+        "support_activation_retry_observed": false,
+        "active_support_version": "1.1.6",
+        "independent_ssh_with_core_and_updater_stopped": true,
+        "independent_ssh_utc": "2026-11-11T16:53:59.4637757Z",
+        "support_policy": "Existing local administrator and approved operator key on the workgroup lab VM",
+        "windows_servicing_restart_pending_before_assignment": false,
+        "post_update_inventory": {
+          "observed_utc": "2026-11-11T16:59:34.415205+00:00",
+          "os_build": "19045",
+          "architecture": "x86_64",
+          "warnings": []
         }
-      },
-      "private_openssh_fallback": {
-        "version": "10.4.0.0p1-Preview",
-        "sha256": "b67ff8becd203502190ec42ac7787c24c2cd3325ed7700485fe7a1c83d2a7957",
-        "size": 6021393,
-        "vendor_limit": "Preview; upstream not production-ready; unchanged from176"
       }
     }
   },
@@ -248,40 +233,52 @@
     "report": "docs/verification/2026-11-09-linux183-native-canary.md"
   },
   "verification": {
-    "full_project_baseline": "6808 passed,470 skipped,7 existing warnings,821.80s before the narrow candidate visibility extension",
-    "candidate_visibility": "65 distinct focused passing tests including real PostgreSQL migration/transaction/concurrency",
-    "parent_fix": "30 passed,72.78s after real-builder RED; independent focused review approved",
-    "full_final_provider_suite_rerun": false,
-    "frontend": "22 UI tests/typecheck/build; live authenticated desktop1440/mobile390/reload/history/parent links; no overflow/console errors",
-    "real_windows_job_cancellation": "3 actual descendant cancellation tests passed",
-    "signed_frozen_resource_inspection": true,
-    "actual_test120_accepted": true,
-    "report": "docs/verification/2026-11-07-test120-installation-lifecycle177.md",
-    "source_test_commit": "25f2ad8a5e13991e4e76260da939d29aafba8674",
-    "provider_test_commit": "266e38e5c2ead35f95978da1b95cc7a4fadb2a82"
+    "windows_192_targeted_tests": 251,
+    "windows_192_version_bump_focused_tests": 6,
+    "windows_192_signed_frozen_resource_inspection": true,
+    "windows_192_test120_canary": {
+      "address": "192.168.101.120",
+      "assignment_id": "d1c452b8-ad1b-4431-9452-ed8bfb97ccc3",
+      "source_foundation": "3.2.191",
+      "source_core": "3.2.191",
+      "native_status": "applied",
+      "native_exit": 0,
+      "stable_seconds": 185.779,
+      "support_installed_automatically": true,
+      "support_activation_retry_observed": false,
+      "independent_ssh_with_core_and_updater_stopped": true
+    },
+    "windows_192_vm126_direct_canary": "7b9423f8-d856-4232-9f91-a082ab20d7eb",
+    "windows_192_served_download_verified": true,
+    "report": "docs/verification/2026-11-11-windows192-support-activation.md"
   },
   "limits": [
-    "Exact source qualifications cover Foundation172/client107 and176/client107 for this exact EXE; other sources are not inferred.",
-    "Initial online cohort acceptance is separate from six offline172 workstations awaiting fresh reconnection; known79 remains unsupported.",
-    "Existing removed/historical unknown platform records remain blocked; no legacy ProductCode or installation state backfill.",
-    "UserSensor/activity telemetry on120 is verified before and after controlled Core restart; previously deferred Yandex26.10 browser telemetry is not claimed.",
-    "Support needs Windows, network, Endpoint/gateway and an existing verified administrator; initial access is at most8h and is not renewed by polling/retry.",
-    "Portable OpenSSH fallback retains the previously accepted upstream Preview/non-production-ready limitation.",
+    "Automatic Setup uses the exact signed 3.2.192 release and qualified Foundation 3.2.177.",
+    "Policy 18 covers four known Windows 10 devices, awaiting reconnect at verification, with two concurrent chains. Other device IDs are outside policy 18.",
+    "MUNSLU-S2 is excluded because its existing external global OpenSSH migration is unverified.",
+    "Support requires completed Windows servicing and a resolvable approved administrator. A pending OS restart prevented Support activation in the first canary.",
     "Linux native183 is separately published and qualified on Stage VM107 plus explicit physical105/190/210; historical156 media and Core-only OTA are preserved. No automatic Linux fleet rollout or acceptance on other production Linux devices is inferred."
   ],
   "operator_evidence_directory": "C:/Users/admin-2/.codex/worktrees/pilot-support-channel/endpoint/.superpowers/sdd/2026-11-07-installation-lifecycle",
-  "update_rule": "Immutable signed bytes, Console source canary, source qualification, dynamic all_active/max2, observed acceptance, canonical same-row primary promotion",
-  "record_role": "Current Windows177 primary and separately published native ALT183 kit; retained version-named older sections and historical_* fields are historical checkpoints",
-  "qualified_existing_device_release_record": "docs/releases/windows-3.2.177-setup.json",
+  "update_rule": "Immutable signed bytes, Console source canary, source qualification, reviewed coverage, bounded automatic scheduling and canonical same-row primary promotion",
+  "record_role": "Current Windows 3.2.192 primary and separately published native ALT Linux 3.2.183 kit. Version-named records and historical_* fields preserve prior checkpoints.",
+  "qualified_existing_device_release_record": "docs/releases/windows-3.2.192-setup.json",
   "automatic_full_setup": {
-    "revision": 12,
+    "id": "0ab7e6f8-7f3b-42b4-9b62-e0718dd6a3fc",
+    "revision": 18,
     "enabled": true,
-    "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
-    "scope": "all_active",
-    "device_ids": [],
+    "release_id": "2bfa120d-b182-41b5-ae98-f3354638e96c",
+    "scope": "selected",
+    "device_ids": [
+      "9285e667-a4fc-4748-9b33-2fe9e49ac488",
+      "a8d7937d-40cd-41fa-b32b-85253ec9a505",
+      "00aa5779-d229-4dce-a28c-1e668819eed2",
+      "01e39b54-34ea-4792-aa32-a9772f5c7a62"
+    ],
     "max_parallel": 2,
-    "reason": "Full Setup177 automatic updates with verified native lifecycle and independent support for all active and future qualified Windows devices in waves of two",
-    "updated_at": "2026-11-07T00:21:23.598806+00:00",
+    "reason": "Enable signed Windows 3.2.192 for four verified Windows 10 source 3.2.177 devices after the direct VM 126 test. Two concurrent chains on reconnect.",
+    "updated_at": "2026-11-11T16:55:29.195825+00:00",
+    "updated_by": "fc109962-be6c-450b-871a-51f730ba73d2",
     "safe_code": null
   },
   "live_provider": {
@@ -335,13 +332,7 @@
   },
   "enrollment_defaults": {
     "id": "09e62472-a6ae-49ab-aaaa-6613836b4423",
-    "expires_at": "2030-09-27T09:04:00Z",
-    "max_uses": 100,
-    "use_count": 10,
-    "allowed_cidrs": [
-      "192.168.101.0/24"
-    ],
-    "target_platform": "windows",
+    "label": "Windows - all published versions - AUTO",
     "policy": {
       "policy_id": "windows-office-v1",
       "enrollment_mode": "auto",
@@ -357,10 +348,25 @@
         "3.2.165",
         "3.2.172",
         "3.2.176",
-        "3.2.177"
+        "3.2.177",
+        "3.2.184",
+        "3.2.185",
+        "3.2.186",
+        "3.2.187",
+        "3.2.188",
+        "3.2.189",
+        "3.2.190",
+        "3.2.191",
+        "3.2.192"
       ]
     },
-    "label": "Windows - all published versions - AUTO",
+    "expires_at": "2030-09-27T09:04:00+00:00",
+    "max_uses": 100,
+    "use_count": 11,
+    "allowed_cidrs": [
+      "192.168.101.0/24"
+    ],
+    "target_platform": "windows",
     "site": null,
     "revoked_at": null,
     "disabled_at": null
@@ -1043,12 +1049,12 @@
     "runtime_source_commit": "6ed41cd01d494e46111a452c2ae3a844f723175b"
   },
   "current_provider": {
-    "source_commit": "fd196e78b2c5cef00c86de79ca359147676f8b2f",
-    "server_path": "/opt/endpoint-platform/releases/endpoint-platform-fd196e78b2c5",
-    "schema": "0050_linux_enrollment_binding",
-    "health_verified_utc": "2026-11-09T11:39:02.777294+00:00",
-    "windows177_and_policy12_unchanged": true,
-    "stage_worktime51_deployed_to_production": false
+    "source_commit": "a901eed124a998c2671d17fe34e0d0ce598ef773",
+    "server_path": "/opt/endpoint-platform/releases/endpoint-platform-a901eed124a9",
+    "schema": "0051_staging_linux_worktime",
+    "api_and_worker_active": true,
+    "publication_verified_utc": "2026-11-11T16:58:14.859944+00:00",
+    "report": "docs/verification/2026-11-11-windows192-support-activation.md"
   },
   "historical_windows177_provider_checkpoint": {
     "source_commit": "266e38e5c2ead35f95978da1b95cc7a4fadb2a82",
@@ -1298,21 +1304,30 @@
     }
   ],
   "current_windows_rollout": {
-    "release": "3.2.187",
+    "release": "3.2.192",
     "policy": {
       "id": "0ab7e6f8-7f3b-42b4-9b62-e0718dd6a3fc",
-      "revision": 16,
-      "enabled": false,
-      "release_id": "d727a144-d1f6-4234-a0f3-a5976f4b886c",
-      "scope": "all_active",
-      "device_ids": [],
+      "revision": 18,
+      "enabled": true,
+      "release_id": "2bfa120d-b182-41b5-ae98-f3354638e96c",
+      "scope": "selected",
+      "device_ids": [
+        "9285e667-a4fc-4748-9b33-2fe9e49ac488",
+        "a8d7937d-40cd-41fa-b32b-85253ec9a505",
+        "00aa5779-d229-4dce-a28c-1e668819eed2",
+        "01e39b54-34ea-4792-aa32-a9772f5c7a62"
+      ],
       "max_parallel": 2,
-      "reason": "Pause new187 assignments to diagnose Windows OpenSSH capability installation failure on ADMIN2. Preserve running native chains and history.",
-      "updated_at": "2026-11-09 23:12:32.299575+00:00",
-      "updated_by": "root-operator-user-authorized-fleet187",
+      "reason": "Enable signed Windows 3.2.192 for four verified Windows 10 source 3.2.177 devices after the direct VM 126 test. Two concurrent chains on reconnect.",
+      "updated_at": "2026-11-11T16:55:29.195825+00:00",
+      "updated_by": "fc109962-be6c-450b-871a-51f730ba73d2",
       "safe_code": null
     },
-    "next_candidate": "3.2.188",
-    "report": "docs/verification/2026-11-10-windows187-fleet-auto.md"
+    "limits": {
+      "waiting_for_fresh_wss": 4,
+      "confirmed_fleet_installs": 0,
+      "excluded_workstation": "MUNSLU-S2 (192.168.101.2), existing external OpenSSH and unverified migration"
+    },
+    "report": "docs/verification/2026-11-11-windows192-support-activation.md"
   }
 }

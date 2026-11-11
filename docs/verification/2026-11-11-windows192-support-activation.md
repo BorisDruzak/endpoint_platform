@@ -103,11 +103,110 @@ Support did not upgrade. Setup recorded `support_install_failed` at
 guest inspection found OpenSSH Client installed, OpenSSH Server absent,
 both CBS and Windows Update restart markers present, and no Support
 servicing receipt. DISM logged capability queries during the attempt.
-These observations do not identify the exact exception behind the generic
-Support result. The test used VM 126 only. The separate VM 100 SSH proof
-above is prior evidence.
+The first Setup receipt retained only a generic code. A signed diagnostic
+from the frozen 3.2.192 source reproduced the failure on VM 126 and captured
+`support_dependency_reboot_required` from `WindowsFOD.write_receipt`.
+The guard stopped the operation before any attempt to install OpenSSH
+Server. The old Support image and configuration remained available.
+The separate VM 100 SSH proof above is prior evidence.
 
-The direct native update passed. The complete Windows 10 release test
-remains failed at Support activation. No 3.2.192 qualification or fleet
-policy change was made. Production policy 17 still targets 3.2.189 under
-its existing source qualifications, and the published download remains 3.2.177.
+The first direct native update passed. Its Support acceptance failed.
+Production policy 17 still targeted 3.2.189 at this checkpoint and the
+published download was 3.2.177.
+
+## Restore the Windows 10 source for a repeat
+
+VM 126 restarted to complete Windows servicing. Both restart markers cleared
+and OpenSSH Server remained absent. The signed native 192 uninstall returned
+0 at 15:48:04Z and preserved all four private files byte for byte. Setup 177
+restored the same device registration with exit 10 (repaired) at 15:50:21Z.
+Endpoint confirmed Core/Foundation 3.2.177, observer 1.0.7 and Support 1.0.1.
+Windows Update started installing KB5066791 while the baseline was being
+restored. CBS set its restart marker during that operation.
+
+CBS session `31289844_1637238392` finalized KB5066791 with `S_OK` and
+requested a restart at 16:05:12Z. After the restart, both pending-reboot
+markers were absent, OpenSSH Server was still absent, and the restored
+3.2.177 observer and UserSensor reported fresh evidence.
+
+The second assignment `c4e76365-d219-488e-ae48-24afa6e5d6eb`, attempt
+`caa5fce0-9f09-448c-b739-aa021ecbe518`, went directly from 3.2.177 to
+3.2.192. The installer provisioned Windows OpenSSH Server through the
+capability API. CBS finished with `S_OK` at 16:22:49Z. Servicing operation
+`7e87d9091af6443aa9189eaaa6704b3c` recorded completion, preserved its
+firewall boundary, and needed no restart. The new Windows port 22 allow
+rule was disabled and global `sshd` remained Stopped/Manual. Support
+1.1.6 reported once, then activation restored 1.0.1 at 16:24:48Z. The
+workgroup VM could not resolve the assigned domain support account.
+Its SSH gateway was reachable and the existing local lab administrator
+had administrator rights. The assignment reached APPLIED at 16:28:13Z
+with native exit 0, private identity preserved, six samples over 183.216
+seconds, and one genuine UserSensor.
+
+The third source restore again preserved the four private files. The
+ordinary uninstall returned 0 at 16:30:03Z. The standard Windows
+capability removal on VM 126 returned 0 at 16:30:59Z and left OpenSSH
+Server absent. Setup 177 completed its retained-identity reinstall at
+16:33:12Z. Only VM 126's support policy was changed to its existing
+local administrator and the same approved operator key, with a one-hour
+expiry. A pinned SSH connection executed an authenticated administrator
+command on the matching device at 16:35:00Z. The third direct assignment
+`7b9423f8-d856-4232-9f91-a082ab20d7eb`, attempt
+`5996c18d-461d-4274-8d5b-f304f45e3eeb`, was assigned at 16:35:36Z
+with Windows servicing clear and genuine source UserSensor evidence.
+
+In the third assignment, native Setup accepted Core/Foundation 3.2.192
+and provisioned OpenSSH Server without operator changes to Windows during
+the assignment. CBS session `31289852_2652548116` finalized with `S_OK`
+at 16:50:00Z and requested no reboot. Servicing operation
+`f1127fc9343b43069111d3488e6542ff` recorded completion and a preserved
+firewall boundary. The new port 22 allow rule was disabled and global
+`sshd` was Stopped. Endpoint received the Support 1.1.6 report without
+an error. A pinned SSH connection to the updated Support runtime executed
+an authenticated administrator command at 16:51:18Z, returning the exact
+guest UUID and the signed 1.1.6 image digest.
+
+The third assignment reached APPLIED at 16:53:30Z, native exit 0, with
+the expected 192 Core/Foundation, signed MSI and source, all four private
+materials, six stable samples over 182.174 seconds, and one genuine
+UserSensor. At 16:53:59Z a separate pinned SSH connection again executed
+an administrator command on the exact device with both agent services
+Stopped and the Setup observer disabled. Support remained Running with
+the same PID through service restoration. The agent returned to
+Auto/Running, the updater to Manual/Stopped, and the observer reported
+ready as 1.0.8. Endpoint received another UserSensor observation after
+restoration at 16:55:05Z. The temporary VM lease retains its original
+17:33:42Z expiry. A requested inventory refresh at 16:59:34Z confirmed
+Windows 10 build 19045, x86_64, with no warnings. The unchanged content
+reused its existing snapshot ID. VM 100 was untouched in this repeat.
+
+## Qualification and automatic Windows updates
+
+Endpoint qualified exact 192 from Foundation 3.2.177 using the third
+assignment. Qualification `2bd2dc24-164f-4f0e-bb8d-0ea368a0d51e`
+expires on 2026-12-11 at 16:54:42Z.
+
+The all-active preview contained one ready device. The only connected
+3.2.177 source was MUNSLU-S2 (.2), with Windows 11 and a foreign global
+OpenSSH service. Setup protects that service, and its transition to the
+Windows capability is unverified. The fleet policy was scoped to the four
+known Windows 10 devices on source 3.2.177. The selected preview checked
+four devices, all awaiting fresh WSS, with two available slots. Policy 18
+was saved enabled at 16:55:29Z, target
+`2bfa120d-b182-41b5-ae98-f3354638e96c`, selected scope, maximum two
+concurrent chains. The selected devices are A1-OHTRUD-S1W (.144),
+A2-MUNSLU-S1 (.146), C1-MUNZAK-S2 (.170), and A2-PRIEMN-S1 (.207).
+They can receive automatic assignments after reconnect and source
+admission. Policy 18 replaces the prior automatic 189 target. Other
+device IDs and source versions are outside this policy.
+
+## Primary Windows download
+
+The canonical publisher promoted the existing immutable installer row
+`7aaa9dc6-332a-4caf-a404-a40ed5508d84` and added 3.2.192 to the existing
+Windows AUTO enrollment campaign. A server readback at 16:58:14Z confirmed
+the primary and the campaign allowlist. The actual Console download was
+167,018,248 bytes, SHA-256
+`b2552b0c46b31d93821679fd41188dd7324e4830f98aee300a772eaa223239b9`,
+with Valid timestamped Authenticode and the expected publisher
+thumbprint. Linux 3.2.183 remains the primary native kit.
