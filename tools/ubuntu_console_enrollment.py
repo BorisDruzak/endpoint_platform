@@ -16,7 +16,10 @@ from uuid import UUID, uuid4
 
 
 ORIGIN = "https://endpoint.sosnadmin.local"
-CA = Path("/etc/apt/keyrings/endpoint-ubuntu-ca.crt")
+HOST_CA = {
+    "openvpn": Path("/etc/apt/keyrings/endpoint-ubuntu-ca.crt"),
+    "endpointplatform": Path("/etc/endpoint-platform/sosnadmin-local-ca.crt"),
+}
 CA_DIGEST = "5525eccf01536b7f0436d96500c663f7a58edac463f00f0fb34a59dd8b3250be"
 PROOF = Path("/var/cache/endpoint-ubuntu-pilot-request")
 STAGE = Path("/run/endpoint-ubuntu-pilot")
@@ -62,8 +65,8 @@ def atomic_write(path, value):
         scratch.unlink(missing_ok=True)
 
 
-def post(path, body):
-    pem = CA.read_text(encoding="ascii")
+def post(ca, path, body):
+    pem = ca.read_text(encoding="ascii")
     if hashlib.sha256(ssl.PEM_cert_to_DER_cert(pem.strip())).hexdigest() != CA_DIGEST:
         raise RuntimeError("Ubuntu enrollment CA changed")
     opener = build_opener(ProxyHandler({}), HTTPSHandler(context=ssl.create_default_context(cadata=pem)), NoRedirect())
@@ -76,13 +79,14 @@ def post(path, body):
         raise RuntimeError(f"Ubuntu enrollment HTTP {error.code}") from None
 
 
-def main(action, fingerprint=None, version=None, digest=None):
+def main(action, expected_hostname, fingerprint=None, version=None, digest=None):
     if os.geteuid() != 0:
         raise RuntimeError("Ubuntu enrollment requires root")
     os.umask(0o077)
     hostname = socket.gethostname().split(".", 1)[0]
-    if hostname != "openvpn":
+    if hostname != expected_hostname or hostname not in HOST_CA:
         raise RuntimeError("Unexpected Ubuntu pilot host")
+    ca = HOST_CA[hostname]
     private_directory(PROOF)
     proof_file = PROOF / "request.json"
     fd = os.open(PROOF / "lock", os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
@@ -100,15 +104,15 @@ def main(action, fingerprint=None, version=None, digest=None):
         if action == "request":
             if body["hardware_fingerprint"] != fingerprint or body["package_version"] != version or body["package_sha256"] != digest:
                 raise RuntimeError("Existing Ubuntu request belongs to different installation inputs")
-            status = post("/api/v1/enrollment/ubuntu/requests", body)
+            status = post(ca, "/api/v1/enrollment/ubuntu/requests", body)
             request_id = str(UUID(status["request_id"]))
             atomic_write(PROOF / "id", request_id)
         else:
             request_id = str(UUID(private_read(PROOF / "id")))
             base = f"/api/v1/enrollment/linux/requests/{request_id}"
-            status = post(base + "/status", {"request_capability": body["request_capability"]})
+            status = post(ca, base + "/status", {"request_capability": body["request_capability"]})
             if status["status"] in {"approved", "claim_issued"}:
-                delivery = post(base + "/claim", {key: body[key] for key in (
+                delivery = post(ca, base + "/claim", {key: body[key] for key in (
                     "request_capability", "installation_id", "hardware_fingerprint"
                 )})
                 claim = delivery["claim"]
@@ -118,9 +122,12 @@ def main(action, fingerprint=None, version=None, digest=None):
                 for name, value in (("installation-id", body["installation_id"]), ("claim", claim)):
                     destination = STAGE / name
                     if destination.exists():
-                        if private_read(destination).strip() != value:
+                        previous = private_read(destination)
+                        if previous not in {value, value + "\n"}:
                             raise RuntimeError("A different Ubuntu claim is already staged")
+                        if previous != value:
+                            atomic_write(destination, value)
                     else:
-                        atomic_write(destination, value + "\n")
+                        atomic_write(destination, value)
                 status["status"] = "claim_staged"
         print(json.dumps({"request_id": request_id, "status": status["status"]}))

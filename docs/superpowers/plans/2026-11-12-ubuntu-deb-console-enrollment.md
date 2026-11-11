@@ -10,5 +10,7 @@
 
 - [x] Reject mismatched DEB sources, hosts, addresses, capabilities and duplicate identities before issuing a claim. Cover the pending, approved, issued and registered states.
 - [x] Display Ubuntu DEB in the existing queue and keep RPM and Windows behavior intact. Build and check the Console before production deployment.
-- [ ] Have `.30` submit from the host itself with the verified package. Approve it in Console, finish the native installation, then verify WSS, reserve, APT downgrade and upgrade, and reboot recovery.
-- [ ] Start `.19` only after the `.30` acceptance checks pass.
+- [x] Have `.30` submit from the host itself with the verified package. Approve it in Console, finish the native installation, then verify WSS, reserve, APT downgrade and upgrade, and reboot recovery.
+- [x] Start `.19` only after the `.30` acceptance checks pass. Verify its enrollment, profile, reserve and APT update.
+
+See [the production receipt](../../verification/2026-11-12-ubuntu-deb-console-rollout.md).
