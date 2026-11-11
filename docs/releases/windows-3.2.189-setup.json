@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "version": "3.2.189",
+  "platform": "windows_amd64",
+  "status": "candidate_pending_native_qualification",
+  "runtime_source_commit": "a28b1420343c8f7f3fd69484c5f9a05360105522",
+  "windows_packaging_commit": "b4c047f4ebd886b1989ba2c2496104cec3f3e108",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.189.json",
+  "setup": {
+    "filename": "EndpointAgentSetup-3.2.189-x64.exe",
+    "sha256": "5f15ff87c1294e19d6c0debe3d5d30917bca54aca1f5a01280bb94e3998b03e9",
+    "size": 167015584,
+    "release_id": "db4e582a-c496-4743-95d6-1ca31b8018da",
+    "download_published": false,
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+    "operator_path": "C:/endpoint-platform-wix-build/setup189-inbox-a28b142/native-setup-build/releases/EndpointAgentSetup-3.2.189-x64.exe"
+  },
+  "msi": {
+    "sha256": "2fb5a79c03c79114dab1b45bf76cb1357e1dfd90f8d939b0290119101e8a0d96",
+    "size": 125194240,
+    "product_code": "{B89A77B5-1126-4B5A-BE3D-FEAF8D6DC51A}"
+  },
+  "support": {
+    "component_version": "1.1.4",
+    "sha256": "44854ae7c95f298cfa70fbf369aa48724683e7d654ec9adb5b8e4a9f39e78eae",
+    "size": 10153656,
+    "profile": "windows-openssh-fod-v1",
+    "bundled_preview_archive": false,
+    "test120_missing_server_capability_component_trial": "accepted"
+  },
+  "observer": {
+    "version": "1.0.8",
+    "sha256": "11e4793a2064726f956ce9eac12c50e04b785012cacb161e6fed154ef9447a66",
+    "source_commit": "0d8f7451d020422757b4e8bc87a1d4b81b337b3a",
+    "authenticode": "Valid with timestamp"
+  },
+  "setup_update_release_id": "d5ccba68-fc8c-4b75-a262-af322a2f72dd",
+  "initial_runtime": {
+    "file_count": 119,
+    "tree_sha256": "74e3c3fac756bfccd25755abacc9b2d134aefebdfba7fdd979b7035345f76d5a",
+    "component_guid": "02C7E1C8-830E-4917-8F58-D68B7F85AA40",
+    "source_file_count": 321
+  },
+  "source_qualifications": [],
+  "verification": "docs/verification/2026-11-11-test120-windows189-openssh.md"
+}
