@@ -44,14 +44,16 @@
 
 # Canonical agent release
 
-- Current Windows rollout checkpoint, 2026-11-11T14:28Z: signed Setup192
+- Current Windows rollout checkpoint, 2026-11-11T14:36Z: signed Setup192
   is a candidate with Support1.1.6. Setup retries a known transient activation
   error once after verifying restoration of the running prior Support image
   and its configuration and authority. The original Setup191 exception
   remains unknown. Its controlled already-current repeat activated Support1.1.5
   without a second MSI. Test120 updated 191-to-192 APPLIED/native0 with
   185.779 seconds, private4, fresh UserSensor and inventory. Support1.1.6
-  activated automatically without exercising the retry. Windows 10 source177
+  activated automatically without exercising the retry. Pinned reserve SSH
+  passed with agent/updater stopped and the observer disabled. Test services
+  and the prior access expiry were restored. Windows 10 source177
   devices .144/.146/.170/.207 are offline. Do not enable Setup192 automatic
   delivery or promote it before a successful direct Windows 10 source177 test.
   Policy17 still targets189, and Windows177/Linux183 remain primary. See the

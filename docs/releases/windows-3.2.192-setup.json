@@ -49,6 +49,7 @@
     "stable_seconds": 185.779,
     "support_installed_automatically": true,
     "support_activation_retry_observed": false,
+    "independent_ssh_with_core_and_updater_stopped": true,
     "direct_windows_10_source_177_verified": false
   },
   "source_qualifications": [],

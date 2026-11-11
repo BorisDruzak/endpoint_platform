@@ -51,18 +51,30 @@ The assignment reached APPLIED at 14:27:54Z, native exit 0, with all four
 private materials preserved, six stable samples over 185.779 seconds, and
 one genuine UserSensor. Observer 1.0.8 reported ready Core/Foundation 3.2.192.
 Inventory was observed again at 14:28:30Z and had no warnings. Fresh
-UserSensor and activity arrived after APPLIED. This proves normal activation
-on test120. The retry path was exercised by automated tests. The pre-existing
-SSH grant was expired, so the live 192 check covered Support activation
-and reporting. The earlier 191 receipt contains the independent SSH test.
+UserSensor and activity arrived after APPLIED. The retry path was exercised
+by automated tests.
+
+## Independent SSH on test120
+
+At 14:36:02Z, a key-authenticated administrative command through the
+UUID-pinned reserve tunnel succeeded on the exact signed Support 1.1.6 image.
+EndpointAgent and EndpointAgentUpdater both reported Stopped with PID 0,
+and the Setup observer was disabled. Support remained running and its SSH
+daemon listened on 127.0.0.1:22222. The existing global sshd kept its PID.
+The original service modes and states were restored, including the updater's
+prior Manual/Stopped state. The observer returned ready on 3.2.192. The
+temporary lease used the existing approved principal and key. The prior
+expiry was restored, and Endpoint reported the tunnel closed at 14:36:36Z.
+Endpoint received a fresh UserSensor sample after services were restored.
 
 ## Windows 10 source availability
 
-At 14:28:54Z, A1-OHTRUD-S1W (.144), C1-MUNZAK-S2 (.170),
+At 14:37:39Z, A1-OHTRUD-S1W (.144), C1-MUNZAK-S2 (.170),
 A2-PRIEMN-S1 (.207), and A2-MUNSLU-S1 (.146) still had no live WSS
 session. All four had Windows 10 build 19045 and last reported Core and
-Foundation 3.2.177. The three alternatives did not reconnect after
-Wake-on-LAN. The reachable MUNSLU-S2 (.2) was running Windows 11 build
+Foundation 3.2.177. The three alternatives did not reconnect or answer a
+local reachability probe after a second Wake-on-LAN attempt. The reachable
+MUNSLU-S2 (.2) was running Windows 11 build
 26100 with 3.2.177 and its existing external global sshd.
 
 No direct 177-to-192 Windows 10 test or source qualification was completed.
