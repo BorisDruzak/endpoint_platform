@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "version": "3.2.191",
+  "platform": "windows_amd64",
+  "status": "candidate_native_applied_support_activated_by_operator",
+  "runtime_source_commit": "38354e5dbb8e35f11f74ac832d67da1b6e1b08f3",
+  "windows_packaging_commit": "3d03ead87d72c470078759cf36e9c917a26289fb",
+  "windows_10_rule_fix_commit": "a45435145ef22be415c601b836addf9a6215cb52",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.191.json",
+  "setup": {
+    "filename": "EndpointAgentSetup-3.2.191-x64.exe",
+    "sha256": "14a4f8200d97aaed044b9484f25609d6b42235a898cb9459f4276844b86bd2d3",
+    "size": 167015192,
+    "release_id": "01dc0721-7233-445c-92d3-e9ec35a76bff",
+    "download_published": false,
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+    "operator_path": "C:/endpoint-platform-wix-build/setup191-inbox-38354e5/native-setup-build/releases/EndpointAgentSetup-3.2.191-x64.exe"
+  },
+  "msi": {
+    "sha256": "6173f3d7227aadd9ab5385a5c3272c3d13e863b85dacc08c021e22dba54d29b0",
+    "size": 125198336,
+    "product_code": "{B8262A3E-8760-4ADF-AD53-14E61B54E5A2}"
+  },
+  "support": {
+    "component_version": "1.1.5",
+    "sha256": "e62bce2b411b7fb1bac6e5a85fb520629f7b871a4bfa04017fc4b318e093158f",
+    "size": 10154040,
+    "profile": "windows-openssh-fod-v1",
+    "bundled_preview_archive": false
+  },
+  "observer": {
+    "version": "1.0.8",
+    "sha256": "11e4793a2064726f956ce9eac12c50e04b785012cacb161e6fed154ef9447a66"
+  },
+  "setup_update_release_id": "dde30683-0ab4-4053-835a-eed0db6d9d49",
+  "initial_runtime": {
+    "file_count": 119,
+    "tree_sha256": "a56a9aec969c65b2c80b97753107ba91ccc1a715ebad652babb60b0fe72889a1",
+    "component_guid": "4EE9D77C-D2CD-4407-8644-20C2C27E2BD9"
+  },
+  "canary": {
+    "address": "192.168.101.120",
+    "assignment_id": "4dd93c38-249f-4f21-a740-28755dd35c62",
+    "source_foundation": "3.2.189",
+    "source_core": "3.2.190",
+    "native_status": "applied",
+    "native_exit": 0,
+    "stable_seconds": 185.362,
+    "automatic_support_error": "support_install_failed",
+    "support_version_after_operator_activation": "1.1.5",
+    "independent_ssh_with_core_and_updater_stopped": true
+  },
+  "source_qualifications": [],
+  "verification": "docs/verification/2026-11-11-windows191-test120-canary.md"
+}

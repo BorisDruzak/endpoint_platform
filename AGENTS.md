@@ -44,7 +44,20 @@
 
 # Canonical agent release
 
-- Current Windows rollout checkpoint, 2026-11-11T12:35Z: direct 177-to-190 on
+- Current Windows rollout checkpoint, 2026-11-11T13:30Z: signed Setup191 is
+  registered as a candidate. Test120 from Foundation189/Core190 reached
+  APPLIED/native0 with 185.362 seconds, fresh UserSensor and inventory.
+  Automatic Support1.1.5 activation compensated to1.1.4. A separate diagnostic
+  activation installed signed1.1.5 and passed pinned SSH with agent/updater
+  stopped and observer disabled. The automatic activation failure was not
+  reproduced by the diagnostic activation. The test services were restored.
+  Windows 10 source177 machines are offline. The connected source177 device
+  .2 has a pre-existing external global sshd, and its service was preserved.
+  Setup191 is unqualified, policy17 still targets189, and Windows177/Linux183
+  remain primary. See the
+  [191 receipt](docs/verification/2026-11-11-windows191-test120-canary.md).
+
+- Historical Windows rollout checkpoint, 2026-11-11T12:35Z: direct 177-to-190 on
   C1-ARHIT-S7 (.138) reached APPLIED/native0, 182.684 seconds of stable
   observation, fresh UserSensor and Windows x86_64 inventory. The independent
   service initially retained Support1.0.1 because Setup190 rejected the stock
