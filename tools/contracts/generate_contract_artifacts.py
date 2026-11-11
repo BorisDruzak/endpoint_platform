@@ -793,6 +793,8 @@ def _service_operation_openapi() -> dict[str, object]:
     application.include_router(linux_installation)
     from endpoint_server.enrollment.linux_request_routes import router as linux_enrollment
     application.include_router(linux_enrollment)
+    from endpoint_server.enrollment.ubuntu_requests import router as ubuntu_enrollment
+    application.include_router(ubuntu_enrollment)
     from endpoint_server.installation_lifecycle.routes import router as installation_router
     application.include_router(installation_router)
     application.include_router(operations_router)
@@ -823,6 +825,7 @@ def _service_operation_openapi() -> dict[str, object]:
                          '/api/v1/enrollment/linux/requests',
                          '/api/v1/enrollment/linux/requests/{request_id}/status',
                          '/api/v1/enrollment/linux/requests/{request_id}/claim',
+                         '/api/v1/enrollment/ubuntu/requests',
                          '/agent/v1/installation/linux/events',
                          '/agent/v1/support-access/linux/register','/agent/v1/support-access/linux/policy',
                          '/agent/v1/support-access/linux/status','/agent/v1/support-access/linux/unregister',

@@ -403,18 +403,10 @@ async def console_enrollment_request_detail(
         record = await session.scalar(select(EnrollmentRequest).where(EnrollmentRequest.id == request_id))
         if record is None:
             raise HTTPException(status_code=404, detail="Запрос регистрации не найден")
-        return ConsoleEnrollmentDetailResponse.model_validate({"data": {
-            "id": str(record.id), "status": record.status,
-            "reason": record.decision_reason, "platform": record.platform,
-            "hostname": record.hostname, "manufacturer": record.manufacturer,
-            "model": record.model, "serial": record.serial,
-            "macs": record.macs, "source_address": record.source_address,
-            "installer_release_id": record.installer_release_id,
-            "selected_campaign_id": str(record.selected_campaign_id) if record.selected_campaign_id else None,
-            "device_id": str(record.device_id) if record.device_id else None,
-            "created_at": record.created_at, "updated_at": record.updated_at,
-            "expires_at": record.expires_at, "decided_at": record.decided_at,
-        }})
+        return ConsoleEnrollmentDetailResponse(data=ConsoleEnrollmentDetail(
+            **project_enrollment_request(record).model_dump(), device_id=record.device_id,
+            updated_at=record.updated_at, decided_at=record.decided_at,
+        ))
 
 
 @router.post("/api/admin/console/devices/{device_id}/context/collections", status_code=201, response_model=ConsoleCollectionResponse)

@@ -1,0 +1,162 @@
+#!/bin/bash
+# Runs as root on the OpenVPN pilot, after the operator has staged its claim.
+set -euo pipefail
+umask 077
+
+package=endpoint-agent-ubuntu
+version=3.2.192-1ubuntu1
+digest=8affee69264c5cbdc76237ba83dfe5db91ab7a34562ee92f024d9d2b24471a7d
+origin=https://endpoint.sosnadmin.local
+ca=/etc/apt/keyrings/endpoint-ubuntu-ca.crt
+stage=/run/endpoint-ubuntu-pilot
+work=/var/cache/endpoint-ubuntu-pilot
+state=/var/lib/endpoint-agent-ubuntu
+unit=endpoint-agent.service
+
+test "$(hostname -s)" = openvpn
+ip -4 -o address show | grep -E ' inet 192[.]168[.]100[.]30/' >/dev/null
+test "$(dpkg --print-architecture)" = amd64
+test "$(. /etc/os-release; printf '%s/%s' "$ID" "$VERSION_ID")" = ubuntu/24.04
+test "$(systemctl show "$unit" -p LoadState --value)" = not-found
+test ! -e /var/lib/endpoint-agent
+test ! -L /var/lib/endpoint-agent
+test "$(openssl x509 -in "$ca" -outform DER | sha256sum | cut -d ' ' -f 1)" = \
+    5525eccf01536b7f0436d96500c663f7a58edac463f00f0fb34a59dd8b3250be
+systemctl is-active --quiet openvpn-server@server.service
+systemctl is-active --quiet openvpn-web.service
+
+exec 9>/run/lock/endpoint-ubuntu-pilot.lock
+flock -n 9
+installed=$(dpkg-query -W -f='${Version}' "$package" 2>/dev/null || true)
+test -z "$installed" || test "$installed" = "$version"
+test ! -L "$work"
+payload="$work/identity"
+test ! -L "$payload"
+identity_files=(device-credential enrollment-identity.json)
+if [ ! -s "$payload/claim-removal-request.json" ]; then
+    if [ ! -f "$stage/claim" ] || [ ! -f "$stage/installation-id" ]; then
+        exit 3
+    fi
+    test ! -L "$stage"
+    test ! -L "$stage/claim"
+    test ! -L "$stage/installation-id"
+    test "$(stat -c '%u:%g:%a' "$stage")" = 0:0:700
+    test "$(stat -c '%u:%g:%a' "$stage/claim")" = 0:0:600
+    test "$(stat -c '%u:%g:%a' "$stage/installation-id")" = 0:0:600
+fi
+install -d -o root -g root -m 0711 "$work"
+
+tmp=$(mktemp -d "$work/package.XXXXXXXX")
+cleanup() {
+    rm -rf -- "$tmp"
+}
+trap cleanup EXIT
+chmod 0755 "$tmp"
+cd "$tmp"
+apt-get download "$package=$version" >&2
+deb="$tmp/${package}_${version}_amd64.deb"
+printf '%s  %s\n' "$digest" "$deb" | sha256sum -c - >&2
+dpkg-deb -x "$deb" "$tmp/unpacked"
+exe="$tmp/unpacked/usr/lib/$package/endpoint-agent"
+
+# Create the dedicated account from the verified DEB before starting the pilot.
+systemd-sysusers "$tmp/unpacked/usr/lib/sysusers.d/$package.conf"
+test "$(runuser -u openvpm -- "$exe" --print-hardware-fingerprint)" = \
+    "$(runuser -u "$package" -- "$exe" --print-hardware-fingerprint)"
+install -d -o "$package" -g "$package" -m 0700 "$payload"
+
+if [ ! -s "$payload/claim-removal-request.json" ]; then
+    installation_id=$(cat "$stage/installation-id")
+    [[ $installation_id =~ ^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$ ]]
+    cat >"$tmp/bootstrap.yaml" <<EOF
+gateway:
+  endpoint: $origin
+  ca_file: /etc/endpoint-agent/ca.crt
+provisioning:
+  installation_id: $installation_id
+  systemd_claim_credential_name: endpoint-enrollment-claim
+  permanent_credential_file: /var/lib/endpoint-agent/device-credential
+EOF
+
+    credentials=/run/credentials/$unit
+    systemd-run --unit="$unit" --quiet --collect \
+        -p "User=$package" -p "Group=$package" -p ProtectSystem=strict \
+        -p ProtectHome=yes -p NoNewPrivileges=yes -p PrivateTmp=yes \
+        -p RuntimeMaxSec=110 -p UMask=0077 \
+        -p 'TemporaryFileSystem=/var/lib:rw,mode=0755,size=16M' \
+        -p "BindPaths=$payload:/var/lib/endpoint-agent" \
+        -p "ReadWritePaths=$payload /var/lib/endpoint-agent" \
+        -p "LoadCredential=endpoint-agent-config:$tmp/bootstrap.yaml" \
+        -p "LoadCredential=endpoint-agent-ca:$ca" \
+        -p "LoadCredential=endpoint-enrollment-claim:$stage/claim" \
+        --setenv=ENDPOINT_AGENT_DEPLOYMENT_ENVIRONMENT=production \
+        --setenv=ENDPOINT_AGENT_ENROLLMENT_REQUIRED=1 \
+        --setenv=ENDPOINT_AGENT_CONFIG="$credentials/endpoint-agent-config" \
+        --setenv=ENDPOINT_AGENT_CA_FILE="$credentials/endpoint-agent-ca" \
+        --setenv=ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE="$credentials/endpoint-enrollment-claim" \
+        "$exe" --endpoint-origin "$origin" --data-dir /var/lib/endpoint-agent \
+        --install-root "$(dirname "$exe")" --transport-mode gateway_wss --package-managed-updates
+    for attempt in $(seq 1 100); do
+        [ ! -s "$payload/claim-removal-request.json" ] || break
+        systemctl is-active --quiet "$unit" || break
+        sleep 1
+    done
+    if [ "$(systemctl show "$unit" -p LoadState --value)" != not-found ]; then
+        systemctl stop "$unit"
+    fi
+fi
+
+test -s "$payload/claim-removal-request.json"
+owner="$(id -u "$package"):$(id -g "$package"):600"
+for name in "${identity_files[@]}"; do
+    test ! -L "$payload/$name"
+    test -s "$payload/$name"
+    test "$(stat -c '%u:%g:%a' "$payload/$name")" = "$owner"
+done
+device_id=$(/usr/bin/python3 -c 'import json, sys; from uuid import UUID
+with open(sys.argv[1]) as f:
+    identity = json.load(f)
+assert identity["schema_version"] == "endpoint_enrollment_identity_v1"
+print(UUID(identity["device_id"]))' "$payload/enrollment-identity.json")
+
+test ! -L "$state"
+for name in "${identity_files[@]}"; do
+    test ! -L "$state/$name"
+    if [ -e "$state/$name" ]; then
+        cmp -s "$payload/$name" "$state/$name"
+    fi
+done
+apt-get install -y "$deb" >&2
+install -o root -g root -m 0644 "$ca" /etc/endpoint-agent-ubuntu/ca.crt
+site=/etc/endpoint-agent-ubuntu/site.conf
+dropin=/etc/systemd/system/endpoint-agent-ubuntu.service.d
+printf 'ENDPOINT_AGENT_SERVER_ROLE=openvpn\nENDPOINT_AGENT_FALLBACK_ORIGIN=%s:8443\n' "$origin" > "$tmp/site.conf"
+printf '[Service]\nEnvironmentFile=%s\n' "$site" > "$tmp/site-environment.conf"
+install -d -m 0755 "$dropin"
+for config in "$site" "$dropin/site-environment.conf"; do
+    test ! -L "$config"
+    input="$tmp/$(basename "$config")"
+    if [ -e "$config" ]; then
+        cmp -s "$input" "$config"
+    else
+        install -o root -g root -m 0644 "$input" "$config"
+    fi
+done
+for name in "${identity_files[@]}"; do
+    if [ ! -e "$state/$name" ]; then
+        install -o "$package" -g "$package" -m 0600 "$payload/$name" "$state/$name"
+    fi
+    cmp -s "$payload/$name" "$state/$name"
+    test "$(stat -c '%u:%g:%a' "$state/$name")" = "$owner"
+done
+
+systemctl daemon-reload
+systemctl enable --now "$package.service" >&2
+systemctl is-active --quiet "$package.service"
+systemctl is-active --quiet openvpn-server@server.service
+systemctl is-active --quiet openvpn-web.service
+rm -f -- "$stage/claim" "$stage/installation-id"
+if [ -d "$stage" ]; then rmdir -- "$stage"; fi
+rm -rf -- "$payload"
+rm -f -- /var/cache/endpoint-ubuntu-pilot-request/request.json /var/cache/endpoint-ubuntu-pilot-request/id
+printf '%s\n' "$device_id"

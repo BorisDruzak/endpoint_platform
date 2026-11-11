@@ -12,6 +12,7 @@ type EnrollmentRequest = {
   id: string; status: string; reason: string | null; platform: string; hostname: string
   manufacturer: string | null; model: string | null; serial: string | null; macs: string[]
   source_address: string; installer_release_id: string; selected_campaign_id: string | null
+  installer_kind?: 'setup' | 'rpm' | 'deb' | null
   device_id?: string | null; created_at: string; expires_at: string; decided_at?: string | null
 }
 type RequestPage = { data: EnrollmentRequest[]; total: number; limit: number; offset: number }
@@ -62,6 +63,12 @@ const enrollmentStages = [
   { label: 'Завершено', statuses: ['completed'] },
 ] as const
 
+const canApprove = (item: EnrollmentRequest) => (
+  item.installer_kind === 'deb'
+    ? item.status === 'waiting_approval'
+    : ['waiting_approval', 'review_required'].includes(item.status) && (item.platform !== 'linux' || !!item.selected_campaign_id)
+)
+
 function RequestQueue({ title, page, busy, onOpen, onDecide, onMove }: {
   title: string; page: RequestPage; busy: boolean
   onOpen: (item: EnrollmentRequest) => void
@@ -74,10 +81,10 @@ function RequestQueue({ title, page, busy, onOpen, onDecide, onMove }: {
     {rows.length ? <div className="table-scroll"><table>
       <thead><tr><th>Устройство</th><th>Состояние</th><th>Адрес</th><th>Установщик</th><th>Создан</th><th>Действия</th></tr></thead>
       <tbody>{rows.map(item => <tr key={item.id}>
-        <td><strong>{item.hostname}</strong><small>{item.platform === 'linux' ? 'Linux · RPM' : item.platform === 'windows' ? 'Windows · Setup' : 'Платформа не подтверждена'} · {item.manufacturer} {item.model}</small></td>
+        <td><strong>{item.hostname}</strong><small>{item.installer_kind === 'deb' ? 'Ubuntu · DEB' : item.platform === 'linux' ? 'Linux · RPM' : item.platform === 'windows' ? 'Windows · Setup' : 'Платформа не подтверждена'} · {item.manufacturer} {item.model}</small></td>
         <td>{requestLabels[item.status] ?? item.status}</td>
         <td>{item.source_address}</td><td>{item.installer_release_id}</td><td>{dateText(item.created_at)}</td>
-        <td><button onClick={() => onOpen(item)}>Подробнее</button>{['waiting_approval', 'review_required'].includes(item.status) && <><button disabled={busy || (item.platform === 'linux' && !item.selected_campaign_id)} onClick={() => onDecide(item, 'approve')}>Одобрить</button><button disabled={busy} onClick={() => onDecide(item, 'deny')}>Отклонить</button></>}</td>
+        <td><button onClick={() => onOpen(item)}>Подробнее</button>{['waiting_approval', 'review_required'].includes(item.status) && <><button disabled={busy || !canApprove(item)} onClick={() => onDecide(item, 'approve')}>Одобрить</button><button disabled={busy} onClick={() => onDecide(item, 'deny')}>Отклонить</button></>}</td>
       </tr>)}</tbody>
     </table></div> : <p className="muted">Заявок нет.</p>}
     <div className="pagination"><button disabled={offset === 0} onClick={() => onMove(Math.max(0, offset - limit))}>Назад</button><span>{total ? `${offset + 1}–${Math.min(offset + limit, total)}` : '0'} из {total}</span><button disabled={offset + limit >= total} onClick={() => onMove(offset + limit)}>Далее</button></div>
@@ -205,7 +212,8 @@ export function EnrollmentPage() {
   }
   async function decide(item: EnrollmentRequest, decision: 'approve' | 'deny', previousId?: string) {
     const action = decision === 'approve' ? 'Одобрить' : 'Отклонить'
-    if (!window.confirm(`${action} регистрацию ${item.hostname}?`)) return
+    const target = item.installer_kind === 'deb' ? `${item.hostname} (${item.source_address}, Ubuntu DEB)` : item.hostname
+    if (!window.confirm(`${action} регистрацию ${target}?`)) return
     setBusy(true); setError('')
     try {
       await request(`/api/admin/enrollment/requests/${item.id}/${decision}`, {
@@ -248,14 +256,16 @@ export function EnrollmentPage() {
       <section className="dialog panel" role="dialog" aria-modal="true" aria-label="Запрос регистрации" onClick={event => event.stopPropagation()}>
         <button className="dialog-close" onClick={() => setSelected(null)}>Закрыть</button>
         <h2>{selected.hostname}</h2><p>{requestLabels[selected.status] ?? selected.status}</p>
-        {selected.platform === 'linux' && <><p>Linux · проверенный источник RPM</p><p className="muted">Одобрение регистрации не подтверждает завершение native. Итог RPM и доставку событий проверяйте отдельно в истории установки; неизвестный результат остаётся pending и не разрешает повторную установку.</p></>}
+        {selected.installer_kind === 'deb' && <p>Ubuntu · проверенный DEB. Сервер получит одноразовое разрешение после одобрения.</p>}
+        {selected.platform === 'linux' && selected.installer_kind !== 'deb' && <><p>Linux · проверенный источник RPM</p><p className="muted">Одобрение регистрации не подтверждает завершение native. Итог RPM и доставку событий проверяйте отдельно в истории установки; неизвестный результат остаётся pending и не разрешает повторную установку.</p></>}
         <h3>Этапы регистрации</h3>
         <ol className="lifecycle">{enrollmentStages.map((stage, index) => <li key={stage.label} aria-current={selectedStageIndex === index ? 'step' : undefined}>
           {stage.label}{selectedStageIndex === index && <strong> · Текущий этап</strong>}
         </li>)}</ol>
         <h3>Решение оператора</h3>
-        {selected.platform === 'linux' && !selected.selected_campaign_id && <p>Сначала требуется проверка кампании Linux. Без однозначно выбранной кампании одобрение недоступно; не заменяйте активный запрос автоматически.</p>}
-        {['waiting_approval', 'review_required'].includes(selected.status) && (selected.platform !== 'linux' || selected.selected_campaign_id) && <div>
+        {selected.platform === 'linux' && selected.installer_kind !== 'deb' && !selected.selected_campaign_id && <p>Сначала требуется проверка кампании Linux. Без однозначно выбранной кампании одобрение недоступно; не заменяйте активный запрос автоматически.</p>}
+        {selected.installer_kind === 'deb' && canApprove(selected) && <button disabled={busy} onClick={() => decide(selected, 'approve')}>Одобрить регистрацию</button>}
+        {selected.installer_kind !== 'deb' && canApprove(selected) && <div>
           <label>Предыдущая карточка после полной очистки (необязательно)<input value={previousDeviceId} maxLength={36} onChange={event => setPreviousDeviceId(event.target.value.trim())} placeholder="UUID предыдущего устройства" /></label>
           <p className="muted">Связь сохранит историю переустановки. Сервер проверит подтверждённое удаление и совпадение устройства; права и ключи остаются раздельными.</p>
           <button disabled={busy || (!!previousDeviceId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(previousDeviceId))} onClick={() => decide(selected, 'approve', previousDeviceId || undefined)}>{previousDeviceId ? 'Одобрить со связью с предыдущей карточкой' : 'Одобрить регистрацию'}</button>

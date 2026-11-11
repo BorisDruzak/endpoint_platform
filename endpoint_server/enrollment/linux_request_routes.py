@@ -25,6 +25,11 @@ def project(record):
         status=record.status, reason=record.decision_reason, expires_at=record.expires_at)
 
 
+async def lock_linux_intake(session):
+    intake_key = int.from_bytes(hashlib.sha256(b'endpoint-linux-request-intake-v1').digest()[:8], 'big', signed=True)
+    await session.execute(select(func.pg_advisory_xact_lock(intake_key)))
+
+
 @router.post('', response_model=PreEnrollmentRequestStatusV1, status_code=201,
     responses={200: {'model': PreEnrollmentRequestStatusV1, 'description': 'Recovered the exact existing request'}})
 async def create_linux_request(body: LinuxPreEnrollmentRequestCreateV1, request: Request, response: Response):
@@ -36,8 +41,7 @@ async def create_linux_request(body: LinuxPreEnrollmentRequestCreateV1, request:
         try:
             # Serialize Linux intake (including no-campaign review requests)
             # without locking existing Windows requests or their AUTO campaign.
-            intake_key = int.from_bytes(hashlib.sha256(b'endpoint-linux-request-intake-v1').digest()[:8], 'big', signed=True)
-            await session.execute(select(func.pg_advisory_xact_lock(intake_key)))
+            await lock_linux_intake(session)
             campaigns = (await session.scalars(select(EnrollmentCampaign).where(
                 EnrollmentCampaign.target_platform == 'linux').order_by(EnrollmentCampaign.id).with_for_update())).all()
             source = await resolve_enrollment_source(session, body.native)

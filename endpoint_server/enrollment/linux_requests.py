@@ -43,12 +43,23 @@ def select_linux_campaign(campaigns, *, source_id, source_address, now, blocking
 
 
 def linux_campaign_allows(record, campaign, *, now, consumed=False):
+    from .ubuntu_requests import POLICY_RELEASE, is_ubuntu_request, validate_source
     policy = linux_policy(campaign)
     try:
         from uuid import UUID
-        source_id = UUID(record.installer_release_id)
+        if is_ubuntu_request(record):
+            validate_source(record)
+            if (
+                policy is None or policy.enrollment_mode != 'manual'
+                or policy.allowed_native_releases != [POLICY_RELEASE]
+                or campaign.max_uses != 1 or campaign.allowed_cidrs != [f'{record.source_address}/32']
+            ):
+                return False
+            source_id = POLICY_RELEASE
+        else:
+            source_id = UUID(record.installer_release_id)
         address = ip_address(record.source_address)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, EnrollmentDenied):
         return False
     return bool(record.platform == 'linux' and record.selected_campaign_id == campaign.id and policy
         and source_id in policy.allowed_native_releases and (consumed or campaign.use_count < campaign.max_uses)
@@ -76,6 +87,14 @@ def build_linux_request(body, *, source_id, selection, source_address, pepper, n
 
 
 async def validate_linux_request(session, record, *, body=None, pepper=None):
+    from .ubuntu_requests import is_ubuntu_request, validate_source
+    if is_ubuntu_request(record):
+        validate_source(record)
+        if body is not None and (body.platform != 'linux' or not request_bindings_match(
+            record, installation_id=body.installation_id, hardware_fingerprint=body.hardware_fingerprint, pepper=pepper
+        )):
+            raise EnrollmentDenied('Ubuntu request binding mismatch')
+        return None
     binding = await session.scalar(select(LinuxEnrollmentBinding).where(
         LinuxEnrollmentBinding.enrollment_request_id == record.id).with_for_update())
     source = None if binding is None else await session.scalar(select(LinuxNativeRelease).where(
@@ -93,8 +112,11 @@ async def validate_linux_request(session, record, *, body=None, pepper=None):
 async def bind_linux_enrollment(session, record, claim, credential, *, body, pepper, now):
     binding = await validate_linux_request(session, record, body=body, pepper=pepper)
     if (claim.enrollment_request_id != record.id or claim.device_id != record.device_id
-        or credential.device_id != record.device_id or claim.claimed_at is None
-        or not hmac.compare_digest(binding.claim_fingerprint_digest, claim.fingerprint_digest)
+        or credential.device_id != record.device_id or claim.claimed_at is None):
+        raise EnrollmentDenied('Linux enrollment authority mismatch')
+    if binding is None:
+        return
+    if (not hmac.compare_digest(binding.claim_fingerprint_digest, claim.fingerprint_digest)
         or binding.claim_id is not None or binding.credential_id is not None):
         raise EnrollmentDenied('Linux enrollment authority mismatch')
     binding.claim_id = claim.id

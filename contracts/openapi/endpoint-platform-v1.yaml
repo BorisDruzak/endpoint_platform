@@ -1861,6 +1861,41 @@ paths:
             "application/json":
               schema:
                 "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/enrollment/ubuntu/requests":
+    post:
+      tags:
+        - "enrollment-requests"
+      summary: "Create Request"
+      operationId: "create_request_api_v1_enrollment_ubuntu_requests_post"
+      requestBody:
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/UbuntuDebRequest"
+        required: true
+      responses:
+        "201":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/PreEnrollmentRequestStatusV1"
+        "200":
+          description: "Recovered the exact existing request"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/PreEnrollmentRequestStatusV1"
+        "409":
+          description: "Source or request conflict"
+        "429":
+          description: "Request rate limited"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
   "/agent/v1/installation/linux/events":
     post:
       tags:
@@ -13954,6 +13989,49 @@ components:
         - "status"
         - "collected_at"
       title: "TcpConnectResultV1"
+    UbuntuDebRequest:
+      properties:
+        schema_version:
+          type: "string"
+          const: "ubuntu_deb_enrollment_request_v1"
+          title: "Schema Version"
+        installation_id:
+          type: "string"
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+          title: "Installation Id"
+        hardware_fingerprint:
+          type: "string"
+          pattern: "^sha256:[0-9a-f]{64}$"
+          title: "Hardware Fingerprint"
+        request_capability:
+          type: "string"
+          pattern: "^[A-Za-z0-9_-]{43}$"
+          title: "Request Capability"
+        hostname:
+          type: "string"
+          maxLength: 63
+          minLength: 1
+          title: "Hostname"
+        package_version:
+          type: "string"
+          maxLength: 40
+          minLength: 1
+          title: "Package Version"
+        package_sha256:
+          type: "string"
+          pattern: "^[0-9a-f]{64}$"
+          title: "Package Sha256"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "schema_version"
+        - "installation_id"
+        - "hardware_fingerprint"
+        - "request_capability"
+        - "hostname"
+        - "package_version"
+        - "package_sha256"
+      title: "UbuntuDebRequest"
     ValidationError:
       properties:
         loc:
