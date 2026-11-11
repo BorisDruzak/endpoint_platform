@@ -19,6 +19,50 @@ PROFILE = 'windows-openssh-fod-v1'
 CAPABILITIES = ('OpenSSH.Client~~~~0.0.1.0', 'OpenSSH.Server~~~~0.0.1.0')
 ROLES = {'ssh': 'ssh.exe', 'sshd': 'sshd.exe', 'keygen': 'ssh-keygen.exe'}
 
+# Exact local PersistentStore snapshot observed after Windows Server FoD Add.
+# Unknown fields and alternate defaults fail closed. Only localized Status text
+# may differ from the captured template. The independent fixture is
+# the captured stock rule, including every associated CIM filter.
+_STOCK_RULE_ID = 'OpenSSH-Server-In-TCP'
+_STOCK_CIM_KEYS = {
+    'CreationClassName': 'MSFT|FW|FirewallRule|' + _STOCK_RULE_ID,
+    'InstanceID': _STOCK_RULE_ID, 'SystemCreationClassName': '', 'SystemName': '',
+}
+_STOCK_FILTER_KEYS = dict.fromkeys((
+    'Caption', 'CommunicationStatus', 'Description', 'DetailedStatus', 'HealthState',
+    'InstallDate', 'IsNegated', 'OperatingStatus', 'OperationalStatus',
+    'PrimaryStatus', 'Status', 'StatusDescriptions',
+)) | _STOCK_CIM_KEYS | {'ElementName': '', 'Name': ''}
+_STOCK_RULE = {
+    'rule': _STOCK_CIM_KEYS | {
+        'Action': 2, 'Caption': None, 'CommonName': None, 'ConditionListType': 3,
+        'Description': 'Inbound rule for OpenSSH SSH Server (sshd)', 'Direction': 1,
+        'DisplayGroup': 'OpenSSH Server', 'DisplayName': 'OpenSSH SSH Server (sshd)',
+        'EdgeTraversalPolicy': 0, 'ElementName': 'OpenSSH SSH Server (sshd)', 'Enabled': 1,
+        'EnforcementStatus': [0], 'ExecutionStrategy': 2, 'LocalOnlyMapping': False,
+        'LooseSourceMapping': False, 'Mandatory': None, 'Owner': None,
+        'PackageFamilyName': None, 'Platforms': [], 'PolicyAppId': None,
+        'PolicyDecisionStrategy': 2, 'PolicyKeywords': None, 'PolicyRoles': None,
+        'PolicyRuleName': '', 'PolicyStoreSource': 'PersistentStore', 'PolicyStoreSourceType': 1,
+        'PrimaryStatus': 1, 'Priority': None, 'Profiles': 2, 'RemoteDynamicKeywordAddresses': [],
+        'RuleGroup': 'OpenSSH Server', 'RuleUsage': None, 'SequencedActions': 3,
+        'Status': 'The rule was parsed successfully from the store.', 'StatusCode': 65536,
+    },
+    'port': _STOCK_FILTER_KEYS | {
+        'DynamicTransport': 0, 'IcmpType': None, 'LocalPort': ['22'], 'Protocol': 'TCP', 'RemotePort': None,
+    },
+    'address': _STOCK_FILTER_KEYS | {'LocalAddress': None, 'RemoteAddress': None},
+    'app': _STOCK_FILTER_KEYS | {'AppPath': r'%SystemRoot%\system32\OpenSSH\sshd.exe', 'Package': None},
+    'service': _STOCK_FILTER_KEYS | {'ServiceName': None},
+    'security': _STOCK_FILTER_KEYS | {
+        'Authentication': 0, 'Encryption': 0, 'LocalUsers': None, 'OverrideBlockRules': False,
+        'RemoteMachines': None, 'RemoteUsers': None,
+    },
+    'interface': _STOCK_FILTER_KEYS | {'InterfaceAlias': None},
+    'interface_type': _STOCK_FILTER_KEYS | {'InterfaceType': 0},
+}
+
+
 
 def _capabilities(value):
     if not isinstance(value, dict) or set(value) != set(CAPABILITIES):
@@ -365,26 +409,60 @@ $out=@();foreach($name in @('OpenSSH.Client~~~~0.0.1.0','OpenSSH.Server~~~~0.0.1
             handle = win32file.CreateFile(str(lock), win32con.GENERIC_READ, 0, None,
                 win32con.OPEN_EXISTING, 0x00200000, None)
             try:
-                values = []
-                for name in ('baseline.json', 'completion.json'):
+                def read_record(name):
                     path = root/name
                     assert_private(path)
                     if path.stat().st_size > 65536:raise ValueError()
-                    values.append(path.read_bytes())
-                baseline_raw, proof_raw = values
+                    return path.read_bytes()
+                baseline_raw = read_record('baseline.json')
+                proof_raw = read_record('completion.json')
                 baseline, proof = json.loads(baseline_raw), json.loads(proof_raw)
                 request = {k:receipt[k] for k in ('schema_version','operation_id','nonce','boot_id','capabilities')}
+                proof_fields = {'request','baseline_sha256','result'}
                 if (set(baseline) != {'request','service','rule'} or baseline['request'] != request or
-                        set(proof) != {'request','baseline_sha256','result'} or proof['request'] != request or
+                        set(proof) not in (proof_fields, proof_fields | {'normalization_sha256'}) or
+                        proof['request'] != request or
                         proof['baseline_sha256'] != hashlib.sha256(baseline_raw).hexdigest() or
                         not isinstance(proof['result'],dict) or set(proof['result']) !=
                         {'completed','restart_needed','boundary_preserved'} or
                         any(type(v) is not bool for v in proof['result'].values())):
                     raise ValueError()
+                if 'normalization_sha256' in proof:
+                    intent_raw = read_record('normalization-intent.json')
+                    normalized_raw = read_record('normalization-proof.json')
+                    self._verify_normalization(baseline, proof, intent_raw, normalized_raw)
+                elif proof['result']['boundary_preserved'] and (root/'normalization-intent.json').exists():
+                    raise ValueError()
                 return proof['result']
             finally:handle.Close()
         except Exception:
             raise ValueError('support_dependency_recovery_required') from None
+
+    @staticmethod
+    def _verify_normalization(baseline, completion, intent_raw, normalized_raw):
+        from .support_access_native import windows_root
+        intent, normalized = json.loads(intent_raw), json.loads(normalized_raw)
+        binding = {key:completion[key] for key in ('request','baseline_sha256')}
+        original = json.loads(intent['rule'])
+        stock = _STOCK_RULE | {'rule': _STOCK_RULE['rule'] | {'Status': original['rule']['Status']}}
+        disabled = original | {'rule': original['rule'] | {'Enabled': 2}}
+        service = json.loads(intent['service'])
+        native_service = {'Name':'sshd','State':'Stopped','StartMode':'Manual','StartName':'LocalSystem',
+            'ProcessId':0,'PathName':str(windows_root()/'System32'/'OpenSSH'/'sshd.exe').casefold()}
+        service['PathName'] = service['PathName'].casefold()
+        if (baseline['service'] is not None or baseline['rule'] is not None or
+                CAPABILITIES[1] not in binding['request']['capabilities'] or
+                not completion['result']['completed'] or completion['result']['restart_needed'] or
+                set(intent) != set(binding) | {'service','rule'} or
+                set(normalized) != set(binding) | {'service','rule','intent_sha256'} or
+                any(record.get(key) != value for record in (intent,normalized) for key,value in binding.items()) or
+                service != native_service or normalized['service'] != intent['service'] or
+                not isinstance(original['rule']['Status'], str) or not original['rule']['Status'] or
+                json.dumps(original, sort_keys=True) != json.dumps(stock, sort_keys=True) or
+                json.dumps(json.loads(normalized['rule']), sort_keys=True) != json.dumps(disabled, sort_keys=True) or
+                normalized['intent_sha256'] != hashlib.sha256(intent_raw).hexdigest() or
+                completion['normalization_sha256'] != hashlib.sha256(normalized_raw).hexdigest()):
+            raise ValueError('support_dependency_recovery_required')
 
     def install(self, names):
         if not names or any(name not in CAPABILITIES for name in names):
@@ -413,15 +491,83 @@ function Persist {param($name,$value)
 $lock=[IO.File]::Open((Join-Path $root 'worker.lock'),[IO.FileMode]::CreateNew,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
 try {
  ProtectFile (Join-Path $root 'worker.lock')
-function ServiceState {Get-CimInstance Win32_Service -Filter "Name='sshd'" | Select-Object Name,State,StartMode,PathName,StartName,ProcessId | ConvertTo-Json -Compress}
-function Properties {param($object);$out=[ordered]@{};foreach($p in ($object.CimInstanceProperties|Sort-Object Name)){$out[$p.Name]=$p.Value};return $out}
+function ServiceState {
+ $services=@(Get-CimInstance Win32_Service -Filter "Name='sshd'" -ErrorAction Stop)
+ if(!$services.Count){return $null}
+ if($services.Count -ne 1){throw 'multiple services'}
+ $services[0] | Select-Object Name,State,StartMode,PathName,StartName,ProcessId | ConvertTo-Json -Compress
+}
+function ReadDefaultRule {
+ try {Get-NetFirewallRule -PolicyStore PersistentStore -Name 'OpenSSH-Server-In-TCP' -ErrorAction Stop}
+ catch {if($_.FullyQualifiedErrorId -cne 'CmdletizationQuery_NotFound_InstanceID,Get-NetFirewallRule'){throw}}
+}
+function Properties {
+ param($object)
+ if(@($object).Count -ne 1){throw 'unexpected firewall filter count'}
+ $out=[ordered]@{}
+ foreach($p in ($object.CimInstanceProperties|Sort-Object Name)){$out[$p.Name]=$p.Value}
+ return $out
+}
 function RuleState {param($rules);if(!$rules){return $null};if(@($rules).Count -ne 1){throw 'multiple rules'};$rule=@($rules)[0];@{rule=(Properties $rule);port=(Properties ($rule|Get-NetFirewallPortFilter));address=(Properties ($rule|Get-NetFirewallAddressFilter));app=(Properties ($rule|Get-NetFirewallApplicationFilter));service=(Properties ($rule|Get-NetFirewallServiceFilter));security=(Properties ($rule|Get-NetFirewallSecurityFilter));interface=(Properties ($rule|Get-NetFirewallInterfaceFilter));interface_type=(Properties ($rule|Get-NetFirewallInterfaceTypeFilter))}|ConvertTo-Json -Depth 12 -Compress}
-$service=ServiceState;$rule=@(Get-NetFirewallRule -PolicyStore PersistentStore -Name 'OpenSSH-Server-In-TCP' -ErrorAction SilentlyContinue)
+$service=ServiceState;$rule=@(ReadDefaultRule)
 if($rule.Count -gt 1){throw 'rule'}
 $before=RuleState $rule;$owned=$null;$ok=$true;$restart=$false;$preserved=$true
 Persist 'baseline.json' @{request=$request;service=$service;rule=$before}
 $baseline=(Get-FileHash -LiteralPath (Join-Path $root 'baseline.json') -Algorithm SHA256).Hash.ToLowerInvariant()
-function Complete {param($result);Persist 'completion.json' @{request=$request;baseline_sha256=$baseline;result=$result}}
+function Complete {param($result,$normalization)
+ $record=@{request=$request;baseline_sha256=$baseline;result=$result}
+ if($normalization){$record.normalization_sha256=$normalization}
+ Persist 'completion.json' $record
+}
+function IsStockRule {param($snapshot)
+ $actual=ConvertFrom-Json -InputObject $snapshot
+ $stock=ConvertFrom-Json -InputObject $env:ENDPOINT_SUPPORT_FOD_STOCK_RULE
+ foreach($section in $stock.PSObject.Properties){
+  $fields=@($actual.($section.Name).PSObject.Properties)
+  if($fields.Count -ne @($section.Value.PSObject.Properties).Count){return $false}
+  foreach($field in $section.Value.PSObject.Properties){
+   $observed=$actual.($section.Name).PSObject.Properties[$field.Name]
+   if(!$observed -or $observed.Name -cne $field.Name){return $false}
+   if($section.Name -ceq 'rule' -and $field.Name -ceq 'Status'){
+    if($observed.Value -isnot [string] -or !$observed.Value){return $false}
+    continue
+   }
+   if((ConvertTo-Json -InputObject $observed.Value -Compress) -cne
+      (ConvertTo-Json -InputObject $field.Value -Compress)){return $false}
+  }
+ }
+ return $true
+}
+function RestartPending {
+ (Test-Path -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') -or
+ (Test-Path -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired')
+}
+$serverName='OpenSSH.Server~~~~0.0.1.0'
+function ServerIs {param($state)
+ $cap=@(Get-WindowsCapability -Online -Name $serverName -ErrorAction Stop)
+ $cap.Count -eq 1 -and $cap[0].Name -ceq $serverName -and [string]$cap[0].State -ceq $state
+}
+function NormalizeStockRule {param($snapshot,$nativeService)
+ if(!$nativeService -or !(IsStockRule $snapshot) -or !(ServerIs 'Installed') -or (RestartPending)){return}
+ $sshd=ConvertFrom-Json -InputObject $nativeService
+ $expectedPath=Join-Path ([Environment]::GetFolderPath('System')) 'OpenSSH\sshd.exe'
+ if($sshd.Name -cne 'sshd' -or $sshd.State -cne 'Stopped' -or $sshd.StartMode -cne 'Manual' -or
+    $sshd.PathName -ine $expectedPath -or $sshd.StartName -cne 'LocalSystem' -or $sshd.ProcessId -ne 0){return}
+ Persist 'normalization-intent.json' @{request=$request;baseline_sha256=$baseline;service=$nativeService;rule=$snapshot}
+ $intent=(Get-FileHash -LiteralPath (Join-Path $root 'normalization-intent.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+ if((RestartPending) -or (ServiceState) -cne $nativeService){return}
+ $fresh=@(Get-NetFirewallRule -PolicyStore PersistentStore -Name 'OpenSSH-Server-In-TCP' -ErrorAction Stop)
+ if($fresh.Count -ne 1 -or (RuleState $fresh) -cne $snapshot){return}
+ Disable-NetFirewallRule -InputObject $fresh[0] -Confirm:$false -ErrorAction Stop
+ $afterDisable=@(Get-NetFirewallRule -PolicyStore PersistentStore -Name 'OpenSSH-Server-In-TCP' -ErrorAction Stop)
+ if($afterDisable.Count -ne 1){return}
+ $disabled=RuleState $afterDisable
+ $expected=ConvertFrom-Json -InputObject $snapshot
+ $expected.rule.Enabled=2
+ if($disabled -cne (ConvertTo-Json -InputObject $expected -Depth 12 -Compress) -or (ServiceState) -cne $nativeService){return}
+ Persist 'normalization-proof.json' @{request=$request;baseline_sha256=$baseline;intent_sha256=$intent;service=$nativeService;rule=$disabled}
+ (Get-FileHash -LiteralPath (Join-Path $root 'normalization-proof.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+}
 if($service -and 'OpenSSH.Server~~~~0.0.1.0' -in $names){
  $existing=$service|ConvertFrom-Json
  $expected=Join-Path ([Environment]::GetFolderPath('System')) 'OpenSSH\sshd.exe'
@@ -443,25 +589,43 @@ if(!$rule.Count){
   Persist 'reservation.json' @{request=$request;baseline_sha256=$baseline;rule=$owned}
  } catch {Complete @{completed=$false;restart_needed=$false;boundary_preserved=$false};return}
 }
-try {foreach($name in $names){$r=Add-WindowsCapability -Online -Name $name -ErrorAction Stop;$restart=$restart -or [bool]$r.RestartNeeded}}
-catch {$ok=$false}
-$after=@(Get-NetFirewallRule -PolicyStore PersistentStore -Name 'OpenSSH-Server-In-TCP' -ErrorAction SilentlyContinue)
+$serverAdded=$false
+try {
+ foreach($name in $names){
+  $stockCandidate=$name -ceq $serverName -and !$service -and !$before
+  if($stockCandidate -and !(ServerIs 'NotPresent')){throw 'Server capability source changed'}
+  $r=@(Add-WindowsCapability -Online -Name $name -ErrorAction Stop)
+  $restart=$restart -or [bool]$r.RestartNeeded
+  if($stockCandidate){$serverAdded=$r.Count -eq 1 -and $r[0].RestartNeeded -is [bool] -and !$r[0].RestartNeeded}
+ }
+} catch {$ok=$false}
+$after=@(ReadDefaultRule)
+$normalization=$null
 if($owned){
- if($after.Count -ne 1 -or $after[0].Description -cne $description -or (RuleState $after) -cne $owned){$preserved=$false}
+ if($after.Count -ne 1 -or $after[0].Description -cne $description -or (RuleState $after) -cne $owned){
+  $preserved=$false
+  if($ok -and !$restart -and $serverAdded -and $after.Count -eq 1){
+   try {
+    $normalization=NormalizeStockRule (RuleState $after) (ServiceState)
+    $preserved=[bool]$normalization
+   } catch {$preserved=$false}
+  }
+ }
  else {
   $again=@(Get-NetFirewallRule -PolicyStore PersistentStore -Name 'OpenSSH-Server-In-TCP')
   if((RuleState $again) -cne $owned){$preserved=$false}
-  else {try {$again|Remove-NetFirewallRule -ErrorAction Stop;if(Get-NetFirewallRule -PolicyStore PersistentStore -Name 'OpenSSH-Server-In-TCP' -ErrorAction SilentlyContinue){$preserved=$false}}catch {$preserved=$false}}
+  else {try {$again|Remove-NetFirewallRule -ErrorAction Stop;if(ReadDefaultRule){$preserved=$false}}catch {$preserved=$false}}
  }
 } elseif((RuleState $after) -cne $before){$preserved=$false}
 $now=ServiceState
 if($service){if($now -cne $service){$preserved=$false}}
 elseif($now){$created=$now|ConvertFrom-Json;if($created.State -ne 'Stopped' -or $created.StartMode -ne 'Manual'){$preserved=$false}}
-Complete @{completed=[bool]$ok;restart_needed=[bool]$restart;boundary_preserved=[bool]$preserved}
+Complete @{completed=[bool]$ok;restart_needed=[bool]$restart;boundary_preserved=[bool]$preserved} $normalization
 } finally {$lock.Dispose()}
 ''', variables={'ENDPOINT_SUPPORT_FOD_NAMES': json.dumps(list(names)),
                'ENDPOINT_SUPPORT_FOD_OPERATION': self._metadata['operation_id'],
                'ENDPOINT_SUPPORT_FOD_ROOT': str(root),
+               'ENDPOINT_SUPPORT_FOD_STOCK_RULE': json.dumps(_STOCK_RULE),
                'ENDPOINT_SUPPORT_FOD_REQUEST': json.dumps({k:self._metadata[k] for k in
                    ('schema_version','operation_id','nonce','boot_id','capabilities')})}, timeout=None, durable=True)
         return self.completed_operation(self._metadata)
