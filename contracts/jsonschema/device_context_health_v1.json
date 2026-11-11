@@ -34,6 +34,17 @@
         "resources": {
           "$ref": "#/$defs/HealthResourcesV1"
         },
+        "server": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ServerHealthV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "services": {
           "items": {
             "$ref": "#/$defs/HealthServiceV1"
@@ -75,6 +86,203 @@
         "status"
       ],
       "title": "HealthServiceV1",
+      "type": "object"
+    },
+    "ServerHealthApplicationV1": {
+      "additionalProperties": false,
+      "properties": {
+        "http_status": {
+          "anyOf": [
+            {
+              "maximum": 599,
+              "minimum": 100,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Http Status"
+        },
+        "name": {
+          "maxLength": 128,
+          "minLength": 3,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "failed",
+            "unknown"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "status"
+      ],
+      "title": "ServerHealthApplicationV1",
+      "type": "object"
+    },
+    "ServerHealthServiceV1": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "observed_state": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed State"
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "failed",
+            "missing",
+            "unknown"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "status"
+      ],
+      "title": "ServerHealthServiceV1",
+      "type": "object"
+    },
+    "ServerHealthV1": {
+      "additionalProperties": false,
+      "properties": {
+        "applications": {
+          "items": {
+            "$ref": "#/$defs/ServerHealthApplicationV1"
+          },
+          "maxItems": 16,
+          "title": "Applications",
+          "type": "array"
+        },
+        "role": {
+          "enum": [
+            "endpoint_platform",
+            "openvpn",
+            "directum",
+            "ad_consultant"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "services": {
+          "items": {
+            "$ref": "#/$defs/ServerHealthServiceV1"
+          },
+          "maxItems": 16,
+          "title": "Services",
+          "type": "array"
+        },
+        "volumes": {
+          "items": {
+            "$ref": "#/$defs/ServerHealthVolumeV1"
+          },
+          "maxItems": 16,
+          "title": "Volumes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "role",
+        "services",
+        "volumes",
+        "applications"
+      ],
+      "title": "ServerHealthV1",
+      "type": "object"
+    },
+    "ServerHealthVolumeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "free_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Free Bytes"
+        },
+        "mount": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Mount",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "warning",
+            "critical",
+            "missing",
+            "unknown"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "total_bytes": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Bytes"
+        },
+        "used_percent": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Used Percent"
+        }
+      },
+      "required": [
+        "mount",
+        "status"
+      ],
+      "title": "ServerHealthVolumeV1",
       "type": "object"
     }
   },

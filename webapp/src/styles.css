@@ -136,6 +136,12 @@ td a, .back-link { color: #1b5eaa; font-weight: 650; }
 .status.online { background: #e7f5ec; color: #176a39; }
 .status.offline { background: #edf1f5; color: #647487; }
 .status.warning { background: #fff1dc; color: #8a5311; }
+.status.critical { background: #fce8e7; color: #9d231b; }
+.server-health-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 20px; }
+.server-checks { list-style: none; padding: 0; margin: 0; }
+.server-checks li { display: flex; justify-content: space-between; align-items: start; gap: 10px; padding: 9px 0; border-top: 1px solid #e8edf3; }
+.server-checks li > div { min-width: 0; overflow-wrap: anywhere; }
+.server-checks small { display: block; color: #607186; margin-top: 3px; }
 .pagination { display: flex; justify-content: flex-end; align-items: center; gap: 14px; padding: 14px 20px; color: #607186; font-size: 13px; }
 .pagination button:disabled { cursor: default; opacity: .45; }
 .empty-text { padding: 22px; color: #607186; }

@@ -98,9 +98,40 @@ class HealthServiceV1(ContractModelV1):
     status: Literal["active", "inactive", "failed", "unknown"]
 
 
+ServerRoleV1 = Literal["endpoint_platform", "openvpn", "directum", "ad_consultant"]
+
+
+class ServerHealthServiceV1(ContractModelV1):
+    name: Annotated[str, Field(min_length=1, max_length=128)]
+    status: Literal["ok", "failed", "missing", "unknown"]
+    observed_state: Annotated[str, Field(min_length=1, max_length=64)] | None = None
+
+
+class ServerHealthVolumeV1(ContractModelV1):
+    mount: BoundedTextV1
+    status: Literal["ok", "warning", "critical", "missing", "unknown"]
+    used_percent: Annotated[float, Field(ge=0, le=100)] | None = None
+    total_bytes: Annotated[int, Field(gt=0)] | None = None
+    free_bytes: Annotated[int, Field(ge=0)] | None = None
+
+
+class ServerHealthApplicationV1(ContractModelV1):
+    name: StableKeyV1
+    status: Literal["ok", "failed", "unknown"]
+    http_status: Annotated[int, Field(ge=100, le=599)] | None = None
+
+
+class ServerHealthV1(ContractModelV1):
+    role: ServerRoleV1
+    services: list[ServerHealthServiceV1] = Field(max_length=16)
+    volumes: list[ServerHealthVolumeV1] = Field(max_length=16)
+    applications: list[ServerHealthApplicationV1] = Field(max_length=16)
+
+
 class HealthSectionsV1(ContractModelV1):
     resources: HealthResourcesV1
     services: list[HealthServiceV1] = Field(max_length=64)
+    server: ServerHealthV1 | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class NetworkRouteV1(ContractModelV1):

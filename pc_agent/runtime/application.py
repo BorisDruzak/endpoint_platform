@@ -81,6 +81,7 @@ class RuntimeSettings:
     network_probe_allowed_cidrs: tuple[str, ...] = ()
     network_probe_allowed_suffixes: tuple[str, ...] = ()
     launcher_version: str | None = None
+    package_managed_updates: bool = False
 
     def validate(self) -> None:
         for name in ("data_root", "install_root", "ca_file"):
@@ -101,6 +102,10 @@ class RuntimeSettings:
             raise ValueError("unsupported Endpoint transport mode")
         if not isinstance(self.migration_http_pull_fallback, bool):
             raise ValueError("migration HTTP pull fallback must be boolean")
+        if self.package_managed_updates and (
+            os.name != "posix" or self.transport_mode != "gateway_wss" or self.migration_http_pull_fallback
+        ):
+            raise ValueError("package-managed updates require Linux WSS without HTTP fallback")
         for name in (
             "network_probe_allowed_cidrs",
             "network_probe_allowed_suffixes",
@@ -551,13 +556,12 @@ def _default_dependencies(
         ):
             if os.name == "nt" or 'endpoint.policy.v1' in policy_features:
                 activity_dispatch.begin_connection()
-                tasks = [
-                    worktime_companion.serve(settings, credential),
-                    (_serve_windows_device_binding(settings, credential)
-                     if os.name == 'nt' else _periodic_https_update_checks(
-                         settings, credential, _EndpointHttpPullState())),
-                    activity_dispatch.send_forever(transport),
-                ]
+                tasks = [worktime_companion.serve(settings, credential)]
+                if os.name == "nt":
+                    tasks.append(_serve_windows_device_binding(settings, credential))
+                elif not settings.package_managed_updates:
+                    tasks.append(_periodic_https_update_checks(settings, credential, _EndpointHttpPullState()))
+                tasks.append(activity_dispatch.send_forever(transport))
                 if power_runtime is not None:
                     tasks.append(power_runtime.send_forever(transport))
                 if security_runtime is not None:
@@ -570,14 +574,12 @@ def _default_dependencies(
                     sensor_health_runtime.begin_connection()
                     tasks.append(sensor_health_runtime.send_forever(transport))
                 return tuple(tasks)
-            return (
-                _periodic_https_update_checks(
-                    settings,
-                    credential,
-                    _EndpointHttpPullState(),
-                ),
-                *((power_runtime.send_forever(transport),) if power_runtime is not None else ()),
-            )
+            tasks = []
+            if not settings.package_managed_updates:
+                tasks.append(_periodic_https_update_checks(settings, credential, _EndpointHttpPullState()))
+            if power_runtime is not None:
+                tasks.append(power_runtime.send_forever(transport))
+            return tuple(tasks)
         return ()
 
     create_executor = CommandExecutor

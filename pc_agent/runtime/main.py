@@ -218,6 +218,11 @@ def _parser() -> argparse.ArgumentParser:
         help="temporarily use same-origin HTTP pull only when WSS is unavailable",
     )
     parser.add_argument(
+        "--package-managed-updates",
+        action="store_true",
+        help="leave binary updates to the Linux system package manager",
+    )
+    parser.add_argument(
         "--network-probe-allowed-cidr",
         action="append",
         dest="network_probe_allowed_cidrs",
@@ -238,6 +243,7 @@ def _parser() -> argparse.ArgumentParser:
     modes.add_argument("--verify", action="store_true")
     modes.add_argument("--print-safe-status", action="store_true")
     modes.add_argument("--print-version", action="store_true")
+    modes.add_argument("--print-server-health", action="store_true")
     modes.add_argument("--print-hardware-fingerprint", action="store_true")
     return parser
 
@@ -270,6 +276,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.print_version:
         print(AGENT_VERSION)
         return 0
+    if args.print_server_health:
+        from pc_agent.context_profiles.probe import SystemProbe
+        from pc_agent.context_profiles.server_health import collect_server_health
+
+        server = collect_server_health(SystemProbe())
+        if server is None:
+            return 2
+        print(server.model_dump_json())
+        return 0
     if args.print_hardware_fingerprint:
         print(derive_linux_hardware_fingerprint())
         return 0
@@ -295,6 +310,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         endpoint_origin=endpoint_origin,
         transport_mode=args.transport_mode,
         migration_http_pull_fallback=args.migration_http_pull_fallback,
+        package_managed_updates=args.package_managed_updates,
         launcher_version=args.launcher_version,
         network_probe_allowed_cidrs=_network_probe_values(
             args.network_probe_allowed_cidrs,

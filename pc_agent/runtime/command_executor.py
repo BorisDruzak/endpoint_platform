@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -14,6 +15,10 @@ from pc_agent.context_profiles.registry import CONTEXT_COLLECTION_CAPABILITIES
 from pc_agent.primitives.network.command_execution import execute_network_agent_command
 from pc_agent.primitives.network.policy import AgentNetworkProbePolicy
 from pc_agent.primitives.read_only.command_execution import execute_read_only_agent_command
+
+
+async def _collect_context(command: AgentCommandV1, *, probe: object) -> AgentResultV1:
+    return await asyncio.to_thread(execute_context_agent_command, command, probe=probe)
 
 
 async def _execute_context_capability(
@@ -77,7 +82,7 @@ class CommandExecutor:
     ) -> None:
         self._probe_factory = probe_factory or SystemProbe
         self._execute_context_command = (
-            execute_context_command or execute_context_agent_command
+            execute_context_command or _collect_context
         )
         self._execute_network_command = (
             execute_network_command or execute_network_agent_command

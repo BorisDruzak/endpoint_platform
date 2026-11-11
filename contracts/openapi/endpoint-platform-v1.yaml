@@ -6214,6 +6214,13 @@ components:
           maxItems: 64
           title: "Services"
           type: "array"
+        server:
+          anyOf:
+            -
+              "$ref": "#/components/schemas/DeviceContextHealthV1__ServerHealthV1"
+            -
+              type: "null"
+          default: null
       required:
         - "resources"
         - "services"
@@ -6239,6 +6246,154 @@ components:
         - "name"
         - "status"
       title: "HealthServiceV1"
+      type: "object"
+    DeviceContextHealthV1__ServerHealthApplicationV1:
+      additionalProperties: false
+      properties:
+        name:
+          maxLength: 128
+          minLength: 3
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          title: "Name"
+          type: "string"
+        status:
+          enum:
+            - "ok"
+            - "failed"
+            - "unknown"
+          title: "Status"
+          type: "string"
+        http_status:
+          anyOf:
+            -
+              maximum: 599
+              minimum: 100
+              type: "integer"
+            -
+              type: "null"
+          default: null
+          title: "Http Status"
+      required:
+        - "name"
+        - "status"
+      title: "ServerHealthApplicationV1"
+      type: "object"
+    DeviceContextHealthV1__ServerHealthServiceV1:
+      additionalProperties: false
+      properties:
+        name:
+          maxLength: 128
+          minLength: 1
+          title: "Name"
+          type: "string"
+        status:
+          enum:
+            - "ok"
+            - "failed"
+            - "missing"
+            - "unknown"
+          title: "Status"
+          type: "string"
+        observed_state:
+          anyOf:
+            -
+              maxLength: 64
+              minLength: 1
+              type: "string"
+            -
+              type: "null"
+          default: null
+          title: "Observed State"
+      required:
+        - "name"
+        - "status"
+      title: "ServerHealthServiceV1"
+      type: "object"
+    DeviceContextHealthV1__ServerHealthV1:
+      additionalProperties: false
+      properties:
+        role:
+          enum:
+            - "endpoint_platform"
+            - "openvpn"
+            - "directum"
+            - "ad_consultant"
+          title: "Role"
+          type: "string"
+        services:
+          items:
+            "$ref": "#/components/schemas/DeviceContextHealthV1__ServerHealthServiceV1"
+          maxItems: 16
+          title: "Services"
+          type: "array"
+        volumes:
+          items:
+            "$ref": "#/components/schemas/DeviceContextHealthV1__ServerHealthVolumeV1"
+          maxItems: 16
+          title: "Volumes"
+          type: "array"
+        applications:
+          items:
+            "$ref": "#/components/schemas/DeviceContextHealthV1__ServerHealthApplicationV1"
+          maxItems: 16
+          title: "Applications"
+          type: "array"
+      required:
+        - "role"
+        - "services"
+        - "volumes"
+        - "applications"
+      title: "ServerHealthV1"
+      type: "object"
+    DeviceContextHealthV1__ServerHealthVolumeV1:
+      additionalProperties: false
+      properties:
+        mount:
+          maxLength: 256
+          minLength: 1
+          title: "Mount"
+          type: "string"
+        status:
+          enum:
+            - "ok"
+            - "warning"
+            - "critical"
+            - "missing"
+            - "unknown"
+          title: "Status"
+          type: "string"
+        used_percent:
+          anyOf:
+            -
+              maximum: 100
+              minimum: 0
+              type: "number"
+            -
+              type: "null"
+          default: null
+          title: "Used Percent"
+        total_bytes:
+          anyOf:
+            -
+              exclusiveMinimum: 0
+              type: "integer"
+            -
+              type: "null"
+          default: null
+          title: "Total Bytes"
+        free_bytes:
+          anyOf:
+            -
+              minimum: 0
+              type: "integer"
+            -
+              type: "null"
+          default: null
+          title: "Free Bytes"
+      required:
+        - "mount"
+        - "status"
+      title: "ServerHealthVolumeV1"
       type: "object"
     DeviceContextNetworkV1:
       additionalProperties: false
@@ -10364,6 +10519,12 @@ components:
           type: "array"
           maxItems: 64
           title: "Services"
+        server:
+          anyOf:
+            -
+              "$ref": "#/components/schemas/ServerHealthV1"
+            -
+              type: "null"
       additionalProperties: false
       type: "object"
       required:
@@ -12604,6 +12765,149 @@ components:
         - "kind"
         - "value"
       title: "RecipeLiteralBindingV1"
+    ServerHealthApplicationV1:
+      properties:
+        name:
+          type: "string"
+          maxLength: 128
+          minLength: 3
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          title: "Name"
+        status:
+          type: "string"
+          enum:
+            - "ok"
+            - "failed"
+            - "unknown"
+          title: "Status"
+        http_status:
+          anyOf:
+            -
+              type: "integer"
+              maximum: 599.0
+              minimum: 100.0
+            -
+              type: "null"
+          title: "Http Status"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "name"
+        - "status"
+      title: "ServerHealthApplicationV1"
+    ServerHealthServiceV1:
+      properties:
+        name:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          title: "Name"
+        status:
+          type: "string"
+          enum:
+            - "ok"
+            - "failed"
+            - "missing"
+            - "unknown"
+          title: "Status"
+        observed_state:
+          anyOf:
+            -
+              type: "string"
+              maxLength: 64
+              minLength: 1
+            -
+              type: "null"
+          title: "Observed State"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "name"
+        - "status"
+      title: "ServerHealthServiceV1"
+    ServerHealthV1:
+      properties:
+        role:
+          type: "string"
+          enum:
+            - "endpoint_platform"
+            - "openvpn"
+            - "directum"
+            - "ad_consultant"
+          title: "Role"
+        services:
+          items:
+            "$ref": "#/components/schemas/ServerHealthServiceV1"
+          type: "array"
+          maxItems: 16
+          title: "Services"
+        volumes:
+          items:
+            "$ref": "#/components/schemas/ServerHealthVolumeV1"
+          type: "array"
+          maxItems: 16
+          title: "Volumes"
+        applications:
+          items:
+            "$ref": "#/components/schemas/ServerHealthApplicationV1"
+          type: "array"
+          maxItems: 16
+          title: "Applications"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "role"
+        - "services"
+        - "volumes"
+        - "applications"
+      title: "ServerHealthV1"
+    ServerHealthVolumeV1:
+      properties:
+        mount:
+          type: "string"
+          maxLength: 256
+          minLength: 1
+          title: "Mount"
+        status:
+          type: "string"
+          enum:
+            - "ok"
+            - "warning"
+            - "critical"
+            - "missing"
+            - "unknown"
+          title: "Status"
+        used_percent:
+          anyOf:
+            -
+              type: "number"
+              maximum: 100.0
+              minimum: 0.0
+            -
+              type: "null"
+          title: "Used Percent"
+        total_bytes:
+          anyOf:
+            -
+              type: "integer"
+              exclusiveMinimum: 0.0
+            -
+              type: "null"
+          title: "Total Bytes"
+        free_bytes:
+          anyOf:
+            -
+              type: "integer"
+              minimum: 0.0
+            -
+              type: "null"
+          title: "Free Bytes"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "mount"
+        - "status"
+      title: "ServerHealthVolumeV1"
     ServiceCollection:
       properties:
         id:

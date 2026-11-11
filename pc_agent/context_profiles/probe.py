@@ -2,18 +2,26 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
 import os
 from pathlib import Path
 import shutil
 import signal
+import socket
 import subprocess
 import threading
 import time
 
+import aiohttp
+import psutil
+
+from .server_health import ROLES
+
 
 MAX_PROBE_BYTES = 65_536
 WINDOWS_INVENTORY_TIMEOUT_SECONDS = 8.0
+_HTTP_PROBE_TIMEOUT = 2.0
 TERMINATION_GRACE_SECONDS = 0.2
 _DRAIN_JOIN_GRACE_SECONDS = 0.2
 
@@ -34,6 +42,8 @@ WHO_COMMAND = ("who",)
 # Invoke the native session tool directly: query.exe can return its own nonzero
 # dispatcher status even when quser.exe successfully returns interactive rows.
 WINDOWS_QUERY_USER_COMMAND = ("quser",)
+OPENVPN_UDP_PORT = 1194
+OPENVPN_SOCKET_COMMAND = ("ss", "-H", "-l", "-u", "-n", "sport", "=", f":{OPENVPN_UDP_PORT}")
 WINDOWS_NETWORK_COMMAND = (
     "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
     "$n=@(Get-CimInstance Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=True'|ForEach-Object{[pscustomobject]@{name=$_.Description;mac=$_.MACAddress;ipv4=@($_.IPAddress|Where-Object{$_ -match '^\\d+\\.'});ipv6=@($_.IPAddress|Where-Object{$_ -match ':'});index=[int]$_.InterfaceIndex;link_type='ethernet';operational_state='unknown'}});$r=Get-CimInstance Win32_IP4RouteTable -Filter \"Destination='0.0.0.0' AND Mask='0.0.0.0'\"|Sort-Object Metric1|Select-Object -First 1;[pscustomobject]@{interfaces=$n;default_interface_index=if($r){[int]$r.InterfaceIndex}else{$null};default_gateway=if($r){$r.NextHop}else{$null}}|ConvertTo-Json -Depth 5 -Compress",
@@ -63,8 +73,18 @@ _ALLOWED_COMMANDS = frozenset(
         WINDOWS_NETWORK_COMMAND,
         WINDOWS_PHYSICAL_STORAGE_COMMAND,
         WINDOWS_INVENTORY_COMMAND,
+        OPENVPN_SOCKET_COMMAND,
     }
 )
+
+_SERVER_SERVICE_COMMANDS = {
+    unit: ("systemctl", "show", "--property=LoadState,ActiveState,SubState", "--no-pager", "--", unit)
+    for role in ROLES.values()
+    if role.platform == "linux"
+    for unit in role.services
+}
+_ALLOWED_COMMANDS |= frozenset(_SERVER_SERVICE_COMMANDS.values())
+_SERVER_VOLUMES = frozenset(volume.mount for role in ROLES.values() for volume in role.volumes)
 
 
 class SystemProbe:
@@ -73,6 +93,56 @@ class SystemProbe:
     @property
     def platform_name(self) -> str:
         return "windows" if os.name == "nt" else "linux"
+
+    def server_service_state(self, name: str) -> str:
+        if os.name == "nt":
+            try:
+                return psutil.win_service_get(name).status()
+            except psutil.NoSuchProcess:
+                return "missing"
+        output = self.run(_SERVER_SERVICE_COMMANDS[name], 2.0, 512)
+        fields = dict(line.split("=", 1) for line in output.splitlines() if "=" in line)
+        if fields.get("LoadState") == "not-found":
+            return "missing"
+        active, sub = fields.get("ActiveState"), fields.get("SubState")
+        return f"{active}/{sub}" if active and sub else "unknown"
+
+    def server_local_mounts(self) -> set[str]:
+        if os.name == "nt":
+            import ctypes
+
+            # DRIVE_FIXED (3) excludes mapped, removable and unavailable drives.
+            return {
+                mount for mount in _SERVER_VOLUMES
+                if len(mount) == 3 and mount[1:] == ":\\"
+                and ctypes.windll.kernel32.GetDriveTypeW(mount) == 3
+            }
+        return {
+            part.mountpoint for part in psutil.disk_partitions(all=False)
+            if part.mountpoint in _SERVER_VOLUMES
+            and (part.device.startswith("/dev/") or part.fstype == "zfs")
+        }
+
+    def server_disk_usage(self, mount: str):
+        if mount not in _SERVER_VOLUMES:
+            raise ValueError("unknown server mount")
+        return psutil.disk_usage(mount)
+
+    def server_http_status(self, port: int, path: str) -> int:
+        return asyncio.run(_server_http_status(port, path))
+
+    def server_udp_listener(self, port: int) -> bool:
+        if port != OPENVPN_UDP_PORT:
+            raise ValueError("unknown server UDP listener")
+        output = self.run(OPENVPN_SOCKET_COMMAND, 2.0, 4096, check_exit=True)
+        return any(line.startswith("UNCONN ") for line in output.splitlines())
+
+    def server_tcp_listener(self, port: int) -> bool:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=2.0):
+                return True
+        except ConnectionRefusedError:
+            return False
 
     def windows_system(self) -> dict[str, object]:
         from pc_agent.platform.windows.identity import native_system
@@ -202,7 +272,9 @@ class SystemProbe:
         with Path(path).open("rb") as source:
             return source.read(limit).decode("utf-8", errors="replace")
 
-    def run(self, argv: Sequence[str], timeout_seconds: float, max_bytes: int) -> str:
+    def run(
+        self, argv: Sequence[str], timeout_seconds: float, max_bytes: int, *, check_exit: bool = False,
+    ) -> str:
         command = tuple(str(item) for item in argv)
         if command not in _ALLOWED_COMMANDS:
             raise ValueError("context probe command is not allowlisted")
@@ -213,19 +285,26 @@ class SystemProbe:
         if not executable:
             raise FileNotFoundError(command[0])
         try:
-            if command in {WINDOWS_QUERY_USER_COMMAND, JOURNAL_COMMAND}:
-                # Keep stderr and nonzero exits out of session and journal
-                # observations instead of treating error text as data.
-                output = _execute_bounded_command(
-                    (executable, *command[1:]), timeout_seconds, limit, check_exit=True,
-                )
-            else:
-                output = _execute_bounded_command((executable, *command[1:]), timeout_seconds, limit)
+            output = _execute_bounded_command(
+                (executable, *command[1:]), timeout_seconds, limit, check_exit=check_exit or command in {WINDOWS_QUERY_USER_COMMAND, JOURNAL_COMMAND},
+            )
         except subprocess.TimeoutExpired as exc:
             raise TimeoutError("context probe command timed out") from exc
         if command == WINDOWS_QUERY_USER_COMMAND and os.name == "nt":
             return output.decode("oem", errors="strict")
         return output.decode("utf-8", errors="replace")
+
+
+async def _server_http_status(port: int, path: str) -> int:
+    timeout = aiohttp.ClientTimeout(total=_HTTP_PROBE_TIMEOUT)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout, trust_env=False) as session:
+            async with session.get(f"http://127.0.0.1:{port}{path}", allow_redirects=False) as response:
+                return response.status
+    except aiohttp.ClientConnectorError as error:
+        raise error.os_error from error
+    except aiohttp.ClientError as error:
+        raise ValueError("invalid local HTTP response") from error
 
 
 def _bounded_limit(max_bytes: int) -> int:

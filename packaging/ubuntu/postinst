@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+if [ "$1" = configure ]; then
+    systemd-sysusers /usr/lib/sysusers.d/endpoint-agent-ubuntu.conf
+    systemd-tmpfiles --create /usr/lib/tmpfiles.d/endpoint-agent-ubuntu.conf
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload
+        if systemctl is-active --quiet endpoint-agent-ubuntu.service; then
+            deb-systemd-invoke restart endpoint-agent-ubuntu.service
+        fi
+    fi
+fi

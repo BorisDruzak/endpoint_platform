@@ -394,6 +394,11 @@ Runtime-only update ZIPs carry their own source/version and explicit minimum
 launcher contract; the 3.2.121 session correction requires foundation 3.2.120.
 This does not replace or relabel the separately signed 3.2.120 MSI foundation.
 
+The optional server role in `context_profiles/server_health.py` adds service,
+volume and loopback application checks to the existing `health_v1` collection.
+`context_profiles/probe.py` supplies the local read-only probes and the console
+displays the typed section. See `docs/runbooks/SERVER_AGENT_HEALTH.md`.
+
 Endpoint Policy delivery and ACK run in `policy/runtime.py` through the same
 Gateway connection. The Windows local sensor boundary has a service-owned,
 cancellable named-pipe listener in `platform/windows/sensor_pipe_listener.py`.

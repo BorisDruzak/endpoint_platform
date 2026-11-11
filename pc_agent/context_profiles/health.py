@@ -4,12 +4,25 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from endpoint_contracts.context import DeviceContextHealthV1
+from endpoint_contracts.context import DeviceContextHealthV1, HealthSectionsV1
 
 from .probe import NETWORK_MANAGER_STATUS_COMMAND, SSHD_STATUS_COMMAND
+from .server_health import collect_server_health
 
 
 def collect_health(probe: object, *, collected_at: datetime | None = None) -> DeviceContextHealthV1:
+    base = _collect_base_health(probe, collected_at=collected_at)
+    warnings = list(base.warnings)
+    server = collect_server_health(probe, warnings=warnings)
+    if server is None and warnings == base.warnings:
+        return base
+    sections = HealthSectionsV1(
+        resources=base.sections.resources, services=base.sections.services, server=server,
+    )
+    return base.model_copy(update={"sections": sections, "warnings": list(dict.fromkeys(warnings))[:16]})
+
+
+def _collect_base_health(probe: object, *, collected_at: datetime | None) -> DeviceContextHealthV1:
     if _is_windows(probe):
         return _collect_windows_health(probe, collected_at=collected_at)
     warnings: list[str] = []

@@ -15,6 +15,7 @@ from endpoint_contracts.capabilities import MODULE_CAPABILITY_REGISTRY
 from endpoint_contracts.updates import SemanticVersionV1
 
 from endpoint_contracts.context import (
+    ServerRoleV1,
     BaselineSectionsV1, HealthSectionsV1, InventorySectionsV1,
     NetworkSectionsV1, SessionSectionsV1,
 )
@@ -174,6 +175,7 @@ class ConsoleFleetDevice(BaseModel):
     platform: str | None
     os_name: str | None
     os_version: str | None
+    server_role: ServerRoleV1 | None = None
     cpu_model: str | None
     ram_bytes: int | None
     current_user: str | None
@@ -534,7 +536,7 @@ async def console_device_detail(
         )).all()
         snapshots = []
         for row, current in rows:
-            safe = snapshot_projection(row)
+            safe = snapshot_projection(row, include_server_health=True)
             if safe is not None:
                 safe["last_observed_at"] = current.last_observed_at or current.updated_at
                 snapshots.append(safe)
@@ -725,7 +727,7 @@ async def console_context_history(
             .order_by(ContextSnapshot.collected_at.desc(), ContextSnapshot.id.desc())
             .limit(limit + 1).offset(offset))).all()
     now = datetime.now(UTC)
-    safe = [snapshot_projection(row) for row in rows[:limit]]
+    safe = [snapshot_projection(row, include_server_health=True) for row in rows[:limit]]
     return ConsoleContextHistoryPage(
         data=[ConsoleCurrentSnapshot.model_validate({
             **item,

@@ -714,6 +714,21 @@ def test_windows_has_one_service_update_owner_outside_connected_tasks(tmp_path, 
             task.close()
 
 
+def test_linux_deb_leaves_core_update_to_the_package_manager(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from pc_agent.runtime import application
+
+    monkeypatch.setattr(application, "os", SimpleNamespace(name="posix"))
+    settings = application.RuntimeSettings(
+        data_root=tmp_path / "data", install_root=tmp_path / "install",
+        ca_file=tmp_path / "ca.crt", endpoint_origin=_ORIGIN, transport_mode="gateway_wss",
+        package_managed_updates=True,
+    )
+    websocket = object.__new__(application.WebSocketGatewayTransport)
+    dependencies = application._default_dependencies()
+    assert dependencies.create_connected_tasks(settings, "c" * 43, websocket) == ()
+
+
 @pytest.mark.asyncio
 async def test_windows_update_task_reports_a_confirmed_startup_before_polling(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,

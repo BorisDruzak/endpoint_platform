@@ -128,6 +128,32 @@ async def _serve(root: Path) -> None:
             device_id=device.id, profile="inventory_v1", snapshot_id=snapshot.id,
             updated_at=now,
         ))
+        server_snapshot = ContextSnapshot(
+            id=uuid4(), collection_id=uuid4(), device_id=lab_device.id,
+            profile="health_v1", collected_at=now, raw_payload={},
+            normalized_projection={
+                "schema_version": "device_context_v1", "profile": "health_v1",
+                "collected_at": now.isoformat(), "warnings": [],
+                "sections": {
+                    "resources": {"uptime_seconds": 60, "load_1m": 0, "free_bytes": 1024},
+                    "services": [],
+                    "server": {
+                        "role": "endpoint_platform",
+                        "services": [{"name": "endpoint-platform.service", "status": "ok",
+                                      "observed_state": "active/running"}],
+                        "volumes": [{"mount": "/", "status": "critical", "used_percent": 98.6,
+                                     "total_bytes": 40000000000, "free_bytes": 548327424}],
+                        "applications": [{"name": "endpoint_api_health", "status": "ok", "http_status": 200}],
+                    },
+                },
+            },
+        )
+        session.add(server_snapshot)
+        await session.flush()
+        session.add(ContextCurrent(
+            device_id=lab_device.id, profile="health_v1", snapshot_id=server_snapshot.id,
+            updated_at=now,
+        ))
         rollout = UpdateRollout(
             rollout_identifier="console-e2e-rollout", build_id=build.id, mode="canary",
             reason="Проверка консоли", status="completed", started_at=now,
