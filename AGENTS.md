@@ -44,7 +44,18 @@
 
 # Canonical agent release
 
-- Current Windows rollout checkpoint, 2026-11-11T10:52Z: policy17 is enabled
+- Current Windows rollout checkpoint, 2026-11-11T11:51Z: all three first-wave
+  Windows187 to189 policy17 assignments on .27/.22/.29 accepted native0 with
+  fresh UserSensor and Support1.1.4. Signed Full Setup190 contains the Windows
+  CIM timeout fix. .27 qualified exact source189 through 2026-12-11T11:42Z.
+  .27/.22/.29 all applied190 with native0, observed user sensors, and fresh
+  Windows x86_64 inventory without warnings. Test120 already has Core190 on
+  Foundation189 and retains that proven inventory path. The three 190
+  assignments were explicit. Policy17 still targets189 from qualified
+  Foundation187. Windows primary177/Linux183 remain current. See the
+  [190 receipt](docs/verification/2026-11-11-windows190-inventory-fleet.md).
+
+- Historical Windows rollout checkpoint, 2026-11-11T10:52Z: policy17 is enabled
   on signed189/all_active/max2. Exact source Foundation187 is qualified through
   2026-12-11T10:27Z. Test120 applied187 to189 with native0, 185.769 seconds and
   one UserSensor. Support1.1.4 had already passed missing OpenSSH Server

@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "version": "3.2.190",
+  "platform": "windows_amd64",
+  "status": "qualified_foundation_189_inventory_rollout_applied",
+  "runtime_source_commit": "e453348935be155f7112640640449603d7f4901d",
+  "inventory_fix_commit": "77c5a3526f9297bda04c4e02b12d30a407599e3e",
+  "windows_packaging_commit": "70ad18dfb0e3ca22c021094fe4c981618b7380ec",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.190.json",
+  "setup": {
+    "filename": "EndpointAgentSetup-3.2.190-x64.exe",
+    "sha256": "69f7e796084a1cff3221c710c4cb3c35e08b1796c9ad0bc0ac4147cb37e41922",
+    "size": 167011584,
+    "release_id": "9e97c357-b9bf-4768-8bfb-5f5b7cf70273",
+    "download_published": false,
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+    "operator_path": "C:/endpoint-platform-wix-build/setup190-inbox-e453348/native-setup-build/releases/EndpointAgentSetup-3.2.190-x64.exe"
+  },
+  "msi": {
+    "sha256": "f260b1b45839f6ad95e70b50c22e7e86689a4a833b2b31ff5755d1b47755cdc6",
+    "size": 125190144,
+    "product_code": "{6C74E1BF-CB93-4733-AF2F-2403B4186F19}"
+  },
+  "support": {
+    "component_version": "1.1.4",
+    "sha256": "072126d6bcef1cd5a713ba2b47236121b149d96745c754c0e710e902005af4ac",
+    "size": 10153656,
+    "profile": "windows-openssh-fod-v1",
+    "bundled_preview_archive": false
+  },
+  "observer": {
+    "version": "1.0.8",
+    "sha256": "11e4793a2064726f956ce9eac12c50e04b785012cacb161e6fed154ef9447a66"
+  },
+  "setup_update_release_id": "2d146409-2a61-45df-9709-aa15dbf42c56",
+  "initial_runtime": {
+    "file_count": 119,
+    "tree_sha256": "7fae2aa5d5c5f041f5aa6f41510ff3460091d92066d16ccbd6ff2cb63bbe98f7",
+    "component_guid": "77504EDD-A400-4612-B7EE-CC56DAC419C7",
+    "source_file_count": 321
+  },
+  "canary_assignment_id": "3a58c2b4-2bd2-4792-9133-6c9ea56486eb",
+  "source_qualifications": [
+    {
+      "id": "d4a0b921-64a8-4982-ab7d-23b43dc1b08a",
+      "release_id": "2d146409-2a61-45df-9709-aa15dbf42c56",
+      "source_foundation": "3.2.189",
+      "evidence_assignment_id": "3a58c2b4-2bd2-4792-9133-6c9ea56486eb",
+      "qualified_at": "2026-11-11T11:42:19.791685Z",
+      "expires_at": "2026-12-11T11:42:19.791685Z"
+    }
+  ],
+  "deployment": {
+    "scope": "three_windows_189_first_wave_workstations",
+    "assignments": [
+      {"address": "192.168.101.27", "id": "3a58c2b4-2bd2-4792-9133-6c9ea56486eb", "status": "applied"},
+      {"address": "192.168.101.22", "id": "d05e85c3-302e-496b-8d5d-94245ca9ab8a", "status": "applied"},
+      {"address": "192.168.101.29", "id": "95354561-2705-4420-a0a0-443aac2eae1a", "status": "applied"}
+    ],
+    "inventory_verified_after_install": true
+  },
+  "verification": "docs/verification/2026-11-11-windows190-inventory-fleet.md"
+}
