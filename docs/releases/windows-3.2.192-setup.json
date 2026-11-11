@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "version": "3.2.192",
+  "platform": "windows_amd64",
+  "status": "candidate_native_applied_support_activated_automatically",
+  "runtime_source_commit": "050b541ff0783678ef34df804455ba7f602660a6",
+  "windows_packaging_commit": "721b0ad9061d8120a186bd4424fbcdcf04ed55bd",
+  "support_activation_retry_commit": "5bf715de790c1ddb82414dfbed43d57d2aa870f0",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.192.json",
+  "setup": {
+    "filename": "EndpointAgentSetup-3.2.192-x64.exe",
+    "sha256": "b2552b0c46b31d93821679fd41188dd7324e4830f98aee300a772eaa223239b9",
+    "size": 167018248,
+    "release_id": "7aaa9dc6-332a-4caf-a404-a40ed5508d84",
+    "download_published": false,
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+    "operator_path": "C:/endpoint-platform-wix-build/setup192-inbox-050b541/native-setup-build/releases/EndpointAgentSetup-3.2.192-x64.exe"
+  },
+  "msi": {
+    "sha256": "32d3888e7ee1ddbe15dc262200ac4365ea3279cbd52bab02077d0dde5e6ae1ff",
+    "size": 125198336,
+    "product_code": "{ED424664-ADA7-496F-8E49-D43E053091AB}"
+  },
+  "support": {
+    "component_version": "1.1.6",
+    "sha256": "4f5dc4be2e2e7440f80fedb098a530a3fc5dc6b680903956360e56f14531657e",
+    "size": 10154744,
+    "profile": "windows-openssh-fod-v1",
+    "bundled_preview_archive": false
+  },
+  "observer": {
+    "version": "1.0.8",
+    "sha256": "11e4793a2064726f956ce9eac12c50e04b785012cacb161e6fed154ef9447a66"
+  },
+  "setup_update_release_id": "2bfa120d-b182-41b5-ae98-f3354638e96c",
+  "initial_runtime": {
+    "file_count": 119,
+    "tree_sha256": "1b1780da7a84ff449a5f7dae6c4900f761a7491aa1a053f359a6fa6ad0f3213e",
+    "component_guid": "899C0965-51BB-4603-B7B6-F5956C16BA13"
+  },
+  "canary": {
+    "address": "192.168.101.120",
+    "assignment_id": "d1c452b8-ad1b-4431-9452-ed8bfb97ccc3",
+    "source_foundation": "3.2.191",
+    "source_core": "3.2.191",
+    "native_status": "applied",
+    "native_exit": 0,
+    "stable_seconds": 185.779,
+    "support_installed_automatically": true,
+    "support_activation_retry_observed": false,
+    "direct_windows_10_source_177_verified": false
+  },
+  "source_qualifications": [],
+  "verification": "docs/verification/2026-11-11-windows192-support-activation.md"
+}
