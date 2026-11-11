@@ -130,7 +130,8 @@ _SUPPORT_ERROR_CODES = _SUPPORT_ERROR_CODES | {'support_dependency_recovery_requ
 
 
 def safe_support_error_code(value) -> str:
-    return value if isinstance(value,str) and value in _SUPPORT_ERROR_CODES else 'support_install_failed'
+    from .support_access import RESTORED_ACTIVATION_CODES
+    return value if isinstance(value,str) and value in (_SUPPORT_ERROR_CODES | RESTORED_ACTIVATION_CODES) else 'support_install_failed'
 
 
 def install_enrolled_support(data_root: Path) -> dict:
@@ -142,6 +143,7 @@ def install_enrolled_support(data_root: Path) -> dict:
     """
     import json
     import subprocess
+    from .support_access import RESTORED_ACTIVATION_CODES
     from .update_paths import _native_folder
     expected = _native_folder(0x23)/'Endpoint Platform'/'Agent'
     if Path(data_root).resolve() != expected.resolve():
@@ -149,17 +151,24 @@ def install_enrolled_support(data_root: Path) -> dict:
     executable = _native_folder(0x26)/'Endpoint Platform'/'Agent'/'EndpointSupportAccess.exe'
     if not executable.is_file():
         return {'installed':False,'error':'support_not_installed'}
-    try:
-        result = subprocess.run([str(executable),'--install'],shell=False,capture_output=True,
-            text=True,timeout=None,creationflags=subprocess.CREATE_NO_WINDOW)
-        if not isinstance(result.stdout,str) or len(result.stdout.encode('utf-8'))>4096:
-            return {'installed':False,'error':'support_install_failed'}
-        value = json.loads(result.stdout)
-        if result.returncode==0 and value.get('installed') is True:
-            return {'installed':True}
-        return {'installed':False,'error':safe_support_error_code(value.get('error'))}
-    except Exception:
+    def activate():
+        try:
+            result = subprocess.run([str(executable),'--install'],shell=False,capture_output=True,
+                text=True,timeout=None,creationflags=subprocess.CREATE_NO_WINDOW)
+            if isinstance(result.stdout,str) and len(result.stdout.encode('utf-8'))<=4096:
+                value = json.loads(result.stdout)
+                if result.returncode==0 and value.get('installed') is True:
+                    return {'installed':True}
+                if result.returncode==1 and value.get('installed') is False:
+                    return {'installed':False,'error':safe_support_error_code(value.get('error'))}
+        except Exception:
+            pass
         return {'installed':False,'error':'support_install_failed'}
+
+    result = activate()
+    if result.get('error') in RESTORED_ACTIVATION_CODES:
+        return dict(activate(), activation_retry=result['error'])
+    return result
 
 
 class HttpsWindowsEnrollmentClient:

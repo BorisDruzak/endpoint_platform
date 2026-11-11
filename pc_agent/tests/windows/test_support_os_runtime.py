@@ -276,6 +276,55 @@ def test_reset_then_failed_start_restores_only_compatible_dependencies(tmp_path)
             activation.apply(reload=True)
 
 
+@pytest.mark.parametrize('restored_running,code', [
+    (True, 'support_activation_start_restored'),
+    (False, 'service control busy'),
+])
+def test_only_a_restored_running_service_can_authorize_an_activation_retry(
+    tmp_path, restored_running, code,
+):
+    from pc_agent.platform.windows.support_access_native import PayloadActivation
+    from pc_agent.tests.windows.test_support_access import _PayloadTestOps
+
+    original = {'device_id': DEVICE, 'origin': 'https://endpoint.sosnadmin.local',
+                'credential_id': 'unchanged', 'dependencies': {'profile': 'old'}}
+    config = tmp_path / 'support.json'
+    config.write_text(json.dumps(original))
+    (tmp_path / 'credential').write_bytes(b'old-authority')
+    source = tmp_path / 'new.exe'
+    source.write_bytes(b'new')
+    target = tmp_path / 'active.exe'
+    target.write_bytes(b'old')
+
+    class Ops(_PayloadTestOps):
+        running = True
+
+        def protect(self, path):
+            pass
+
+        def capture_service(self, path):
+            return {'config': ('owned service',), 'running': self.running}
+
+        def stop_for_update(self, path):
+            self.running = False
+
+        def install_service(self, path):
+            error = OSError('service control busy')
+            error.winerror = 1061
+            raise error
+
+        def restore_service(self, path, state):
+            self.running = restored_running
+
+    with pytest.raises((OSError, RuntimeError), match=code):
+        with PayloadActivation(Ops(), source, target) as activation:
+            activation.snapshot_configuration(config)
+            config.write_text(json.dumps(original | {'dependencies': {'profile': 'new'}}))
+            activation.apply(reload=True)
+    assert target.read_bytes() == b'old'
+    assert json.loads(config.read_text()) == original
+
+
 def test_loss_of_tunnel_invalidates_same_candidate_initialized_proof(tmp_path,monkeypatch):
     import sys
     from pc_agent.platform.windows import support_access_readiness as ready,support_access_native as native

@@ -192,6 +192,8 @@ def main():
             known.update({'unsafe_support_path','invalid_support_origin','support_signature_invalid',
                           'support_payload_recovery_required','support_service_not_ready','support_install_busy',
                           'support_bundle_invalid','support_bundle_signature_invalid','support_dependency_migration_unsupported'})
+            from .support_access import RESTORED_ACTIVATION_CODES
+            known.update(RESTORED_ACTIVATION_CODES)
             known.add('support_dependency_recovery_required')
             code = str(error) if str(error) in known else 'support_install_failed'
             print(json.dumps({'installed':False,'error':code}))

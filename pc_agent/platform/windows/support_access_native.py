@@ -291,14 +291,18 @@ class PayloadActivation:
             raise ValueError('support_payload_changed')
         self.stop()
         moved=False
+        phase='image'
         try:
             if self.changed:
                 os.replace(self.pending,self.target);moved=True
+            phase='start'
             self.ops.install_service(self.target)
+            phase='readiness'
             self.ops.prove_service_ready(self.target)
+            phase=None
             self.applied=True
             if self.previous.exists():self.previous.unlink()
-        except BaseException:
+        except BaseException as error:
             try:self.ops.stop_for_update(self.target)
             except BaseException:
                 # Keep the authenticated rollback image if exact process exit
@@ -316,6 +320,15 @@ class PayloadActivation:
             elif self.previous.exists():os.replace(self.previous,self.target)
             self.ops.restore_service(self.target,self.state)
             self.compensated=True
+            transient = (getattr(error,'winerror',None) in {32,33,1053,1061,1062}
+                         or isinstance(error,RuntimeError) and str(error)=='support_service_not_ready')
+            if (phase and transient and self.old and self.state and self.state['running']
+                    and self.configuration_compensation and self.configuration is not None
+                    and self.authority is not None
+                    and self.ops.capture_service(self.target)==self.state
+                    and self.ops.inspect_payload(self.target)['sha256']==self.old['sha256']
+                    and self.config_path.read_bytes()==self.configuration):
+                raise RuntimeError(f'support_activation_{phase}_restored') from error
             raise
 
     def stop(self):
@@ -447,7 +460,10 @@ $v=(Get-Item -LiteralPath $p).VersionInfo
             win32service.ChangeServiceConfig(service,config[0],config[1],config[2],config[3],
                 config[4],0,config[6],config[7],None,config[8])
         finally:win32service.CloseServiceHandle(service);win32service.CloseServiceHandle(manager)
-        if not state['running']:self.stop_for_update(target)
+        if state['running']:
+            win32serviceutil.WaitForServiceStatus(SERVICE_NAME,win32service.SERVICE_RUNNING,30)
+        else:
+            self.stop_for_update(target)
 
     def rotate_keys(self, root: Path):
         assert_private(root)
