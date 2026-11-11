@@ -99,6 +99,18 @@ async def test_same_or_newer_foundation_is_never_reinstalled_or_downgraded(db, f
         assert (await decision(db, fleet)).code == 'already_current'
 
 
+async def test_fleet_does_not_stage_setup_over_an_existing_target_core(db, fleet):
+    from endpoint_server.setup_updates.service import record_presence
+
+    device, release, _, instance = fleet
+    instance.agent_version = release.version
+    await record_presence(db, device.id, dict(client_version='1.0.5', ready=True,
+        foundation_version=instance.launcher_version, core_version=release.version), now=NOW)
+
+    result = await decision(db, fleet)
+    assert (result.status, result.code) == ('blocked', 'source_unsupported')
+
+
 async def test_unknown_and_unqualified_source_are_persistably_blocked(db, fleet):
     fleet[3].launcher_version = '3.2.157'
     assert (await decision(db, fleet)).code == 'source_not_qualified'

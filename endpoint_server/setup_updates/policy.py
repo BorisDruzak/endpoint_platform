@@ -296,7 +296,8 @@ def evaluate_device(policy, release, facts, *, now):
         return Decision('blocked', 'source_unknown')
     if foundation >= target:
         return Decision('already_current', 'already_current')
-    if core > target or foundation < (3, 2, 156) or core < (3, 2, 156):
+    # A Core-only update at the target already owns the native Setup staging slot.
+    if core >= target or foundation < (3, 2, 156) or core < (3, 2, 156):
         return Decision('blocked', 'source_unsupported')
     if facts['previous']:
         return Decision('blocked', 'previous_attempt_requires_review')
