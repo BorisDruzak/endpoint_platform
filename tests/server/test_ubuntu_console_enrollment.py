@@ -88,6 +88,24 @@ def test_debian_deb_keeps_its_release_and_single_host_approval():
     assert not linux_campaign_allows(record, campaign, now=now)
 
 
+@pytest.mark.parametrize(("hostname", "address"), [("pve2", "10.83.1.12"), ("pve3", "10.83.1.13")])
+def test_new_proxmox_nodes_use_corrected_debian_release(hostname, address):
+    body = ubuntu_requests.DebianDebRequest.model_validate(payload() | {
+        "schema_version": "debian_deb_enrollment_request_v1",
+        "hostname": hostname,
+        "package_version": "3.2.194-1deb12u1",
+        "package_sha256": "a6345b2a4385b62965732f558d9f950df4f9beaf1e70ba75cf9c2a06d46317f1",
+    })
+    now = datetime.now(UTC)
+    record, _ = ubuntu_requests.build_request(body, address=ip_address(address), pepper=b"test", now=now)
+    assert record.installer_release_id == "debian-deb:3.2.194-1deb12u1"
+    with pytest.raises(EnrollmentDenied):
+        ubuntu_requests.build_request(body.model_copy(update={
+            "package_version": "3.2.193-1deb12u1",
+            "package_sha256": "cc8ebf1da12d9f8106dd1ab627cd1517a3801c63c1315cf19524c54370b967fc",
+        }), address=ip_address(address), pepper=b"test", now=now)
+
+
 async def run_ubuntu_enrollment_scenario(database_url: str):
     from httpx import ASGITransport, AsyncClient
     from sqlalchemy import select

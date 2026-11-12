@@ -75,13 +75,19 @@ class DebSource:
 
 
 UBUNTU = DebSource("ubuntu", PACKAGE_VERSION, PACKAGE_SHA256, POLICY_RELEASE, PILOT_HOSTS)
-DEBIAN = DebSource(
+DEBIAN_PILOT = DebSource(
     "debian", "3.2.193-1deb12u1",
     "cc8ebf1da12d9f8106dd1ab627cd1517a3801c63c1315cf19524c54370b967fc",
     UUID("b41cf4eb-7b68-4350-83ba-cc42d4e35bd2"),
+    {"10.83.1.11": "pve1"},
+)
+DEBIAN = DebSource(
+    "debian", "3.2.194-1deb12u1",
+    "a6345b2a4385b62965732f558d9f950df4f9beaf1e70ba75cf9c2a06d46317f1",
+    UUID("06f879fc-a618-4ec2-8d9e-232cfe2662e5"),
     {"10.83.1.11": "pve1", "10.83.1.12": "pve2", "10.83.1.13": "pve3"},
 )
-DEB_SOURCES = {source.release_id: source for source in (UBUNTU, DEBIAN)}
+DEB_SOURCES = {source.release_id: source for source in (UBUNTU, DEBIAN_PILOT, DEBIAN)}
 
 
 def is_deb_request(record: EnrollmentRequest) -> bool:
@@ -101,10 +107,11 @@ def validate_source(record: EnrollmentRequest) -> DebSource:
 
 
 def build_request(body: UbuntuDebRequest | DebianDebRequest, *, address, pepper: bytes, now: datetime):
-    source = DEBIAN if isinstance(body, DebianDebRequest) else UBUNTU
+    distro = "debian" if isinstance(body, DebianDebRequest) else "ubuntu"
+    source = DEB_SOURCES.get(f"{distro}-deb:{body.package_version}")
     if (
-        source.hosts.get(str(address)) != body.hostname
-        or body.package_version != source.version
+        source is None
+        or source.hosts.get(str(address)) != body.hostname
         or body.package_sha256 != source.sha256
     ):
         raise EnrollmentDenied("Exact DEB source required")
@@ -183,7 +190,7 @@ async def _create_request(body: UbuntuDebRequest | DebianDebRequest, request: Re
                 return project(existing)
             outstanding = await session.scalar(select(EnrollmentRequest.id).where(
                 EnrollmentRequest.source_address == candidate.source_address,
-                EnrollmentRequest.installer_release_id == candidate.installer_release_id,
+                EnrollmentRequest.installer_release_id.in_(tuple(DEB_SOURCES)),
                 EnrollmentRequest.expires_at > now,
                 EnrollmentRequest.status.in_(["waiting_approval", "approved", "claim_issued", "enrolling"]),
             ).limit(1))

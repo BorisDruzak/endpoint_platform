@@ -42,8 +42,8 @@ case "$role" in
         distro=debian
         os_version=12
         package=endpoint-agent-debian
-        version=3.2.193-1deb12u1
-        digest=cc8ebf1da12d9f8106dd1ab627cd1517a3801c63c1315cf19524c54370b967fc
+        version=3.2.194-1deb12u1
+        digest=a6345b2a4385b62965732f558d9f950df4f9beaf1e70ba75cf9c2a06d46317f1
         ca=/etc/apt/keyrings/endpoint-debian-ca.crt
         probe_user=$package
         expected_services=(pveproxy.service pvedaemon.service pvestatd.service)
