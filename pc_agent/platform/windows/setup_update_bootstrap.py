@@ -16,6 +16,11 @@ import subprocess
 import sys
 from uuid import UUID
 
+from .authenticode_timestamp import has_verified_timestamp
+
+_PUBLISHER = '4D4C23389F5FF77BC4EB32044761019EAE8FB776'
+_POWERSHELL_TIMESTAMP_UNAVAILABLE = 22
+
 
 def packaged_client() -> Path | None:
     if os.name != 'nt' or not getattr(sys, 'frozen', False):
@@ -70,8 +75,7 @@ def _existing_client_verified(asset: Path) -> bool:
     import win32com.client
     from endpoint_contracts.runtime_payload import read_json
     from . import durable_state, installer_fence
-    from .authenticode_timestamp import has_verified_timestamp
-    from .native_setup_observer import _PUBLISHER, _assert_administrative_file, _verify_task
+    from .native_setup_observer import _assert_administrative_file, _verify_task
     from .update_paths import WindowsUpdatePaths
 
     paths = WindowsUpdatePaths.production()
@@ -101,7 +105,38 @@ def _existing_client_verified(asset: Path) -> bool:
         return False
 
 
+def _run_client_installer(asset: Path, *, native_timestamp: bool = False) -> int:
+    # Trust only the already chain-valid, fixed vendor leaf. AllSigned stays
+    # enabled, including domain policy; no arbitrary publisher/root is added.
+    literal = str(asset).replace("'", "''")
+    require_powershell_timestamp = '$false' if native_timestamp else '$true'
+    command = f"""
+$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
+$asset='{literal}'
+$pin=[IO.File]::Open($asset,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+try {{
+ $signature=Get-AuthenticodeSignature -LiteralPath $asset
+ if($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -cne '{_PUBLISHER}'){{exit 21}}
+ if({require_powershell_timestamp} -and !$signature.TimeStamperCertificate){{exit {_POWERSHELL_TIMESTAMP_UNAVAILABLE}}}
+ $store=[Security.Cryptography.X509Certificates.X509Store]::new('TrustedPublisher','LocalMachine')
+ try {{$store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite);if(!$store.Certificates.Find([Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint,$signature.SignerCertificate.Thumbprint,$false).Count){{$store.Add($signature.SignerCertificate)}}}}finally{{$store.Close()}}
+ & $asset -Mode Install
+ exit $LASTEXITCODE
+}}finally{{$pin.Dispose()}}
+"""
+    encoded = base64.b64encode(command.encode('utf-16-le')).decode('ascii')
+    result = subprocess.run(
+        [str(system_powershell()), '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
+         '-ExecutionPolicy', 'AllSigned', '-EncodedCommand', encoded],
+        shell=False, timeout=75, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL, creationflags=0x08000000 if os.name == 'nt' else 0,
+    )
+    return result.returncode
+
+
 def bootstrap_setup_client(settings) -> int:
+    from .durable_state import _pinned_copy_source
+
     asset = packaged_client()
     if asset is None:
         return 0
@@ -113,29 +148,10 @@ def bootstrap_setup_client(settings) -> int:
             return 0
         if authorized is True and _existing_client_verified(asset):
             return 0
-        # Trust only the already chain-valid, fixed vendor leaf. AllSigned stays
-        # enabled, including domain policy; no arbitrary publisher/root is added.
-        literal = str(asset).replace("'", "''")
-        command = f"""
-$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
-$asset='{literal}'
-$pin=[IO.File]::Open($asset,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
-try {{
- $signature=Get-AuthenticodeSignature -LiteralPath $asset
- if($signature.Status -ne 'Valid' -or !$signature.TimeStamperCertificate -or $signature.SignerCertificate.Thumbprint -cne '4D4C23389F5FF77BC4EB32044761019EAE8FB776'){{exit 21}}
- $store=[Security.Cryptography.X509Certificates.X509Store]::new('TrustedPublisher','LocalMachine')
- try {{$store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite);if(!$store.Certificates.Find([Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint,$signature.SignerCertificate.Thumbprint,$false).Count){{$store.Add($signature.SignerCertificate)}}}}finally{{$store.Close()}}
- & $asset -Mode Install
- exit $LASTEXITCODE
-}}finally{{$pin.Dispose()}}
-"""
-        encoded = base64.b64encode(command.encode('utf-16-le')).decode('ascii')
-        result = subprocess.run(
-            [str(system_powershell()), '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
-             '-ExecutionPolicy', 'AllSigned', '-EncodedCommand', encoded],
-            shell=False, timeout=75, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL, creationflags=0x08000000 if os.name == 'nt' else 0,
-        )
-        return 0 if result.returncode == 0 else 1
+        with _pinned_copy_source(asset):
+            result = _run_client_installer(asset)
+            if result == _POWERSHELL_TIMESTAMP_UNAVAILABLE and has_verified_timestamp(asset, _PUBLISHER):
+                result = _run_client_installer(asset, native_timestamp=True)
+        return 0 if result == 0 else 1
     except (OSError, ValueError, KeyError, subprocess.SubprocessError):
         return 1

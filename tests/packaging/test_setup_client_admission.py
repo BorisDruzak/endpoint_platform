@@ -8,6 +8,34 @@ import pytest
 SCRIPT = Path(__file__).resolve().parents[2] / 'packaging/windows/EndpointSetupUpdater.ps1'
 
 
+@pytest.mark.skipif(os.name != 'nt', reason='Native Authenticode verification')
+def test_client_uses_verified_native_stamp_only_for_pinned_publisher(tmp_path):
+    harness = tmp_path / 'stamp.ps1'
+    harness.write_text(r'''
+param($Script)
+$ErrorActionPreference='Stop';$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($Script,[ref]$tokens,[ref]$errors)
+foreach($name in 'Assert-SignedFile','Initialize-AuthenticodeTimestamp'){
+ $f=$ast.Find({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name},$true)
+ if(!$f){throw ('missing '+$name)};Invoke-Expression $f.Extent.Text
+}
+Initialize-AuthenticodeTimestamp
+if([EndpointSetupAuthenticodeTimestamp]::Verify($Script,('0'*40))){throw 'unsigned file accepted'}
+function Assert-NoReparse($path){}
+$script:Publisher='p';$script:Signature=[pscustomobject]@{Status='Valid';TimeStamperCertificate=$null;SignerCertificate=[pscustomobject]@{Thumbprint='p'}}
+function Get-AuthenticodeSignature($LiteralPath){return $script:Signature}
+function Test-NativeAuthenticodeTimestamp($path){return $script:NativeVerified}
+$script:NativeVerified=$true;Assert-SignedFile $Script $null
+$script:NativeVerified=$false;$rejected=$false
+try{Assert-SignedFile $Script $null}catch{$rejected=$true};if(!$rejected){throw 'missing timestamp accepted'}
+$script:NativeVerified=$true;$script:Signature.SignerCertificate.Thumbprint='foreign';$rejected=$false
+try{Assert-SignedFile $Script $null}catch{$rejected=$true};if(!$rejected){throw 'wrong publisher accepted'}
+''', encoding='utf-8')
+    result = subprocess.run(['powershell.exe', '-NoProfile', '-File', str(harness), str(SCRIPT)],
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 @pytest.mark.skipif(os.name != 'nt', reason='Native WTS failure admission')
 def test_wts_lookup_error_is_not_treated_as_proven_logout(tmp_path):
     harness=tmp_path/'wts.ps1'

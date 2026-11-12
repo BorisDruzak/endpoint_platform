@@ -2,7 +2,7 @@
 param([Parameter(Mandatory)][ValidateSet('Install','Run')][string]$Mode)
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
-$script:ClientVersion='1.0.8'
+$script:ClientVersion='1.0.9'
 $script:Publisher='4D4C23389F5FF77BC4EB32044761019EAE8FB776'
 $script:Origin='https://endpoint.sosnadmin.local'
 $script:ProgramFiles=[Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
@@ -133,11 +133,90 @@ function Write-PrivateJson([string]$path,$value){
  try{$f.Write($bytes,0,$bytes.Length);$f.Flush($true)}finally{$f.Dispose()}
  if(Test-Path -LiteralPath $path){Assert-AdministrativePath $path;[IO.File]::Replace($temporary,$path,[NullString]::Value)}else{[IO.File]::Move($temporary,$path)}
 }
+function Initialize-AuthenticodeTimestamp {
+ if('EndpointSetupAuthenticodeTimestamp' -as [type]){return}
+ Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography.X509Certificates;
+
+public static class EndpointSetupAuthenticodeTimestamp {
+ [StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)]
+ struct FileInfo { public uint Size; public string Path; public IntPtr Handle, Subject; }
+ [StructLayout(LayoutKind.Sequential)]
+ struct TrustData {
+  public uint Size; public IntPtr Policy, Sip; public uint Ui, Revocation, Choice;
+  public IntPtr File; public uint Action; public IntPtr State, Url;
+  public uint Flags, Context; public IntPtr SignatureSettings;
+ }
+ [StructLayout(LayoutKind.Sequential)]
+ struct Signer {
+  public uint Size; public System.Runtime.InteropServices.ComTypes.FILETIME VerifiedAsOf; public uint CertificateCount;
+  public IntPtr Certificates; public uint Kind; public IntPtr SignerInfo;
+  public uint Error, CounterCount; public IntPtr Counters, Chain;
+ }
+ [StructLayout(LayoutKind.Sequential)]
+ struct Certificate { public uint Size; public IntPtr Context; }
+
+ [DllImport("wintrust.dll", ExactSpelling=true), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+ static extern int WinVerifyTrust(IntPtr window,ref Guid policy,ref TrustData data);
+ [DllImport("wintrust.dll", ExactSpelling=true), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+ static extern IntPtr WTHelperProvDataFromStateData(IntPtr state);
+ [DllImport("wintrust.dll", ExactSpelling=true), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+ static extern IntPtr WTHelperGetProvSignerFromChain(IntPtr data,uint index,[MarshalAs(UnmanagedType.Bool)]bool counter,uint counterIndex);
+ [DllImport("wintrust.dll", ExactSpelling=true), DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+ static extern IntPtr WTHelperGetProvCertFromChain(IntPtr signer,uint index);
+
+ static IntPtr Leaf(IntPtr signer) {
+  IntPtr certificate=WTHelperGetProvCertFromChain(signer,0);
+  return certificate==IntPtr.Zero ? IntPtr.Zero : ((Certificate)Marshal.PtrToStructure(certificate,typeof(Certificate))).Context;
+ }
+ public static bool Verify(string path,string publisher) {
+  var file=new FileInfo { Size=(uint)Marshal.SizeOf(typeof(FileInfo)),Path=path };
+  IntPtr buffer=Marshal.AllocHGlobal((int)file.Size);
+  Marshal.StructureToPtr(file,buffer,false);
+  var policy=new Guid("00aac56b-cd44-11d0-8cc2-00c04fc295ee");
+  var data=new TrustData { Size=(uint)Marshal.SizeOf(typeof(TrustData)),Ui=2,Choice=1,File=buffer,Action=1 };
+  try {
+   if(WinVerifyTrust(new IntPtr(-1),ref policy,ref data)!=0 || data.State==IntPtr.Zero)return false;
+   IntPtr provider=WTHelperProvDataFromStateData(data.State);
+   if(provider==IntPtr.Zero)return false;
+   IntPtr primary=WTHelperGetProvSignerFromChain(provider,0,false,0);
+   if(primary==IntPtr.Zero)return false;
+   var signer=(Signer)Marshal.PtrToStructure(primary,typeof(Signer));
+   if(signer.Error!=0 || signer.CounterCount!=1)return false;
+   IntPtr leaf=Leaf(primary);
+   if(leaf==IntPtr.Zero)return false;
+   using(var certificate=new X509Certificate2(leaf)) {
+    if(!String.Equals(certificate.Thumbprint,publisher,StringComparison.Ordinal))return false;
+   }
+   IntPtr counter=WTHelperGetProvSignerFromChain(provider,0,true,0);
+   if(counter==IntPtr.Zero)return false;
+   var stamp=(Signer)Marshal.PtrToStructure(counter,typeof(Signer));
+   return stamp.Error==0 && stamp.Chain!=IntPtr.Zero && Leaf(counter)!=IntPtr.Zero;
+  } finally {
+   data.Action=2;
+   if(data.State!=IntPtr.Zero)WinVerifyTrust(new IntPtr(-1),ref policy,ref data);
+   Marshal.DestroyStructure(buffer,typeof(FileInfo));
+   Marshal.FreeHGlobal(buffer);
+  }
+ }
+}
+'@
+}
+function Test-NativeAuthenticodeTimestamp([string]$path){
+ Initialize-AuthenticodeTimestamp
+ return [EndpointSetupAuthenticodeTimestamp]::Verify($path,$script:Publisher)
+}
 function Assert-SignedFile([string]$path,[string]$sha){
  Assert-NoReparse $path
- if($sha -and (Get-FileHash -LiteralPath $path).Hash -ine $sha){throw 'artifact_hash_mismatch'}
- $signature=Get-AuthenticodeSignature -LiteralPath $path
- if($signature.Status -ne 'Valid' -or !$signature.TimeStamperCertificate -or $signature.SignerCertificate.Thumbprint -cne $script:Publisher){throw 'artifact_signature_invalid'}
+ $pin=[IO.File]::Open($path,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+ try{
+  if($sha -and (Get-FileHash -LiteralPath $path).Hash -ine $sha){throw 'artifact_hash_mismatch'}
+  $signature=Get-AuthenticodeSignature -LiteralPath $path
+  if($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -cne $script:Publisher){throw 'artifact_signature_invalid'}
+  if(!$signature.TimeStamperCertificate -and !(Test-NativeAuthenticodeTimestamp $path)){throw 'artifact_signature_invalid'}
+ }finally{$pin.Dispose()}
 }
 function Install-SetupClient {
  Assert-System;Assert-SignedFile $PSCommandPath $null
@@ -707,7 +786,7 @@ function Complete-RestoredSource($job,[string]$setup,$after,$descriptor){
   Send-Progress $job 'recovery_required' $null 'native_exit_requires_recovery';return
  }
  $hello=Get-ClientHello
- if(!$hello.ready -or $hello.client_version -cne '1.0.8' -or $hello.core_version -cne $job.before.core.version -or $hello.foundation_version -cne $job.before.foundation.version){Send-Progress $job 'recovery_required' $null 'native_exit_requires_recovery';return}
+ if(!$hello.ready -or $hello.client_version -cnotin @('1.0.8',$script:ClientVersion) -or $hello.core_version -cne $job.before.core.version -or $hello.foundation_version -cne $job.before.foundation.version){Send-Progress $job 'recovery_required' $null 'native_exit_requires_recovery';return}
  $accepted=Invoke-EndpointJson 'POST' '/agent/v1/setup-updates/hello' $hello
  if($accepted.device_id -cne $script:DeviceId -or $accepted.device_id -cne $job.device_id){throw 'setup_hello_device_differs'}
  Send-Progress $job 'failed' $proof 'native_failed_source_restored'

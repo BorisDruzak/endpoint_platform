@@ -74,3 +74,24 @@ def test_core_verifier_reuses_verified_existing_setup_client(monkeypatch, tmp_pa
     monkeypatch.setattr(bootstrap, '_existing_client_verified', lambda path: path == asset, raising=False)
     monkeypatch.setattr(bootstrap.subprocess, 'run', lambda *a, **k: pytest.fail('matching client is installed'))
     assert bootstrap.bootstrap_setup_client(SimpleNamespace()) == 0
+
+
+@pytest.mark.parametrize('verified', [False, True])
+def test_core_bootstrap_requires_native_proof_if_powershell_omits_stamp(monkeypatch, tmp_path, verified):
+    asset = tmp_path / 'EndpointSetupUpdater.ps1'
+    asset.write_text('fixture')
+    monkeypatch.setattr(bootstrap, 'packaged_client', lambda: asset)
+    monkeypatch.setattr(bootstrap, 'is_local_system', lambda: True)
+    monkeypatch.setattr(bootstrap, 'assert_fixed_verifier_context', lambda _: True)
+    monkeypatch.setattr(bootstrap, '_existing_client_verified', lambda _: False)
+    monkeypatch.setattr(bootstrap, 'has_verified_timestamp', lambda *_: verified, raising=False)
+    calls = []
+
+    def run(path, *, native_timestamp=False):
+        assert path == asset
+        calls.append(native_timestamp)
+        return 0 if native_timestamp else 22
+
+    monkeypatch.setattr(bootstrap, '_run_client_installer', run, raising=False)
+    assert bootstrap.bootstrap_setup_client(SimpleNamespace()) == (0 if verified else 1)
+    assert calls == ([False, True] if verified else [False])
