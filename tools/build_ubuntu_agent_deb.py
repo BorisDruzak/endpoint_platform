@@ -1,4 +1,4 @@
-"""Package the frozen Endpoint Core built on Ubuntu Server 24.04 amd64."""
+"""Package the frozen Endpoint Core on its target amd64 Linux distribution."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -19,12 +20,43 @@ VERSION = re.compile(r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)")
 RELEASE_REVISION = re.compile(r"[a-f0-9]{40}")
 
 
-def build(core: Path, output: Path, *, version: str, source_revision: str) -> Path:
+@dataclass(frozen=True)
+class DebTarget:
+    distro: str
+    distro_version: str
+    package: str
+    revision: str
+    glibc: str
+    label: str
+    conflicts: str = ""
+
+    def render(self, template: Path) -> bytes:
+        contents = template.read_bytes().replace(b"\r\n", b"\n")
+        agent_label = f"{self.label.removesuffix(' Server')} Agent"
+        return contents.replace(PACKAGE.encode(), self.package.encode()).replace(
+            b"Ubuntu Server", self.label.encode(),
+        ).replace(b"Ubuntu Agent", agent_label.encode())
+
+
+TARGETS = {
+    "ubuntu": DebTarget("ubuntu", "24.04", PACKAGE, "1ubuntu1", "2.39", "Ubuntu Server"),
+    "debian12": DebTarget(
+        "debian", "12", "endpoint-agent-debian", "1deb12u1", "2.36", "Debian Server",
+        conflicts=PACKAGE,
+    ),
+}
+
+
+def build(
+    core: Path, output: Path, *, version: str, source_revision: str, target: str = "ubuntu",
+) -> Path:
+    profile = TARGETS[target]
+    package = profile.package
     if platform.system() != "Linux" or platform.machine() != "x86_64":
-        raise ValueError("Ubuntu agent packages must be built on Linux x86_64")
+        raise ValueError("agent DEB packages must be built on Linux x86_64")
     release = platform.freedesktop_os_release()
-    if (release.get("ID"), release.get("VERSION_ID")) != ("ubuntu", "24.04"):
-        raise ValueError("Ubuntu agent packages require an Ubuntu 24.04 build host")
+    if (release.get("ID"), release.get("VERSION_ID")) != (profile.distro, profile.distro_version):
+        raise ValueError(f"{profile.label} packages require a {profile.distro} {profile.distro_version} build host")
     if not VERSION.fullmatch(version) or not RELEASE_REVISION.fullmatch(source_revision):
         raise ValueError("version and source revision must be canonical")
     if core.is_symlink():
@@ -46,16 +78,16 @@ def build(core: Path, output: Path, *, version: str, source_revision: str) -> Pa
     if reported != version:
         raise ValueError(f"frozen core reports {reported!r} instead of {version!r}")
 
-    package_version = f"{version}-1ubuntu1"
+    package_version = f"{version}-{profile.revision}"
     output.mkdir(parents=True, exist_ok=True)
-    artifact = output / f"{PACKAGE}_{package_version}_amd64.deb"
+    artifact = output / f"{package}_{package_version}_amd64.deb"
     if artifact.exists():
         raise FileExistsError(artifact)
     packaging = ROOT / "packaging" / "ubuntu"
-    with tempfile.TemporaryDirectory(prefix=f"{PACKAGE}-", dir=output) as temporary:
+    with tempfile.TemporaryDirectory(prefix=f"{package}-", dir=output) as temporary:
         scratch = Path(temporary)
         tree = scratch / "package"
-        runtime = tree / "usr" / "lib" / PACKAGE
+        runtime = tree / "usr" / "lib" / package
         shutil.copytree(core, runtime, symlinks=True)
         for path in runtime.rglob("*"):
             if path.is_symlink() and not path.resolve().is_relative_to(runtime):
@@ -66,37 +98,39 @@ def build(core: Path, output: Path, *, version: str, source_revision: str) -> Pa
             encoding="utf-8",
         )
         for source, destination in (
-            ("endpoint-agent-ubuntu.service", f"usr/lib/systemd/system/{PACKAGE}.service"),
-            ("sysusers.conf", f"usr/lib/sysusers.d/{PACKAGE}.conf"),
-            ("tmpfiles.conf", f"usr/lib/tmpfiles.d/{PACKAGE}.conf"),
-            ("agent.conf", f"etc/{PACKAGE}/agent.conf"),
+            ("endpoint-agent-ubuntu.service", f"usr/lib/systemd/system/{package}.service"),
+            ("sysusers.conf", f"usr/lib/sysusers.d/{package}.conf"),
+            ("tmpfiles.conf", f"usr/lib/tmpfiles.d/{package}.conf"),
+            ("agent.conf", f"etc/{package}/agent.conf"),
         ):
-            target = tree / destination
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes((packaging / source).read_bytes().replace(b"\r\n", b"\n"))
-            target.chmod(0o644)
+            path = tree / destination
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(profile.render(packaging / source))
+            path.chmod(0o644)
         metadata = tree / "DEBIAN"
         metadata.mkdir()
-        (metadata / "conffiles").write_text(f"/etc/{PACKAGE}/agent.conf\n", encoding="ascii")
+        (metadata / "conffiles").write_text(f"/etc/{package}/agent.conf\n", encoding="ascii")
         installed_bytes = sum(
             path.lstat().st_size for path in tree.rglob("*") if not path.is_symlink()
         )
+        conflicts = f"Conflicts: {profile.conflicts}\n" if profile.conflicts else ""
         (metadata / "control").write_text(
-            f"Package: {PACKAGE}\n"
+            f"Package: {package}\n"
             f"Version: {package_version}\n"
             "Section: admin\n"
             "Priority: optional\n"
             "Architecture: amd64\n"
             "Maintainer: Endpoint Platform\n"
-            "Depends: libc6 (>= 2.39), systemd, init-system-helpers, iproute2, util-linux\n"
+            f"Depends: libc6 (>= {profile.glibc}), systemd, init-system-helpers, iproute2, util-linux\n"
+            f"{conflicts}"
             f"Installed-Size: {(installed_bytes + 1023) // 1024}\n"
-            "Description: Endpoint Platform agent for Ubuntu Server\n"
+            f"Description: Endpoint Platform agent for {profile.label}\n"
             " Collects host and server-role context through the Endpoint Gateway.\n",
             encoding="ascii",
         )
         for name in ("postinst", "prerm", "postrm"):
             script = metadata / name
-            script.write_bytes((packaging / name).read_bytes().replace(b"\r\n", b"\n"))
+            script.write_bytes(profile.render(packaging / name))
             script.chmod(0o755)
         candidate = scratch / artifact.name
         subprocess.run(
@@ -112,8 +146,11 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--version", required=True)
     parser.add_argument("--source-revision", required=True)
+    parser.add_argument("--target", choices=TARGETS, default="ubuntu")
     args = parser.parse_args()
-    print(build(args.core, args.output, version=args.version, source_revision=args.source_revision))
+    print(build(
+        args.core, args.output, version=args.version, source_revision=args.source_revision, target=args.target,
+    ))
 
 
 if __name__ == "__main__":

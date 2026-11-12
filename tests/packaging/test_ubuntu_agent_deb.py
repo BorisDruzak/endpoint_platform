@@ -68,3 +68,35 @@ def test_build_ubuntu_deb_rejects_mislabeled_core(tmp_path, monkeypatch):
         ubuntu.build(core, output, version="3.2.191", source_revision="b" * 40)
 
     assert not output.exists()
+
+
+def test_build_debian12_uses_independent_package_and_state(tmp_path, monkeypatch):
+    _ubuntu_host(monkeypatch)
+    monkeypatch.setattr(
+        ubuntu.platform, "freedesktop_os_release",
+        lambda: {"ID": "debian", "VERSION_ID": "12"},
+    )
+    core = tmp_path / "core"
+    (core / "_internal").mkdir(parents=True)
+    (core / "endpoint-agent").write_bytes(b"frozen-core")
+
+    def run(args, **kwargs):
+        if args == [core / "endpoint-agent", "--print-version"]:
+            return SimpleNamespace(stdout="3.2.193\n")
+        root, artifact = map(Path, args[3:])
+        control = (root / "DEBIAN/control").read_text()
+        assert "Package: endpoint-agent-debian\n" in control
+        assert "Depends: libc6 (>= 2.36), systemd" in control
+        assert "Conflicts: endpoint-agent-ubuntu\n" in control
+        unit = (root / "usr/lib/systemd/system/endpoint-agent-debian.service").read_text()
+        assert "User=endpoint-agent-debian\n" in unit
+        assert "StateDirectory=endpoint-agent-debian\n" in unit
+        assert "endpoint-agent-ubuntu" not in unit
+        assert "endpoint-agent-debian.service" in (root / "DEBIAN/postinst").read_text()
+        artifact.write_bytes(b"deb")
+
+    monkeypatch.setattr(ubuntu.subprocess, "run", run)
+    artifact = ubuntu.build(
+        core, tmp_path / "output", version="3.2.193", source_revision="c" * 40, target="debian12",
+    )
+    assert artifact.name == "endpoint-agent-debian_3.2.193-1deb12u1_amd64.deb"
