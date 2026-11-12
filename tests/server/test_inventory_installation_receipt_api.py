@@ -217,16 +217,35 @@ async def test_receipt_rejects_inconsistent_registration_evidence(receipt_app, c
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("connection", ["heartbeat", "missing"])
-async def test_assignment_expires_even_with_matching_claim(receipt_app, connection):
+@pytest.mark.parametrize(("connection", "consumption", "expected"), [
+    ("heartbeat", "registered", "connected"),
+    ("missing", "registered", "waiting_connection"),
+    ("heartbeat", "late", "expired"),
+    ("heartbeat", "unconsumed", "expired"),
+    ("heartbeat", "unbound", "expired"),
+])
+async def test_assignment_expiry_limits_registration_but_preserves_valid_receipts(receipt_app, connection, consumption, expected):
     app, db = receipt_app
-    body, _ = assignment(db, platform="linux", connection=connection)
-    db.query(InventoryInstallationAssignment).one().expires_at = datetime.now(UTC) - timedelta(minutes=1)
+    body, device_id = assignment(db, platform="linux", connection=connection)
+    now = datetime.now(UTC)
+    window = db.query(InventoryInstallationAssignment).one()
+    window.expires_at = now - timedelta(minutes=1)
+    if consumption == "unconsumed":
+        db.query(EnrollmentClaim).one().claimed_at = None
+    elif consumption == "late":
+        db.query(EnrollmentClaim).one().claimed_at = now - timedelta(seconds=40)
+    elif consumption == "unbound":
+        window.enrollment_request_id = None
     db.flush()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint-staging.example.test") as client:
         response = await client.post(PATH, json=body, headers={"Authorization": "Bearer fixture-receipt-reader"})
     assert response.status_code == 200
-    assert response.json() == {"state": "expired"}
+    result = response.json()
+    assert result["state"] == expected
+    if expected == "connected":
+        assert result["device_id"] == str(device_id)
+    else:
+        assert result == {"state": expected}
 
 
 @pytest.mark.asyncio

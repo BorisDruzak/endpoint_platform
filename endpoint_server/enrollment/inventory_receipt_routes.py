@@ -169,7 +169,10 @@ async def lookup_inventory_installation(
     response: Response,
     principal: Annotated[ServicePrincipal, Depends(require_service_scope(_SCOPE))],
 ) -> ConnectedInventoryInstallationReceipt | PendingInventoryInstallationReceipt:
-    """Verify the exact consumed claim and a subsequent live agent heartbeat."""
+    """Verify the exact consumed claim and a subsequent live agent heartbeat.
+
+    A claim consumed within the assignment window remains eligible for receipt lookup after expiry.
+    """
     response.headers.update(_NO_STORE)
     now = datetime.now(UTC)
     installation_id = _installation_id(body)
@@ -184,10 +187,9 @@ async def lookup_inventory_installation(
         )).scalar_one_or_none()
         if assignment is None:
             raise HTTPException(404, "Installation assignment unavailable", headers=_NO_STORE)
-        if now >= utc(assignment.expires_at):
-            return PendingInventoryInstallationReceipt(state="expired")
+        pending_state = "expired" if now >= utc(assignment.expires_at) else "waiting_registration"
         if assignment.enrollment_request_id is None:
-            return PendingInventoryInstallationReceipt(state="waiting_registration")
+            return PendingInventoryInstallationReceipt(state=pending_state)
         latest_heartbeat = (
             select(DeviceSession.last_seen_at)
             .join(DeviceInstance, DeviceInstance.id == DeviceSession.device_instance_id)
@@ -224,7 +226,7 @@ async def lookup_inventory_installation(
             )
         )).one_or_none()
         if evidence is None:
-            return PendingInventoryInstallationReceipt(state="waiting_registration")
+            return PendingInventoryInstallationReceipt(state=pending_state)
         record, claim, device_id, retired_at, heartbeat = evidence
         if (
             record.platform != assignment.platform

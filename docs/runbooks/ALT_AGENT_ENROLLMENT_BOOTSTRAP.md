@@ -96,10 +96,11 @@ request and claim flow.
 To check progress, the same service client sends the installation ID to
 `POST /api/v1/enrollment/installation-receipts/lookup` with the separate
 `enrollment.installation-receipts.read` scope. Endpoint uses its persisted
-window. It returns a device UUID after a matching consumed claim and a
-fresh authenticated heartbeat in a new session. Waiting and expired
-responses carry no UUID. Conflicting or retired device evidence yields
-HTTP 409. Keep assignment proof and service credentials on the server.
+window. A claim consumed before the deadline can still be confirmed after
+expiry when a fresh authenticated heartbeat arrives in a new session.
+An unconsumed assignment yields `expired` after its deadline. Waiting and
+expired responses carry no UUID. Conflicting or retired device evidence
+yields HTTP 409. Keep assignment proof and service credentials on the server.
 
 Staging rollout requires migration `0052_inventory_installation`. Before
 an application rollback, stop assignment issuance and drain active

@@ -1804,7 +1804,7 @@ paths:
       tags:
         - "inventory-installation"
       summary: "Lookup Inventory Installation"
-      description: "Verify the exact consumed claim and a subsequent live agent heartbeat."
+      description: "Verify the exact consumed claim and a subsequent live agent heartbeat.\n\nA claim consumed within the assignment window remains eligible for receipt lookup after expiry."
       operationId: "lookup_inventory_installation_api_v1_enrollment_installation_receipts_lookup_post"
       requestBody:
         content:
