@@ -9,7 +9,7 @@ from uuid import uuid4
 from sqlalchemy import select
 
 from endpoint_contracts.update_safety import validate_public_update_prose
-from endpoint_contracts.setup_updates import QUALIFIED_SETUP_CLIENT_VERSIONS
+from endpoint_contracts.setup_updates import LEGACY_SETUP_CLIENT_VERSION, QUALIFIED_SETUP_CLIENT_VERSIONS
 from endpoint_server.db.models import DeviceInstance, DeviceSession, UpdateBuild, UpdateTarget, UpdateRollout
 from endpoint_server.db.instance_order import latest_instance_order
 from endpoint_server.updates.service import create_rollout, create_rollback_rollout
@@ -130,7 +130,7 @@ async def lock_builds(session):
     return {b.build_identifier: b for b in builds}
 
 
-async def request_setup(session, device_id, release_id, reason, *, actor, request_id, now=None):
+async def request_setup(session, device_id, release_id, reason, *, actor, request_id, now=None, explicit_observer=False):
     now = now_utc(now)
     from .policy import reserve_fleet_admission
     await reserve_fleet_admission(session, device_id)
@@ -148,7 +148,9 @@ async def request_setup(session, device_id, release_id, reason, *, actor, reques
     if owned:
         raise SetupConflict('device already has an active Setup preparation')
     presence = await session.scalar(select(SetupClientPresence).where(SetupClientPresence.device_id == device_id))
-    if ready(presence, now) and parts(presence.core_version) <= parts(release.version):
+    candidate_ready = (explicit_observer and qualified_presence(presence, now)
+                       and presence.client_version != LEGACY_SETUP_CLIENT_VERSION)
+    if (ready(presence, now) or candidate_ready) and parts(presence.core_version) <= parts(release.version):
         return await assign_setup(session, device_id, release_id, reason, actor=actor, request_id=request_id, now=now)
     instance = await session.scalar(select(DeviceInstance).where(DeviceInstance.device_id == device_id)
         .order_by(*latest_instance_order()).limit(1))

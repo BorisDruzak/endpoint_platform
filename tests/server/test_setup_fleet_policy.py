@@ -82,12 +82,16 @@ async def test_unqualified_observer_cannot_supply_native_qualification(db, fleet
 
 
 async def test_candidate_observer_accepts_an_explicit_setup_assignment(db, fleet):
-    from endpoint_server.setup_updates.service import assign_setup, record_presence
+    from endpoint_server.setup_updates.preparation import request_setup
+    from endpoint_server.setup_updates.service import record_presence
     device, release, *_ = fleet
     await record_presence(db, device.id, dict(client_version='1.0.10', ready=True,
         foundation_version='3.2.156', core_version='3.2.156'), now=NOW)
-    job = await assign_setup(db, device.id, release.id, 'Observer compatibility canary',
-        actor='test-admin', request_id='candidate-observer', now=NOW)
+    with pytest.raises(SetupConflict):
+        await request_setup(db, device.id, release.id, 'Automatic compatibility check',
+            actor='test-admin', request_id='automatic-observer', now=NOW)
+    job = await request_setup(db, device.id, release.id, 'Observer compatibility canary',
+        actor='test-admin', request_id='candidate-observer', now=NOW, explicit_observer=True)
     assert job.source_client_version == '1.0.10'
 
 

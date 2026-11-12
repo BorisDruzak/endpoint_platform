@@ -103,7 +103,8 @@ async def assign(body: SetupAssignmentRequestV1, request: Request,
                  principal: Annotated[AdminPrincipal, Depends(require_admin_update_scope)]):
     async def operation(session):
         job = await request_setup(session, body.device_id, body.release_id, body.reason,
-                                  actor=principal.user.id, request_id=audit_request_id(request))
+                                  actor=principal.user.id, request_id=audit_request_id(request),
+                                  explicit_observer=True)
         return {'data': assignment_data(job)}
     return await mutate_admin(request, principal, operation)
 
