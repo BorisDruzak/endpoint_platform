@@ -20,10 +20,11 @@ HOST_CA = {
     "dirpost": Path("/etc/apt/keyrings/endpoint-ubuntu-ca.crt"),
     "openvpn": Path("/etc/apt/keyrings/endpoint-ubuntu-ca.crt"),
     "endpointplatform": Path("/etc/endpoint-platform/sosnadmin-local-ca.crt"),
+    "pve1": Path("/etc/apt/keyrings/endpoint-debian-ca.crt"),
+    "pve2": Path("/etc/apt/keyrings/endpoint-debian-ca.crt"),
+    "pve3": Path("/etc/apt/keyrings/endpoint-debian-ca.crt"),
 }
 CA_DIGEST = "5525eccf01536b7f0436d96500c663f7a58edac463f00f0fb34a59dd8b3250be"
-PROOF = Path("/var/cache/endpoint-ubuntu-pilot-request")
-STAGE = Path("/run/endpoint-ubuntu-pilot")
 FINGERPRINT = re.compile(r"sha256:[0-9a-f]{64}")
 CLAIM = re.compile(r"ic_[0-9a-f]{32}\.[A-Za-z0-9_-]{43}")
 
@@ -88,16 +89,19 @@ def main(action, expected_hostname, fingerprint=None, version=None, digest=None)
     if hostname != expected_hostname or hostname not in HOST_CA:
         raise RuntimeError("Unexpected Ubuntu pilot host")
     ca = HOST_CA[hostname]
-    private_directory(PROOF)
-    proof_file = PROOF / "request.json"
-    fd = os.open(PROOF / "lock", os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    distro = "debian" if hostname in {"pve1", "pve2", "pve3"} else "ubuntu"
+    proof = Path(f"/var/cache/endpoint-{distro}-pilot-request")
+    stage = Path(f"/run/endpoint-{distro}-pilot")
+    private_directory(proof)
+    proof_file = proof / "request.json"
+    fd = os.open(proof / "lock", os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         if action == "request" and not proof_file.exists():
             if not FINGERPRINT.fullmatch(fingerprint):
                 raise RuntimeError("Ubuntu fingerprint is invalid")
             atomic_write(proof_file, json.dumps({
-                "schema_version": "ubuntu_deb_enrollment_request_v1", "hostname": hostname,
+                "schema_version": f"{distro}_deb_enrollment_request_v1", "hostname": hostname,
                 "package_version": version, "package_sha256": digest, "installation_id": str(uuid4()),
                 "request_capability": secrets.token_urlsafe(32), "hardware_fingerprint": fingerprint,
             }))
@@ -105,11 +109,11 @@ def main(action, expected_hostname, fingerprint=None, version=None, digest=None)
         if action == "request":
             if body["hardware_fingerprint"] != fingerprint or body["package_version"] != version or body["package_sha256"] != digest:
                 raise RuntimeError("Existing Ubuntu request belongs to different installation inputs")
-            status = post(ca, "/api/v1/enrollment/ubuntu/requests", body)
+            status = post(ca, f"/api/v1/enrollment/{distro}/requests", body)
             request_id = str(UUID(status["request_id"]))
-            atomic_write(PROOF / "id", request_id)
+            atomic_write(proof / "id", request_id)
         else:
-            request_id = str(UUID(private_read(PROOF / "id")))
+            request_id = str(UUID(private_read(proof / "id")))
             base = f"/api/v1/enrollment/linux/requests/{request_id}"
             status = post(ca, base + "/status", {"request_capability": body["request_capability"]})
             if status["status"] in {"approved", "claim_issued"}:
@@ -119,9 +123,9 @@ def main(action, expected_hostname, fingerprint=None, version=None, digest=None)
                 claim = delivery["claim"]
                 if not CLAIM.fullmatch(claim):
                     raise RuntimeError("Ubuntu enrollment claim is invalid")
-                private_directory(STAGE)
+                private_directory(stage)
                 for name, value in (("installation-id", body["installation_id"]), ("claim", claim)):
-                    destination = STAGE / name
+                    destination = stage / name
                     if destination.exists():
                         previous = private_read(destination)
                         if previous not in {value, value + "\n"}:

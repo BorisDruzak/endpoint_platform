@@ -59,6 +59,35 @@ def test_rejects_other_hosts_and_unreviewed_deb(address, changes):
         )
 
 
+def test_debian_deb_keeps_its_release_and_single_host_approval():
+    now = datetime.now(UTC)
+    body = ubuntu_requests.DebianDebRequest.model_validate(payload() | {
+        "schema_version": "debian_deb_enrollment_request_v1",
+        "hostname": "pve1",
+        "package_version": "3.2.193-1deb12u1",
+        "package_sha256": "cc8ebf1da12d9f8106dd1ab627cd1517a3801c63c1315cf19524c54370b967fc",
+    })
+    record, _ = ubuntu_requests.build_request(
+        body, address=ip_address("10.83.1.11"), pepper=b"test", now=now,
+    )
+    assert record.installer_release_id == "debian-deb:3.2.193-1deb12u1"
+    assert record.status == "waiting_approval"
+    campaign = ubuntu_requests.build_campaign(record, pepper=b"test", now=now)
+    record.selected_campaign_id = campaign.id
+    assert campaign.allowed_cidrs == ["10.83.1.11/32"]
+    assert campaign.max_uses == 1
+    assert linux_campaign_allows(record, campaign, now=now)
+    for wrong_body, address in [
+        (body, "10.83.1.12"),
+        (body, "10.83.1.14"),
+        (body.model_copy(update={"package_sha256": "f" * 64}), "10.83.1.11"),
+    ]:
+        with pytest.raises(EnrollmentDenied):
+            ubuntu_requests.build_request(wrong_body, address=ip_address(address), pepper=b"test", now=now)
+    campaign.policy = {**campaign.policy, "allowed_native_releases": [str(ubuntu_requests.POLICY_RELEASE)]}
+    assert not linux_campaign_allows(record, campaign, now=now)
+
+
 async def run_ubuntu_enrollment_scenario(database_url: str):
     from httpx import ASGITransport, AsyncClient
     from sqlalchemy import select

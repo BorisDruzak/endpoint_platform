@@ -1,5 +1,6 @@
-"""Exact DEB intake for explicitly approved Ubuntu servers."""
+"""Exact DEB intake for explicitly approved Linux servers."""
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import UUID
@@ -26,7 +27,7 @@ from .requests import (
 )
 
 
-router = APIRouter(prefix="/api/v1/enrollment/ubuntu", tags=["enrollment-requests"])
+router = APIRouter(prefix="/api/v1/enrollment", tags=["enrollment-requests"])
 PACKAGE_VERSION = "3.2.192-1ubuntu1"
 PACKAGE_SHA256 = "8affee69264c5cbdc76237ba83dfe5db91ab7a34562ee92f024d9d2b24471a7d"
 RELEASE_ID = "ubuntu-deb:" + PACKAGE_VERSION
@@ -38,9 +39,8 @@ PILOT_HOSTS = {
 }
 
 
-class UbuntuDebRequest(_SecretSafeContractModelV1):
+class DebRequest(_SecretSafeContractModelV1):
     _repr_secret_fields = frozenset({"hardware_fingerprint", "request_capability"})
-    schema_version: Literal["ubuntu_deb_enrollment_request_v1"]
     installation_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
     hardware_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     request_capability: str = Field(pattern=r"^[A-Za-z0-9_-]{43}$")
@@ -49,35 +49,73 @@ class UbuntuDebRequest(_SecretSafeContractModelV1):
     package_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
-def is_ubuntu_request(record: EnrollmentRequest) -> bool:
-    return record.platform == "linux" and record.installer_release_id.startswith("ubuntu-deb:")
+class UbuntuDebRequest(DebRequest):
+    schema_version: Literal["ubuntu_deb_enrollment_request_v1"]
 
 
-def validate_source(record: EnrollmentRequest) -> None:
+class DebianDebRequest(DebRequest):
+    schema_version: Literal["debian_deb_enrollment_request_v1"]
+
+
+@dataclass(frozen=True)
+class DebSource:
+    distro: str
+    version: str
+    sha256: str
+    policy_release: UUID
+    hosts: dict[str, str]
+
+    @property
+    def release_id(self) -> str:
+        return f"{self.distro}-deb:{self.version}"
+
+    @property
+    def policy_id(self) -> str:
+        return f"{self.distro}-server-v1"
+
+
+UBUNTU = DebSource("ubuntu", PACKAGE_VERSION, PACKAGE_SHA256, POLICY_RELEASE, PILOT_HOSTS)
+DEBIAN = DebSource(
+    "debian", "3.2.193-1deb12u1",
+    "cc8ebf1da12d9f8106dd1ab627cd1517a3801c63c1315cf19524c54370b967fc",
+    UUID("b41cf4eb-7b68-4350-83ba-cc42d4e35bd2"),
+    {"10.83.1.11": "pve1", "10.83.1.12": "pve2", "10.83.1.13": "pve3"},
+)
+DEB_SOURCES = {source.release_id: source for source in (UBUNTU, DEBIAN)}
+
+
+def is_deb_request(record: EnrollmentRequest) -> bool:
+    return record.platform == "linux" and record.installer_release_id.startswith(("ubuntu-deb:", "debian-deb:"))
+
+
+def validate_source(record: EnrollmentRequest) -> DebSource:
+    source = DEB_SOURCES.get(record.installer_release_id)
     if (
-        not is_ubuntu_request(record)
-        or record.installer_release_id != RELEASE_ID
-        or record.installer_version != PACKAGE_VERSION
-        or PILOT_HOSTS.get(record.source_address) != record.hostname
+        record.platform != "linux"
+        or source is None
+        or record.installer_version != source.version
+        or source.hosts.get(record.source_address) != record.hostname
     ):
-        raise EnrollmentDenied("Exact Ubuntu DEB source required")
+        raise EnrollmentDenied("Exact DEB source required")
+    return source
 
 
-def build_request(body: UbuntuDebRequest, *, address, pepper: bytes, now: datetime):
+def build_request(body: UbuntuDebRequest | DebianDebRequest, *, address, pepper: bytes, now: datetime):
+    source = DEBIAN if isinstance(body, DebianDebRequest) else UBUNTU
     if (
-        PILOT_HOSTS.get(str(address)) != body.hostname
-        or body.package_version != PACKAGE_VERSION
-        or body.package_sha256 != PACKAGE_SHA256
+        source.hosts.get(str(address)) != body.hostname
+        or body.package_version != source.version
+        or body.package_sha256 != source.sha256
     ):
-        raise EnrollmentDenied("Exact Ubuntu DEB source required")
+        raise EnrollmentDenied("Exact DEB source required")
     selection = CampaignSelection(
-        "waiting_approval", None, "MANUAL_POLICY", policy_id="ubuntu-server-v1",
+        "waiting_approval", None, "MANUAL_POLICY", policy_id=source.policy_id,
         enrollment_mode="manual", source_network_match=True, release_match=True,
     )
     record = build_enrollment_request(
         installation_id=normalize_install_session_id(body.installation_id),
         hardware_fingerprint=body.hardware_fingerprint, request_capability=body.request_capability,
-        source_address=address, installer_version=PACKAGE_VERSION, installer_release_id=RELEASE_ID,
+        source_address=address, installer_version=source.version, installer_release_id=source.release_id,
         hostname=body.hostname, selection=selection, pepper=pepper, now=now,
     )
     record.platform = "linux"
@@ -86,34 +124,43 @@ def build_request(body: UbuntuDebRequest, *, address, pepper: bytes, now: dateti
 
 
 def build_campaign(record: EnrollmentRequest, *, pepper: bytes, now: datetime):
-    validate_source(record)
+    source = validate_source(record)
     if record.status != "waiting_approval" or record.selected_campaign_id is not None or now >= record.expires_at:
-        raise EnrollmentDenied("Ubuntu request is no longer waiting for approval")
+        raise EnrollmentDenied("DEB request is no longer waiting for approval")
     return issue_campaign(
         pepper, expires_at=record.expires_at, max_uses=1,
         allowed_cidrs=[f"{record.source_address}/32"], target_platform="linux",
-        policy={"policy_id": "ubuntu-server-v1", "enrollment_mode": "manual",
-                "allowed_native_releases": [str(POLICY_RELEASE)]},
-        label=record.hostname, site="ubuntu-server", now=now,
+        policy={"policy_id": source.policy_id, "enrollment_mode": "manual",
+                "allowed_native_releases": [str(source.policy_release)]},
+        label=record.hostname, site=f"{source.distro}-server", now=now,
     ).record
 
 
-@router.post(
-    "/requests", status_code=201, response_model=PreEnrollmentRequestStatusV1,
-    responses={
-        200: {"model": PreEnrollmentRequestStatusV1, "description": "Recovered the exact existing request"},
-        409: {"description": "Source or request conflict"},
-        429: {"description": "Request rate limited"},
-    },
-)
+DEB_RESPONSES = {
+    200: {"model": PreEnrollmentRequestStatusV1, "description": "Recovered the exact existing request"},
+    409: {"description": "Source or request conflict"},
+    429: {"description": "Request rate limited"},
+}
+
+
+@router.post("/ubuntu/requests", status_code=201, response_model=PreEnrollmentRequestStatusV1, responses=DEB_RESPONSES)
 async def create_request(body: UbuntuDebRequest, request: Request, response: Response):
+    return await _create_request(body, request, response)
+
+
+@router.post("/debian/requests", status_code=201, response_model=PreEnrollmentRequestStatusV1, responses=DEB_RESPONSES)
+async def create_debian_request(body: DebianDebRequest, request: Request, response: Response):
+    return await _create_request(body, request, response)
+
+
+async def _create_request(body: UbuntuDebRequest | DebianDebRequest, request: Request, response: Response):
     response.headers["Cache-Control"] = "no-store"
     now = datetime.now(UTC)
     pepper = request.app.state.settings.device_token_pepper
     try:
         candidate, selection = build_request(body, address=_source_address(request), pepper=pepper, now=now)
     except (EnrollmentDenied, ValueError):
-        raise HTTPException(409, "Exact Ubuntu DEB source required") from None
+        raise HTTPException(409, "Exact DEB source required") from None
     async with request.app.state.session_provider() as session:
         try:
             # Share the Linux intake lock so source, identity and rate checks agree.
@@ -125,7 +172,8 @@ async def create_request(body: UbuntuDebRequest, request: Request, response: Res
             ).order_by(EnrollmentRequest.created_at.desc()).limit(1))
             if existing is not None:
                 if (
-                    existing.installer_release_id != RELEASE_ID or existing.source_address != candidate.source_address
+                    existing.installer_release_id != candidate.installer_release_id
+                    or existing.source_address != candidate.source_address
                     or not request_capability_matches(body.request_capability, existing.request_capability_digest, pepper)
                     or not request_bindings_match(existing, installation_id=body.installation_id,
                                                   hardware_fingerprint=body.hardware_fingerprint, pepper=pepper)
@@ -135,7 +183,7 @@ async def create_request(body: UbuntuDebRequest, request: Request, response: Res
                 return project(existing)
             outstanding = await session.scalar(select(EnrollmentRequest.id).where(
                 EnrollmentRequest.source_address == candidate.source_address,
-                EnrollmentRequest.installer_release_id == RELEASE_ID,
+                EnrollmentRequest.installer_release_id == candidate.installer_release_id,
                 EnrollmentRequest.expires_at > now,
                 EnrollmentRequest.status.in_(["waiting_approval", "approved", "claim_issued", "enrolling"]),
             ).limit(1))
@@ -144,7 +192,7 @@ async def create_request(body: UbuntuDebRequest, request: Request, response: Res
                 EnrollmentClaim.device_id.is_not(None),
             ).limit(1))
             if outstanding is not None or prior is not None:
-                raise HTTPException(409, "An existing Ubuntu request or device owns this host")
+                raise HTTPException(409, "An existing DEB request or device owns this host")
             recent = (await session.scalars(select(EnrollmentRequest).where(
                 EnrollmentRequest.created_at >= now - timedelta(hours=1),
                 EnrollmentRequest.source_address == candidate.source_address,

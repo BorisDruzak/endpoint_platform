@@ -826,6 +826,7 @@ def _service_operation_openapi() -> dict[str, object]:
                          '/api/v1/enrollment/linux/requests/{request_id}/status',
                          '/api/v1/enrollment/linux/requests/{request_id}/claim',
                          '/api/v1/enrollment/ubuntu/requests',
+                         '/api/v1/enrollment/debian/requests',
                          '/agent/v1/installation/linux/events',
                          '/agent/v1/support-access/linux/register','/agent/v1/support-access/linux/policy',
                          '/agent/v1/support-access/linux/status','/agent/v1/support-access/linux/unregister',

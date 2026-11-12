@@ -76,13 +76,13 @@ def _conflict() -> HTTPException:
 
 
 def project_enrollment_request(record: EnrollmentRequest) -> EnrollmentRequestQueueItem:
-    from .ubuntu_requests import is_ubuntu_request
+    from .ubuntu_requests import is_deb_request
 
     installer_kind = None
     if record.platform == "windows":
         installer_kind = "setup"
     elif record.platform == "linux":
-        installer_kind = "deb" if is_ubuntu_request(record) else "rpm"
+        installer_kind = "deb" if is_deb_request(record) else "rpm"
     return EnrollmentRequestQueueItem(
         id=record.id,
         status=record.status,
@@ -167,12 +167,12 @@ async def approve_request(
             if record is None:
                 raise _not_found()
             from .campaigns import EnrollmentDenied
-            from .ubuntu_requests import build_campaign, is_ubuntu_request
+            from .ubuntu_requests import build_campaign, is_deb_request
 
-            if is_ubuntu_request(record) and body is not None and body.previous_device_id is not None:
+            if is_deb_request(record) and body is not None and body.previous_device_id is not None:
                 raise _conflict()
             if record.selected_campaign_id is None:
-                if not is_ubuntu_request(record):
+                if not is_deb_request(record):
                     raise _conflict()
                 try:
                     campaign = build_campaign(record, pepper=request.app.state.settings.device_token_pepper, now=now)

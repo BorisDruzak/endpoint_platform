@@ -68,6 +68,7 @@ const canApprove = (item: EnrollmentRequest) => (
     ? item.status === 'waiting_approval'
     : ['waiting_approval', 'review_required'].includes(item.status) && (item.platform !== 'linux' || !!item.selected_campaign_id)
 )
+const debDistro = (item: EnrollmentRequest) => item.installer_release_id.startsWith('debian-deb:') ? 'Debian' : 'Ubuntu'
 
 function RequestQueue({ title, page, busy, onOpen, onDecide, onMove }: {
   title: string; page: RequestPage; busy: boolean
@@ -81,7 +82,7 @@ function RequestQueue({ title, page, busy, onOpen, onDecide, onMove }: {
     {rows.length ? <div className="table-scroll"><table>
       <thead><tr><th>Устройство</th><th>Состояние</th><th>Адрес</th><th>Установщик</th><th>Создан</th><th>Действия</th></tr></thead>
       <tbody>{rows.map(item => <tr key={item.id}>
-        <td><strong>{item.hostname}</strong><small>{item.installer_kind === 'deb' ? 'Ubuntu · DEB' : item.platform === 'linux' ? 'Linux · RPM' : item.platform === 'windows' ? 'Windows · Setup' : 'Платформа не подтверждена'} · {item.manufacturer} {item.model}</small></td>
+        <td><strong>{item.hostname}</strong><small>{item.installer_kind === 'deb' ? `${debDistro(item)} · DEB` : item.platform === 'linux' ? 'Linux · RPM' : item.platform === 'windows' ? 'Windows · Setup' : 'Платформа не подтверждена'} · {item.manufacturer} {item.model}</small></td>
         <td>{requestLabels[item.status] ?? item.status}</td>
         <td>{item.source_address}</td><td>{item.installer_release_id}</td><td>{dateText(item.created_at)}</td>
         <td><button onClick={() => onOpen(item)}>Подробнее</button>{['waiting_approval', 'review_required'].includes(item.status) && <><button disabled={busy || !canApprove(item)} onClick={() => onDecide(item, 'approve')}>Одобрить</button><button disabled={busy} onClick={() => onDecide(item, 'deny')}>Отклонить</button></>}</td>
@@ -212,7 +213,7 @@ export function EnrollmentPage() {
   }
   async function decide(item: EnrollmentRequest, decision: 'approve' | 'deny', previousId?: string) {
     const action = decision === 'approve' ? 'Одобрить' : 'Отклонить'
-    const target = item.installer_kind === 'deb' ? `${item.hostname} (${item.source_address}, Ubuntu DEB)` : item.hostname
+    const target = item.installer_kind === 'deb' ? `${item.hostname} (${item.source_address}, ${debDistro(item)} DEB)` : item.hostname
     if (!window.confirm(`${action} регистрацию ${target}?`)) return
     setBusy(true); setError('')
     try {
@@ -256,7 +257,7 @@ export function EnrollmentPage() {
       <section className="dialog panel" role="dialog" aria-modal="true" aria-label="Запрос регистрации" onClick={event => event.stopPropagation()}>
         <button className="dialog-close" onClick={() => setSelected(null)}>Закрыть</button>
         <h2>{selected.hostname}</h2><p>{requestLabels[selected.status] ?? selected.status}</p>
-        {selected.installer_kind === 'deb' && <p>Ubuntu · проверенный DEB. Сервер получит одноразовое разрешение после одобрения.</p>}
+        {selected.installer_kind === 'deb' && <p>{debDistro(selected)} · проверенный DEB. Сервер получит одноразовое разрешение после одобрения.</p>}
         {selected.platform === 'linux' && selected.installer_kind !== 'deb' && <><p>Linux · проверенный источник RPM</p><p className="muted">Одобрение регистрации не подтверждает завершение native. Итог RPM и доставку событий проверяйте отдельно в истории установки; неизвестный результат остаётся pending и не разрешает повторную установку.</p></>}
         <h3>Этапы регистрации</h3>
         <ol className="lifecycle">{enrollmentStages.map((stage, index) => <li key={stage.label} aria-current={selectedStageIndex === index ? 'step' : undefined}>

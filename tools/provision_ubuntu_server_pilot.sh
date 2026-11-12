@@ -6,10 +6,9 @@ umask 077
 package=endpoint-agent-ubuntu
 version=3.2.192-1ubuntu1
 digest=8affee69264c5cbdc76237ba83dfe5db91ab7a34562ee92f024d9d2b24471a7d
+distro=ubuntu
+os_version=24.04
 origin=https://endpoint.sosnadmin.local
-stage=/run/endpoint-ubuntu-pilot
-work=/var/cache/endpoint-ubuntu-pilot
-state=/var/lib/endpoint-agent-ubuntu
 unit=endpoint-agent.service
 
 role=${1:?Ubuntu role required}
@@ -37,8 +36,24 @@ case "$role" in
         expected_services=(postgresql@14-main.service)
         server_role=
         ;;
+    pve1|pve2|pve3)
+        expected_host=$role
+        address="10.83.1.1${role#pve}"
+        distro=debian
+        os_version=12
+        package=endpoint-agent-debian
+        version=3.2.193-1deb12u1
+        digest=cc8ebf1da12d9f8106dd1ab627cd1517a3801c63c1315cf19524c54370b967fc
+        ca=/etc/apt/keyrings/endpoint-debian-ca.crt
+        probe_user=$package
+        expected_services=(pveproxy.service pvedaemon.service pvestatd.service)
+        server_role=
+        ;;
     *) exit 2 ;;
 esac
+stage="/run/endpoint-$distro-pilot"
+work="/var/cache/endpoint-$distro-pilot"
+state="/var/lib/$package"
 check_services() {
     for service in "${expected_services[@]}"; do
         systemctl is-active --quiet "$service" || return
@@ -48,7 +63,7 @@ check_services() {
 test "$(hostname -s)" = "$expected_host"
 ip -4 -o address show | grep -F " inet $address/" >/dev/null
 test "$(dpkg --print-architecture)" = amd64
-test "$(. /etc/os-release; printf '%s/%s' "$ID" "$VERSION_ID")" = ubuntu/24.04
+test "$(. /etc/os-release; printf '%s/%s' "$ID" "$VERSION_ID")" = "$distro/$os_version"
 test "$(systemctl show "$unit" -p LoadState --value)" = not-found
 test ! -e /var/lib/endpoint-agent
 test ! -L /var/lib/endpoint-agent
@@ -158,9 +173,9 @@ for name in "${identity_files[@]}"; do
     fi
 done
 apt-get install -y "$deb" >&2
-install -o root -g root -m 0644 "$ca" /etc/endpoint-agent-ubuntu/ca.crt
-site=/etc/endpoint-agent-ubuntu/site.conf
-dropin=/etc/systemd/system/endpoint-agent-ubuntu.service.d
+install -o root -g root -m 0644 "$ca" "/etc/$package/ca.crt"
+site="/etc/$package/site.conf"
+dropin="/etc/systemd/system/$package.service.d"
 printf 'ENDPOINT_AGENT_SERVER_ROLE=%s\nENDPOINT_AGENT_FALLBACK_ORIGIN=%s:8443\n' "$server_role" "$origin" > "$tmp/site.conf"
 printf '[Service]\nEnvironmentFile=%s\n' "$site" > "$tmp/site-environment.conf"
 install -d -m 0755 "$dropin"
@@ -188,5 +203,5 @@ check_services
 rm -f -- "$stage/claim" "$stage/installation-id"
 if [ -d "$stage" ]; then rmdir -- "$stage"; fi
 rm -rf -- "$payload"
-rm -f -- /var/cache/endpoint-ubuntu-pilot-request/request.json /var/cache/endpoint-ubuntu-pilot-request/id
+rm -f -- "$work-request/request.json" "$work-request/id"
 printf '%s\n' "$device_id"
