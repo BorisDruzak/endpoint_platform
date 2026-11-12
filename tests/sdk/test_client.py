@@ -475,3 +475,48 @@ def test_network_identity_feed_rejects_raw_or_noncanonical_response_fields(
         client.list_agent_network_identities()
 
     assert "secret-token" not in str(exc.value)
+
+
+def test_inventory_installation_sdk_issues_and_reads_private_assignment(tmp_path, monkeypatch):
+    assignment_id = f"inventory-{uuid4()}-{uuid4()}-" + "a" * 32
+    fingerprint = "sha256:" + "f" * 64
+    device_id = uuid4()
+    fake = FakeHttpClient(responses=[
+        _response(200, {"issued_at": "2026-11-12T01:00:00Z", "expires_at": "2026-11-12T01:30:00Z"}),
+        _response(200, {"state": "waiting_connection"}),
+        _response(200, {"state": "connected", "device_id": str(device_id),
+                        "registered_at": "2026-11-12T01:01:00Z", "heartbeat_at": "2026-11-12T01:02:00Z"}),
+        _response(409, {"detail": assignment_id}),
+    ])
+    monkeypatch.setattr(client_module.httpx, "Client", lambda **_: fake)
+    with EndpointPlatformClient("https://endpoint.invalid", token_file=token(tmp_path), ca_file=ca(tmp_path)) as sdk:
+        issued = sdk.issue_inventory_installation(assignment_id, fingerprint, "linux")
+        assert (issued.expires_at - issued.issued_at).total_seconds() == 1800
+        assert sdk.lookup_inventory_installation(assignment_id).state == "waiting_connection"
+        receipt = sdk.lookup_inventory_installation(assignment_id)
+        assert receipt.state == "connected" and receipt.device_id == device_id
+        with pytest.raises(EndpointPlatformResponseError) as failure:
+            sdk.lookup_inventory_installation(assignment_id)
+        assert failure.value.status_code == 409 and assignment_id not in str(failure.value)
+    assert [call[:2] for call in fake.calls] == [
+        ("POST", "/api/v1/enrollment/installation-assignments"),
+        *[("POST", "/api/v1/enrollment/installation-receipts/lookup")] * 3,
+    ]
+    assert fake.calls[0][2]["json"] == {
+        "installation_id": assignment_id, "hardware_fingerprint": fingerprint, "platform": "linux",
+    }
+    assert all(call[2]["json"] == {"installation_id": assignment_id} for call in fake.calls[1:])
+
+
+def test_inventory_installation_sdk_rejects_unbounded_input_and_pending_device_id(tmp_path, monkeypatch):
+    assignment_id = f"inventory-{uuid4()}-{uuid4()}-" + "a" * 32
+    fake = FakeHttpClient(responses=[_response(200, {"state": "expired", "device_id": str(uuid4())})])
+    monkeypatch.setattr(client_module.httpx, "Client", lambda **_: fake)
+    with EndpointPlatformClient("https://endpoint.invalid", token_file=token(tmp_path), ca_file=ca(tmp_path)) as sdk:
+        with pytest.raises(EndpointPlatformInvalidRequest):
+            sdk.lookup_inventory_installation("win-fixture")
+        with pytest.raises(EndpointPlatformInvalidRequest):
+            sdk.issue_inventory_installation(assignment_id, "not-a-fingerprint", "linux")
+        assert fake.calls == []
+        with pytest.raises(EndpointPlatformMalformedResponse):
+            sdk.lookup_inventory_installation(assignment_id)

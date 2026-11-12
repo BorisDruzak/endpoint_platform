@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+import re
+from typing import Any, Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
 import httpx
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from .errors import (
     EndpointPlatformConfigurationError,
@@ -30,6 +31,8 @@ from .models import (
     Device,
     DeviceContext,
     InventoryHistory,
+    InventoryInstallationReceipt,
+    InventoryInstallationWindow,
     InventoryContext,
     SessionContext,
     SafeContextProfile,
@@ -42,6 +45,10 @@ _READ_ATTEMPTS = 3
 _TRANSIENT_STATUS_CODES = frozenset((502, 503, 504))
 _MAX_BASELINE_HISTORY_LIMIT = 100
 _MAX_NETWORK_IDENTITY_PAGES = 100
+_UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+_INVENTORY_INSTALLATION_ID = re.compile(rf"inventory-{_UUID}-{_UUID}-[0-9a-f]{{32}}")
+_HARDWARE_FINGERPRINT = re.compile(r"sha256:[a-z0-9][a-z0-9._-]{1,248}")
+_INSTALLATION_RECEIPT = TypeAdapter(InventoryInstallationReceipt)
 
 
 class EndpointPlatformClient:
@@ -250,6 +257,45 @@ class EndpointPlatformClient:
             ),
         ).data
         return ContextComparison(comparison=comparison)
+
+    def issue_inventory_installation(
+        self,
+        installation_id: str,
+        hardware_fingerprint: str,
+        platform: Literal["linux", "windows"],
+    ) -> InventoryInstallationWindow:
+        """Issue a directed installation or recover its original window."""
+        self._require_installation_id(installation_id)
+        if (
+            platform not in ("linux", "windows")
+            or not isinstance(hardware_fingerprint, str)
+            or len(hardware_fingerprint) > 256
+            or not _HARDWARE_FINGERPRINT.fullmatch(hardware_fingerprint.lower())
+        ):
+            raise EndpointPlatformInvalidRequest()
+        data = self._request(
+            "POST", "/api/v1/enrollment/installation-assignments", retry=False,
+            json={
+                "installation_id": installation_id,
+                "hardware_fingerprint": hardware_fingerprint.lower(),
+                "platform": platform,
+            },
+        )
+        return self._validate(data, InventoryInstallationWindow.model_validate)
+
+    def lookup_inventory_installation(self, installation_id: str) -> InventoryInstallationReceipt:
+        """Read the server-verified enrollment and heartbeat for an assignment."""
+        self._require_installation_id(installation_id)
+        data = self._request(
+            "POST", "/api/v1/enrollment/installation-receipts/lookup", retry=False,
+            json={"installation_id": installation_id},
+        )
+        return self._validate(data, _INSTALLATION_RECEIPT.validate_python)
+
+    @staticmethod
+    def _require_installation_id(installation_id: str) -> None:
+        if not isinstance(installation_id, str) or not _INVENTORY_INSTALLATION_ID.fullmatch(installation_id):
+            raise EndpointPlatformInvalidRequest()
 
     def _get(self, path: str, **kwargs: object) -> object:
         return self._request("GET", path, retry=True, **kwargs)
