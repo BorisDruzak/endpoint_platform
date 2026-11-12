@@ -8,6 +8,27 @@
   "linux_kit_metadata_commit": "21fc543af8d4b8b24df83f29a27e4e2eeb86c268",
   "verified_code_and_tests_commit": "fd196e78b2c5cef00c86de79ca359147676f8b2f",
   "canonical_rules": "AGENTS.md#canonical-agent-release",
+  "server_health_196": {
+    "source_commit": "e56731cee985af2ef881c9165d1a16db9361fae0",
+    "ubuntu": {
+      "package": "endpoint-agent-ubuntu",
+      "version": "3.2.196-1ubuntu1",
+      "sha256": "ffb40a52672947ad415e09e2c0d1c1de53168781d50e4e4e0b37d8b77f889dbd",
+      "size": 34799342,
+      "repository": "https://endpoint.sosnadmin.local/downloads/ubuntu",
+      "suite": "noble"
+    },
+    "windows_core_canary": {
+      "version": "3.2.196",
+      "minimum_foundation_version": "3.2.193",
+      "artifact_name": "EndpointCore-3.2.196-e56731ce.zip",
+      "sha256": "a4b9393cef438ed20497ddc0a9aaba3e8477804d035e76f44b14fa696eecb388",
+      "size": 22693471,
+      "build_id": "70ab0f57-18f5-41af-9011-096dffa88288",
+      "rollout_id": "db7966da-5f8f-493b-85b5-d966024d2727"
+    },
+    "verification": "docs/verification/2026-11-12-fileserver-postgresql-health.md"
+  },
   "proxmox_debian": {
     "package": "endpoint-agent-debian",
     "version": "3.2.195-1deb12u1",

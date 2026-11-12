@@ -2,12 +2,14 @@
 
 Контроллер собирает `health_v1` каждые пять минут для подключённых агентов. При заданной роли карточка устройства в консоли показывает раздел `sections.server` в профиле «Состояние».
 
-Кандидат Windows Core 3.2.193 добавляет серверный профиль и резерв WSS к исходникам Windows 3.2.190. Для Ubuntu Server предусмотрен [отдельный клиент 3.2.192](UBUNTU_SERVER_AGENT.md) со своим пакетом и пилотом. Роли Linux в таблице задают проверки для этого клиента.
+Windows Core 3.2.193 добавляет серверный профиль и резерв WSS. Windows Core 3.2.196 добавляет роль файлового сервера для Foundation 3.2.193. [Отдельный клиент Ubuntu Server](UBUNTU_SERVER_AGENT.md) включает роль PostgreSQL начиная с 3.2.196.
 
 | Хост | Роль | Службы | Локальные тома | Проверки приложений |
 | --- | --- | --- | --- | --- |
 | 192.168.100.19 | `endpoint_platform` | Endpoint API, worker, Nginx, `postgresql@16-main.service` | `/`, `/boot` | `GET http://127.0.0.1:8000/healthz`, HTTP 200 |
+| 192.168.100.27 | `postgresql` | `postgresql@14-main.service` | `/` с данными кластера, `/boot` | `pg_isready` на `127.0.0.1:5432` |
 | 192.168.100.30 | `openvpn` | `openvpn-server@server.service`, `openvpn-web.service` | `/`, `/boot`, `/var/lib/netctl` | Веб-панель на loopback 8088, HTTP 200 или 303, и наличие UDP-слушателя 1194 |
+| 192.168.100.40 | `file_server` | `LanmanServer`, `LanmanWorkstation` | `C:\\`, `D:\\` | Loopback TCP 445 и наличие опубликованного дискового ресурса SMB |
 | pve1, pve2, pve3 | `proxmox` | `pve-cluster`, `corosync`, `pvedaemon`, `pveproxy`, `pvestatd`, `pvescheduler` | `/` и настроенные хранилища Proxmox для этого узла | Локальный HTTPS API с проверкой сертификата, кворум, доступность узлов и хранилищ |
 | 192.168.100.10 | `ad_directum` | `NTDS`, `DNS`, `Kdc`, `Netlogon`, `ADWS`, `DirectumRXServiceRunner`, `W3SVC`, `RabbitMQ` | `C:\\`, `S:\\` | TCP 53, 88 и 389 для AD, корень сайта Directum RX с HTTP 200 или 302 и TCP 5672 |
 | 192.168.100.11 | `ad_consultant` | `NTDS`, `DNS`, `Kdc`, `Netlogon`, `ADWS`, `W3SVC`, `ConsServiceS400.2.24` | `C:\\`, `S:\\` | TCP 53, 88 и 389 для AD, `/cons/` с HTTP 200 и TCP 20024 для «КонсультантПлюс» |
@@ -20,6 +22,10 @@
 4. Для отключения роли удалите её переменную из окружения службы и перезапустите агент. Дождитесь следующего сбора, чтобы актуальный снимок вернулся к базовому набору проверок.
 
 Перед установкой запустите распакованный Core с нужным значением `ENDPOINT_AGENT_SERVER_ROLE` и параметром `--print-server-health`. Он печатает JSON без регистрации и обращения к контроллеру. Код 2 означает отсутствующую или несовместимую роль. Код 0 означает, что снимок собран, а состояние каждой проверки находится в JSON.
+
+На Ubuntu с DEB роль можно задать в `/etc/endpoint-agent-ubuntu/site.conf`.
+Проверка PostgreSQL фиксирует готовность принимать подключения без пароля.
+Проверка SMB учитывает пользовательские дисковые ресурсы и передаёт только итоговый статус.
 
 Для Proxmox VE задайте `ENDPOINT_AGENT_SERVER_ROLE=proxmox` в
 `/etc/endpoint-agent-debian/site.conf`. Служба агента запускает таймер

@@ -44,6 +44,11 @@
 
 # Canonical agent release
 
+- The scoped server health rollout uses Ubuntu package `endpoint-agent-ubuntu`
+  **3.2.196-1ubuntu1** for PostgreSQL DIRPOST and Windows Core **3.2.196**
+  on Foundation **3.2.193** for FILESERVER. Exact artifacts, provenance and
+  acceptance are in [the server health receipt](docs/verification/2026-11-12-fileserver-postgresql-health.md).
+
 - Proxmox VE 8.4 has a separate Debian 12 amd64 package, `endpoint-agent-debian`
   **3.2.195-1deb12u1**, distributed by signed APT in `bookworm/main`.
   The immutable Core source is `5c3eb383e7768464366f76fd7f8f824a0690baf4`.
