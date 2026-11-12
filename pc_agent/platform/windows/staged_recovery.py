@@ -127,6 +127,10 @@ def _validate_task_definition(xml, operation_id, executable, logon_type):
             or restarts[0].findtext('t:Interval', namespaces=ns) != 'PT1M'
             or restarts[0].findtext('t:Count', namespaces=ns) != '3'):
         _fail()
+    xml_logon = principals[0].findtext('t:LogonType', namespaces=ns) if len(principals) == 1 else None
+    # Scheduler 1.3 on Windows Server 2012 R2 exports a SYSTEM service-account
+    # principal as InteractiveToken. Require the independent COM type below.
+    legacy_system_xml = root.get('version') == '1.3' and xml_logon == 'InteractiveToken'
     if (len(actions) != 1 or len(root.findall('t:Actions/*', ns)) != 1
             or len(root.findall('t:Triggers/*', ns)) != 1 or len(principals) != 1
             or actions[0].findtext('t:Command', namespaces=ns) != str(executable)
@@ -134,7 +138,7 @@ def _validate_task_definition(xml, operation_id, executable, logon_type):
             or principals[0].findtext('t:UserId', namespaces=ns) != 'S-1-5-18'
             or principals[0].findtext('t:RunLevel', namespaces=ns) != 'HighestAvailable'
             or logon_type != 5
-            or principals[0].findtext('t:LogonType', namespaces=ns) not in (None, 'ServiceAccount')
+            or (xml_logon not in (None, 'ServiceAccount') and not legacy_system_xml)
             or len(root.findall('t:Triggers/t:BootTrigger', ns)) != 1):
         _fail()
 

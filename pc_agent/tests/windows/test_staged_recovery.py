@@ -368,3 +368,15 @@ def test_owner_loss_during_trial_requests_compensation(recovery, staged):
         assert module.recover_staged_update(paths,binding.operation_id,capability=cap) == 'rollback-required'
     assert state.read_staged_update(paths).attempt_id == attempt
     assert state.read_staged_update(paths).phase == 'trial'
+
+
+def test_legacy_task_xml_spelling_needs_real_system_service_account(tmp_path):
+    from pc_agent.platform.windows.staged_recovery import _validate_task_definition
+    operation = 'cf85346d-b6af-47f4-bcc3-a815e6aca448'
+    executable = tmp_path / 'EndpointAgentSetup.exe'
+    xml = f'''<Task version="1.3" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><Principals><Principal><UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel><LogonType>InteractiveToken</LogonType></Principal></Principals><Triggers><BootTrigger/></Triggers><Actions><Exec><Command>{executable}</Command><Arguments>--recover-staged-update {operation}</Arguments></Exec></Actions></Task>'''
+    _validate_task_definition(xml, operation, executable, 5)
+    for altered, logon_type in ((xml, 3), (xml.replace('S-1-5-18', 'S-1-5-19'), 5),
+                                 (xml.replace('1.3', '1.4'), 5)):
+        with pytest.raises(ValueError):
+            _validate_task_definition(altered, operation, executable, logon_type)
