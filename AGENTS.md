@@ -45,8 +45,10 @@
 # Canonical agent release
 
 - Proxmox VE 8.4 has a separate Debian 12 amd64 package, `endpoint-agent-debian`
-  **3.2.194-1deb12u1**, distributed by signed APT in `bookworm/main`.
-  The immutable Core source is `c25d2d02805f2034af4a582591b15c77bf56628f`.
+  **3.2.195-1deb12u1**, distributed by signed APT in `bookworm/main`.
+  The immutable Core source is `5c3eb383e7768464366f76fd7f8f824a0690baf4`.
+  Its Proxmox role reports services, local HTTPS, quorum, node availability
+  and storage through the existing health profile.
   Release bytes and production acceptance are recorded in
   [the Proxmox rollout receipt](docs/verification/2026-11-12-proxmox-debian-rollout.md).
 
