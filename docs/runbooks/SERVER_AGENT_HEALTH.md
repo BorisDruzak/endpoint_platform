@@ -6,6 +6,7 @@ Windows Core 3.2.193 добавляет серверный профиль и р�
 
 | Хост | Роль | Службы | Локальные тома | Проверки приложений |
 | --- | --- | --- | --- | --- |
+| 192.168.100.4 | `kaspersky_file_server` | SMB, Kaspersky Security Center, Web Console, сетевой агент и Kaspersky Endpoint Security | `C:`, `E:` | TCP 445 и 13000, наличие опубликованных дисковых ресурсов SMB |
 | 192.168.100.12 | `registry_engine` | `reg-engine.service`, `nginx.service`, `postgresql@16-main.service` | `/`, `/boot` | HTTP 200 от `127.0.0.1:8000/healthz` и готовность PostgreSQL на 5432 |
 | 192.168.100.45 | `acti_v3` | `docker.service`, `containerd.service` | `/`, `/boot`, `/srv/acti/documents`, `/srv/acti/postgresql` | HTTP 200 от локальных HTTPS-маршрутов `/api/v1/health/live` и `/api/v1/health/ready` |
 | 192.168.100.19 | `endpoint_platform` | Endpoint API, worker, Nginx, `postgresql@16-main.service` | `/`, `/boot` | `GET http://127.0.0.1:8000/healthz`, HTTP 200 |
