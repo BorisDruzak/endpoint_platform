@@ -427,6 +427,34 @@ def test_native_asset_signature_gate_keeps_all_signed_and_fixed_vendor(monkeypat
     assert kwargs['shell'] is False and kwargs['timeout']==30
 
 
+@pytest.mark.parametrize('verified', [False, True])
+def test_native_asset_missing_timestamp_requires_wintrust(monkeypatch, tmp_path, verified):
+    from pc_agent.platform.windows import native_setup_observer as observer
+
+    asset = tmp_path / 'EndpointSetupUpdater.ps1'
+    calls = []
+
+    def powershell_check(path, *, native_timestamp=False):
+        calls.append(('powershell', path, native_timestamp))
+        return 0 if native_timestamp else 22
+
+    def native_check(path, publisher):
+        calls.append(('wintrust', path, publisher))
+        return verified
+
+    monkeypatch.setattr(observer, '_check_signature_and_trust_publisher', powershell_check)
+    monkeypatch.setattr(observer, 'has_verified_timestamp', native_check)
+    if verified:
+        observer._verify_signature(asset)
+    else:
+        with pytest.raises(ValueError, match='RECOVERY_REQUIRED'):
+            observer._verify_signature(asset)
+    expected = [('powershell', asset, False), ('wintrust', asset, observer._PUBLISHER)]
+    if verified:
+        expected.append(('powershell', asset, True))
+    assert calls == expected
+
+
 @pytest.mark.skipif(os.name != 'nt',reason='native inherited administrative ACL')
 def test_native_provision_accepts_existing_signed_observer_inherited_admin_file_acl(native_protected_root):
     import win32security

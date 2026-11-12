@@ -1399,6 +1399,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             detail="MSI_INSTALL_FAILED",
         )
 
+    return _enroll_fresh_install(args, data_root, config, provisioner)
+
+
+def _enroll_fresh_install(args, data_root, config, provisioner):
     transport = HttpsSetupTransport(config.endpoint_origin, config.ca_file)
     installation_id: str | None = None
 

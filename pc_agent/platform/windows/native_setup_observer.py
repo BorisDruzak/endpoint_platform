@@ -18,11 +18,13 @@ import sys
 
 from endpoint_contracts.runtime_payload import read_json
 from . import durable_state, installer_fence as fence
+from .authenticode_timestamp import has_verified_timestamp
 from .setup_update_bootstrap import system_powershell
 
 _LIMIT = 2 * 1024 * 1024
 _SDDL = 'O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)'
 _PUBLISHER = '4D4C23389F5FF77BC4EB32044761019EAE8FB776'
+_POWERSHELL_TIMESTAMP_UNAVAILABLE = 22
 
 
 def _fail():
@@ -54,10 +56,20 @@ def read_packaged_observer(root):
 
 
 def _verify_signature(asset):
+    result = _check_signature_and_trust_publisher(asset)
+    if result == _POWERSHELL_TIMESTAMP_UNAVAILABLE and has_verified_timestamp(asset, _PUBLISHER):
+        result = _check_signature_and_trust_publisher(asset, native_timestamp=True)
+    if result != 0:
+        _fail()
+
+
+def _check_signature_and_trust_publisher(asset, *, native_timestamp=False):
     literal = str(asset).replace("'", "''")
+    require_powershell_timestamp = '$false' if native_timestamp else '$true'
     code = f"""$ErrorActionPreference='Stop'
 $s=Get-AuthenticodeSignature -LiteralPath '{literal}'
-if($s.Status -ne 'Valid' -or !$s.TimeStamperCertificate -or $s.SignerCertificate.Thumbprint -cne '{_PUBLISHER}'){{exit 21}}
+if($s.Status -ne 'Valid' -or $s.SignerCertificate.Thumbprint -cne '{_PUBLISHER}'){{exit 21}}
+if({require_powershell_timestamp} -and !$s.TimeStamperCertificate){{exit {_POWERSHELL_TIMESTAMP_UNAVAILABLE}}}
 $store=[Security.Cryptography.X509Certificates.X509Store]::new('TrustedPublisher','LocalMachine')
 try{{$store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite);if(!$store.Certificates.Find([Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint,$s.SignerCertificate.Thumbprint,$false).Count){{$store.Add($s.SignerCertificate)}}}}finally{{$store.Close()}}
 """
@@ -65,8 +77,7 @@ try{{$store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite);
         '-ExecutionPolicy', 'AllSigned', '-EncodedCommand', base64.b64encode(code.encode('utf-16-le')).decode('ascii')],
         shell=False, timeout=30, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         creationflags=0x08000000)
-    if result.returncode != 0:
-        _fail()
+    return result.returncode
 
 
 def _administrative_directory(parent, name):
