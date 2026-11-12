@@ -6,6 +6,8 @@ Windows Core 3.2.193 добавляет серверный профиль и р�
 
 | Хост | Роль | Службы | Локальные тома | Проверки приложений |
 | --- | --- | --- | --- | --- |
+| 192.168.100.12 | `registry_engine` | `reg-engine.service`, `nginx.service`, `postgresql@16-main.service` | `/`, `/boot` | HTTP 200 от `127.0.0.1:8000/healthz` и готовность PostgreSQL на 5432 |
+| 192.168.100.45 | `acti_v3` | `docker.service`, `containerd.service` | `/`, `/boot`, `/srv/acti/documents`, `/srv/acti/postgresql` | HTTP 200 от локальных HTTPS-маршрутов `/api/v1/health/live` и `/api/v1/health/ready` |
 | 192.168.100.19 | `endpoint_platform` | Endpoint API, worker, Nginx, `postgresql@16-main.service` | `/`, `/boot` | `GET http://127.0.0.1:8000/healthz`, HTTP 200 |
 | 192.168.100.27 | `postgresql` | `postgresql@14-main.service` | `/` с данными кластера, `/boot` | `pg_isready` на `127.0.0.1:5432` |
 | 192.168.100.30 | `openvpn` | `openvpn-server@server.service`, `openvpn-web.service` | `/`, `/boot`, `/var/lib/netctl` | Веб-панель на loopback 8088, HTTP 200 или 303, и наличие UDP-слушателя 1194 |
@@ -26,6 +28,9 @@ Windows Core 3.2.193 добавляет серверный профиль и р�
 На Ubuntu с DEB роль можно задать в `/etc/endpoint-agent-ubuntu/site.conf`.
 Проверка PostgreSQL фиксирует готовность принимать подключения без пароля.
 Проверка SMB учитывает пользовательские дисковые ресурсы и передаёт только итоговый статус.
+Для ACTI положите публичный CA фронтенда в
+`/etc/endpoint-agent-ubuntu/acti-ca.crt`. Агент подключается к IPv4 loopback,
+проверяет TLS-имя `localhost` и передаёт HTTP-статусы.
 
 Для Proxmox VE задайте `ENDPOINT_AGENT_SERVER_ROLE=proxmox` в
 `/etc/endpoint-agent-debian/site.conf`. Служба агента запускает таймер

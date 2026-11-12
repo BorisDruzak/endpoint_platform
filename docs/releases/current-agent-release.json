@@ -8,6 +8,17 @@
   "linux_kit_metadata_commit": "21fc543af8d4b8b24df83f29a27e4e2eeb86c268",
   "verified_code_and_tests_commit": "fd196e78b2c5cef00c86de79ca359147676f8b2f",
   "canonical_rules": "AGENTS.md#canonical-agent-release",
+  "ubuntu_servers_197": {
+    "package": "endpoint-agent-ubuntu",
+    "version": "3.2.197-1ubuntu1",
+    "sha256": "1d30e147ef8e108a2b379ffffcfb765d66ddb24926974592b23d86e491a6d573",
+    "size": 34800960,
+    "runtime_source_commit": "0b518358bd6d1efaaf5ee554bc3372c26eb73ca7",
+    "provider_commit": "b0bac8654b41994df88eada32789a1fa1212e3ea",
+    "repository": "https://endpoint.sosnadmin.local/downloads/ubuntu",
+    "suite": "noble",
+    "verification": "docs/verification/2026-11-12-acti-registry-server-agents.md"
+  },
   "server_health_196": {
     "source_commit": "e56731cee985af2ef881c9165d1a16db9361fae0",
     "ubuntu": {

@@ -44,6 +44,10 @@
 
 # Canonical agent release
 
+- Ubuntu Server **3.2.197-1ubuntu1** is published in signed `noble/main`.
+  Scoped production enrollment and role acceptance cover ACTI and Registry Engine.
+  See [the Ubuntu 197 receipt](docs/verification/2026-11-12-acti-registry-server-agents.md).
+
 - The scoped server health rollout uses Ubuntu package `endpoint-agent-ubuntu`
   **3.2.196-1ubuntu1** for PostgreSQL DIRPOST and Windows Core **3.2.196**
   on Foundation **3.2.193** for FILESERVER. Exact artifacts, provenance and
