@@ -100,7 +100,7 @@ class HealthServiceV1(ContractModelV1):
 
 ServerRoleV1 = Literal[
     "endpoint_platform", "openvpn", "directum", "ad_directum", "ad_consultant", "proxmox",
-    "file_server", "postgresql",
+    "file_server", "postgresql", "acti_v3", "registry_engine",
 ]
 
 

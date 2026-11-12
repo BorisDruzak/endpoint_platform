@@ -190,7 +190,9 @@
             "ad_consultant",
             "proxmox",
             "file_server",
-            "postgresql"
+            "postgresql",
+            "acti_v3",
+            "registry_engine"
           ],
           "title": "Role",
           "type": "string"

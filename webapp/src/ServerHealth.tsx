@@ -9,6 +9,8 @@ export const serverRoleLabels = {
   proxmox: 'Proxmox VE',
   file_server: 'Файловый сервер',
   postgresql: 'PostgreSQL',
+  acti_v3: 'ACTI',
+  registry_engine: 'Registry Engine',
 }
 
 export type ServerRole = keyof typeof serverRoleLabels
@@ -52,6 +54,9 @@ const applicationLabels: Record<string, string> = {
   smb_tcp: 'SMB TCP 445',
   smb_disk_shares: 'Опубликованные файловые ресурсы SMB',
   postgresql_ready: 'Готовность PostgreSQL на TCP 5432',
+  acti_live: 'Доступность API ACTI',
+  acti_ready: 'Готовность API ACTI',
+  registry_engine_health: 'Локальный API Registry Engine',
 }
 
 const number = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 })

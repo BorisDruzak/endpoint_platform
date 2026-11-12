@@ -6392,6 +6392,8 @@ components:
             - "proxmox"
             - "file_server"
             - "postgresql"
+            - "acti_v3"
+            - "registry_engine"
           title: "Role"
           type: "string"
         services:
@@ -12955,6 +12957,8 @@ components:
             - "proxmox"
             - "file_server"
             - "postgresql"
+            - "acti_v3"
+            - "registry_engine"
           title: "Role"
         services:
           items:

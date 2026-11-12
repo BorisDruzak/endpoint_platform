@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 import os
 import re
+import ssl
 
 import psutil
 
@@ -53,6 +54,15 @@ ROLES: dict[ServerRoleV1, Role] = {
         (Volume("C:\\", 10), Volume("D:\\", 10)),
     ),
     "postgresql": Role("linux", ("postgresql@14-main.service",), (Volume("/", 5), Volume("/boot"))),
+    "acti_v3": Role(
+        "linux", ("docker.service", "containerd.service"),
+        (Volume("/", 5), Volume("/boot"), Volume("/srv/acti/documents", 10),
+         Volume("/srv/acti/postgresql", 10)),
+    ),
+    "registry_engine": Role(
+        "linux", ("nginx.service", "reg-engine.service", "postgresql@16-main.service"),
+        (Volume("/", 5), Volume("/boot")),
+    ),
     "proxmox": Role(
         "linux",
         ("pve-cluster.service", "corosync.service", "pvedaemon.service", "pveproxy.service",
@@ -191,6 +201,16 @@ def _applications(probe: object, role: ServerRoleV1) -> list[ServerHealthApplica
         ]
     if role == "postgresql":
         return [_local_check("postgresql_ready", probe.server_postgresql_ready)]
+    if role == "acti_v3":
+        return [
+            _http_check("acti_live", lambda: probe.acti_https_status("live"), {200}),
+            _http_check("acti_ready", lambda: probe.acti_https_status("ready"), {200}),
+        ]
+    if role == "registry_engine":
+        return [
+            _http(probe, "registry_engine_health", 8000, "/healthz", {200}),
+            _local_check("postgresql_ready", probe.server_postgresql_ready),
+        ]
     checks = []
     if role in {"ad_directum", "ad_consultant"}:
         checks.extend([
@@ -212,9 +232,13 @@ def _applications(probe: object, role: ServerRoleV1) -> list[ServerHealthApplica
 
 
 def _http(probe: object, name: str, port: int, path: str, expected: set[int]) -> ServerHealthApplicationV1:
+    return _http_check(name, lambda: probe.server_http_status(port, path), expected)
+
+
+def _http_check(name: str, check, expected: set[int]) -> ServerHealthApplicationV1:
     try:
-        code = probe.server_http_status(port, path)
-    except (ConnectionRefusedError, ConnectionResetError):
+        code = check()
+    except (ConnectionRefusedError, ConnectionResetError, ssl.SSLError):
         return ServerHealthApplicationV1(name=name, status="failed")
     except PROBE_ERRORS:
         return ServerHealthApplicationV1(name=name, status="unknown")

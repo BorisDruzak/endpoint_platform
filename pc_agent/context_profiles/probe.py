@@ -10,6 +10,7 @@ from pathlib import Path
 import shutil
 import signal
 import socket
+import ssl
 import subprocess
 import threading
 import time
@@ -131,6 +132,12 @@ class SystemProbe:
 
     def server_http_status(self, port: int, path: str) -> int:
         return asyncio.run(_server_http_status(port, path))
+
+    def acti_https_status(self, check: str) -> int:
+        if check not in ("live", "ready"):
+            raise ValueError("unknown ACTI health check")
+        tls = ssl.create_default_context(cafile="/etc/endpoint-agent-ubuntu/acti-ca.crt")
+        return asyncio.run(_server_http_status(443, f"/api/v1/health/{check}", tls=tls))
 
     def proxmox_health_snapshot(self) -> dict:
         with Path("/run/endpoint-proxmox-health/status.json").open("rb") as stream:
@@ -348,12 +355,16 @@ class SystemProbe:
         return output.decode("utf-8", errors="replace")
 
 
-async def _server_http_status(port: int, path: str) -> int:
+async def _server_http_status(port: int, path: str, *, tls: ssl.SSLContext | None = None) -> int:
     timeout = aiohttp.ClientTimeout(total=_HTTP_PROBE_TIMEOUT)
+    scheme = "https" if tls is not None else "http"
+    options = {"ssl": tls, "server_hostname": "localhost", "headers": {"Host": "localhost"}} if tls else {}
     try:
         async with aiohttp.ClientSession(timeout=timeout, trust_env=False) as session:
-            async with session.get(f"http://127.0.0.1:{port}{path}", allow_redirects=False) as response:
+            async with session.get(f"{scheme}://127.0.0.1:{port}{path}", allow_redirects=False, **options) as response:
                 return response.status
+    except aiohttp.ClientSSLError as error:
+        raise ssl.SSLError("local HTTPS certificate verification failed") from error
     except aiohttp.ClientConnectorError as error:
         raise error.os_error from error
     except aiohttp.ClientError as error:

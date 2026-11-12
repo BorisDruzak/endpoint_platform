@@ -237,6 +237,43 @@ def test_proxmox_profile_reports_cluster_and_storage_failures(monkeypatch):
     assert health.applications[0].http_status == 401
 
 
+def test_acti_checks_both_data_mounts_and_distinguishes_live_from_ready(monkeypatch):
+    monkeypatch.setenv("ENDPOINT_AGENT_SERVER_ROLE", "acti_v3")
+    probe = Probe()
+    probe.server_service_state = lambda unit: "active/running"
+    probe.server_local_mounts = lambda: {"/", "/boot", "/srv/acti/documents"}
+    probe.server_disk_usage = lambda mount: SimpleNamespace(total=100 * 1024**3, free=50 * 1024**3, percent=50)
+    probe.acti_https_status = lambda check: {"live": 200, "ready": 503}[check]
+
+    health = collect_server_health(probe)
+
+    assert {item.name for item in health.services} == {"docker.service", "containerd.service"}
+    assert {item.mount: item.status for item in health.volumes} == {
+        "/": "ok", "/boot": "ok", "/srv/acti/documents": "ok", "/srv/acti/postgresql": "missing",
+    }
+    assert {item.name: (item.status, item.http_status) for item in health.applications} == {
+        "acti_live": ("ok", 200), "acti_ready": ("failed", 503),
+    }
+
+
+def test_registry_engine_reports_app_and_database_health_independently(monkeypatch):
+    monkeypatch.setenv("ENDPOINT_AGENT_SERVER_ROLE", "registry_engine")
+    probe = Probe()
+    probe.server_service_state = lambda name: "active/running"
+    probe.server_local_mounts = set
+    probe.server_http_status = lambda port, path: 200 if (port, path) == (8000, "/healthz") else 404
+    probe.server_postgresql_ready = lambda: False
+
+    health = collect_server_health(probe)
+
+    assert {item.name for item in health.services} == {
+        "nginx.service", "reg-engine.service", "postgresql@16-main.service",
+    }
+    assert {item.name: item.status for item in health.applications} == {
+        "registry_engine_health": "ok", "postgresql_ready": "failed",
+    }
+
+
 def test_proxmox_missing_snapshot_is_unknown(monkeypatch):
     monkeypatch.setenv("ENDPOINT_AGENT_SERVER_ROLE", "proxmox")
     probe = Probe()
