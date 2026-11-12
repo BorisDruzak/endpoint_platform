@@ -44,6 +44,12 @@
 
 # Canonical agent release
 
+- ANTARES runs Windows Core **3.2.199** on Foundation **3.2.193**. The
+  signed transaction recovery and the scoped Core OTA passed on ANTARES.
+  Console accepted the Kaspersky Security Center and SMB profile and both
+  volumes. The separate Full Setup observer 1.0.8 still returns 20 on this
+  host. See the [ANTARES recovery receipt](docs/verification/2026-11-12-antares-server-agent-preflight.md).
+
 - Ubuntu Server **3.2.197-1ubuntu1** is published in signed `noble/main`.
   Scoped production enrollment and role acceptance cover ACTI and Registry Engine.
   See [the Ubuntu 197 receipt](docs/verification/2026-11-12-acti-registry-server-agents.md).
