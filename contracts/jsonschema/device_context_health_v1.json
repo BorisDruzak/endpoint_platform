@@ -192,7 +192,8 @@
             "file_server",
             "postgresql",
             "acti_v3",
-            "registry_engine"
+            "registry_engine",
+            "kaspersky_file_server"
           ],
           "title": "Role",
           "type": "string"

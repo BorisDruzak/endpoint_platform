@@ -6394,6 +6394,7 @@ components:
             - "postgresql"
             - "acti_v3"
             - "registry_engine"
+            - "kaspersky_file_server"
           title: "Role"
           type: "string"
         services:
@@ -12959,6 +12960,7 @@ components:
             - "postgresql"
             - "acti_v3"
             - "registry_engine"
+            - "kaspersky_file_server"
           title: "Role"
         services:
           items:

@@ -188,6 +188,31 @@ def test_file_server_reports_both_volumes_and_distinguishes_smb_checks(monkeypat
     }
 
 
+def test_antares_reports_kaspersky_and_smb_independently(monkeypatch):
+    monkeypatch.setenv("ENDPOINT_AGENT_SERVER_ROLE", "kaspersky_file_server")
+    probe = Probe()
+    probe.platform_name = "windows"
+    probe.server_service_state = lambda name: "stopped" if name == "AVP" else "running"
+    probe.server_local_mounts = lambda: {"C:\\", "E:\\"}
+    probe.server_disk_usage = lambda mount: SimpleNamespace(
+        total=100 * 1024**3, free=25 * 1024**3, percent=75,
+    )
+    probe.server_tcp_listener = lambda port: port == 445
+    probe.server_has_disk_shares = lambda: True
+
+    section = collect_server_health(probe)
+
+    assert {item.name: item.status for item in section.services} == {
+        "LanmanServer": "ok", "LanmanWorkstation": "ok", "kladminserver": "ok",
+        "klnagent": "ok", "KSCWebConsole": "ok", "KSCWebConsoleManagementService": "ok",
+        "KSCWebConsoleMessageQueue": "ok", "AVP": "failed", "avpsus": "ok",
+    }
+    assert {item.mount: item.status for item in section.volumes} == {"C:\\": "ok", "E:\\": "ok"}
+    assert {item.name: item.status for item in section.applications} == {
+        "smb_tcp": "ok", "smb_disk_shares": "ok", "kaspersky_admin_tcp": "failed",
+    }
+
+
 @pytest.mark.parametrize(("ready", "expected"), [(True, "ok"), (False, "failed"), (None, "unknown")])
 def test_postgresql_reports_instance_and_readiness_separately(monkeypatch, ready, expected):
     monkeypatch.setenv("ENDPOINT_AGENT_SERVER_ROLE", "postgresql")

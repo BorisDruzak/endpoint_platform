@@ -11,6 +11,7 @@ export const serverRoleLabels = {
   postgresql: 'PostgreSQL',
   acti_v3: 'ACTI',
   registry_engine: 'Registry Engine',
+  kaspersky_file_server: 'Kaspersky Security Center и файловый сервер',
 }
 
 export type ServerRole = keyof typeof serverRoleLabels
@@ -57,6 +58,7 @@ const applicationLabels: Record<string, string> = {
   acti_live: 'Доступность API ACTI',
   acti_ready: 'Готовность API ACTI',
   registry_engine_health: 'Локальный API Registry Engine',
+  kaspersky_admin_tcp: 'Сервер администрирования Kaspersky TCP 13000',
 }
 
 const number = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 })

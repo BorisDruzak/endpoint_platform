@@ -32,6 +32,7 @@ class Role:
 _AD_SERVICES = ("NTDS", "DNS", "Kdc", "Netlogon", "ADWS")
 _DIRECTUM_SERVICES = ("DirectumRXServiceRunner", "W3SVC", "RabbitMQ")
 _WINDOWS_VOLUMES = (Volume("C:\\", 10), Volume("S:\\", 10))
+_SMB_SERVICES = ("LanmanServer", "LanmanWorkstation")
 
 ROLES: dict[ServerRoleV1, Role] = {
     "endpoint_platform": Role(
@@ -50,8 +51,15 @@ ROLES: dict[ServerRoleV1, Role] = {
         "windows", _AD_SERVICES + ("W3SVC", "ConsServiceS400.2.24"), _WINDOWS_VOLUMES,
     ),
     "file_server": Role(
-        "windows", ("LanmanServer", "LanmanWorkstation"),
+        "windows", _SMB_SERVICES,
         (Volume("C:\\", 10), Volume("D:\\", 10)),
+    ),
+    "kaspersky_file_server": Role(
+        "windows", _SMB_SERVICES + (
+            "kladminserver", "klnagent", "KSCWebConsole", "KSCWebConsoleManagementService",
+            "KSCWebConsoleMessageQueue", "AVP", "avpsus",
+        ),
+        (Volume("C:\\", 10), Volume("E:\\", 10)),
     ),
     "postgresql": Role("linux", ("postgresql@14-main.service",), (Volume("/", 5), Volume("/boot"))),
     "acti_v3": Role(
@@ -194,11 +202,14 @@ def _applications(probe: object, role: ServerRoleV1) -> list[ServerHealthApplica
             _http(probe, "openvpn_web_http", 8088, "/", {200, 303}),
             _listener("openvpn_udp_listener", probe.server_udp_listener, 1194),
         ]
-    if role == "file_server":
-        return [
+    if role in {"file_server", "kaspersky_file_server"}:
+        checks = [
             _listener("smb_tcp", probe.server_tcp_listener, 445),
             _local_check("smb_disk_shares", probe.server_has_disk_shares),
         ]
+        if role == "kaspersky_file_server":
+            checks.append(_listener("kaspersky_admin_tcp", probe.server_tcp_listener, 13000))
+        return checks
     if role == "postgresql":
         return [_local_check("postgresql_ready", probe.server_postgresql_ready)]
     if role == "acti_v3":
