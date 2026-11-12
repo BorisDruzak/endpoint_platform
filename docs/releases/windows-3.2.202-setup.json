@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "version": "3.2.202",
+  "platform": "windows_amd64",
+  "status": "failed_antares_before_native_msi",
+  "runtime_source_commit": "ebd709ba2a99a55107335ad925e8ffb6814e5dd4",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.202.json",
+  "setup": {
+    "filename": "EndpointAgentSetup-3.2.202-x64.exe",
+    "sha256": "cb9044bde74e0d2ed7290edee968d4255cc724a17120dc1c7c645d8490475c1d",
+    "size": 165204008,
+    "release_id": "43e0e80a-f056-492b-8bd4-354913b3c523",
+    "download_published": false,
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+    "operator_path": "C:/endpoint-platform-wix-build/setup202-antares-ebd709ba/native-setup-build/releases/EndpointAgentSetup-3.2.202-x64.exe"
+  },
+  "msi": {
+    "sha256": "dadb2c739e3020e98a7b4a773063b5269028bcffb4fa1c26cc034be24ae36ea0",
+    "size": 123944960,
+    "product_code": "{2319EA55-5A98-4D3E-ABE6-0C4AF8A4A79B}"
+  },
+  "observer": {
+    "version": "1.0.10",
+    "sha256": "e48a99e4b0ff7a833eca9b19c2b7f658fb0892a07f86ab8e446eb4f2b83e7a1b"
+  },
+  "setup_update_release_id": "34debe91-6ff8-4e50-a175-27f0b78719ed",
+  "canary_assignment_id": "c6facd92-88f2-40f3-ab4b-79c33015d34d",
+  "initial_runtime": {
+    "file_count": 121,
+    "tree_sha256": "072f4058039886b36e0137258be008bb6ef62038f30f78891575349df54d0542",
+    "component_guid": "D160581B-9144-4B28-A836-55AEFDCECD9B",
+    "source_file_count": 323
+  },
+  "source_qualifications": [],
+  "verification": "docs/verification/2026-11-12-antares-server-agent-preflight.md"
+}

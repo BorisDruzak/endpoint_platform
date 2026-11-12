@@ -44,11 +44,15 @@
 
 # Canonical agent release
 
-- ANTARES runs Windows Core **3.2.199** on Foundation **3.2.193**. The
-  signed transaction recovery and the scoped Core OTA passed on ANTARES.
-  Console accepted the Kaspersky Security Center and SMB profile and both
-  volumes. The separate Full Setup observer 1.0.8 still returns 20 on this
-  host. See the [ANTARES recovery receipt](docs/verification/2026-11-12-antares-server-agent-preflight.md).
+- ANTARES runs Windows Core **3.2.201** on Foundation **3.2.193** with
+  Setup observer **1.0.10**, verified after reboot. The reserve WSS listener
+  accepted the running agent on 8443 and the agent returned to 443 at boot.
+  Console received fresh Kaspersky Security Center, SMB, C: and E: checks.
+  Full Setup **3.2.202** failed before the first MSI call. The signed
+  operation-specific recovery restored the source and archived the native
+  records. The Console assignment remains in recovery and blocks another
+  Full Setup. Do not promote or reuse 202. See the
+  [ANTARES recovery receipt](docs/verification/2026-11-12-antares-server-agent-preflight.md).
 
 - Ubuntu Server **3.2.197-1ubuntu1** is published in signed `noble/main`.
   Scoped production enrollment and role acceptance cover ACTI and Registry Engine.
