@@ -22,7 +22,10 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 from endpoint_contracts import AgentEnrollmentRequestV1
-from pc_agent.core.device_fingerprint import collect_device_fingerprint
+from pc_agent.core.device_fingerprint import (
+    collect_device_fingerprint,
+    collect_windows_inventory_fingerprint,
+)
 from pc_agent.device_credential import read_device_credential
 from pc_agent.enrollment_bootstrap import (
     HttpsEnrollmentTransport,
@@ -182,11 +185,12 @@ class HttpsWindowsEnrollmentClient:
     def enroll(
         self, *, claim: str, endpoint_origin: str, ca_file: Path
     ) -> EnrollmentDelivery:
+        inventory = self._installation_id.startswith(INVENTORY_PREFIX)
         request = AgentEnrollmentRequestV1(
             schema_version="agent_enrollment_request_v1",
             platform="windows",
             hardware_fingerprint=_derive_hardware_fingerprint(
-                collect_device_fingerprint
+                collect_windows_inventory_fingerprint if inventory else collect_device_fingerprint
             ),
             installation_id=self._installation_id,
             delivery_nonce=secrets.token_urlsafe(32),
@@ -194,7 +198,7 @@ class HttpsWindowsEnrollmentClient:
         ).model_dump(mode="json")
         transport = (
             HttpsEnrollmentTransport(allow_redirects=False)
-            if self._installation_id.startswith(INVENTORY_PREFIX)
+            if inventory
             else HttpsEnrollmentTransport()
         )
         delivery = asyncio.run(

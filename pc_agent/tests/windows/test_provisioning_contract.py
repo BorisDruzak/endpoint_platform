@@ -397,8 +397,9 @@ def test_windows_acl_contract_keeps_ordinary_users_off_the_credential() -> None:
     }
 
 
+@pytest.mark.parametrize("inventory", [False, True])
 def test_https_windows_enrollment_sends_a_valid_windows_contract_request(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, inventory: bool
 ) -> None:
     """A malformed Windows request would consume a one-time claim without enrollment."""
     from pc_agent.platform.windows import provision
@@ -411,24 +412,36 @@ def test_https_windows_enrollment_sends_a_valid_windows_contract_request(
             observed.update(kwargs)
             return EnrollmentDelivery(device_id=_DEVICE_ID, device_token=_TOKEN)
 
-    monkeypatch.setattr(provision, "HttpsEnrollmentTransport", lambda: _Transport())
-    monkeypatch.setattr(
-        provision, "_derive_hardware_fingerprint", lambda _probe: "sha256:" + "a" * 64
-    )
+    def transport(**options):
+        assert options == ({"allow_redirects": False} if inventory else {})
+        return _Transport()
 
-    result = provision.HttpsWindowsEnrollmentClient("windows-contract-001").enroll(
+    def derive(probe):
+        expected = provision.collect_windows_inventory_fingerprint if inventory else provision.collect_device_fingerprint
+        assert probe is expected
+        return "sha256:" + "a" * 64
+
+    monkeypatch.setattr(provision, "HttpsEnrollmentTransport", transport)
+    monkeypatch.setattr(provision, "_derive_hardware_fingerprint", derive)
+    installation_id = (
+        "inventory-11111111-1111-1111-1111-111111111111-22222222-2222-2222-2222-222222222222-" + "a" * 32
+        if inventory else "windows-contract-001"
+    )
+    origin = provision.STAGING_ORIGIN if inventory else "https://endpoint.sosnadmin.local"
+
+    result = provision.HttpsWindowsEnrollmentClient(installation_id).enroll(
         claim=_CLAIM,
-        endpoint_origin="https://endpoint.sosnadmin.local",
+        endpoint_origin=origin,
         ca_file=tmp_path / "endpoint-ca.crt",
     )
 
     assert result.device_id == _DEVICE_ID
-    assert observed["endpoint_url"] == "https://endpoint.sosnadmin.local"
+    assert observed["endpoint_url"] == origin
     request = observed["request"]
     assert request["schema_version"] == "agent_enrollment_request_v1"
     assert request["platform"] == "windows"
     assert request["hardware_fingerprint"] == "sha256:" + "a" * 64
-    assert request["installation_id"] == "windows-contract-001"
+    assert request["installation_id"] == installation_id
     assert re.fullmatch(r"[A-Za-z0-9_-]{43}", request["delivery_nonce"])
     assert datetime.fromisoformat(request["requested_at"])
     assert _CLAIM not in str(request)

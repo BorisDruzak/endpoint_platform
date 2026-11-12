@@ -360,7 +360,11 @@ def test_inventory_assignment_requires_exact_windows_claim_before_msi(tmp_path, 
     monkeypatch.setattr(setup_entry, "_agent_service_installed", lambda: False)
     monkeypatch.setattr("pc_agent.platform.windows.msi_inventory.NativeMsi", lambda: SimpleNamespace(related_products=lambda _: ()))
     monkeypatch.setattr(setup_entry, "_classify_installation_state", lambda *_a, **_kw: "valid" if case == "existing" else "clean")
-    monkeypatch.setattr(setup_entry, "_derive_hardware_fingerprint", lambda _: "sha256:" + "c" * 64 if case == "wrong-pc" else fingerprint)
+    def derive(probe):
+        assert probe is setup_entry.collect_windows_inventory_fingerprint
+        return "sha256:" + "c" * 64 if case == "wrong-pc" else fingerprint
+
+    monkeypatch.setattr(setup_entry, "_derive_hardware_fingerprint", derive)
     def native_install(_path, *, inventory_fresh_only):
         assert inventory_fresh_only
         order.append("msi")
@@ -400,7 +404,11 @@ def test_signed_setup_inventory_probe_is_read_only_and_staging_scoped(tmp_path, 
         path.write_text(json.dumps(config))
     fingerprint = "sha256:" + "b" * 64
     monkeypatch.setattr(setup_entry, "_resource_root", lambda: tmp_path)
-    monkeypatch.setattr(setup_entry, "_derive_hardware_fingerprint", lambda _: fingerprint)
+    def derive(probe):
+        assert probe is setup_entry.collect_windows_inventory_fingerprint
+        return fingerprint
+
+    monkeypatch.setattr(setup_entry, "_derive_hardware_fingerprint", derive)
     monkeypatch.setattr(setup_entry, "_data_root", lambda: pytest.fail("installer state accessed during probe"))
     assert setup_entry.main(["--inventory-fingerprint"]) == (0 if staging else 20)
     output = capsys.readouterr().out

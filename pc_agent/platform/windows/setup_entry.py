@@ -20,7 +20,10 @@ from typing import Any, Callable, Literal
 
 from ctypes import wintypes
 
-from pc_agent.core.device_fingerprint import collect_device_fingerprint
+from pc_agent.core.device_fingerprint import (
+    collect_device_fingerprint,
+    collect_windows_inventory_fingerprint,
+)
 from pc_agent.device_credential import read_device_credential
 from pc_agent.enrollment_bootstrap import _derive_hardware_fingerprint
 from pc_agent.enrollment_identity import (
@@ -1262,7 +1265,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             config = _read_public_setup_config(_resource_root() / "setup-config.json")
             if config["endpoint_origin"] != STAGING_ORIGIN:
                 return EXIT_PREFLIGHT_FAILED
-            fingerprint = _derive_hardware_fingerprint(collect_device_fingerprint)
+            fingerprint = _derive_hardware_fingerprint(collect_windows_inventory_fingerprint)
             if not valid_fingerprint(fingerprint):
                 return EXIT_PREFLIGHT_FAILED
             _emit_preflight({"hardware_fingerprint": fingerprint})
@@ -1349,7 +1352,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ):
                 raise ValueError("directed inventory install is ineligible")
             assignment = read_assignment(args.inventory_assignment_file)
-            if _derive_hardware_fingerprint(collect_device_fingerprint) != assignment[1]:
+            if _derive_hardware_fingerprint(collect_windows_inventory_fingerprint) != assignment[1]:
                 raise ValueError("inventory fingerprint differs")
         except Exception:
             return _complete(
@@ -1512,7 +1515,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         transport=transport,
         provision_claim=run_provisioner,
         fingerprint_probe=lambda: _derive_hardware_fingerprint(
-            collect_device_fingerprint
+            collect_windows_inventory_fingerprint if assignment is not None else collect_device_fingerprint
         ),
         inventory_probe=_inventory,
         clock=lambda: datetime.now(UTC),

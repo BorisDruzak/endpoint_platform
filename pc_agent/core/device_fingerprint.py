@@ -41,7 +41,10 @@ def _run_text(command: list[str], *, timeout: float = 2.5) -> str | None:
         )
     except Exception:
         return None
-    output = completed.stdout or completed.stderr
+    return _decode_text(completed.stdout or completed.stderr)
+
+
+def _decode_text(output: bytes) -> str | None:
     if not output:
         return None
     for encoding in ("utf-8-sig", "utf-16", "cp866", "cp1251"):
@@ -54,30 +57,41 @@ def _run_text(command: list[str], *, timeout: float = 2.5) -> str | None:
     return output.decode("utf-8", errors="ignore").strip() or None
 
 
-def _powershell_value(script: str) -> str | None:
-    text = _run_text(
-        [
-            "powershell",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            script,
-        ]
-    )
+def _run_inventory_wmi(command: list[str]) -> str | None:
+    for _ in range(2):
+        try:
+            result = subprocess.run(command, capture_output=True, timeout=6, check=False, shell=False)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if result.returncode == 0 and not result.stderr.strip():
+            return _decode_text(result.stdout)
+    raise RuntimeError("Inventory WMI evidence unavailable")
+
+
+def _powershell_value(script: str, *, inventory: bool = False) -> str | None:
+    command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script]
+    if inventory:
+        from pc_agent.platform.windows.update_paths import _native_folder
+
+        command[0] = str(_native_folder(0x25) / "WindowsPowerShell/v1.0/powershell.exe")
+        command.insert(2, "-NonInteractive")
+        command[-1] = "$ErrorActionPreference = 'Stop'; " + script
+        text = _run_inventory_wmi(command)
+    else:
+        text = _run_text(command)
     if not text:
         return None
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     return lines[-1] if lines else None
 
 
-def _windows_system_uuid() -> str | None:
-    return _powershell_value("(Get-CimInstance Win32_ComputerSystemProduct).UUID")
+def _windows_system_uuid(*, inventory: bool = False) -> str | None:
+    return _powershell_value("(Get-CimInstance Win32_ComputerSystemProduct).UUID", inventory=inventory)
 
 
-def _windows_system_serial() -> str | None:
+def _windows_system_serial(*, inventory: bool = False) -> str | None:
     return _powershell_value(
-        "(Get-CimInstance Win32_ComputerSystemProduct).IdentifyingNumber"
+        "(Get-CimInstance Win32_ComputerSystemProduct).IdentifyingNumber", inventory=inventory,
     )
 
 
@@ -102,9 +116,10 @@ def _windows_machine_guid() -> str | None:
     return None
 
 
-def _windows_baseboard() -> str | None:
+def _windows_baseboard(*, inventory: bool = False) -> str | None:
     return _powershell_value(
-        "$b=Get-CimInstance Win32_BaseBoard; @($b.Manufacturer,$b.Product,$b.SerialNumber) -join '|'"
+        "$b=Get-CimInstance Win32_BaseBoard; @($b.Manufacturer,$b.Product,$b.SerialNumber) -join '|'",
+        inventory=inventory,
     )
 
 
@@ -191,12 +206,20 @@ def _mac_hashes() -> list[str]:
     return sorted(result)
 
 
-def collect_device_fingerprint() -> dict[str, Any]:
+def collect_windows_inventory_fingerprint() -> dict[str, Any]:
+    """Collect the existing fingerprint schema only after successful WMI queries."""
+    if platform.system().lower() != "windows":
+        raise RuntimeError("Windows inventory fingerprint requires Windows")
+    return collect_device_fingerprint(_inventory_wmi=True)
+
+
+def collect_device_fingerprint(*, _inventory_wmi: bool = False) -> dict[str, Any]:
     system = platform.system().lower()
     if system == "windows":
-        product_uuid = _windows_system_uuid()
-        system_serial = _windows_system_serial()
-        baseboard = _windows_baseboard()
+        wmi_options = {"inventory": True} if _inventory_wmi else {}
+        product_uuid = _windows_system_uuid(**wmi_options)
+        system_serial = _windows_system_serial(**wmi_options)
+        baseboard = _windows_baseboard(**wmi_options)
         machine_guid = _windows_machine_guid()
         boot_volume = _windows_boot_volume()
     elif system == "linux":

@@ -2,6 +2,12 @@
 
 ## Runtime boundary
 
+Windows inventory-directed Setup and its provisioner use
+`core/device_fingerprint.collect_windows_inventory_fingerprint`. The original
+fingerprint schema is used after successful WMI reads. A failed WMI query gets
+one bounded retry. Exhausted queries stop fingerprint derivation before the
+next enrollment action.
+
 On ALT, `platform/linux/installation_coordinator.py` verifies installed RPMs and
 runs the packaged Core prerequisite checker before completing native install or
 upgrade reconciliation. A missing or unusable runtime selection keeps the
