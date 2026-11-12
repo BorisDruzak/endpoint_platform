@@ -76,3 +76,24 @@ Before any permitted ALT test-host installation, verify a diff and generated
 artifacts contain no real claim, device credential, `Authorization: Bearer`
 value, CA private material, or TLS-verification bypass. A live test must use
 only the dedicated test agent and record token-redacted service evidence.
+
+## Inventory installation evidence
+
+The server-to-server lookup at
+`POST /api/v1/enrollment/installation-receipts/lookup` requires a dedicated
+credential with the `enrollment.installation-receipts.read` scope. It accepts
+the private installation ID (`inventory-<asset-uuid>-<machine-uuid>-<32 lowercase hex digits>`),
+expected hardware fingerprint, platform and original assignment window.
+Use timezone-aware timestamps with an expiry after issuance and a window
+of at most 30 minutes. The inventory caller must obtain the expected
+fingerprint independently from the approved target and
+persist and replay the exact assignment window. The inventory service is
+the authority for that window.
+
+Endpoint returns a device UUID only when the exact request and consumed
+claim agree and the device has a live authenticated session with a fresh
+heartbeat after registration. After the assignment expires, the lookup
+returns an expired status even when a matching registration exists. Waiting
+and expired responses carry no UUID. Conflicting or retired device evidence
+yields HTTP 409. The lookup is read-only. Keep assignment proof and the
+service credential on the server.

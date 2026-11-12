@@ -56,6 +56,7 @@ from endpoint_server.enrollment.provisioning_routes import (
 )
 from endpoint_server.enrollment.request_routes import router as enrollment_request_router
 from endpoint_server.enrollment.verification_routes import router as enrollment_verification_router
+from endpoint_server.enrollment.inventory_receipt_routes import router as inventory_receipt_router
 from endpoint_server.provisioning.admin_routes import (
     router as provisioning_admin_router,
 )
@@ -217,6 +218,7 @@ def create_app(
     app.include_router(linux_enrollment_request_router)
     app.include_router(enrollment_request_router)
     app.include_router(enrollment_verification_router)
+    app.include_router(inventory_receipt_router)
     app.include_router(gateway_router)
     app.include_router(gateway_ws_router)
     app.include_router(provisioning_router)

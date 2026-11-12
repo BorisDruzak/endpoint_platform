@@ -1762,6 +1762,48 @@ paths:
             "application/json":
               schema:
                 "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/enrollment/installation-receipts/lookup":
+    post:
+      tags:
+        - "inventory-installation"
+      summary: "Lookup Inventory Installation"
+      description: "Verify the exact consumed claim and a subsequent live agent heartbeat."
+      operationId: "lookup_inventory_installation_api_v1_enrollment_installation_receipts_lookup_post"
+      requestBody:
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/InventoryInstallationLookup"
+        required: true
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                anyOf:
+                  -
+                    "$ref": "#/components/schemas/ConnectedInventoryInstallationReceipt"
+                  -
+                    "$ref": "#/components/schemas/PendingInventoryInstallationReceipt"
+                title: "Response Lookup Inventory Installation Api V1 Enrollment Installation Receipts Lookup Post"
+        "401":
+          description: "Service authentication failed"
+        "403":
+          description: "Service scope is insufficient"
+        "409":
+          description: "Conflicting installation evidence"
+        "422":
+          description: "Invalid inventory installation assignment"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/InvalidInventoryInstallationAssignment"
+      security:
+        -
+          ServiceBearer: []
+      x-required-scopes:
+        - "enrollment.installation-receipts.read"
   "/api/v1/enrollment/linux/requests":
     post:
       tags:
@@ -9615,6 +9657,31 @@ components:
         - "profile"
       title: "CollectionRequest"
       description: "The only caller-selected collection input is one fixed profile."
+    ConnectedInventoryInstallationReceipt:
+      properties:
+        state:
+          type: "string"
+          const: "connected"
+          title: "State"
+        device_id:
+          type: "string"
+          format: "uuid"
+          title: "Device Id"
+        registered_at:
+          type: "string"
+          format: "date-time"
+          title: "Registered At"
+        heartbeat_at:
+          type: "string"
+          format: "date-time"
+          title: "Heartbeat At"
+      type: "object"
+      required:
+        - "state"
+        - "device_id"
+        - "registered_at"
+        - "heartbeat_at"
+      title: "ConnectedInventoryInstallationReceipt"
     DeviceCapabilitiesEnvelope:
       properties:
         data:
@@ -10451,6 +10518,16 @@ components:
         - "msi_sha256"
         - "exit_code"
       title: "InstallationNativeProof"
+    InvalidInventoryInstallationAssignment:
+      properties:
+        detail:
+          type: "string"
+          const: "Invalid inventory installation assignment"
+          title: "Detail"
+      type: "object"
+      required:
+        - "detail"
+      title: "InvalidInventoryInstallationAssignment"
     InventoryHardwareV1:
       properties:
         manufacturer:
@@ -10536,6 +10613,49 @@ components:
       additionalProperties: false
       type: "object"
       title: "InventoryHardwareV1"
+    InventoryInstallationLookup:
+      properties:
+        installation_id:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          pattern: "^inventory-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[0-9a-f]{32}$"
+          format: "password"
+          title: "Installation Id"
+          description: "Private inventory installation ID containing the asset UUID, machine UUID and nonce."
+          writeOnly: true
+        hardware_fingerprint:
+          type: "string"
+          maxLength: 256
+          minLength: 1
+          format: "password"
+          title: "Hardware Fingerprint"
+          writeOnly: true
+        platform:
+          type: "string"
+          enum:
+            - "linux"
+            - "windows"
+          title: "Platform"
+        issued_at:
+          type: "string"
+          format: "date-time"
+          title: "Issued At"
+          description: "Original assignment issue time, at or before the lookup time."
+        expires_at:
+          type: "string"
+          format: "date-time"
+          title: "Expires At"
+          description: "Original expiry, at most 30 minutes after issuance."
+      additionalProperties: false
+      type: "object"
+      required:
+        - "installation_id"
+        - "hardware_fingerprint"
+        - "platform"
+        - "issued_at"
+        - "expires_at"
+      title: "InventoryInstallationLookup"
     InventoryInterfaceV1:
       properties:
         name:
@@ -12059,6 +12179,19 @@ components:
         - "status"
         - "collected_at"
       title: "PathExistsResultV1"
+    PendingInventoryInstallationReceipt:
+      properties:
+        state:
+          type: "string"
+          enum:
+            - "waiting_registration"
+            - "waiting_connection"
+            - "expired"
+          title: "State"
+      type: "object"
+      required:
+        - "state"
+      title: "PendingInventoryInstallationReceipt"
     PreEnrollmentRequestStatusV1:
       properties:
         schema_version:
