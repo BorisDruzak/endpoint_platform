@@ -75,6 +75,12 @@ class DebSource:
 
 
 UBUNTU = DebSource("ubuntu", PACKAGE_VERSION, PACKAGE_SHA256, POLICY_RELEASE, PILOT_HOSTS)
+UBUNTU_197 = DebSource(
+    "ubuntu", "3.2.197-1ubuntu1",
+    "1d30e147ef8e108a2b379ffffcfb765d66ddb24926974592b23d86e491a6d573",
+    UUID("38c857b3-dab6-45f7-8b77-59edff8a9238"),
+    {"192.168.100.12": "registoryengine", "192.168.100.45": "acti-v3"},
+)
 DEBIAN_PILOT = DebSource(
     "debian", "3.2.193-1deb12u1",
     "cc8ebf1da12d9f8106dd1ab627cd1517a3801c63c1315cf19524c54370b967fc",
@@ -87,7 +93,7 @@ DEBIAN = DebSource(
     UUID("06f879fc-a618-4ec2-8d9e-232cfe2662e5"),
     {"10.83.1.11": "pve1", "10.83.1.12": "pve2", "10.83.1.13": "pve3"},
 )
-DEB_SOURCES = {source.release_id: source for source in (UBUNTU, DEBIAN_PILOT, DEBIAN)}
+DEB_SOURCES = {source.release_id: source for source in (UBUNTU, UBUNTU_197, DEBIAN_PILOT, DEBIAN)}
 
 
 def is_deb_request(record: EnrollmentRequest) -> bool:

@@ -21,6 +21,8 @@ from tools.provision_alt_test_agent import ENDPOINT_ORIGIN, parse_hardware_finge
 PACKAGE = "endpoint-agent-ubuntu"
 PACKAGE_VERSION = "3.2.192-1ubuntu1"
 PACKAGE_SHA256 = "8affee69264c5cbdc76237ba83dfe5db91ab7a34562ee92f024d9d2b24471a7d"
+PACKAGE_197 = "3.2.197-1ubuntu1"
+PACKAGE_197_SHA256 = "1d30e147ef8e108a2b379ffffcfb765d66ddb24926974592b23d86e491a6d573"
 CA_SHA256 = "5525eccf01536b7f0436d96500c663f7a58edac463f00f0fb34a59dd8b3250be"
 STAGE_DIRECTORY = "/run/endpoint-ubuntu-pilot"
 
@@ -32,6 +34,8 @@ class ServerTarget:
     address: str
     ca_path: str
     role: str
+    package_version: str = PACKAGE_VERSION
+    package_sha256: str = PACKAGE_SHA256
 
 
 TARGETS = {
@@ -39,6 +43,12 @@ TARGETS = {
                             "/etc/apt/keyrings/endpoint-ubuntu-ca.crt", "openvpn"),
     "endpoint": ServerTarget("endpoint-platform-server", "endpointplatform", "192.168.100.19",
                              "/etc/endpoint-platform/sosnadmin-local-ca.crt", "endpoint_platform"),
+    "registry": ServerTarget("root@registoryengine", "registoryengine", "192.168.100.12",
+                             "/etc/apt/keyrings/endpoint-ubuntu-ca.crt", "registry_engine",
+                             PACKAGE_197, PACKAGE_197_SHA256),
+    "acti": ServerTarget("acti-v3", "acti-v3", "192.168.100.45",
+                         "/etc/apt/keyrings/endpoint-ubuntu-ca.crt", "acti_v3",
+                         PACKAGE_197, PACKAGE_197_SHA256),
 }
 
 
@@ -79,9 +89,9 @@ sudo -n test ! -L {STAGE_DIRECTORY}
 tmp=$(mktemp -d)
 trap 'rm -rf -- "$tmp"' EXIT
 cd "$tmp"
-apt-get download {PACKAGE}={PACKAGE_VERSION} >&2
-deb={PACKAGE}_{PACKAGE_VERSION}_amd64.deb
-printf '%s  %s\\n' {PACKAGE_SHA256} "$deb" | sha256sum -c - >&2
+apt-get download {PACKAGE}={target.package_version} >&2
+deb={PACKAGE}_{target.package_version}_amd64.deb
+printf '%s  %s\\n' {target.package_sha256} "$deb" | sha256sum -c - >&2
 dpkg-deb -x "$deb" unpacked
 unpacked/usr/lib/{PACKAGE}/endpoint-agent --print-hardware-fingerprint
 """, host=target.ssh_host)
@@ -103,7 +113,7 @@ def finish_installation(target: ServerTarget) -> UUID:
 
 def web_enrollment(action: str, target: ServerTarget, fingerprint: str | None = None) -> dict:
     script = Path(__file__).with_name("ubuntu_console_enrollment.py").read_text(encoding="utf-8")
-    args = (action, target.hostname, fingerprint, PACKAGE_VERSION, PACKAGE_SHA256)
+    args = (action, target.hostname, fingerprint, target.package_version, target.package_sha256)
     tail = f"\ntry:\n    main(*{args!r})\nexcept RuntimeError as error:\n    import sys\n    print(str(error))\n    sys.exit(4)\n"
     result = _ssh("sudo -n /usr/bin/python3 -", host=target.ssh_host, input=(script + tail).encode("utf-8"))
     status = json.loads(result)

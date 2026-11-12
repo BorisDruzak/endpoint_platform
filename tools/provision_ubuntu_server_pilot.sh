@@ -36,6 +36,22 @@ case "$role" in
         expected_services=(postgresql@14-main.service)
         server_role=
         ;;
+    acti_v3|registry_engine)
+        version=3.2.197-1ubuntu1
+        digest=1d30e147ef8e108a2b379ffffcfb765d66ddb24926974592b23d86e491a6d573
+        ca=/etc/apt/keyrings/endpoint-ubuntu-ca.crt
+        if [ "$role" = acti_v3 ]; then
+            expected_host=acti-v3
+            address=192.168.100.45
+            probe_user=osn-admin
+            expected_services=(docker.service containerd.service)
+        else
+            expected_host=registoryengine
+            address=192.168.100.12
+            probe_user=osn_admin
+            expected_services=(nginx.service reg-engine.service postgresql@16-main.service)
+        fi
+        ;;
     pve1|pve2|pve3)
         expected_host=$role
         address="10.83.1.1${role#pve}"

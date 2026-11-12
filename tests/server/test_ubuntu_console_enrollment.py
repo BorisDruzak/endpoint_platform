@@ -88,6 +88,30 @@ def test_debian_deb_keeps_its_release_and_single_host_approval():
     assert not linux_campaign_allows(record, campaign, now=now)
 
 
+@pytest.mark.parametrize(("address", "hostname"), [
+    ("192.168.100.12", "registoryengine"),
+    ("192.168.100.45", "acti-v3"),
+])
+def test_ubuntu_197_enrollment_is_scoped_to_reviewed_host_and_artifact(address, hostname):
+    now = datetime.now(UTC)
+    body = ubuntu_requests.UbuntuDebRequest.model_validate(payload() | {
+        "hostname": hostname,
+        "package_version": "3.2.197-1ubuntu1",
+        "package_sha256": "1d30e147ef8e108a2b379ffffcfb765d66ddb24926974592b23d86e491a6d573",
+    })
+    record, _ = ubuntu_requests.build_request(body, address=ip_address(address), pepper=b"test", now=now)
+    campaign = ubuntu_requests.build_campaign(record, pepper=b"test", now=now)
+    assert campaign.allowed_cidrs == [f"{address}/32"]
+    assert campaign.max_uses == 1
+    for candidate, source in [
+        (body, "192.168.100.44"),
+        (body.model_copy(update={"hostname": "other-host"}), address),
+        (body.model_copy(update={"package_sha256": "f" * 64}), address),
+    ]:
+        with pytest.raises(EnrollmentDenied):
+            ubuntu_requests.build_request(candidate, address=ip_address(source), pepper=b"test", now=now)
+
+
 @pytest.mark.parametrize(("hostname", "address"), [("pve2", "10.83.1.12"), ("pve3", "10.83.1.13")])
 def test_new_proxmox_nodes_use_corrected_debian_release(hostname, address):
     body = ubuntu_requests.DebianDebRequest.model_validate(payload() | {
