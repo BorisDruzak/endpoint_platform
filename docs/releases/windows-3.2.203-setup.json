@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "version": "3.2.203",
+  "platform": "windows_amd64",
+  "status": "applied_on_antares_only",
+  "runtime_source_commit": "57002ad8a01348ec5a759e491fdcef8899482b64",
+  "windows_packaging_commit": "954eaa71b7d57d3561fb40c5222a9f471268b359",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.203.json",
+  "setup": {
+    "filename": "EndpointAgentSetup-3.2.203-x64.exe",
+    "sha256": "299a42f2822fe5e3a6a0793768636a672f9289de967c3571bf579f9f6b1431f2",
+    "size": 165189272,
+    "release_id": "4e2234a4-ca8e-4183-88dd-27ea553d1946",
+    "download_published": false,
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+    "operator_path": "C:/endpoint-platform-wix-build/setup203-antares-57002ad8/native-setup-build-final/releases/EndpointAgentSetup-3.2.203-x64.exe"
+  },
+  "msi": {
+    "sha256": "2f8c03bcc7ab6c0a0f883f1fd737cdb1fb0a56c15826f12d65b510abc6eb8c3b",
+    "size": 123936768,
+    "product_code": "{4C6D1A58-498B-412B-863B-8B7A1D9B85D6}"
+  },
+  "observer": {
+    "version": "1.0.10",
+    "sha256": "e48a99e4b0ff7a833eca9b19c2b7f658fb0892a07f86ab8e446eb4f2b83e7a1b"
+  },
+  "setup_update_release_id": "88d2f58d-f604-454b-83ec-f742d1927d8d",
+  "canary_assignment_id": "58ec9aba-7f3a-4c55-94e8-daff216f61cf",
+  "initial_runtime": {
+    "file_count": 121,
+    "tree_sha256": "a17243dd7148caff0302c40ff7cd312c60330bf2a7e661a0dcff19b2509fb825",
+    "component_guid": "CAE4934A-D73E-43C1-80AE-7D0C69F63717",
+    "source_file_count": 323
+  },
+  "source_qualifications": [],
+  "verification": "docs/verification/2026-11-12-antares-server-agent-preflight.md",
+  "acceptance": {
+    "native_exit": 0,
+    "finished_at": "2026-11-12T12:58:28.804173Z",
+    "stable_seconds": 180.854,
+    "samples": 6,
+    "user_sensor_count": 0,
+    "private_material_preserved": true
+  }
+}

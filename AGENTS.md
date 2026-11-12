@@ -44,14 +44,15 @@
 
 # Canonical agent release
 
-- ANTARES runs Windows Core **3.2.201** on Foundation **3.2.193** with
-  Setup observer **1.0.10**, verified after reboot. The reserve WSS listener
-  accepted the running agent on 8443 and the agent returned to 443 at boot.
-  Console received fresh Kaspersky Security Center, SMB, C: and E: checks.
-  Full Setup **3.2.202** failed before the first MSI call. The signed
-  operation-specific recovery restored the source and archived the native
-  records. The Console assignment remains in recovery and blocks another
-  Full Setup. Do not promote or reuse 202. See the
+- ANTARES runs Windows Core and Foundation **3.2.203** with Setup observer
+  **1.0.10**. The explicit Console assignment accepted native 0 and 180.854
+  seconds of stable service and WSS observation. Reserve WSS on 8443 and
+  post-boot primary on 443 passed after restoring the two scoped service
+  settings. Console received fresh Kaspersky Security Center, SMB, C: and
+  E: checks. The pilot had no active UserSensor and grants no fleet
+  qualification. The original **3.2.202** assignment is closed as failed
+  with its native 21 history and audited verified source recovery. Keep 202
+  out of future assignments. See the
   [ANTARES recovery receipt](docs/verification/2026-11-12-antares-server-agent-preflight.md).
 
 - Ubuntu Server **3.2.197-1ubuntu1** is published in signed `noble/main`.
