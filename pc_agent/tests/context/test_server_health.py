@@ -162,6 +162,55 @@ def test_ad_and_consultant_checks_are_independent(monkeypatch):
     }
 
 
+def test_file_server_reports_both_volumes_and_distinguishes_smb_checks(monkeypatch):
+    monkeypatch.setenv("ENDPOINT_AGENT_SERVER_ROLE", "file_server")
+    probe = Probe()
+    probe.platform_name = "windows"
+    probe.server_service_state = lambda name: "running"
+    probe.server_local_mounts = lambda: {"C:\\", "D:\\"}
+    probe.server_disk_usage = lambda mount: SimpleNamespace(
+        total=100 * 1024**3, free=9 * 1024**3 if mount == "D:\\" else 40 * 1024**3,
+        percent=91 if mount == "D:\\" else 60,
+    )
+    probe.server_tcp_listener = lambda port: port == 445
+    probe.server_has_disk_shares = lambda: False
+
+    section = collect_server_health(probe)
+
+    assert {item.name: item.status for item in section.services} == {
+        "LanmanServer": "ok", "LanmanWorkstation": "ok",
+    }
+    assert {item.mount: item.status for item in section.volumes} == {
+        "C:\\": "ok", "D:\\": "critical",
+    }
+    assert {item.name: item.status for item in section.applications} == {
+        "smb_tcp": "ok", "smb_disk_shares": "failed",
+    }
+
+
+@pytest.mark.parametrize(("ready", "expected"), [(True, "ok"), (False, "failed"), (None, "unknown")])
+def test_postgresql_reports_instance_and_readiness_separately(monkeypatch, ready, expected):
+    monkeypatch.setenv("ENDPOINT_AGENT_SERVER_ROLE", "postgresql")
+    probe = Probe()
+    probe.server_service_state = lambda unit: (
+        "active/running" if unit == "postgresql@14-main.service" else "active/exited"
+    )
+    probe.server_local_mounts = lambda: {"/", "/boot"}
+    probe.server_disk_usage = lambda mount: SimpleNamespace(total=100 * 1024**3, free=50 * 1024**3, percent=50)
+
+    def ready_probe():
+        if ready is None:
+            raise FileNotFoundError
+        return ready
+
+    probe.server_postgresql_ready = ready_probe
+    section = collect_server_health(probe)
+
+    assert {item.name: item.status for item in section.services} == {"postgresql@14-main.service": "ok"}
+    assert {item.mount for item in section.volumes} == {"/", "/boot"}
+    assert {item.name: item.status for item in section.applications} == {"postgresql_ready": expected}
+
+
 def test_proxmox_profile_reports_cluster_and_storage_failures(monkeypatch):
     monkeypatch.setenv("ENDPOINT_AGENT_SERVER_ROLE", "proxmox")
     probe = Probe()

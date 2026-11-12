@@ -158,6 +158,45 @@ class SystemProbe:
         except ConnectionRefusedError:
             return False
 
+    def server_has_disk_shares(self) -> bool:
+        import ctypes
+        from ctypes import wintypes
+
+        class ShareInfo(ctypes.Structure):
+            _fields_ = [("name", wintypes.LPWSTR), ("kind", wintypes.DWORD), ("remark", wintypes.LPWSTR)]
+
+        netapi = ctypes.WinDLL("netapi32")
+        shares = ctypes.POINTER(ShareInfo)()
+        count = wintypes.DWORD()
+        total = wintypes.DWORD()
+        status = netapi.NetShareEnum(
+            None, 1, ctypes.byref(shares), 16_384, ctypes.byref(count), ctypes.byref(total), None,
+        )
+        try:
+            if status in (0, 234) and any(shares[index].kind == 0 for index in range(count.value)):
+                return True
+            if status != 0:
+                raise OSError(status, "Unable to enumerate local SMB disk shares")
+            return False
+        finally:
+            if shares:
+                netapi.NetApiBufferFree(shares)
+
+    def server_postgresql_ready(self) -> bool:
+        try:
+            result = subprocess.run(
+                ("/usr/bin/pg_isready", "-h", "127.0.0.1", "-p", "5432",
+                 "-U", "postgres", "-d", "postgres", "-t", "2", "-q"),
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                env={"PATH": "/usr/bin:/bin", "PGPASSFILE": "/dev/null"},
+                timeout=3, check=False,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise TimeoutError("PostgreSQL readiness probe exceeded its deadline") from error
+        if result.returncode not in (0, 1, 2):
+            raise ValueError("PostgreSQL readiness check did not run")
+        return result.returncode == 0
+
     def windows_system(self) -> dict[str, object]:
         from pc_agent.platform.windows.identity import native_system
 

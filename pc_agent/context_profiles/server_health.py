@@ -48,6 +48,11 @@ ROLES: dict[ServerRoleV1, Role] = {
     "ad_consultant": Role(
         "windows", _AD_SERVICES + ("W3SVC", "ConsServiceS400.2.24"), _WINDOWS_VOLUMES,
     ),
+    "file_server": Role(
+        "windows", ("LanmanServer", "LanmanWorkstation"),
+        (Volume("C:\\", 10), Volume("D:\\", 10)),
+    ),
+    "postgresql": Role("linux", ("postgresql@14-main.service",), (Volume("/", 5), Volume("/boot"))),
     "proxmox": Role(
         "linux",
         ("pve-cluster.service", "corosync.service", "pvedaemon.service", "pveproxy.service",
@@ -179,6 +184,13 @@ def _applications(probe: object, role: ServerRoleV1) -> list[ServerHealthApplica
             _http(probe, "openvpn_web_http", 8088, "/", {200, 303}),
             _listener("openvpn_udp_listener", probe.server_udp_listener, 1194),
         ]
+    if role == "file_server":
+        return [
+            _listener("smb_tcp", probe.server_tcp_listener, 445),
+            _local_check("smb_disk_shares", probe.server_has_disk_shares),
+        ]
+    if role == "postgresql":
+        return [_local_check("postgresql_ready", probe.server_postgresql_ready)]
     checks = []
     if role in {"ad_directum", "ad_consultant"}:
         checks.extend([
@@ -214,8 +226,12 @@ def _http(probe: object, name: str, port: int, path: str, expected: set[int]) ->
 
 
 def _listener(name: str, probe, port: int) -> ServerHealthApplicationV1:
+    return _local_check(name, lambda: probe(port))
+
+
+def _local_check(name: str, check) -> ServerHealthApplicationV1:
     try:
-        listening = probe(port)
+        healthy = check()
     except PROBE_ERRORS:
         return ServerHealthApplicationV1(name=name, status="unknown")
-    return ServerHealthApplicationV1(name=name, status="ok" if listening else "failed")
+    return ServerHealthApplicationV1(name=name, status="ok" if healthy else "failed")

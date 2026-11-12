@@ -7,6 +7,8 @@ export const serverRoleLabels = {
   ad_directum: 'AD и Directum RX',
   ad_consultant: 'AD и КонсультантПлюс',
   proxmox: 'Proxmox VE',
+  file_server: 'Файловый сервер',
+  postgresql: 'PostgreSQL',
 }
 
 export type ServerRole = keyof typeof serverRoleLabels
@@ -47,6 +49,9 @@ const applicationLabels: Record<string, string> = {
   proxmox_quorum: 'Кворум кластера',
   proxmox_members: 'Доступность узлов кластера',
   proxmox_storage: 'Хранилища Proxmox',
+  smb_tcp: 'SMB TCP 445',
+  smb_disk_shares: 'Опубликованные файловые ресурсы SMB',
+  postgresql_ready: 'Готовность PostgreSQL на TCP 5432',
 }
 
 const number = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 })

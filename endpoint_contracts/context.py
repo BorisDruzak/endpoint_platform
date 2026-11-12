@@ -98,7 +98,10 @@ class HealthServiceV1(ContractModelV1):
     status: Literal["active", "inactive", "failed", "unknown"]
 
 
-ServerRoleV1 = Literal["endpoint_platform", "openvpn", "directum", "ad_directum", "ad_consultant", "proxmox"]
+ServerRoleV1 = Literal[
+    "endpoint_platform", "openvpn", "directum", "ad_directum", "ad_consultant", "proxmox",
+    "file_server", "postgresql",
+]
 
 
 class ServerHealthServiceV1(ContractModelV1):

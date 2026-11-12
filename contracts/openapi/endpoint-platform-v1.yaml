@@ -6390,6 +6390,8 @@ components:
             - "ad_directum"
             - "ad_consultant"
             - "proxmox"
+            - "file_server"
+            - "postgresql"
           title: "Role"
           type: "string"
         services:
@@ -12951,6 +12953,8 @@ components:
             - "ad_directum"
             - "ad_consultant"
             - "proxmox"
+            - "file_server"
+            - "postgresql"
           title: "Role"
         services:
           items:

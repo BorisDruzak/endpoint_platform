@@ -188,7 +188,9 @@
             "directum",
             "ad_directum",
             "ad_consultant",
-            "proxmox"
+            "proxmox",
+            "file_server",
+            "postgresql"
           ],
           "title": "Role",
           "type": "string"
