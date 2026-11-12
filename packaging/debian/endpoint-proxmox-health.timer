@@ -1,0 +1,9 @@
+[Unit]
+Description=Refresh local Proxmox health for Endpoint Agent
+PartOf=endpoint-agent-debian.service
+ConditionPathExists=/usr/bin/pvesh
+
+[Timer]
+OnActiveSec=1s
+OnUnitActiveSec=60s
+AccuracySec=5s

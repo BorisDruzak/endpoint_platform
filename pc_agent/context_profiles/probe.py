@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Sequence
+import json
 import os
 from pathlib import Path
 import shutil
@@ -130,6 +131,19 @@ class SystemProbe:
 
     def server_http_status(self, port: int, path: str) -> int:
         return asyncio.run(_server_http_status(port, path))
+
+    def proxmox_health_snapshot(self) -> dict:
+        with Path("/run/endpoint-proxmox-health/status.json").open("rb") as stream:
+            data = stream.read(8193)
+        if len(data) > 8192:
+            raise ValueError("oversized Proxmox health snapshot")
+        snapshot = json.loads(data)
+        if not isinstance(snapshot, dict) or snapshot.get("schema_version") != 1:
+            raise ValueError("invalid Proxmox health snapshot")
+        sampled_at = snapshot.get("sampled_at")
+        if type(sampled_at) is not int or not 0 <= time.time() - sampled_at <= 180:
+            raise ValueError("stale Proxmox health snapshot")
+        return snapshot
 
     def server_udp_listener(self, port: int) -> bool:
         if port != OPENVPN_UDP_PORT:

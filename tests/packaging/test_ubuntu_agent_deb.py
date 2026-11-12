@@ -93,6 +93,11 @@ def test_build_debian12_uses_independent_package_and_state(tmp_path, monkeypatch
         assert "StateDirectory=endpoint-agent-debian\n" in unit
         assert "endpoint-agent-ubuntu" not in unit
         assert "endpoint-agent-debian.service" in (root / "DEBIAN/postinst").read_text()
+        assert (root / "usr/lib/endpoint-agent-debian/proxmox-health.py").is_file()
+        assert "ProtectSystem=strict" in (root / "usr/lib/systemd/system/endpoint-proxmox-health.service").read_text()
+        assert "Wants=endpoint-proxmox-health.timer" in (
+            root / "usr/lib/systemd/system/endpoint-agent-debian.service.d/proxmox-health.conf"
+        ).read_text()
         artifact.write_bytes(b"deb")
 
     monkeypatch.setattr(ubuntu.subprocess, "run", run)

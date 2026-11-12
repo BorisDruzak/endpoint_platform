@@ -107,6 +107,17 @@ def build(
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(profile.render(packaging / source))
             path.chmod(0o644)
+        if target == "debian12":
+            for name, directory in (
+                ("proxmox-health.py", f"usr/lib/{package}"),
+                ("endpoint-proxmox-health.service", "usr/lib/systemd/system"),
+                ("endpoint-proxmox-health.timer", "usr/lib/systemd/system"),
+                ("proxmox-health.conf", f"usr/lib/systemd/system/{package}.service.d"),
+            ):
+                path = tree / directory / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes((ROOT / "packaging" / "debian" / name).read_bytes().replace(b"\r\n", b"\n"))
+                path.chmod(0o644)
         metadata = tree / "DEBIAN"
         metadata.mkdir()
         (metadata / "conffiles").write_text(f"/etc/{package}/agent.conf\n", encoding="ascii")
@@ -114,6 +125,7 @@ def build(
             path.lstat().st_size for path in tree.rglob("*") if not path.is_symlink()
         )
         conflicts = f"Conflicts: {profile.conflicts}\n" if profile.conflicts else ""
+        extra_dependencies = ", python3, curl" if target == "debian12" else ""
         (metadata / "control").write_text(
             f"Package: {package}\n"
             f"Version: {package_version}\n"
@@ -121,7 +133,7 @@ def build(
             "Priority: optional\n"
             "Architecture: amd64\n"
             "Maintainer: Endpoint Platform\n"
-            f"Depends: libc6 (>= {profile.glibc}), systemd, init-system-helpers, iproute2, util-linux\n"
+            f"Depends: libc6 (>= {profile.glibc}), systemd, init-system-helpers, iproute2, util-linux{extra_dependencies}\n"
             f"{conflicts}"
             f"Installed-Size: {(installed_bytes + 1023) // 1024}\n"
             f"Description: Endpoint Platform agent for {profile.label}\n"

@@ -1,0 +1,18 @@
+[Unit]
+Description=Read local Proxmox health for Endpoint Agent
+After=pve-cluster.service
+ConditionPathExists=/usr/bin/pvesh
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I /usr/lib/endpoint-agent-debian/proxmox-health.py
+RuntimeDirectory=endpoint-proxmox-health
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+TimeoutStartSec=30s
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

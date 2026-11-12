@@ -6,6 +6,7 @@ export const serverRoleLabels = {
   directum: 'Directum RX',
   ad_directum: 'AD и Directum RX',
   ad_consultant: 'AD и КонсультантПлюс',
+  proxmox: 'Proxmox VE',
 }
 
 export type ServerRole = keyof typeof serverRoleLabels
@@ -42,6 +43,10 @@ const applicationLabels: Record<string, string> = {
   ad_ldap_tcp: 'LDAP TCP 389',
   consultant_http: 'Веб-приложение КонсультантПлюс',
   consultant_tcp: 'КонсультантПлюс TCP 20024',
+  proxmox_api: 'Локальный HTTPS API Proxmox',
+  proxmox_quorum: 'Кворум кластера',
+  proxmox_members: 'Доступность узлов кластера',
+  proxmox_storage: 'Хранилища Proxmox',
 }
 
 const number = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 })
@@ -81,7 +86,9 @@ export function ServerHealthChecks({ health, observed, fresh }: {
   }))
   const applicationChecks = health.applications.map(item => ({
     label: applicationLabels[item.name] ?? item.name, status: item.status,
-    details: item.http_status === null ? null : `HTTP ${item.http_status}`,
+    details: item.name === 'proxmox_api' && item.http_status === 401 && item.status === 'ok'
+      ? 'TLS проверен · API требует входа'
+      : item.http_status === null ? null : `HTTP ${item.http_status}`,
   }))
   return <section className="panel server-health" aria-labelledby={heading}>
     <h2 id={heading}>Серверные проверки</h2>

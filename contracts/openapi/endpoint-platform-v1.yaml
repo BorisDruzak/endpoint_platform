@@ -6389,6 +6389,7 @@ components:
             - "directum"
             - "ad_directum"
             - "ad_consultant"
+            - "proxmox"
           title: "Role"
           type: "string"
         services:
@@ -12949,6 +12950,7 @@ components:
             - "directum"
             - "ad_directum"
             - "ad_consultant"
+            - "proxmox"
           title: "Role"
         services:
           items:

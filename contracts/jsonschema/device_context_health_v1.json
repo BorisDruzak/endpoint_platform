@@ -187,7 +187,8 @@
             "openvpn",
             "directum",
             "ad_directum",
-            "ad_consultant"
+            "ad_consultant",
+            "proxmox"
           ],
           "title": "Role",
           "type": "string"

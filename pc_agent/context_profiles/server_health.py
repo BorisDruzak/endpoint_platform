@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 import os
+import re
 
 import psutil
 
@@ -47,6 +48,12 @@ ROLES: dict[ServerRoleV1, Role] = {
     "ad_consultant": Role(
         "windows", _AD_SERVICES + ("W3SVC", "ConsServiceS400.2.24"), _WINDOWS_VOLUMES,
     ),
+    "proxmox": Role(
+        "linux",
+        ("pve-cluster.service", "corosync.service", "pvedaemon.service", "pveproxy.service",
+         "pvestatd.service", "pvescheduler.service"),
+        (Volume("/", 5),),
+    ),
 }
 
 PROBE_ERRORS = (OSError, TimeoutError, ValueError, psutil.Error)
@@ -68,11 +75,17 @@ def collect_server_health(probe: object, *, warnings: list | None = None) -> Ser
             warnings.append("unsupported_platform")
         return None
 
+    volumes = _volumes(probe, role.volumes)
+    if role_id == "proxmox":
+        storage, applications = _proxmox_checks(probe)
+        volumes.extend(storage)
+    else:
+        applications = _applications(probe, role_id)
     return ServerHealthV1(
         role=role_id,
         services=[_service(probe, name, role.platform) for name in role.services],
-        volumes=_volumes(probe, role.volumes),
-        applications=_applications(probe, role_id),
+        volumes=volumes,
+        applications=applications,
     )
 
 
@@ -108,16 +121,54 @@ def _volume(probe: object, volume: Volume, local_mounts: set[str]) -> ServerHeal
         return ServerHealthVolumeV1(mount=volume.mount, status="unknown")
     if usage.total <= 0 or not 0 <= usage.free <= usage.total or not 0 <= usage.percent <= 100:
         return ServerHealthVolumeV1(mount=volume.mount, status="unknown")
-    if usage.percent >= 90 or usage.free < volume.minimum_free_gib * _GIB:
+    return _usage(volume.mount, usage.total, usage.free, usage.percent, volume.minimum_free_gib)
+
+
+def _usage(mount: str, total: int, free: int, percent: float, minimum_gib: int) -> ServerHealthVolumeV1:
+    if percent >= 90 or free < minimum_gib * _GIB:
         status = "critical"
-    elif usage.percent >= 80:
+    elif percent >= 80:
         status = "warning"
     else:
         status = "ok"
     return ServerHealthVolumeV1(
-        mount=volume.mount, status=status, used_percent=usage.percent,
-        total_bytes=usage.total, free_bytes=usage.free,
+        mount=mount, status=status, used_percent=percent, total_bytes=total, free_bytes=free,
     )
+
+
+_PROXMOX_CHECKS = ("proxmox_api", "proxmox_quorum", "proxmox_members", "proxmox_storage")
+
+
+def _proxmox_checks(probe: object) -> tuple[list[ServerHealthVolumeV1], list[ServerHealthApplicationV1]]:
+    try:
+        snapshot = probe.proxmox_health_snapshot()
+    except PROBE_ERRORS:
+        snapshot = {}
+    checks = snapshot.get("checks")
+    checks = checks if isinstance(checks, dict) else {}
+    http = snapshot.get("http_status")
+    applications = [
+        ServerHealthApplicationV1(
+            name=name,
+            status=checks[name] if checks.get(name) in ("ok", "failed", "unknown") else "unknown",
+            http_status=http if name == "proxmox_api" and type(http) is int and 100 <= http <= 599 else None,
+        )
+        for name in _PROXMOX_CHECKS
+    ]
+    rows = snapshot.get("storage")
+    volumes = []
+    for row in rows[:15] if isinstance(rows, list) else []:
+        if not isinstance(row, dict) or not isinstance(row.get("id"), str) or not re.fullmatch(r"[a-zA-Z0-9._-]{1,64}", row["id"]):
+            continue
+        label = f"PVE / {row['id']}"
+        total, used = row.get("total"), row.get("used")
+        if row.get("available") is False:
+            volumes.append(ServerHealthVolumeV1(mount=label, status="critical"))
+        elif type(total) is int and type(used) is int and total > 0 and 0 <= used <= total:
+            volumes.append(_usage(label, total, total - used, round(100 * used / total, 1), 5))
+        else:
+            volumes.append(ServerHealthVolumeV1(mount=label, status="unknown"))
+    return volumes, applications
 
 
 def _applications(probe: object, role: ServerRoleV1) -> list[ServerHealthApplicationV1]:

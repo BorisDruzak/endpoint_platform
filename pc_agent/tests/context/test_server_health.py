@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+import json
 from socketserver import BaseRequestHandler, TCPServer
 from threading import Thread
 from types import SimpleNamespace
@@ -159,6 +160,55 @@ def test_ad_and_consultant_checks_are_independent(monkeypatch):
         "ad_dns_tcp": "ok", "ad_kerberos_tcp": "ok", "ad_ldap_tcp": "failed",
         "consultant_http": "unknown", "consultant_tcp": "ok",
     }
+
+
+def test_proxmox_profile_reports_cluster_and_storage_failures(monkeypatch):
+    monkeypatch.setenv("ENDPOINT_AGENT_SERVER_ROLE", "proxmox")
+    probe = Probe()
+    probe.server_service_state = lambda unit: "inactive/dead" if unit == "pvestatd.service" else "active/running"
+    probe.server_local_mounts = lambda: {"/"}
+    probe.server_disk_usage = lambda mount: SimpleNamespace(total=50 * 1024**3, free=20 * 1024**3, percent=60)
+    probe.proxmox_health_snapshot = lambda: {
+        "checks": {"proxmox_api": "ok", "proxmox_quorum": "ok", "proxmox_members": "failed"},
+        "http_status": 401,
+        "storage": [
+            {"id": "local-lvm", "available": True, "total": 100 * 1024**3, "used": 93 * 1024**3},
+            {"id": "main-zfs", "available": False},
+        ],
+    }
+    health = collect_server_health(probe)
+    assert health.role == "proxmox"
+    assert {item.name: item.status for item in health.services}["pvestatd.service"] == "failed"
+    assert {item.mount: item.status for item in health.volumes} == {
+        "/": "ok", "PVE / local-lvm": "critical", "PVE / main-zfs": "critical",
+    }
+    assert {item.name: item.status for item in health.applications} == {
+        "proxmox_api": "ok", "proxmox_quorum": "ok", "proxmox_members": "failed", "proxmox_storage": "unknown",
+    }
+    assert health.applications[0].http_status == 401
+
+
+def test_proxmox_missing_snapshot_is_unknown(monkeypatch):
+    monkeypatch.setenv("ENDPOINT_AGENT_SERVER_ROLE", "proxmox")
+    probe = Probe()
+    probe.server_service_state = lambda unit: "active/running"
+    probe.server_local_mounts = set
+    def missing():
+        raise FileNotFoundError
+    probe.proxmox_health_snapshot = missing
+    health = collect_server_health(probe)
+    assert all(item.status == "unknown" for item in health.applications)
+
+
+def test_proxmox_snapshot_expires_instead_of_reusing_old_state(monkeypatch, tmp_path):
+    snapshot = tmp_path / "status.json"
+    monkeypatch.setattr(probe_module, "Path", lambda _: snapshot)
+    monkeypatch.setattr(probe_module.time, "time", lambda: 10_000)
+    snapshot.write_text(json.dumps({"schema_version": 1, "sampled_at": 9_999}), encoding="utf-8")
+    assert SystemProbe().proxmox_health_snapshot()["sampled_at"] == 9_999
+    snapshot.write_text(json.dumps({"schema_version": 1, "sampled_at": 9_819}), encoding="utf-8")
+    with pytest.raises(ValueError, match="stale"):
+        SystemProbe().proxmox_health_snapshot()
 
 
 @pytest.mark.parametrize("role", ["unknown", "directum"])
