@@ -13,7 +13,7 @@ from sqlalchemy import select
 from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.auth.admin_sessions import AdminPrincipal, require_admin
-from endpoint_server.db.models import EnrollmentCampaign, EnrollmentRequest
+from endpoint_server.db.models import EnrollmentCampaign, EnrollmentRequest, InventoryInstallationAssignment
 
 from .requests import (
     RequestTransitionError,
@@ -159,6 +159,15 @@ async def approve_request(
                 raise _not_found()
             if record.selected_campaign_id is None:
                 raise _conflict()
+            if now >= record.expires_at.astimezone(UTC):
+                directed = (await session.execute(
+                    select(InventoryInstallationAssignment.installation_digest).where(
+                        InventoryInstallationAssignment.installation_digest == record.installation_id_digest,
+                        InventoryInstallationAssignment.expires_at <= now,
+                    )
+                )).scalar_one_or_none()
+                if directed is not None:
+                    raise _conflict()
             campaign = (
                 await session.execute(
                     select(EnrollmentCampaign)

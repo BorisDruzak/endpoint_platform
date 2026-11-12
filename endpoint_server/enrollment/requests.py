@@ -218,10 +218,12 @@ def mark_request_enrolling(request: EnrollmentRequest, *, now: datetime) -> None
 
 
 def mark_request_device_registered(
-    request: EnrollmentRequest, *, device_id: UUID, now: datetime
+    request: EnrollmentRequest, *, device_id: UUID, now: datetime, inventory_directed: bool = False
 ) -> None:
     """Link the created device after the existing agent enrollment transaction."""
     transition_request_status(request.status, "device_registered")
+    if inventory_directed:
+        request.expires_at = request.created_at + _REQUEST_LIFETIME
     request.status = "device_registered"
     request.device_id = device_id
     request.updated_at = now.astimezone(UTC)

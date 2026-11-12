@@ -822,6 +822,7 @@ def _service_operation_openapi() -> dict[str, object]:
         "paths": {
             path: generated["paths"][path]
             for path in (*_SERVICE_OPERATION_PATHS, *_SERVICE_CONTEXT_PATHS, *_PUBLIC_BROWSER_RELEASE_PATHS,
+                         '/api/v1/enrollment/installation-assignments',
                          '/api/v1/enrollment/installation-receipts/lookup',
                          '/api/v1/enrollment/linux/requests',
                          '/api/v1/enrollment/linux/requests/{request_id}/status',

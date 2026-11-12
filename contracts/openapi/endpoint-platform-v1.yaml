@@ -1762,6 +1762,43 @@ paths:
             "application/json":
               schema:
                 "$ref": "#/components/schemas/HTTPValidationError"
+  "/api/v1/enrollment/installation-assignments":
+    post:
+      tags:
+        - "inventory-installation"
+      summary: "Issue Inventory Installation"
+      description: "Persist one assignment. Exact retries by its owner reuse the original window."
+      operationId: "issue_inventory_installation_api_v1_enrollment_installation_assignments_post"
+      requestBody:
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/InventoryInstallationIssue"
+        required: true
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/InventoryInstallationWindow"
+        "401":
+          description: "Service authentication failed"
+        "403":
+          description: "Service scope is insufficient"
+        "409":
+          description: "Installation assignment conflicts with existing authority"
+        "422":
+          description: "Invalid inventory installation assignment"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/InvalidInventoryInstallationAssignment"
+      security:
+        -
+          ServiceBearer: []
+      x-required-scopes:
+        - "enrollment.installation-assignments.issue"
   "/api/v1/enrollment/installation-receipts/lookup":
     post:
       tags:
@@ -1791,6 +1828,8 @@ paths:
           description: "Service authentication failed"
         "403":
           description: "Service scope is insufficient"
+        "404":
+          description: "Installation assignment unavailable"
         "409":
           description: "Conflicting installation evidence"
         "422":
@@ -10613,7 +10652,7 @@ components:
       additionalProperties: false
       type: "object"
       title: "InventoryHardwareV1"
-    InventoryInstallationLookup:
+    InventoryInstallationIssue:
       properties:
         installation_id:
           type: "string"
@@ -10637,25 +10676,44 @@ components:
             - "linux"
             - "windows"
           title: "Platform"
-        issued_at:
-          type: "string"
-          format: "date-time"
-          title: "Issued At"
-          description: "Original assignment issue time, at or before the lookup time."
-        expires_at:
-          type: "string"
-          format: "date-time"
-          title: "Expires At"
-          description: "Original expiry, at most 30 minutes after issuance."
       additionalProperties: false
       type: "object"
       required:
         - "installation_id"
         - "hardware_fingerprint"
         - "platform"
+      title: "InventoryInstallationIssue"
+    InventoryInstallationLookup:
+      properties:
+        installation_id:
+          type: "string"
+          maxLength: 128
+          minLength: 1
+          pattern: "^inventory-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[0-9a-f]{32}$"
+          format: "password"
+          title: "Installation Id"
+          description: "Private inventory installation ID containing the asset UUID, machine UUID and nonce."
+          writeOnly: true
+      additionalProperties: false
+      type: "object"
+      required:
+        - "installation_id"
+      title: "InventoryInstallationLookup"
+    InventoryInstallationWindow:
+      properties:
+        issued_at:
+          type: "string"
+          format: "date-time"
+          title: "Issued At"
+        expires_at:
+          type: "string"
+          format: "date-time"
+          title: "Expires At"
+      type: "object"
+      required:
         - "issued_at"
         - "expires_at"
-      title: "InventoryInstallationLookup"
+      title: "InventoryInstallationWindow"
     InventoryInterfaceV1:
       properties:
         name:

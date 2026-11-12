@@ -16,14 +16,19 @@ from endpoint_server.auth import scopes
 from endpoint_server.config import Settings
 from endpoint_server.db.base import Base
 from endpoint_server.db.models import (
-    Device, DeviceInstance, DeviceSession, EnrollmentCampaign, EnrollmentClaim, EnrollmentRequest,
+    AuditEvent, Device, DeviceInstance, DeviceSession, EnrollmentCampaign, EnrollmentClaim, EnrollmentRequest,
+    InventoryInstallationAssignment,
 )
-from endpoint_server.enrollment.campaigns import issue_install_claim
-from endpoint_server.enrollment.requests import CampaignSelection, build_enrollment_request
+from endpoint_server.enrollment.campaigns import hardware_fingerprint_digest, issue_install_claim
+from endpoint_server.enrollment.requests import CampaignSelection, build_enrollment_request, installation_id_digest
 from endpoint_server.main import create_app
 
 
 PATH = "/api/v1/enrollment/installation-receipts/lookup"
+ASSIGN = "/api/v1/enrollment/installation-assignments"
+ASSIGN_SCOPE = "enrollment.installation-assignments.issue"
+OWNER = uuid4()
+OTHER_OWNER = uuid4()
 SCOPE = "enrollment.installation-receipts.read"
 PEPPER = b"test-device-pepper"
 FINGERPRINT = "sha256:synthetic-hardware-fingerprint"
@@ -34,7 +39,8 @@ def receipt_app(monkeypatch):
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine, tables=[
         model.__table__ for model in (
-            Device, DeviceInstance, DeviceSession, EnrollmentClaim, EnrollmentRequest,
+            AuditEvent, Device, DeviceInstance, DeviceSession, EnrollmentClaim, EnrollmentRequest,
+            InventoryInstallationAssignment,
         )
     ])
     with Session(engine) as db:
@@ -43,13 +49,30 @@ def receipt_app(monkeypatch):
             class Adapter:
                 async def execute(self, statement):
                     return db.execute(statement)
+
+                def add(self, value):
+                    db.add(value)
+
+                async def commit(self):
+                    db.commit()
+
             yield Adapter()
 
         async def principal(session, token, pepper):
-            if token not in ("fixture-receipt-reader", "fixture-device-reader"):
+            permissions = {
+                "fixture-receipt-reader": (OWNER, SCOPE),
+                "fixture-device-reader": (OWNER, "devices.read"),
+                "fixture-assignment-issuer": (OWNER, ASSIGN_SCOPE),
+                "fixture-other-issuer": (OTHER_OWNER, ASSIGN_SCOPE),
+                "fixture-other-reader": (OTHER_OWNER, SCOPE),
+            }
+            if token not in permissions:
                 return None
-            scope = SCOPE if token == "fixture-receipt-reader" else "devices.read"
-            return SimpleNamespace(credential=SimpleNamespace(scopes=(scope,)))
+            owner, scope = permissions[token]
+            return SimpleNamespace(
+                client=SimpleNamespace(id=owner, client_identifier="fixture-inventory"),
+                credential=SimpleNamespace(scopes=(scope,)),
+            )
 
         monkeypatch.setattr(scopes, "_load_service_principal", principal)
         settings = Settings(
@@ -94,6 +117,13 @@ def assignment(db, *, platform, connection, installation=None):
     claim.device_id = device.id
     claim.claimed_at = registered
     db.add_all((request, claim, device, instance))
+    digest = installation_id_digest(installation, PEPPER)
+    if db.get(InventoryInstallationAssignment, digest) is None:
+        db.add(InventoryInstallationAssignment(
+            installation_digest=digest, service_client_id=OWNER,
+            fingerprint_digest=hardware_fingerprint_digest(FINGERPRINT, PEPPER),
+            platform=platform, issued_at=issued, expires_at=expires, enrollment_request_id=request.id,
+        ))
     if connection != "missing":
         created = registered + timedelta(seconds=1)
         heartbeat = now - timedelta(seconds=1)
@@ -110,10 +140,7 @@ def assignment(db, *, platform, connection, installation=None):
             closed_at=now if connection == "closed" else None,
         ))
     db.flush()
-    return {
-        "installation_id": installation, "hardware_fingerprint": FINGERPRINT,
-        "platform": platform, "issued_at": issued.isoformat(), "expires_at": expires.isoformat(),
-    }, device.id
+    return {"installation_id": installation}, device.id
 
 
 @pytest.mark.asyncio
@@ -141,7 +168,6 @@ async def test_receipt_releases_uuid_only_for_current_connection(receipt_app, pl
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint-staging.example.test") as client:
         headers = {"Authorization": "Bearer fixture-receipt-reader"}
         response = await client.post(PATH, json=body, headers=headers)
-        wrong = await client.post(PATH, json={**body, "hardware_fingerprint": "sha256:wrong-hardware"}, headers=headers)
     assert response.status_code == 200, response.text
     assert response.headers["cache-control"] == "no-store"
     result = response.json()
@@ -150,37 +176,27 @@ async def test_receipt_releases_uuid_only_for_current_connection(receipt_app, pl
         assert result["device_id"] == str(device_id)
     else:
         assert result == {"state": expected}
-    assert wrong.status_code == 409
-    assert str(device_id) not in wrong.text
     assert FINGERPRINT not in response.text
     assert body["installation_id"] not in response.text
 
 
 @pytest.mark.asyncio
-async def test_receipt_does_not_use_a_claim_outside_assignment_window(receipt_app):
+async def test_receipt_uses_persisted_window_and_redacts_malformed_input(receipt_app):
     app, db = receipt_app
     body, _ = assignment(db, platform="linux", connection="heartbeat")
-    now = datetime.now(UTC)
-    old = {**body, "issued_at": (now - timedelta(minutes=45)).isoformat(),
-           "expires_at": (now - timedelta(minutes=15)).isoformat()}
-    too_long = {**body, "expires_at": (now + timedelta(hours=1)).isoformat()}
-    recent = {**body, "issued_at": (now - timedelta(minutes=3)).isoformat()}
+    row = db.query(InventoryInstallationAssignment).one()
+    row.issued_at = datetime.now(UTC) - timedelta(minutes=3)
+    db.flush()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint-staging.example.test") as client:
         headers = {"Authorization": "Bearer fixture-receipt-reader"}
-        expired = await client.post(PATH, json=old, headers=headers)
-        invalid = await client.post(PATH, json=too_long, headers=headers)
-        outside_window = await client.post(PATH, json=recent, headers=headers)
+        outside = await client.post(PATH, json=body, headers=headers)
         malformed = await client.post(PATH, json={**body, body["installation_id"]: FINGERPRINT}, headers=headers)
     assert malformed.status_code == 422
     assert malformed.headers["cache-control"] == "no-store"
     assert body["installation_id"] not in malformed.text
     assert FINGERPRINT not in malformed.text
-    assert outside_window.status_code == 200
-    assert outside_window.json() == {"state": "waiting_registration"}
-    assert expired.status_code == 200
-    assert expired.json() == {"state": "expired"}
-    assert invalid.status_code == 422
-    assert body["installation_id"] not in invalid.text
+    assert outside.status_code == 200
+    assert outside.json() == {"state": "waiting_registration"}
 
 
 @pytest.mark.asyncio
@@ -205,7 +221,8 @@ async def test_receipt_rejects_inconsistent_registration_evidence(receipt_app, c
 async def test_assignment_expires_even_with_matching_claim(receipt_app, connection):
     app, db = receipt_app
     body, _ = assignment(db, platform="linux", connection=connection)
-    body["expires_at"] = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
+    db.query(InventoryInstallationAssignment).one().expires_at = datetime.now(UTC) - timedelta(minutes=1)
+    db.flush()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint-staging.example.test") as client:
         response = await client.post(PATH, json=body, headers={"Authorization": "Bearer fixture-receipt-reader"})
     assert response.status_code == 200
@@ -213,7 +230,7 @@ async def test_assignment_expires_even_with_matching_claim(receipt_app, connecti
 
 
 @pytest.mark.asyncio
-async def test_receipt_rejects_multiple_consumed_claims_for_one_assignment(receipt_app):
+async def test_receipt_uses_only_the_request_pinned_to_the_assignment(receipt_app):
     app, db = receipt_app
     # SQLite treats the PostgreSQL partial unique index as unconditional.
     # Completed historical requests can legitimately coexist in PostgreSQL.
@@ -222,6 +239,37 @@ async def test_receipt_rejects_multiple_consumed_claims_for_one_assignment(recei
     _, second = assignment(db, platform="linux", connection="heartbeat", installation=body["installation_id"])
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint-staging.example.test") as client:
         response = await client.post(PATH, json=body, headers={"Authorization": "Bearer fixture-receipt-reader"})
-    assert response.status_code == 409
-    assert str(first) not in response.text
+    assert response.status_code == 200
+    assert response.json()["device_id"] == str(first)
     assert str(second) not in response.text
+
+
+@pytest.mark.asyncio
+async def test_issue_assignment_is_owner_bound_and_reuses_original_deadline(receipt_app):
+    app, _ = receipt_app
+    body = {
+        "installation_id": f"inventory-{uuid4()}-{uuid4()}-" + "a" * 32,
+        "platform": "linux",
+        "hardware_fingerprint": FINGERPRINT,
+    }
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint-staging.example.test") as client:
+        issuer = {"Authorization": "Bearer fixture-assignment-issuer"}
+        reader = {"Authorization": "Bearer fixture-receipt-reader"}
+        other = {"Authorization": "Bearer fixture-other-issuer"}
+        assert (await client.post(ASSIGN, json=body, headers=reader)).status_code == 403
+        created = await client.post(ASSIGN, json=body, headers=issuer)
+        repeated = await client.post(ASSIGN, json=body, headers=issuer)
+        changed = await client.post(ASSIGN, json={**body, "platform": "windows"}, headers=issuer)
+        collision = await client.post(ASSIGN, json=body, headers=other)
+        pending = await client.post(PATH, json={"installation_id": body["installation_id"]}, headers=reader)
+        hidden = await client.post(PATH, json={"installation_id": body["installation_id"]},
+                                   headers={"Authorization": "Bearer fixture-other-reader"})
+    assert created.status_code == repeated.status_code == 200
+    assert created.json() == repeated.json()
+    issued = datetime.fromisoformat(created.json()["issued_at"])
+    expires = datetime.fromisoformat(created.json()["expires_at"])
+    assert expires - issued == timedelta(minutes=30)
+    assert changed.status_code == collision.status_code == 409
+    assert pending.json() == {"state": "waiting_registration"}
+    assert hidden.status_code == 404
+    assert body["installation_id"] not in created.text

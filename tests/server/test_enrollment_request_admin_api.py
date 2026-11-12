@@ -13,7 +13,7 @@ from httpx import ASGITransport, AsyncClient
 
 from endpoint_server.auth.admin_sessions import AdminPrincipal, require_admin
 from endpoint_server.config import Settings
-from endpoint_server.db.models import AdminSession, AdminUser, AuditEvent, EnrollmentCampaign, EnrollmentRequest
+from endpoint_server.db.models import AdminSession, AdminUser, AuditEvent, EnrollmentCampaign, EnrollmentRequest, InventoryInstallationAssignment
 from endpoint_server.enrollment.campaigns import issue_campaign
 from endpoint_server.enrollment.requests import CampaignSelection, build_enrollment_request
 from endpoint_server.main import create_app
@@ -92,6 +92,7 @@ class _Session:
         self.added: list[object] = []
         self.commit_calls = 0
         self.rollback_calls = 0
+        self.expired_assignment_digest = None
 
     async def execute(self, statement: object) -> _Result:
         entity = statement.column_descriptions[0]["entity"]
@@ -99,6 +100,8 @@ class _Session:
             return _Result([self.record])
         if entity is EnrollmentCampaign:
             return _Result([self.campaign])
+        if entity is InventoryInstallationAssignment:
+            return _Result([self.expired_assignment_digest] if self.expired_assignment_digest else [])
         raise AssertionError(f"unexpected query entity: {entity}")
 
     def add(self, value: object) -> None:
@@ -208,3 +211,21 @@ async def test_admin_can_deny_once_without_claim_or_secret_data() -> None:
     audit = next(value for value in session.added if isinstance(value, AuditEvent))
     assert audit.details == {"reason": "OPERATOR_DENIED", "status": "denied"}
     assert "ic_" not in repr(audit)
+
+
+@pytest.mark.asyncio
+async def test_admin_cannot_approve_an_expired_inventory_assignment() -> None:
+    campaign = _campaign()
+    record = _request(campaign)
+    record.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+    session = _Session(campaign, record)
+    session.expired_assignment_digest = record.installation_id_digest
+    app = create_app(_settings(), session_provider=_Provider(session))
+    app.dependency_overrides[require_admin] = _principal
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.post(f"/api/admin/enrollment/requests/{record.id}/approve")
+    assert response.status_code == 409
+    assert record.status == "waiting_approval"
+    assert session.added == []

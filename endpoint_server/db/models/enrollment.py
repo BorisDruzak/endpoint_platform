@@ -5,6 +5,8 @@ from uuid import UUID
 
 from sqlalchemy import (
     JSON,
+    CheckConstraint,
+    Uuid,
     DateTime,
     ForeignKey,
     Index,
@@ -179,4 +181,26 @@ class EnrollmentRetryEnvelope(OwnershipRecord, Base):
     encryption_nonce: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
+    )
+
+
+class InventoryInstallationAssignment(Base):
+    """Digest-only authority for one inventory-directed enrollment request."""
+
+    __tablename__ = "inventory_installation_assignments"
+    __table_args__ = (
+        CheckConstraint("platform IN ('linux', 'windows')", name="ck_inventory_installation_platform"),
+        CheckConstraint("expires_at > issued_at", name="ck_inventory_installation_window"),
+    )
+
+    installation_digest: Mapped[str] = mapped_column(String(64), primary_key=True)
+    service_client_id: Mapped[UUID] = mapped_column(
+        ForeignKey("service_clients.id", ondelete="RESTRICT"), nullable=False,
+    )
+    fingerprint_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    platform: Mapped[str] = mapped_column(String(16), nullable=False)
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    enrollment_request_id: Mapped[UUID | None] = mapped_column(
+        Uuid(), ForeignKey("enrollment_requests.id", ondelete="RESTRICT"), unique=True,
     )

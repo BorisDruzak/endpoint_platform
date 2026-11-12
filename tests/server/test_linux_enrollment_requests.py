@@ -15,6 +15,7 @@ from endpoint_server.db.session import AsyncSessionProvider
 from endpoint_server.enrollment.campaigns import issue_campaign, hardware_fingerprint_digest
 from endpoint_server.main import create_app
 from tests.server.test_update_postgresql import update_migration_database_urls, _alembic_config
+from tests.server.test_enrollment_postgresql import enrollment_database_url
 from tests.server.test_enrollment_request_api import _settings, PEPPER
 from tests.contracts.test_linux_support_lifecycle import native_data, event_data
 from tests.server.test_linux_support_lifecycle import registration
@@ -86,9 +87,13 @@ def test_linux_campaign_selection_revalidates_authority(change):
     assert selected.campaign is None and selected.status == 'review_required'
 
 
-def test_fresh_linux_bootstraps_before_core_and_recovery_is_same_identity(update_migration_database_urls):
-    url, _ = update_migration_database_urls
-    command.upgrade(_alembic_config(url), 'head')
+@pytest.mark.parametrize("inventory_directed", [False, True])
+def test_fresh_linux_bootstraps_before_core_and_recovery_is_same_identity(request, inventory_directed):
+    if inventory_directed:
+        url = request.getfixturevalue("enrollment_database_url")
+    else:
+        url, _ = request.getfixturevalue("update_migration_database_urls")
+        command.upgrade(_alembic_config(url), 'head')
     async def scenario():
         from endpoint_server.installation_lifecycle.linux_sources import LinuxNativeRelease
         from endpoint_server.support_access.platforms import verified_platform
@@ -109,12 +114,38 @@ def test_fresh_linux_bootstraps_before_core_and_recovery_is_same_identity(update
             app = create_app(replace(_settings(), database_url=url, allowed_agent_cidrs=(ip_network('127.0.0.0/8'),)), session_provider=provider)
             async with AsyncClient(transport=ASGITransport(app=app), base_url='https://endpoint.sosnadmin.local') as client:
                 payload = body()
+                if inventory_directed:
+                    from endpoint_server.auth.scopes import INVENTORY_INSTALLATION_ASSIGNMENTS_ISSUE_SCOPE
+                    from endpoint_server.auth.service_tokens import create_service_credential
+                    from endpoint_server.db.models import ServiceClient
+                    payload['installation_id'] = f'inventory-{uuid4()}-{uuid4()}-' + secrets.token_hex(16)
+                    missing = await client.post('/api/v1/enrollment/linux/requests', json=payload)
+                    assert missing.status_code == 409
+                    async with provider() as session:
+                        owner = ServiceClient(client_identifier='linux-inventory-fixture', display_name='Inventory')
+                        session.add(owner)
+                        await session.flush()
+                        credential = await create_service_credential(
+                            session, owner.id, _settings().service_token_pepper,
+                            actor_kind='admin', actor_identifier='fixture', request_id='linux-inventory-fixture',
+                            scopes=(INVENTORY_INSTALLATION_ASSIGNMENTS_ISSUE_SCOPE,),
+                        )
+                    issued = await client.post('/api/v1/enrollment/installation-assignments', json={
+                        key: payload[key] for key in ('installation_id', 'hardware_fingerprint', 'platform')
+                    }, headers={'Authorization': f'Bearer {credential.token}'})
+                    assert issued.status_code == 200
+                    mismatch = await client.post('/api/v1/enrollment/linux/requests', json={
+                        **payload, 'hardware_fingerprint': 'sha256:wrong-inventory-machine',
+                    })
+                    assert mismatch.status_code == 409
                 created = await asyncio.gather(*(client.post('/api/v1/enrollment/linux/requests', json=payload) for _ in range(2)))
                 assert sorted(item.status_code for item in created) == [200, 201]
                 assert created[0].json()['request_id'] == created[1].json()['request_id']
                 response = created[0]
                 request_id = response.json()['request_id']
                 assert response.json()['status'] == 'auto_approved'
+                if inventory_directed:
+                    assert response.json()['expires_at'] == issued.json()['expires_at']
                 proof = {k:payload[k] for k in ('request_capability','installation_id','hardware_fingerprint')}
                 claims = await asyncio.gather(*(client.post(f'/api/v1/enrollment/linux/requests/{request_id}/claim', json=proof) for _ in range(2)))
                 assert all(item.status_code == 200 for item in claims), [item.text for item in claims]
