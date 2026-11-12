@@ -63,3 +63,14 @@ def test_msi_verification_without_core_assignment_does_not_install_client(monkey
     monkeypatch.setattr(bootstrap, 'assert_fixed_verifier_context', lambda settings: False)
     monkeypatch.setattr(bootstrap.subprocess, 'run', lambda *a, **k: pytest.fail('MSI verification must not bootstrap'))
     assert bootstrap.bootstrap_setup_client(SimpleNamespace()) == 0
+
+
+def test_core_verifier_reuses_verified_existing_setup_client(monkeypatch, tmp_path):
+    asset = tmp_path / 'EndpointSetupUpdater.ps1'
+    asset.write_text('signed client fixture')
+    monkeypatch.setattr(bootstrap, 'packaged_client', lambda: asset)
+    monkeypatch.setattr(bootstrap, 'is_local_system', lambda: True)
+    monkeypatch.setattr(bootstrap, 'assert_fixed_verifier_context', lambda settings: True)
+    monkeypatch.setattr(bootstrap, '_existing_client_verified', lambda path: path == asset, raising=False)
+    monkeypatch.setattr(bootstrap.subprocess, 'run', lambda *a, **k: pytest.fail('matching client is installed'))
+    assert bootstrap.bootstrap_setup_client(SimpleNamespace()) == 0

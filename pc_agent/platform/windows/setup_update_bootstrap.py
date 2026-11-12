@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import ctypes
 import base64
+import hashlib
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 from uuid import UUID
@@ -62,6 +64,43 @@ def assert_fixed_verifier_context(settings) -> bool:
     return True
 
 
+def _existing_client_verified(asset: Path) -> bool:
+    """An exact signed and scheduled client does not need another install."""
+    import pywintypes
+    import win32com.client
+    from endpoint_contracts.runtime_payload import read_json
+    from . import durable_state, installer_fence
+    from .authenticode_timestamp import has_verified_timestamp
+    from .native_setup_observer import _PUBLISHER, _assert_administrative_file, _verify_task
+    from .update_paths import WindowsUpdatePaths
+
+    paths = WindowsUpdatePaths.production()
+    receipt = paths.updates_root.parent.parent.parent / 'EndpointPlatformSetupUpdates' / 'client.json'
+    try:
+        installer_fence.assert_state_security(receipt, secret=True)
+        with receipt.open('rb') as stream:
+            record = read_json(stream.read(4097), 4096)
+        version = record['client_version']
+        if not isinstance(version, str) or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version):
+            return False
+        target = paths.install_root.parent.parent / 'EndpointPlatformSetupUpdater' / version / asset.name
+        _assert_administrative_file(target)
+        with durable_state._pinned_copy_source(asset), durable_state._pinned_copy_source(target):
+            with asset.open('rb') as stream:
+                raw = stream.read(2 * 1024 * 1024 + 1)
+            if (len(raw) > 2 * 1024 * 1024 or raw != target.read_bytes()
+                    or record['script_sha256'] != hashlib.sha256(raw).hexdigest()
+                    or f"$script:ClientVersion='{version}'" not in raw.decode('utf-8-sig').splitlines()
+                    or not has_verified_timestamp(target, _PUBLISHER)):
+                return False
+            scheduler = win32com.client.Dispatch('Schedule.Service')
+            scheduler.Connect()
+            _verify_task(scheduler.GetFolder('\\').GetTask('EndpointSetupUpdater'), target, system_powershell())
+        return True
+    except (OSError, ValueError, KeyError, TypeError, pywintypes.error):
+        return False
+
+
 def bootstrap_setup_client(settings) -> int:
     asset = packaged_client()
     if asset is None:
@@ -69,7 +108,10 @@ def bootstrap_setup_client(settings) -> int:
     try:
         if not is_local_system():
             return 0
-        if assert_fixed_verifier_context(settings) is False:
+        authorized = assert_fixed_verifier_context(settings)
+        if authorized is False:
+            return 0
+        if authorized is True and _existing_client_verified(asset):
             return 0
         # Trust only the already chain-valid, fixed vendor leaf. AllSigned stays
         # enabled, including domain policy; no arbitrary publisher/root is added.
