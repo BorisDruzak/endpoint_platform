@@ -262,7 +262,7 @@ def test_provisioner_cli_reports_only_failure_type_without_enrollment_material(
         def provision_from_stdin(self) -> None:
             raise RuntimeError(_CLAIM)
 
-    monkeypatch.setattr(provision, "WindowsProvisioner", lambda _request: _FailingProvisioner())
+    monkeypatch.setattr(provision, "WindowsProvisioner", lambda _request, **_kwargs: _FailingProvisioner())
 
     assert provision.main([
         "--endpoint-origin", "https://endpoint.sosnadmin.local",
@@ -274,6 +274,76 @@ def test_provisioner_cli_reports_only_failure_type_without_enrollment_material(
     captured = capsys.readouterr()
     assert "RuntimeError" in captured.err
     assert _CLAIM not in captured.out + captured.err
+
+
+@pytest.mark.parametrize("origin", ["https://endpoint-staging.sosnadmin.local", "https://endpoint.sosnadmin.local"])
+def test_directed_provisioner_reads_private_material_from_inherited_pipe(tmp_path, monkeypatch, capsys, origin):
+    import json
+    import sys
+    from types import SimpleNamespace
+    from pc_agent.platform.windows import provision
+
+    installation_id = "inventory-11111111-1111-4111-8111-111111111111-22222222-2222-4222-8222-222222222222-" + "a" * 32
+    monkeypatch.setattr(sys, "stdin", None)
+    monkeypatch.setattr(
+        "pc_agent.platform.windows.installer_stdio.read_inherited_pipe",
+        lambda _: json.dumps({"installation_id": installation_id, "claim": "ic_test"}),
+    )
+    received = []
+    class Provisioner:
+        def __init__(self, request, *, mutation_scope):
+            assert request.installation_id == installation_id
+            assert callable(mutation_scope)
+
+        def provision_from_stdin(self, stream):
+            received.append(stream.read())
+            return SimpleNamespace(support_access_status="installed", support_access_error=None)
+
+    monkeypatch.setattr(provision, "WindowsProvisioner", Provisioner)
+    result = provision.main([
+        "--endpoint-origin", origin, "--ca-file", str(tmp_path / "ca"),
+        "--data-dir", str(tmp_path), "--inventory-stdin",
+    ])
+    allowed = origin == "https://endpoint-staging.sosnadmin.local"
+    assert result == (0 if allowed else 1)
+    assert received == (["ic_test"] if allowed else [])
+    output = capsys.readouterr()
+    assert installation_id not in output.out + output.err and "ic_test" not in output.out + output.err
+
+
+def test_legacy_cli_rejects_reserved_inventory_namespace(tmp_path, monkeypatch, capsys):
+    from pc_agent.platform.windows import provision
+
+    monkeypatch.setattr(provision, "WindowsProvisioner", lambda *_a, **_kw: pytest.fail("reserved ID reached provisioner"))
+    assert provision.main([
+        "--endpoint-origin", "https://endpoint.sosnadmin.local", "--ca-file", str(tmp_path / "ca"),
+        "--data-dir", str(tmp_path), "--installation-id", "inventory-fixture",
+    ]) == 1
+    assert "inventory-fixture" not in capsys.readouterr().err
+
+
+def test_ordinary_provisioner_rechecks_identity_inside_the_mutation_scope(tmp_path):
+    from contextlib import contextmanager
+    from pc_agent.platform.windows.provision import CREDENTIAL_FILENAME, WindowsProvisioner
+
+    request = _request(tmp_path)
+    request.data_root.mkdir()
+    credential = request.data_root / CREDENTIAL_FILENAME
+    events = []
+
+    @contextmanager
+    def concurrent_registration():
+        credential.write_text("existing-credential")
+        yield
+
+    provisioner = WindowsProvisioner(
+        request, enrollment=_Enrollment(events), service=_Service(events), acl=_Acl(events),
+        mutation_scope=concurrent_registration,
+    )
+    with pytest.raises(ValueError, match="enrollment already exists"):
+        provisioner.provision_from_stdin(io.StringIO(_CLAIM))
+    assert events == []
+    assert credential.read_text() == "existing-credential"
 
 
 def test_provisioner_uses_atomic_replace_for_claim_and_permanent_records(

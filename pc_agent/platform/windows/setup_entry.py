@@ -34,11 +34,20 @@ from pc_agent.platform.windows.disk_readiness import (
     DiskInsufficient, MAX_ARTIFACT_BYTES,
     is_disk_full, require_allocation_space,
 )
+from pc_agent.platform.windows.installer_stdio import write_inherited_pipe as _write_inherited_stdout
+from pc_agent.platform.windows.inventory_setup import (
+    STAGING_ORIGIN,
+    read_assignment,
+    require_native_claim_window,
+    valid_fingerprint,
+    valid_installation_id,
+)
 from pc_agent.windows_setup import (
     HttpsSetupTransport,
     SetupClaimError,
     SetupConfig,
     SetupProvisionError,
+    SetupTransportError,
     UniversalWindowsSetup,
 )
 
@@ -79,6 +88,14 @@ class SetupInstallError(RuntimeError):
         self.detail = detail
 
 
+class _NativeSetupCompleted(SetupProvisionError):
+    """Carry a terminal native result through the enrollment callback."""
+
+    def __init__(self, code: int) -> None:
+        super().__init__("Native Setup returned a terminal result")
+        self.code = code
+
+
 def _canonical_operation(value):
     from uuid import UUID
     if str(UUID(value)) != value:
@@ -89,10 +106,13 @@ def _canonical_operation(value):
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="EndpointAgentSetup.exe")
     parser.add_argument("--quiet", action="store_true")
-    parser.add_argument("--preflight", action="store_true")
-    parser.add_argument("--recover-staged-update", type=_canonical_operation)
-    parser.add_argument("--recover-native-continuation", type=_canonical_operation)
-    parser.add_argument("--recover-staged-restoration", type=_canonical_operation)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--preflight", action="store_true")
+    mode.add_argument("--recover-staged-update", type=_canonical_operation)
+    mode.add_argument("--recover-native-continuation", type=_canonical_operation)
+    mode.add_argument("--recover-staged-restoration", type=_canonical_operation)
+    mode.add_argument("--inventory-fingerprint", action="store_true")
+    mode.add_argument("--inventory-assignment-file", type=Path)
     return parser
 
 
@@ -196,9 +216,13 @@ def _embedded_recovery_operation(msi_path: Path) -> str | None:
     return None
 
 
-def _install_embedded_msi(msi_path: Path) -> int:
+def _install_embedded_msi(msi_path: Path, *, inventory_fresh_only: bool = False) -> int:
     manifest_path, wrapper_path = _verify_embedded_msi(msi_path)
     operation = ['-Operation','RecoverInterruptedInstall'] if _embedded_recovery_operation(msi_path) else []
+    if inventory_fresh_only:
+        if operation:
+            raise SetupInstallError("INVENTORY_ASSIGNMENT_INELIGIBLE")
+        operation.append("-InventoryFreshOnly")
     core_archive = msi_path.with_name('EndpointCore.zip')
     if core_archive.is_file():
         operation += ['-CoreArchivePath', str(core_archive)]
@@ -235,6 +259,8 @@ def _install_embedded_msi(msi_path: Path) -> int:
         raise SetupInstallError("UPDATE_STATE_INVALID")
     if completed.returncode == 63:
         raise SetupInstallError("PROVENANCE_CONFLICT")
+    if completed.returncode == EXIT_PREFLIGHT_FAILED and inventory_fresh_only:
+        raise SetupInstallError("INVENTORY_ASSIGNMENT_INELIGIBLE")
     if completed.returncode not in (0,67,68,3010,1641):
         raise SetupInstallError("MSI_EVIDENCE_FAILED")
     return completed.returncode
@@ -1029,7 +1055,7 @@ def _inventory() -> dict[str, object]:
 def _provisioner_command(
     executable: Path, config: SetupConfig, data_dir: Path, installation_id: str
 ) -> list[str]:
-    return [
+    command = [
         str(executable),
         "--endpoint-origin",
         config.endpoint_origin,
@@ -1037,9 +1063,10 @@ def _provisioner_command(
         str(config.ca_file),
         "--data-dir",
         str(data_dir),
-        "--installation-id",
-        installation_id,
     ]
+    if valid_installation_id(installation_id):
+        return command + ["--inventory-stdin"]
+    return command + ["--installation-id", installation_id]
 
 
 def _provisioner_failure_detail(stdout: str, stderr: str) -> str:
@@ -1060,10 +1087,13 @@ def _run_provisioner(
     *,
     run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> None:
+    material = claim
+    if valid_installation_id(installation_id):
+        material = json.dumps({"installation_id": installation_id, "claim": claim})
     try:
         completed = run(
             _provisioner_command(executable, config, data_dir, installation_id),
-            input=claim + "\n",
+            input=material + "\n",
             text=True,
             capture_output=True,
             check=False,
@@ -1091,32 +1121,6 @@ def _run_provisioner(
     _write_support_install_result(installed,support_error)
 
 
-def _write_inherited_stdout(value: bytes, *, kernel=None) -> None:
-    """Windowed PyInstaller has no sys.stdout; use only its inherited pipe."""
-    kernel = kernel or ctypes.WinDLL("kernel32", use_last_error=True)
-    query = kernel.GetStdHandle
-    query.argtypes = [wintypes.DWORD]
-    query.restype = wintypes.HANDLE
-    handle = query(wintypes.DWORD(-11).value)
-    if handle in (None, 0, -1, wintypes.HANDLE(-1).value):
-        raise OSError("PREFLIGHT_STDOUT_UNAVAILABLE")
-    write = kernel.WriteFile
-    write.argtypes = [
-        wintypes.HANDLE,
-        wintypes.LPCVOID,
-        wintypes.DWORD,
-        ctypes.POINTER(wintypes.DWORD),
-        wintypes.LPVOID,
-    ]
-    write.restype = wintypes.BOOL
-    buffer = ctypes.create_string_buffer(value)
-    count = wintypes.DWORD()
-    if not write(
-        handle, buffer, len(value), ctypes.byref(count), None
-    ) or count.value != len(value):
-        raise OSError("PREFLIGHT_STDOUT_WRITE_FAILED")
-
-
 def _emit_preflight(value: dict[str, object]) -> None:
     from pc_agent.platform.windows.fleet_preflight import MAX_PREFLIGHT_BYTES
 
@@ -1129,6 +1133,19 @@ def _emit_preflight(value: dict[str, object]) -> None:
     else:
         sys.stdout.write(record)
         sys.stdout.flush()
+
+
+def _inventory_slot_clean(data_root: Path) -> bool:
+    from pc_agent.platform.windows.msi_inventory import NativeMsi, UPGRADE_CODE
+
+    install_root = WindowsUpdatePaths.production().install_root
+    slots = (install_root, data_root / "device-credential", data_root / ENROLLMENT_IDENTITY_FILENAME,
+             data_root / "enrollment-claim", data_root / "endpoint-origin")
+    return (
+        not _agent_service_installed()
+        and not any(os.path.lexists(path) for path in slots)
+        and not NativeMsi().related_products(UPGRADE_CODE)
+    )
 
 
 def _install_support_after_native(data_root: Path) -> None:
@@ -1161,6 +1178,73 @@ def _write_support_install_result(installed: bool, error_code=None) -> None:
         pass
 
 
+def _install_fresh(
+    args: argparse.Namespace, data_root: Path, msi_path: Path, installation_state: str, recovery_operation: str | None
+) -> Path | int:
+    _finish(
+        data_root, status="STARTED", code=EXIT_SUCCESS, stage="MSI", detail="STARTED"
+    )
+    try:
+        if args.inventory_assignment_file is not None:
+            native_result = _install_embedded_msi(msi_path, inventory_fresh_only=True)
+        else:
+            native_result = _install_embedded_msi(msi_path)
+        if native_result == EXIT_SUPPORT_CLEANUP_INCOMPLETE:
+            return _complete(args, data_root, status='SUPPORT_CLEANUP_INCOMPLETE', code=68,
+                stage='SUPPORT', detail='NATIVE_UNINSTALLED_SUPPORT_CLEANUP_INCOMPLETE')
+        if native_result == 67:
+            return _complete(args,data_root,status="ROLLED_BACK",code=67,stage="MSI",detail="CANDIDATE_ROLLED_BACK")
+        if native_result in (3010,1641):
+            return _complete(args,data_root,status='REBOOT_REQUIRED',code=native_result,stage='MSI',detail='REBOOT_REQUIRED')
+        if recovery_operation == 'uninstall':
+            return _complete(args,data_root,status='UNINSTALLED',code=EXIT_SUCCESS,stage='MSI',detail='UNINSTALLED')
+        if installation_state == "repairable":
+            _install_support_after_native(data_root)
+            if not _wait_for_agent_service_running():
+                return _complete(
+                    args,
+                    data_root,
+                    status="SERVICE_FAILED",
+                    code=EXIT_SERVICE_FAILED,
+                    stage="SERVICE",
+                    detail="SERVICE_NOT_RUNNING",
+                )
+            detail = _service_ready_detail()
+            return _complete(
+                args,
+                data_root,
+                status="REPAIRED",
+                code=EXIT_ALREADY_INSTALLED,
+                stage="SERVICE",
+                detail=detail,
+            )
+        return _installed_provisioner()
+    except SetupInstallError as error:
+        if error.detail == "INVENTORY_ASSIGNMENT_INELIGIBLE":
+            return _complete(
+                args, data_root, status="PREFLIGHT_FAILED", code=EXIT_PREFLIGHT_FAILED,
+                stage="PREFLIGHT", detail=error.detail,
+            )
+        return _complete(
+            args,
+            data_root,
+            status=("UPDATE_IN_PROGRESS" if error.detail == "UPDATE_IN_PROGRESS" else "REPAIR_REQUIRED" if error.detail == "UPDATE_STATE_INVALID" else "INSTALL_FAILED"),
+            code=(EXIT_UPDATE_IN_PROGRESS if error.detail == "UPDATE_IN_PROGRESS" else EXIT_REPAIR_REQUIRED if error.detail == "UPDATE_STATE_INVALID" else EXIT_INSTALL_FAILED),
+            stage="MSI",
+            detail=error.detail,
+        )
+    except Exception:
+        return _complete(
+            args,
+            data_root,
+            status="INSTALL_FAILED",
+            code=EXIT_INSTALL_FAILED,
+            stage="MSI",
+            detail="MSI_INSTALL_FAILED",
+        )
+
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     from pc_agent.platform.windows.installation_notification import notification_main
     notification = notification_main(argv)
@@ -1173,6 +1257,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_native_continuation_recovery(args.recover_native_continuation)
     if args.recover_staged_update:
         return _run_staged_recovery(args.recover_staged_update)
+    if args.inventory_fingerprint:
+        try:
+            config = _read_public_setup_config(_resource_root() / "setup-config.json")
+            if config["endpoint_origin"] != STAGING_ORIGIN:
+                return EXIT_PREFLIGHT_FAILED
+            fingerprint = _derive_hardware_fingerprint(collect_device_fingerprint)
+            if not valid_fingerprint(fingerprint):
+                return EXIT_PREFLIGHT_FAILED
+            _emit_preflight({"hardware_fingerprint": fingerprint})
+            return EXIT_SUCCESS
+        except Exception:
+            return EXIT_PREFLIGHT_FAILED
     if args.preflight:
         from pc_agent.platform.windows.fleet_preflight import collect_fleet_preflight
 
@@ -1242,9 +1338,29 @@ def main(argv: Sequence[str] | None = None) -> int:
             stage="PREFLIGHT",
             detail="PREFLIGHT_INVALID",
         )
+    assignment = None
+    if args.inventory_assignment_file is not None:
+        try:
+            if (
+                config.endpoint_origin != STAGING_ORIGIN
+                or installation_state != "clean"
+                or interrupted_setup
+                or not _inventory_slot_clean(data_root)
+            ):
+                raise ValueError("directed inventory install is ineligible")
+            assignment = read_assignment(args.inventory_assignment_file)
+            if _derive_hardware_fingerprint(collect_device_fingerprint) != assignment[1]:
+                raise ValueError("inventory fingerprint differs")
+        except Exception:
+            return _complete(
+                args, data_root, status="PREFLIGHT_FAILED", code=EXIT_PREFLIGHT_FAILED,
+                stage="PREFLIGHT", detail="INVENTORY_ASSIGNMENT_INELIGIBLE",
+            )
     try:
         _verify_embedded_msi(resources / "EndpointAgent.msi")
         recovery_operation = _embedded_recovery_operation(resources / "EndpointAgent.msi")
+        if assignment is not None and recovery_operation is not None:
+            raise SetupInstallError("INVENTORY_ASSIGNMENT_INELIGIBLE")
         installed_version = _installed_msi_version() if installation_state == "valid" else None
         needs_msi = _setup_msi_required(
             config.installer_version,
@@ -1345,67 +1461,51 @@ def main(argv: Sequence[str] | None = None) -> int:
             stage="SERVICE",
             detail="SERVICE_RUNNING",
         )
-    _finish(
-        data_root, status="STARTED", code=EXIT_SUCCESS, stage="MSI", detail="STARTED"
-    )
-    try:
-        native_result = _install_embedded_msi(resources / "EndpointAgent.msi")
-        if native_result == EXIT_SUPPORT_CLEANUP_INCOMPLETE:
-            return _complete(args, data_root, status='SUPPORT_CLEANUP_INCOMPLETE', code=68,
-                stage='SUPPORT', detail='NATIVE_UNINSTALLED_SUPPORT_CLEANUP_INCOMPLETE')
-        if native_result == 67:
-            return _complete(args,data_root,status="ROLLED_BACK",code=67,stage="MSI",detail="CANDIDATE_ROLLED_BACK")
-        if native_result in (3010,1641):
-            return _complete(args,data_root,status='REBOOT_REQUIRED',code=native_result,stage='MSI',detail='REBOOT_REQUIRED')
-        if recovery_operation == 'uninstall':
-            return _complete(args,data_root,status='UNINSTALLED',code=EXIT_SUCCESS,stage='MSI',detail='UNINSTALLED')
-        if installation_state == "repairable":
-            _install_support_after_native(data_root)
-            if not _wait_for_agent_service_running():
-                return _complete(
-                    args,
-                    data_root,
-                    status="SERVICE_FAILED",
-                    code=EXIT_SERVICE_FAILED,
-                    stage="SERVICE",
-                    detail="SERVICE_NOT_RUNNING",
-                )
-            detail = _service_ready_detail()
-            return _complete(
-                args,
-                data_root,
-                status="REPAIRED",
-                code=EXIT_ALREADY_INSTALLED,
-                stage="SERVICE",
-                detail=detail,
-            )
-        provisioner = _installed_provisioner()
-    except SetupInstallError as error:
-        return _complete(
-            args,
-            data_root,
-            status=("UPDATE_IN_PROGRESS" if error.detail == "UPDATE_IN_PROGRESS" else "REPAIR_REQUIRED" if error.detail == "UPDATE_STATE_INVALID" else "INSTALL_FAILED"),
-            code=(EXIT_UPDATE_IN_PROGRESS if error.detail == "UPDATE_IN_PROGRESS" else EXIT_REPAIR_REQUIRED if error.detail == "UPDATE_STATE_INVALID" else EXIT_INSTALL_FAILED),
-            stage="MSI",
-            detail=error.detail,
-        )
-    except Exception:
-        return _complete(
-            args,
-            data_root,
-            status="INSTALL_FAILED",
-            code=EXIT_INSTALL_FAILED,
-            stage="MSI",
-            detail="MSI_INSTALL_FAILED",
-        )
+    provisioner = None
+    if assignment is None:
+        result = _install_fresh(args, data_root, resources / "EndpointAgent.msi", installation_state, recovery_operation)
+        if isinstance(result, int):
+            return result
+        provisioner = result
 
-    transport = HttpsSetupTransport(config.endpoint_origin, config.ca_file)
+    try:
+        transport = (
+            HttpsSetupTransport(config.endpoint_origin, config.ca_file, allow_redirects=False)
+            if assignment is not None else HttpsSetupTransport(config.endpoint_origin, config.ca_file)
+        )
+    except (OSError, ValueError):
+        return _complete(
+            args, data_root, status="PREFLIGHT_FAILED", code=EXIT_PREFLIGHT_FAILED,
+            stage="PREFLIGHT", detail="PREFLIGHT_INVALID",
+        )
     installation_id: str | None = None
+    claim_deadline: datetime | None = None
+
+    def validate_claim_expiry(expires_at: object) -> None:
+        nonlocal claim_deadline
+        claim_deadline = require_native_claim_window(expires_at, datetime.now(UTC))
 
     def run_provisioner(claim: str) -> None:
         if installation_id is None:
             raise RuntimeError("installation identity unavailable")
-        _run_provisioner(provisioner, config, _data_root(), installation_id, claim)
+        installed = provisioner
+        if assignment is not None:
+            if not _inventory_slot_clean(data_root):
+                raise SetupProvisionError(
+                    "Directed inventory install is ineligible", detail="INVENTORY_ASSIGNMENT_INELIGIBLE"
+                )
+            result = _install_fresh(args, data_root, resources / "EndpointAgent.msi", installation_state, recovery_operation)
+            if isinstance(result, int):
+                raise _NativeSetupCompleted(result)
+            if claim_deadline is None or datetime.now(UTC) >= claim_deadline:
+                raise _NativeSetupCompleted(_complete(
+                    args, data_root, status="EXPIRED", code=EXIT_REQUEST_EXPIRED,
+                    stage="ENROLLMENT", detail="INVENTORY_CLAIM_EXPIRED_AFTER_MSI",
+                ))
+            installed = result
+        if installed is None:
+            raise SetupProvisionError("Windows provisioner is unavailable")
+        _run_provisioner(installed, config, _data_root(), installation_id, claim)
 
     setup = UniversalWindowsSetup(
         config,
@@ -1421,12 +1521,16 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     def capture_installation_id() -> str:
         nonlocal installation_id
-        installation_id = original_installation_factory()
+        installation_id = assignment[0] if assignment is not None else original_installation_factory()
         return installation_id
 
     setup.installation_id_factory = capture_installation_id
+    if assignment is not None:
+        setup.validate_claim_expiry = validate_claim_expiry
     try:
         outcome = setup.run()
+    except _NativeSetupCompleted as error:
+        return error.code
     except SetupClaimError:
         return _complete(
             args,
@@ -1445,7 +1549,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             stage="PROVISIONING",
             detail=error.detail,
         )
-    except Exception:
+    except Exception as error:
+        if assignment is not None and isinstance(error, SetupTransportError):
+            return _complete(
+                args, data_root, status="PREFLIGHT_FAILED", code=EXIT_PREFLIGHT_FAILED,
+                stage="ENROLLMENT", detail="INVENTORY_ASSIGNMENT_UNAVAILABLE",
+            )
         return _complete(
             args,
             data_root,

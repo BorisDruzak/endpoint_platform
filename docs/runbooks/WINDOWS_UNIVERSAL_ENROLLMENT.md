@@ -69,6 +69,37 @@ Run interactively or with the identical non-interactive flow:
 approval, source CIDR validation, release policy, claim binding, or completion
 observation.
 
+### Staging inventory assignment
+
+Use a signed staging Setup build with the matching signed MSI and its
+inventory-capable provisioner. From
+an elevated process on the selected workstation, capture the JSON output
+of `--inventory-fingerprint` through a redirected stdout pipe. The probe
+reads the same hardware fingerprint as Windows enrollment. Treat the output
+as private and provide it only to the authorized inventory operator.
+
+For a new installation, issue the assignment in staging for platform
+`windows` and that fingerprint. The protected JSON handoff has exactly
+`schema_version` (`endpoint_windows_inventory_assignment_v1`),
+`installation_id`, and `hardware_fingerprint`. Save the file on the target
+in an administrator-controlled local directory. Give the file a SYSTEM or
+built-in Administrators owner and a protected ACL restricted to those trusted
+principals. Use a regular file with one link. Launch the same signed Setup
+with `--inventory-assignment-file <absolute-local-path>`. Remove the private
+file from the target after the attempt and retain the operation status in
+inventory.
+
+Setup requires the staging origin, matching local fingerprint, a clean
+installation slot and an approved claim with at least ten minutes remaining
+before launching MSI. Existing
+campaign selection and approval still apply. The signed wrapper repeats the
+clean-slot check while holding its installer transaction. The helper
+receives the assignment ID and claim over an inherited input pipe. The
+installation is confirmed only after the Endpoint completion check. A claim
+that expires during native installation is never sent to the provisioner.
+If the attempt stops after claim issuance, reconcile its outcome in Endpoint before
+issuing a new assignment or starting native recovery.
+
 ## What the person installing sees
 
 The normal EXE asks Windows for administrator approval and then runs without
