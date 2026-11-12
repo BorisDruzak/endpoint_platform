@@ -2,6 +2,12 @@
 
 ## Runtime boundary
 
+On ALT, `platform/linux/installation_coordinator.py` verifies installed RPMs and
+runs the packaged Core prerequisite checker before completing native install or
+upgrade reconciliation. A missing or unusable runtime selection keeps the
+recorded native result pending and withholds enrollment. Remove verifies the
+installed RPM source before erase and the package absence after erase.
+
 `platform/windows/acl.preserve_state_file_permissions` preserves selector owner
 and DACL using an already-held restore privilege on the effective thread/process
 token. It restores the prior privilege attributes even on failure and never

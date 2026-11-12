@@ -36,6 +36,35 @@ def _text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+@pytest.mark.parametrize("checker_exit", [0, 1])
+def test_native_rpm_match_requires_a_runnable_core(monkeypatch, checker_exit):
+    from pc_agent.platform.linux.installation_coordinator import RPMBackend
+
+    source = {
+        "core_nevra": "endpoint-agent-3.2.183-alt6.x86_64",
+        "user_sensor_nevra": "endpoint-agent-user-sensor-3.2.183-alt6.x86_64",
+    }
+    checker = "/usr/lib/endpoint-agent/check-start-prerequisites"
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append(args)
+        if args[:2] == ["/usr/bin/rpm", "-q"]:
+            rows = "\n".join(source.values()).encode()
+            return subprocess.CompletedProcess(args, 0, rows, b"")
+        if args[:2] == ["/usr/bin/rpm", "-V"]:
+            return subprocess.CompletedProcess(args, 0, b"", b"")
+        assert args == [checker, "--allow-unconfigured"]
+        return subprocess.CompletedProcess(args, checker_exit, b"", b"")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    backend = RPMBackend(None)
+    assert backend.matches("install", source) is (checker_exit == 0)
+    assert calls[-1] == [checker, "--allow-unconfigured"]
+    assert backend.installed_packages_match("install", source)
+    assert calls[-1][:2] == ["/usr/bin/rpm", "-V"]
+
+
 def test_rpm_spec_disables_debuginfo_rewriting_of_manifest_covered_payload() -> None:
     assert "%global __find_debuginfo_files %{nil}" in _text(SPEC)
 
