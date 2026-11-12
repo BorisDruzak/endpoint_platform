@@ -8,6 +8,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+from shlex import quote
 import ssl
 import subprocess
 import sys
@@ -36,6 +37,7 @@ class ServerTarget:
     role: str
     package_version: str = PACKAGE_VERSION
     package_sha256: str = PACKAGE_SHA256
+    fingerprint_user: str | None = None
 
 
 TARGETS = {
@@ -45,7 +47,7 @@ TARGETS = {
                              "/etc/endpoint-platform/sosnadmin-local-ca.crt", "endpoint_platform"),
     "registry": ServerTarget("root@registoryengine", "registoryengine", "192.168.100.12",
                              "/etc/apt/keyrings/endpoint-ubuntu-ca.crt", "registry_engine",
-                             PACKAGE_197, PACKAGE_197_SHA256),
+                             PACKAGE_197, PACKAGE_197_SHA256, fingerprint_user="osn_admin"),
     "acti": ServerTarget("acti-v3", "acti-v3", "192.168.100.45",
                          "/etc/apt/keyrings/endpoint-ubuntu-ca.crt", "acti_v3",
                          PACKAGE_197, PACKAGE_197_SHA256),
@@ -79,6 +81,11 @@ def _ssh(
 
 
 def _preflight(target: ServerTarget) -> tuple[str, ssl.SSLContext]:
+    fingerprint_runner = ""
+    prepare_fingerprint_access = ""
+    if target.fingerprint_user is not None:
+        fingerprint_runner = f"runuser -u {quote(target.fingerprint_user)} -- "
+        prepare_fingerprint_access = 'chmod 755 "$tmp"\n'
     output = _ssh(f"""set -eu
 test "$(hostname -s)" = {target.hostname}
 ip -4 -o address show | grep -Fq ' inet {target.address}/'
@@ -88,12 +95,12 @@ sudo -n test ! -e {STAGE_DIRECTORY}
 sudo -n test ! -L {STAGE_DIRECTORY}
 tmp=$(mktemp -d)
 trap 'rm -rf -- "$tmp"' EXIT
-cd "$tmp"
+{prepare_fingerprint_access}cd "$tmp"
 apt-get download {PACKAGE}={target.package_version} >&2
 deb={PACKAGE}_{target.package_version}_amd64.deb
 printf '%s  %s\\n' {target.package_sha256} "$deb" | sha256sum -c - >&2
 dpkg-deb -x "$deb" unpacked
-unpacked/usr/lib/{PACKAGE}/endpoint-agent --print-hardware-fingerprint
+{fingerprint_runner}unpacked/usr/lib/{PACKAGE}/endpoint-agent --print-hardware-fingerprint
 """, host=target.ssh_host)
     fingerprint = parse_hardware_fingerprint(output)
     pem = _ssh(f"cat {target.ca_path}", host=target.ssh_host).decode("ascii")
