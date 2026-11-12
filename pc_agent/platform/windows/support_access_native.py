@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import stat
 import subprocess
+import sys
 import time
 from ctypes import wintypes
 from threading import Event,Thread
@@ -20,6 +21,10 @@ from threading import Event,Thread
 from .support_bootstrap import (
     TRUSTED_SIDS, BOOTSTRAP_SERVICE_SIDS, reject_links, assert_bootstrap_file,
 )
+
+
+def _windows_build() -> int:
+    return sys.getwindowsversion().build
 
 
 def atomic_write(path: Path, text: str):
@@ -562,14 +567,14 @@ $v=(Get-Item -LiteralPath $p).VersionInfo
         assert_private(path)
 
     def dependencies(self, *, previous=None, existing=False):
+        from . import support_access_bundle as bundled
         from .support_access_os import PROFILE,WindowsFOD,ensure_inbox_openssh
-        if previous and previous.get('profile') not in {None,PROFILE,'bundled-openssh-v1'}:
+        if previous and previous.get('profile') not in {None,PROFILE,bundled.PROFILE}:
             raise ValueError('support_dependency_migration_unsupported')
-        if previous and previous.get('profile')=='bundled-openssh-v1':
-            from .support_access_bundle import verify_profile
-            verify_profile(previous) # Retain the exact old compensation input.
-        root=production_roots()[0]
-        result=ensure_inbox_openssh(WindowsFOD(root))
+        if previous and previous.get('profile') == bundled.PROFILE:
+            bundled.verify_profile(previous)  # Retain the exact old compensation input.
+        result = ensure_inbox_openssh(WindowsFOD(production_roots()[0]),
+            unavailable_fallback=bundled.install if _windows_build() == 14393 else None)
         self._keygen=result['keygen']
         return result
 

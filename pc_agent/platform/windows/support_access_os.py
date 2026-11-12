@@ -78,8 +78,25 @@ def _capabilities(value):
     return tuple(name for name in CAPABILITIES if value[name] == 'NotPresent')
 
 
-def ensure_inbox_openssh(ops):
-    missing = _capabilities(ops.capabilities())
+def _capability_rows(rows):
+    if not isinstance(rows, list) or len(rows) != len(CAPABILITIES):
+        raise ValueError('support_dependency_install_failed')
+    if all(row == {'name': None, 'state': 'NotPresent'} for row in rows):
+        return {}
+    if any(not isinstance(row, dict) or set(row) != {'name', 'state'}
+           or not isinstance(row['name'], str) or not isinstance(row['state'], str)
+           for row in rows):
+        raise ValueError('support_dependency_install_failed')
+    return {row['name']: row['state'] for row in rows}
+
+
+def ensure_inbox_openssh(ops, *, unavailable_fallback=None):
+    capabilities = ops.capabilities()
+    if capabilities == {} and unavailable_fallback is not None:
+        if ops.read_receipt() is not None:
+            raise ValueError('support_dependency_recovery_required')
+        return unavailable_fallback()
+    missing = _capabilities(capabilities)
     previous = ops.read_receipt()
     if previous and previous.get('state')=='installed_unverified':
         if missing:raise ValueError('support_dependency_recovery_required')
@@ -352,9 +369,7 @@ $out=@();foreach($name in @('OpenSSH.Client~~~~0.0.1.0','OpenSSH.Server~~~~0.0.1
  $out+=@{name=$c.Name;state=[string]$c.State}
 };ConvertTo-Json -InputObject @($out) -Compress
 ''')
-        if not isinstance(rows, list) or len(rows) != 2:
-            raise ValueError('support_dependency_install_failed')
-        return {r['name']: r['state'] for r in rows}
+        return _capability_rows(rows)
 
     def read_receipt(self):
         from .support_access_native import assert_private, reject_links
