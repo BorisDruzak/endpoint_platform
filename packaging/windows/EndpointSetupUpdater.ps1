@@ -2,7 +2,7 @@
 param([Parameter(Mandatory)][ValidateSet('Install','Run')][string]$Mode)
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
-$script:ClientVersion='1.0.9'
+$script:ClientVersion='1.0.10'
 $script:Publisher='4D4C23389F5FF77BC4EB32044761019EAE8FB776'
 $script:Origin='https://endpoint.sosnadmin.local'
 $script:ProgramFiles=[Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
@@ -218,6 +218,23 @@ function Assert-SignedFile([string]$path,[string]$sha){
   if(!$signature.TimeStamperCertificate -and !(Test-NativeAuthenticodeTimestamp $path)){throw 'artifact_signature_invalid'}
  }finally{$pin.Dispose()}
 }
+function Register-SetupClientTask([string]$target){
+ $scheduler=New-Object -ComObject Schedule.Service;$scheduler.Connect()
+ $definition=$scheduler.NewTask(0)
+ $definition.Principal.UserId='SYSTEM';$definition.Principal.LogonType=5;$definition.Principal.RunLevel=1
+ $definition.RegistrationInfo.Description='Endpoint Platform authenticated full Setup updates and user-session continuity'
+ $settings=$definition.Settings
+ $settings.Enabled=$true;$settings.ExecutionTimeLimit='PT0S';$settings.MultipleInstances=2;$settings.StartWhenAvailable=$true
+ $settings.DisallowStartIfOnBatteries=$false;$settings.StopIfGoingOnBatteries=$false
+ $trigger=$definition.Triggers.Create(1)
+ $trigger.StartBoundary=[DateTimeOffset]::Now.AddSeconds(15).ToString('yyyy-MM-ddTHH:mm:sszzz',[Globalization.CultureInfo]::InvariantCulture)
+ $trigger.Repetition.Interval='PT1M'
+ $null=$definition.Triggers.Create(9)
+ $action=$definition.Actions.Create(0)
+ $action.Path=Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::System)) 'WindowsPowerShell\v1.0\powershell.exe'
+ $action.Arguments='-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy AllSigned -File "'+$target+'" -Mode Run'
+ $null=$scheduler.GetFolder('\').RegisterTaskDefinition($script:TaskName,$definition,6,'SYSTEM',$null,5,'O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)')
+}
 function Install-SetupClient {
  Assert-System;Assert-SignedFile $PSCommandPath $null
  $null=New-ClientMutexSecurity
@@ -235,14 +252,7 @@ function Install-SetupClient {
    Assert-SignedFile $target $sha
   }
  }finally{$pin.Dispose()}
- $powershell=Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::System)) 'WindowsPowerShell\v1.0\powershell.exe'
- $action=New-ScheduledTaskAction -Execute $powershell -Argument ('-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy AllSigned -File "'+$target+'" -Mode Run')
- $trigger=New-ScheduledTaskTrigger -Once -At ([DateTime]::Now.AddSeconds(15)) -RepetitionInterval ([TimeSpan]::FromMinutes(1))
- $logon=New-ScheduledTaskTrigger -AtLogOn
- $settings=New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
- $principal=New-ScheduledTaskPrincipal -UserId SYSTEM -LogonType ServiceAccount -RunLevel Highest
- Register-ScheduledTask -TaskName $script:TaskName -Action $action -Trigger @($trigger,$logon) -Settings $settings -Principal $principal -Description 'Endpoint Platform authenticated full Setup updates and user-session continuity' -Force|Out-Null
- $scheduler=New-Object -ComObject Schedule.Service;$scheduler.Connect();$scheduler.GetFolder('\').GetTask($script:TaskName).SetSecurityDescriptor('D:P(A;;FA;;;SY)(A;;FA;;;BA)',0)
+ Register-SetupClientTask $target
  Write-PrivateJson (Join-Path $script:StateRoot 'client.json') @{client_version=$script:ClientVersion;script_sha256=$sha;installed_at=[DateTime]::UtcNow.ToString('o')}
 }
 function Assert-FullSetupSource($p,$release){
