@@ -34,8 +34,13 @@ def now_utc(value=None):
 
 
 def qualified_presence(presence, now):
-    return (presence is not None and presence.client_version in (*QUALIFIED_SETUP_CLIENT_VERSIONS, LEGACY_SETUP_CLIENT_VERSION)
-        and presence.ready and -timedelta(seconds=30) <= now - utc(presence.last_seen_at) <= timedelta(minutes=10))
+    # Recognize the signed candidate for explicit assignments. The fleet's
+    # qualified observer set remains the authority for automatic admission.
+    if presence is None or not presence.ready:
+        return False
+    supported = (presence.client_version in (*QUALIFIED_SETUP_CLIENT_VERSIONS, LEGACY_SETUP_CLIENT_VERSION)
+        or (presence.client_version == '1.0.10' and presence.foundation_version and presence.core_version))
+    return bool(supported and -timedelta(seconds=30) <= now - utc(presence.last_seen_at) <= timedelta(minutes=10))
 
 
 def release_manifest(release):

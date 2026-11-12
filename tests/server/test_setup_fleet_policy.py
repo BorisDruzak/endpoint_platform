@@ -81,6 +81,16 @@ async def test_unqualified_observer_cannot_supply_native_qualification(db, fleet
             actor='test-admin', request_id='unqualified-observer', now=NOW)
 
 
+async def test_candidate_observer_accepts_an_explicit_setup_assignment(db, fleet):
+    from endpoint_server.setup_updates.service import assign_setup, record_presence
+    device, release, *_ = fleet
+    await record_presence(db, device.id, dict(client_version='1.0.10', ready=True,
+        foundation_version='3.2.156', core_version='3.2.156'), now=NOW)
+    job = await assign_setup(db, device.id, release.id, 'Observer compatibility canary',
+        actor='test-admin', request_id='candidate-observer', now=NOW)
+    assert job.source_client_version == '1.0.10'
+
+
 async def test_fleet_requires_exact_authenticated_platform_and_fresh_open_wss(db, fleet):
     assert (await decision(db, fleet)).code == 'eligible'
     fleet[3].platform = None
