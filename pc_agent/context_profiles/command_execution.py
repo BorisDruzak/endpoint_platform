@@ -6,6 +6,8 @@ import asyncio
 from datetime import UTC, datetime
 from typing import Literal
 
+from pydantic import ValidationError
+
 from endpoint_contracts.commands import AgentCommandV1, AgentResultV1
 from endpoint_contracts.context import validate_context_result_item
 
@@ -39,6 +41,14 @@ def execute_context_agent_command(
             collected_at=finished_at,
         )
         result_item = validate_context_result_item(envelope.model_dump(mode="json"))
+        return AgentResultV1(
+            schema_version="agent_result_v1",
+            command_id=command.command_id,
+            device_id=command.device_id,
+            status="succeeded",
+            result_items=[result_item.model_dump(mode="json")],
+            completed_at=finished_at,
+        )
     except asyncio.CancelledError:
         return _context_command_result(
             command,
@@ -60,15 +70,10 @@ def execute_context_agent_command(
             message="CONTEXT_CAPABILITY_REJECTED",
             completed_at=finished_at,
         )
-
-    return AgentResultV1(
-        schema_version="agent_result_v1",
-        command_id=command.command_id,
-        device_id=command.device_id,
-        status="succeeded",
-        result_items=[result_item.model_dump(mode="json")],
-        completed_at=finished_at,
-    )
+    except ValidationError:
+        return _context_command_result(
+            command, status="failed", message="CONTEXT_RESULT_INVALID", completed_at=finished_at,
+        )
 
 
 def _context_command_result(

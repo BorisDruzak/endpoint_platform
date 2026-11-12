@@ -9,6 +9,7 @@ import platform
 import socket
 
 from endpoint_contracts.context import DeviceContextInventoryV1
+from endpoint_contracts.json_types import MAX_JSON_LIST_ITEMS
 
 from .probe import IP_ADDRESS_COMMAND, IP_LINK_COMMAND, LSBLK_COMMAND
 from .stable_keys import bounded_text, disk_stable_key, interface_stable_key
@@ -233,4 +234,7 @@ def _interfaces(probe: object, warnings: list[str]) -> list[dict[str, object]]:
             normalized = None
         ipv4, ipv6 = address_map.get(name, ([], []))
         result.append({"name": bounded_text(name, fallback="unknown", limit=64), "stable_key": interface_stable_key(mac=normalized, fallback_name=name), "mac": normalized, "ipv4": ipv4, "ipv6": ipv6, "link_type": "ethernet" if item.get("link_type") == "ether" else "loopback" if item.get("link_type") == "loopback" else "other", "operational_state": "up" if str(item.get("operstate") or "").lower() == "up" else "down" if str(item.get("operstate") or "").lower() == "down" else "unknown"})
-    return result[:64]
+    if len(result) > MAX_JSON_LIST_ITEMS:
+        result.sort(key=lambda item: (not item["ipv4"], not item["ipv6"]))
+        warnings.append("data_truncated")
+    return result[:MAX_JSON_LIST_ITEMS]
