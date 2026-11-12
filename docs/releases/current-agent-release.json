@@ -8,6 +8,20 @@
   "linux_kit_metadata_commit": "21fc543af8d4b8b24df83f29a27e4e2eeb86c268",
   "verified_code_and_tests_commit": "fd196e78b2c5cef00c86de79ca359147676f8b2f",
   "canonical_rules": "AGENTS.md#canonical-agent-release",
+  "proxmox_debian": {
+    "package": "endpoint-agent-debian",
+    "version": "3.2.194-1deb12u1",
+    "architecture": "amd64",
+    "platform": "Debian 12 / Proxmox VE 8.4",
+    "sha256": "a6345b2a4385b62965732f558d9f950df4f9beaf1e70ba75cf9c2a06d46317f1",
+    "size": 31140444,
+    "runtime_source_commit": "c25d2d02805f2034af4a582591b15c77bf56628f",
+    "provider_commit": "195b4bdfe9534d3cb6008d58eaebc09ddaf28c71",
+    "repository": "https://endpoint.sosnadmin.local/downloads/debian",
+    "suite": "bookworm",
+    "signing_fingerprint": "D132784F1C7F0D78BDA2842FDE5739F7FD0AFEBE",
+    "verification": "docs/verification/2026-11-12-proxmox-debian-rollout.md"
+  },
   "windows": {
     "setup": {
       "filename": "EndpointAgentSetup-3.2.177-x64.exe",
