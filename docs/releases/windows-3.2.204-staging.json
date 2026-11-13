@@ -32,14 +32,15 @@
   "staging_canary": {
     "vm_id": 135,
     "source_foundation_version": "3.2.195",
-    "result": "blocked_before_native_acceptance",
-    "setup_exit_code": 61,
-    "setup_stage": "MSI",
-    "safe_code": "UPDATE_IN_PROGRESS",
-    "agent_start_service_exit_code": "0x20000001",
-    "source_observer_version": "1.0.8",
-    "source_observer_state": "client_run_failed_at_authentication",
-    "target_user_telemetry_verified": false,
+    "initial_result": "blocked_before_native_acceptance",
+    "initial_setup_exit_code": 61,
+    "initial_safe_code": "UPDATE_IN_PROGRESS",
+    "retry_result": "updated_after_restoring_staging_network_and_source_service",
+    "retry_setup_exit_code": 0,
+    "retry_finished_at_utc": "2026-11-13T07:08:49.081923Z",
+    "target_observer_version": "1.0.11",
+    "target_user_telemetry_verified": true,
+    "target_support_error": "support_install_failed",
     "target_support_ssh_verified": false
   },
   "fleet": {

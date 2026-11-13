@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "version": "3.2.205",
+  "platform": "windows_amd64",
+  "status": "staging_candidate",
+  "endpoint_origin": "https://endpoint-staging.sosnadmin.local",
+  "runtime_source_commit": "f0d1d7cf2f9b59052f35bd0ba0188f8e49cc9649",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.205.json",
+  "staging_provider_commit": "682c4ea1ce95cc1e76d820a3fd1140f3bd699642",
+  "setup": {
+    "filename": "EndpointAgentSetup-3.2.205-x64.exe",
+    "sha256": "346e6435deb41917cea7467adaf9e2e3cf3a5ada52b65afa5e6e633aecfd22d4",
+    "size": 179164088,
+    "authenticode": "Valid with timestamp",
+    "release_id": "29c2f4f4-051f-4799-878b-05815afb1a01",
+    "setup_update_release_id": "002a7a37-553f-4ca5-8dd7-0d2c7ea031f2",
+    "download_published": false
+  },
+  "msi": {
+    "sha256": "689e1d9dc0dcbd0e1943e98f27cfa88cc36fe99dbf9316e58e54d4292a1fc26f",
+    "size": 137297920,
+    "authenticode": "Valid with timestamp",
+    "product_code": "{BB088838-672A-4C0C-860F-F0A683F3215C}"
+  },
+  "setup_observer_version": "1.0.11",
+  "support": {
+    "component_version": "1.1.7",
+    "bundled_openssh_version": "10.4.0.0p1-Preview",
+    "bundle_sha256": "b67ff8becd203502190ec42ac7787c24c2cd3325ed7700485fe7a1c83d2a7957"
+  },
+  "staging_canary": {
+    "vm_id": 135,
+    "source_foundation_version": "3.2.204",
+    "assignment_id": "a0a0cb3a-2d96-4327-9cb1-c2093832136b"
+  },
+  "fleet": {
+    "enabled": false,
+    "qualified_source_versions": []
+  }
+}
