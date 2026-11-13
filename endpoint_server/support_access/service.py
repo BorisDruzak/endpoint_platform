@@ -211,6 +211,8 @@ async def get_broker_leases(session,now,*,settings):
     for row in rows:
         if row.platform==LINUX and not linux_gateway_available(settings):
             continue
+        if row.platform==WINDOWS and not settings.windows_support_gateway_configured():
+            continue
         if not row.operator_public_keys or not principal_bound(row) or not policy_component_available(row,now) or not await source_active(session,row,now):
             continue
         credential=await session.get(DeviceCredential,row.source_credential_id)

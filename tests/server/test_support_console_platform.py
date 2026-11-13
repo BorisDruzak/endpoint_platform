@@ -64,6 +64,24 @@ def test_linux_staging_gateway_is_explicit_and_same_environment(tmp_path):
                 support_gateway_host_public_key=key(51))
 
 
+def test_windows_staging_gateway_requires_its_own_same_origin_opt_in(tmp_path):
+    settings = _settings(tmp_path)
+    assert settings.windows_support_gateway_configured()
+    staging = {
+        'public_base_url': 'https://endpoint-staging.sosnadmin.local',
+        'support_gateway_host': 'endpoint-staging.sosnadmin.local',
+        'support_linux_staging_gateway_enabled': True,
+    }
+    assert not replace(settings, **staging).windows_support_gateway_configured()
+    staging['support_windows_staging_gateway_enabled'] = True
+    assert replace(settings, **staging).windows_support_gateway_configured()
+    for change in ({'public_base_url': settings.public_base_url},
+                   {'support_gateway_host': settings.support_gateway_host},
+                   {'support_gateway_port': 2223}):
+        with pytest.raises(ValueError):
+            replace(settings, **(staging | change))
+
+
 async def test_linux_admin_distinguishes_stored_intent_and_effective_disabled_policy(sessions, tmp_path):
     from endpoint_server.support_access.linux_routes import admin_router
     from endpoint_server.support_access.service import register

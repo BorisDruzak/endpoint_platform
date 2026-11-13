@@ -27,7 +27,7 @@ async def policy(session,row,settings):
     configured=False
     try:
         canonical_public_key(settings.support_gateway_host_public_key)
-        configured=bool(settings.support_gateway_host=='endpoint.sosnadmin.local' and settings.support_gateway_port==2222)
+        configured=settings.windows_support_gateway_configured()
     except ValueError:
         pass
     enabled=bool(configured and row.enabled and row.revoked_at is None and row.expires_at and utc(row.expires_at)>now and row.operator_public_keys and row.windows_admin_username and policy_component_available(row,now) and await source_active(session,row,now))
@@ -163,6 +163,8 @@ async def update_policy(device_id:UUID,body:SupportPolicyUpdate,request:Request,
         row=await load(session,device_id)
         now=datetime.now(UTC)
         if body.enabled:
+            if not request.app.state.settings.windows_support_gateway_configured():
+                raise HTTPException(409,'Support gateway is not configured')
             if body.windows_admin_username and '\\' in body.windows_admin_username and not domain_principal_available(row,now):
                 raise HTTPException(409,'Domain administrator requires freshly reported installed Support component 1.0.1 or newer')
             if row.reset_registration_allowed:
