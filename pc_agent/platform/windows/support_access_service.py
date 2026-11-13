@@ -9,6 +9,7 @@ from threading import Event, Thread
 import time
 import sys
 
+from pc_agent.platform.windows import support_access
 from pc_agent.platform.windows.support_access import SERVICE_NAME, SupportHTTPClient, SupportHTTPError, SupportSupervisor, install_support_access, uninstall_support_access
 from pc_agent.platform.windows.support_access_native import SupportChildren, assert_private, assert_bootstrap_file, production_roots, verify_dependencies
 
@@ -155,6 +156,11 @@ def os_dependency_monitor(root,children):
         validate=signed_os_dependencies,persist=persist)
 
 
+def bundled_dependency_refresh(children):
+    from pc_agent.platform.windows.support_access_bundle import verify_profile
+    return verify_profile(children.dependencies)
+
+
 def install_from_enrollment():
     # Installer path only. Service startup never reads Agent files or credential.
     from pc_agent.device_credential import read_device_credential
@@ -183,7 +189,7 @@ def main():
         try:
             result = install_from_enrollment()
         except Exception as error:
-            known = {'support_dependency_install_failed','support_dependency_reboot_required',
+            known = set(getattr(support_access, "RESTORED_ACTIVATION_CODES", ())) | {'support_dependency_install_failed','support_dependency_reboot_required',
                      'support_process_identity_unavailable','support_process_exit_timeout',
                      'support_dependency_firewall_conflict',
                      'support_dependency_signature_invalid','support_dependency_changed',
@@ -232,6 +238,9 @@ def main():
             refresh=None
             if children.dependencies.get('profile')=='windows-openssh-fod-v1':
                 refresh=os_dependency_monitor(root,children).refresh
+            elif children.dependencies.get('profile') == 'bundled-openssh-v1':
+                def refresh():
+                    return bundled_dependency_refresh(children)
             def publish(state):
                 from pc_agent.platform.windows.support_access_readiness import publish_initialized
                 servicemanager.LogInfoMsg('EndpointSupportAccess: '+state)

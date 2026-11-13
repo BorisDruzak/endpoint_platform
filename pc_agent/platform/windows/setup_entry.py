@@ -1134,6 +1134,7 @@ def _emit_preflight(value: dict[str, object]) -> None:
 def _install_support_after_native(data_root: Path) -> None:
     from pc_agent.platform.windows.provision import install_enrolled_support
     from pc_agent.platform.windows.installation_notification import sync_enrolled_installation
+    activation_retry=None
     try:
         if sync_enrolled_installation(data_root) not in {'delivered', 'not_applicable'}:
             _write_support_install_result(False, 'support_install_failed')
@@ -1141,21 +1142,29 @@ def _install_support_after_native(data_root: Path) -> None:
         result=install_enrolled_support(data_root)
         installed = result.get('installed') is True
         support_error=result.get('error')
+        activation_retry=result.get('activation_retry')
     except Exception:
         installed = False
         support_error=None
-    _write_support_install_result(installed,support_error)
+    if activation_retry is not None:
+        _write_support_install_result(installed,support_error,activation_retry=activation_retry)
+    else:
+        _write_support_install_result(installed,support_error)
 
 
-def _write_support_install_result(installed: bool, error_code=None) -> None:
+def _write_support_install_result(installed: bool, error_code=None, *, activation_retry=None) -> None:
     from pc_agent.platform.windows.provision import safe_support_error_code
+    from pc_agent.platform.windows.support_access import RESTORED_ACTIVATION_CODES
     try:
         path = _prepare_diagnostics_root()/'support-install-result.json'
         temporary = path.with_suffix('.tmp')
-        temporary.write_text(json.dumps({'schema_version':'endpoint_support_install_result_v1',
+        record={'schema_version':'endpoint_support_install_result_v1',
             'installed':installed,'status':'installed' if installed else 'unavailable',
             'error_code':None if installed else safe_support_error_code(error_code),
-            'updated_at':datetime.now(UTC).isoformat()}),encoding='utf-8')
+            'updated_at':datetime.now(UTC).isoformat()}
+        if isinstance(activation_retry,str) and activation_retry in RESTORED_ACTIVATION_CODES:
+            record['activation_retry']=activation_retry
+        temporary.write_text(json.dumps(record),encoding='utf-8')
         temporary.replace(path)
     except OSError:
         pass

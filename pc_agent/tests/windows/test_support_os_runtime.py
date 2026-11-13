@@ -10,6 +10,60 @@ from pc_agent.tests.windows.test_support_access import DEVICE, KEY, TOKEN, Child
 from datetime import datetime, timezone
 
 
+@pytest.mark.parametrize(("build", "offers_fod", "uses_bundle"), [
+    (14393, False, True),
+    (14393, True, False),
+    (17763, True, False),
+    (19045, True, False),
+])
+def test_support_prefers_offered_fod_to_bundled_openssh(monkeypatch, tmp_path, build, offers_fod, uses_bundle):
+    from pc_agent.platform.windows import support_access_bundle as bundle
+    from pc_agent.platform.windows import support_access_native as native
+    from pc_agent.platform.windows import support_access_os as fod
+
+    monkeypatch.setattr(native, "_windows_build", lambda: build, raising=False)
+    monkeypatch.setattr(native, "production_roots", lambda: (tmp_path, tmp_path))
+    bundled = {"profile": bundle.PROFILE, "keygen": "bundled-keygen"}
+    inbox = {"profile": fod.PROFILE, "keygen": "inbox-keygen"}
+    monkeypatch.setattr(bundle, "install", lambda: bundled)
+    class Servicing:
+        def capabilities(self):
+            return dict.fromkeys(fod.CAPABILITIES, "Installed") if offers_fod else {}
+
+        def read_receipt(self):
+            return None
+
+        def verify(self):
+            return inbox
+
+    monkeypatch.setattr(fod, "WindowsFOD", lambda _: Servicing())
+    ops = native.WindowsSupportOps()
+    expected = bundled if uses_bundle else inbox
+    assert ops.dependencies() == expected
+    assert ops._keygen == expected["keygen"]
+
+
+@pytest.mark.parametrize("safe_code", ["support_dependency_install_failed", "support_activation_start_restored"])
+def test_frozen_entrypoint_reports_known_install_error_as_json(monkeypatch, capsys, safe_code):
+    from pc_agent.platform.windows import support_access_service as service
+
+    if safe_code.startswith("support_activation_") and not hasattr(service.support_access, "RESTORED_ACTIVATION_CODES"):
+        pytest.skip("This branch predates the restored activation codes")
+
+    def fail():
+        raise ValueError(safe_code)
+
+    monkeypatch.setattr(service, "__package__", None)
+    monkeypatch.setattr(service, "__spec__", None)
+    monkeypatch.setattr(service, "__name__", "__main__")
+    monkeypatch.setattr(service.sys, "argv", ["EndpointSupportAccess.exe", "--install"])
+    monkeypatch.setattr(service, "install_from_enrollment", fail)
+    assert service.main() == 1
+    assert json.loads(capsys.readouterr().out) == {
+        "installed": False, "error": safe_code
+    }
+
+
 def test_os_profile_boot_can_revalidate_changed_files_after_worker_starts(tmp_path, monkeypatch):
     from pc_agent.platform.windows import support_access_service as service
     config = {'device_id': DEVICE, 'origin': 'https://endpoint.sosnadmin.local',
@@ -274,6 +328,55 @@ def test_reset_then_failed_start_restores_only_compatible_dependencies(tmp_path)
             activation.invalidate_configuration_compensation()
             credential.write_bytes(b'new-authority');config.write_text(json.dumps(new))
             activation.apply(reload=True)
+
+
+@pytest.mark.parametrize('restored_running,code', [
+    (True, 'support_activation_start_restored'),
+    (False, 'service control busy'),
+])
+def test_only_a_restored_running_service_can_authorize_an_activation_retry(
+    tmp_path, restored_running, code,
+):
+    from pc_agent.platform.windows.support_access_native import PayloadActivation
+    from pc_agent.tests.windows.test_support_access import _PayloadTestOps
+
+    original = {'device_id': DEVICE, 'origin': 'https://endpoint.sosnadmin.local',
+                'credential_id': 'unchanged', 'dependencies': {'profile': 'old'}}
+    config = tmp_path / 'support.json'
+    config.write_text(json.dumps(original))
+    (tmp_path / 'credential').write_bytes(b'old-authority')
+    source = tmp_path / 'new.exe'
+    source.write_bytes(b'new')
+    target = tmp_path / 'active.exe'
+    target.write_bytes(b'old')
+
+    class Ops(_PayloadTestOps):
+        running = True
+
+        def protect(self, path):
+            pass
+
+        def capture_service(self, path):
+            return {'config': ('owned service',), 'running': self.running}
+
+        def stop_for_update(self, path):
+            self.running = False
+
+        def install_service(self, path):
+            error = OSError('service control busy')
+            error.winerror = 1061
+            raise error
+
+        def restore_service(self, path, state):
+            self.running = restored_running
+
+    with pytest.raises((OSError, RuntimeError), match=code):
+        with PayloadActivation(Ops(), source, target) as activation:
+            activation.snapshot_configuration(config)
+            config.write_text(json.dumps(original | {'dependencies': {'profile': 'new'}}))
+            activation.apply(reload=True)
+    assert target.read_bytes() == b'old'
+    assert json.loads(config.read_text()) == original
 
 
 def test_loss_of_tunnel_invalidates_same_candidate_initialized_proof(tmp_path,monkeypatch):

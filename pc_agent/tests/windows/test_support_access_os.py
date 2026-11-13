@@ -87,6 +87,29 @@ def test_installed_fod_is_read_only_before_signature_selection():
     assert ops.receipt is None
 
 
+def test_only_exact_legacy_capability_placeholders_mean_unavailable():
+    fod = module()
+    rows = [{"name": None, "state": "NotPresent"} for _ in fod.CAPABILITIES]
+    assert fod._capability_rows(rows) == {}
+    rows[1] = {"name": CLIENT, "state": "NotPresent"}
+    with pytest.raises(ValueError, match="support_dependency_install_failed"):
+        fod._capability_rows(rows)
+
+
+@pytest.mark.parametrize("states", [{CLIENT: "Installed"}, {CLIENT: "Installed", SERVER: "InstallPending"}])
+def test_unknown_or_pending_capability_does_not_activate_bundled_fallback(states):
+    ops = Servicing(states)
+    with pytest.raises(ValueError, match="support_dependency_(install_failed|reboot_required)"):
+        module().ensure_inbox_openssh(ops, unavailable_fallback=lambda: pytest.fail("unsafe fallback"))
+    assert ops.events == ["query"]
+
+
+def test_missing_catalog_does_not_replace_in_progress_servicing():
+    ops = Servicing({}, previous={"state": "servicing"})
+    with pytest.raises(ValueError, match="support_dependency_recovery_required"):
+        module().ensure_inbox_openssh(ops, unavailable_fallback=lambda: pytest.fail("unsafe fallback"))
+
+
 def test_missing_server_uses_only_exact_capability_after_durable_receipt():
     ops = Servicing({CLIENT: 'Installed', SERVER: 'NotPresent'})
     result = module().ensure_inbox_openssh(ops)

@@ -19,7 +19,7 @@ PROFILE = 'windows-openssh-fod-v1'
 CAPABILITIES = ('OpenSSH.Client~~~~0.0.1.0', 'OpenSSH.Server~~~~0.0.1.0')
 ROLES = {'ssh': 'ssh.exe', 'sshd': 'sshd.exe', 'keygen': 'ssh-keygen.exe'}
 
-# Exact local PersistentStore snapshot observed after Windows Server FoD Add.
+# Exact local PersistentStore snapshots observed after OpenSSH Server FoD Add.
 # Unknown fields and alternate defaults fail closed. Only localized Status text
 # may differ from the captured template. The independent fixture is
 # the captured stock rule, including every associated CIM filter.
@@ -62,6 +62,12 @@ _STOCK_RULE = {
     'interface_type': _STOCK_FILTER_KEYS | {'InterfaceType': 0},
 }
 
+# Windows 10 build 19045 returns this combination as a single stock shape.
+_STOCK_RULE_WIN10 = _STOCK_RULE | {'rule': {
+    key: value for key, value in _STOCK_RULE['rule'].items() if key != 'PackageFamilyName'
+} | {'Profiles': 0, 'RemoteDynamicKeywordAddresses': None}}
+_STOCK_RULES = (_STOCK_RULE, _STOCK_RULE_WIN10)
+
 
 
 def _capabilities(value):
@@ -72,8 +78,25 @@ def _capabilities(value):
     return tuple(name for name in CAPABILITIES if value[name] == 'NotPresent')
 
 
-def ensure_inbox_openssh(ops):
-    missing = _capabilities(ops.capabilities())
+def _capability_rows(rows):
+    if not isinstance(rows, list) or len(rows) != len(CAPABILITIES):
+        raise ValueError('support_dependency_install_failed')
+    if all(row == {'name': None, 'state': 'NotPresent'} for row in rows):
+        return {}
+    if any(not isinstance(row, dict) or set(row) != {'name', 'state'}
+           or not isinstance(row['name'], str) or not isinstance(row['state'], str)
+           for row in rows):
+        raise ValueError('support_dependency_install_failed')
+    return {row['name']: row['state'] for row in rows}
+
+
+def ensure_inbox_openssh(ops, *, unavailable_fallback=None):
+    capabilities = ops.capabilities()
+    if capabilities == {} and unavailable_fallback is not None:
+        if ops.read_receipt() is not None:
+            raise ValueError('support_dependency_recovery_required')
+        return unavailable_fallback()
+    missing = _capabilities(capabilities)
     previous = ops.read_receipt()
     if previous and previous.get('state')=='installed_unverified':
         if missing:raise ValueError('support_dependency_recovery_required')
@@ -346,9 +369,7 @@ $out=@();foreach($name in @('OpenSSH.Client~~~~0.0.1.0','OpenSSH.Server~~~~0.0.1
  $out+=@{name=$c.Name;state=[string]$c.State}
 };ConvertTo-Json -InputObject @($out) -Compress
 ''')
-        if not isinstance(rows, list) or len(rows) != 2:
-            raise ValueError('support_dependency_install_failed')
-        return {r['name']: r['state'] for r in rows}
+        return _capability_rows(rows)
 
     def read_receipt(self):
         from .support_access_native import assert_private, reject_links
@@ -444,7 +465,12 @@ $out=@();foreach($name in @('OpenSSH.Client~~~~0.0.1.0','OpenSSH.Server~~~~0.0.1
         intent, normalized = json.loads(intent_raw), json.loads(normalized_raw)
         binding = {key:completion[key] for key in ('request','baseline_sha256')}
         original = json.loads(intent['rule'])
-        stock = _STOCK_RULE | {'rule': _STOCK_RULE['rule'] | {'Status': original['rule']['Status']}}
+        status = original['rule']['Status']
+        original_json = json.dumps(original, sort_keys=True)
+        stock_match = any(
+            original_json == json.dumps(stock | {'rule': stock['rule'] | {'Status': status}}, sort_keys=True)
+            for stock in _STOCK_RULES
+        )
         disabled = original | {'rule': original['rule'] | {'Enabled': 2}}
         service = json.loads(intent['service'])
         native_service = {'Name':'sshd','State':'Stopped','StartMode':'Manual','StartName':'LocalSystem',
@@ -457,8 +483,7 @@ $out=@();foreach($name in @('OpenSSH.Client~~~~0.0.1.0','OpenSSH.Server~~~~0.0.1
                 set(normalized) != set(binding) | {'service','rule','intent_sha256'} or
                 any(record.get(key) != value for record in (intent,normalized) for key,value in binding.items()) or
                 service != native_service or normalized['service'] != intent['service'] or
-                not isinstance(original['rule']['Status'], str) or not original['rule']['Status'] or
-                json.dumps(original, sort_keys=True) != json.dumps(stock, sort_keys=True) or
+                not isinstance(status, str) or not status or not stock_match or
                 json.dumps(json.loads(normalized['rule']), sort_keys=True) != json.dumps(disabled, sort_keys=True) or
                 normalized['intent_sha256'] != hashlib.sha256(intent_raw).hexdigest() or
                 completion['normalization_sha256'] != hashlib.sha256(normalized_raw).hexdigest()):
@@ -519,9 +544,7 @@ function Complete {param($result,$normalization)
  if($normalization){$record.normalization_sha256=$normalization}
  Persist 'completion.json' $record
 }
-function IsStockRule {param($snapshot)
- $actual=ConvertFrom-Json -InputObject $snapshot
- $stock=ConvertFrom-Json -InputObject $env:ENDPOINT_SUPPORT_FOD_STOCK_RULE
+function MatchesStockRule {param($actual,$stock)
  foreach($section in $stock.PSObject.Properties){
   $fields=@($actual.($section.Name).PSObject.Properties)
   if($fields.Count -ne @($section.Value.PSObject.Properties).Count){return $false}
@@ -537,6 +560,13 @@ function IsStockRule {param($snapshot)
   }
  }
  return $true
+}
+function IsStockRule {param($snapshot)
+ $actual=ConvertFrom-Json -InputObject $snapshot
+ foreach($stock in (ConvertFrom-Json -InputObject $env:ENDPOINT_SUPPORT_FOD_STOCK_RULES)){
+  if(MatchesStockRule $actual $stock){return $true}
+ }
+ return $false
 }
 function RestartPending {
  (Test-Path -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') -or
@@ -625,7 +655,7 @@ Complete @{completed=[bool]$ok;restart_needed=[bool]$restart;boundary_preserved=
 ''', variables={'ENDPOINT_SUPPORT_FOD_NAMES': json.dumps(list(names)),
                'ENDPOINT_SUPPORT_FOD_OPERATION': self._metadata['operation_id'],
                'ENDPOINT_SUPPORT_FOD_ROOT': str(root),
-               'ENDPOINT_SUPPORT_FOD_STOCK_RULE': json.dumps(_STOCK_RULE),
+               'ENDPOINT_SUPPORT_FOD_STOCK_RULES': json.dumps(_STOCK_RULES),
                'ENDPOINT_SUPPORT_FOD_REQUEST': json.dumps({k:self._metadata[k] for k in
                    ('schema_version','operation_id','nonce','boot_id','capabilities')})}, timeout=None, durable=True)
         return self.completed_operation(self._metadata)

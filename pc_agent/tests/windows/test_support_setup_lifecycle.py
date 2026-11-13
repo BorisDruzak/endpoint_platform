@@ -69,6 +69,42 @@ def test_installer_uses_staged_helper_without_passing_device_credential(monkeypa
     assert calls[0][1]['timeout'] is None
 
 
+@pytest.mark.parametrize('responses,installed,attempts', [
+    ([{'installed': False, 'error': 'support_activation_start_restored'},
+      {'installed': True}], True, 2),
+    ([{'installed': False, 'error': 'support_activation_readiness_restored'}] * 3, False, 2),
+    ([{'installed': False, 'error': 'support_payload_recovery_required'}], False, 1),
+    ([{'installed': False, 'error': 'support_install_failed'}], False, 1),
+])
+def test_support_helper_retries_only_after_a_verified_restore(
+    monkeypatch, tmp_path, responses, installed, attempts,
+):
+    import json
+    import subprocess
+
+    from pc_agent.platform.windows import update_paths
+
+    data = tmp_path / 'ProgramData/Endpoint Platform/Agent'
+    staged = tmp_path / 'ProgramFiles/Endpoint Platform/Agent/EndpointSupportAccess.exe'
+    staged.parent.mkdir(parents=True)
+    staged.write_bytes(b'signed staged helper model')
+    monkeypatch.setattr(update_paths, '_native_folder', lambda folder: tmp_path / ('ProgramData' if folder == 0x23 else 'ProgramFiles'))
+    calls = []
+
+    def run(command, **kwargs):
+        response = responses[len(calls)]
+        calls.append(command)
+        return SimpleNamespace(returncode=0 if response['installed'] else 1, stdout=json.dumps(response))
+
+    monkeypatch.setattr(subprocess, 'run', run)
+    result = provision.install_enrolled_support(data)
+
+    assert result['installed'] is installed
+    assert calls == [[str(staged), '--install']] * attempts
+    if attempts == 2:
+        assert result['activation_retry'] == responses[0]['error']
+
+
 @pytest.mark.parametrize('schema,status', [(3, 'incomplete'), (3, 'complete'), (2, 'complete')])
 def test_known_native_uninstall_finishes_fence_before_reporting_support_cleanup(staged, monkeypatch, schema, status):
     import json

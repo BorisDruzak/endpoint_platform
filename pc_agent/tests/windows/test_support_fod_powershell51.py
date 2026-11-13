@@ -100,7 +100,7 @@ for _name,_section in {'Port':'port','Address':'address','Application':'app','Se
 
 def isolated_script(script):
     return FIXTURES+'\n$production={\n'+script+'\n}\n'+r'''
-$allowed=@('ConvertFrom-Json','ConvertTo-Json','Get-CimInstance','Select-Object','Sort-Object','Where-Object','Join-Path','ServiceState','Properties','RuleState','Get-NetFirewallRule','New-NetFirewallRule','Remove-NetFirewallRule','Add-WindowsCapability','Get-NetFirewallPortFilter','Get-NetFirewallAddressFilter','Get-NetFirewallApplicationFilter','Get-NetFirewallServiceFilter','Get-NetFirewallSecurityFilter','Get-NetFirewallInterfaceFilter','Get-NetFirewallInterfaceTypeFilter','ProtectFile','Persist','Complete','Get-FileHash','ReadDefaultRule','IsStockRule','RestartPending','ServerIs','NormalizeStockRule','Test-Path','Get-WindowsCapability','Disable-NetFirewallRule')
+$allowed=@('ConvertFrom-Json','ConvertTo-Json','Get-CimInstance','Select-Object','Sort-Object','Where-Object','Join-Path','ServiceState','Properties','RuleState','Get-NetFirewallRule','New-NetFirewallRule','Remove-NetFirewallRule','Add-WindowsCapability','Get-NetFirewallPortFilter','Get-NetFirewallAddressFilter','Get-NetFirewallApplicationFilter','Get-NetFirewallServiceFilter','Get-NetFirewallSecurityFilter','Get-NetFirewallInterfaceFilter','Get-NetFirewallInterfaceTypeFilter','ProtectFile','Persist','Complete','Get-FileHash','ReadDefaultRule','IsStockRule','MatchesStockRule','RestartPending','ServerIs','NormalizeStockRule','Test-Path','Get-WindowsCapability','Disable-NetFirewallRule')
 foreach($command in $production.Ast.FindAll({param($node) $node -is [Management.Automation.Language.CommandAst]},$true)){
  if(!$command.GetCommandName() -or $command.GetCommandName() -notin $allowed){throw 'Unisolated production command'}
 }
@@ -270,7 +270,8 @@ except Exception as error:(base/'launch-failed').write_text(repr(error))
 
 @pytest.mark.skipif(os.name!='nt',reason='Windows PowerShell5.1 behavior')
 @pytest.mark.parametrize('mode,disabled,preserved',[
-    ('stock-exact',1,True),('stock-localized',1,True),('stock-status-code',0,False),
+    ('stock-exact',1,True),('stock-win10',1,True),('stock-win10-hybrid',0,False),
+    ('stock-localized',1,True),('stock-status-code',0,False),
     ('stock-filter',0,False),('stock-shape',0,False),('stock-poststatus',1,False),
     ('stock-race',0,False),('stock-disable-failed',1,False),('stock-postchange',1,False),
     ('stock-reboot',0,False),('stock-pending',0,False),('stock-failed',0,False),
@@ -280,10 +281,17 @@ except Exception as error:(base/'launch-failed').write_text(repr(error))
 def test_only_exact_new_stock_rule_is_disabled(fixed_ops,monkeypatch,mode,disabled,preserved):
     real_runner=fod.run_fixed_powershell
     captured=[]
+    stock=json.loads(STOCK_RULE)
+    if mode in {'stock-win10','stock-win10-hybrid'}:
+        # Captured together on Windows 10 build 19045 after Server FoD Add.
+        stock['rule']['Profiles']=0
+    if mode=='stock-win10':
+        del stock['rule']['PackageFamilyName']
+        stock['rule']['RemoteDynamicKeywordAddresses']=None
     def execute(script,**kwargs):
         variables=kwargs['variables']
         assert Path(variables['ENDPOINT_SUPPORT_FOD_ROOT']).parent==fixed_ops.root
-        variables.update(FOD_FIXTURE_MODE=mode,FOD_FIXTURE_STOCK_RULE=STOCK_RULE,
+        variables.update(FOD_FIXTURE_MODE=mode,FOD_FIXTURE_STOCK_RULE=json.dumps(stock),
             FOD_FIXTURE_LOCALIZED_STATUS=LOCALIZED_STATUS)
         captured.append(capture_isolated(real_runner,script,variables))
     monkeypatch.setattr(fod,'run_fixed_powershell',execute)
@@ -305,7 +313,7 @@ def test_only_exact_new_stock_rule_is_disabled(fixed_ops,monkeypatch,mode,disabl
         assert before['baseline_sha256']==hashlib.sha256((root/'baseline.json').read_bytes()).hexdigest()
         assert after['intent_sha256']==hashlib.sha256(intent.read_bytes()).hexdigest()
         assert completion['normalization_sha256']==hashlib.sha256(proof.read_bytes()).hexdigest()
-        original=json.loads(STOCK_RULE)
+        original=json.loads(json.dumps(stock))
         if mode=='stock-localized':original['rule']['Status']=LOCALIZED_STATUS
         assert json.loads(before['rule'])==original
         original['rule']['Enabled']=2

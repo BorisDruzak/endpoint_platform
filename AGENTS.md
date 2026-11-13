@@ -44,35 +44,74 @@
 
 # Canonical agent release
 
-- ANTARES runs Windows Core and Foundation **3.2.203** with Setup observer
-  **1.0.10**. The explicit Console assignment accepted native 0 and 180.854
-  seconds of stable service and WSS observation. Reserve WSS on 8443 and
-  post-boot primary on 443 passed after restoring the two scoped service
-  settings. Console received fresh Kaspersky Security Center, SMB, C: and
-  E: checks. The pilot had no active UserSensor and grants no fleet
-  qualification. The original **3.2.202** assignment is closed as failed
-  with its native 21 history and audited verified source recovery. Keep 202
-  out of future assignments. See the
-  [ANTARES recovery receipt](docs/verification/2026-11-12-antares-server-agent-preflight.md).
+- Current Windows rollout checkpoint, 2026-11-11T16:58Z: the primary Windows
+  installer is **3.2.192**. VM126 (Windows 10 build19045) qualified a direct
+  transition from177/client107 with native0, 182.174 seconds, private4 and
+  genuine UserSensor. With Windows servicing complete and the VM's existing
+  local administrator in its support policy, Setup provisioned Windows
+  OpenSSH and started Support1.1.6 automatically. Pinned SSH passed with the
+  agent/updater stopped and the observer disabled. Service states were restored
+  and fresh UserSensor and inventory were accepted. The earlier 192 failures
+  involved a pending Windows restart and an unresolvable domain principal on
+  this workgroup VM. Keep those receipts. VM100 was untouched during this
+  repeat.
+- Policy18 is enabled for exact 192/source177, selected/max2. The four Windows
+  10 devices .144/.146/.170/.207 await reconnect. The all-active preview would
+  also admit Windows 11 MUNSLU-S2 (.2), whose existing external OpenSSH
+  migration is unverified. It remains outside the selected scope. This policy
+  replaces the earlier automatic 189 target. The Console default Windows
+  download serves192 and the existing Windows AUTO enrollment campaign
+  accepts it. The separately published Linux183 remains primary. See
+  [Setup192](docs/releases/windows-3.2.192-setup.json) and the
+  [acceptance receipt](docs/verification/2026-11-11-windows192-support-activation.md).
 
-- Ubuntu Server **3.2.197-1ubuntu1** is published in signed `noble/main`.
-  Scoped production enrollment and role acceptance cover ACTI and Registry Engine.
-  See [the Ubuntu 197 receipt](docs/verification/2026-11-12-acti-registry-server-agents.md).
+- Historical Windows rollout checkpoint, 2026-11-11T15:38Z: signed Setup192
+  is a candidate with Support1.1.6. Setup retries a known transient activation
+  error once after verifying restoration of the running prior Support image
+  and its configuration and authority. The original Setup191 exception
+  remains unknown. Its controlled already-current repeat activated Support1.1.5
+  without a second MSI. Test120 updated 191-to-192 APPLIED/native0 with
+  185.779 seconds, private4, fresh UserSensor and inventory. Support1.1.6
+  activated automatically without exercising the retry. Pinned reserve SSH
+  passed with agent/updater stopped and the observer disabled. Test services
+  and the prior access expiry were restored. Windows 10 source177
+  devices .144/.146/.170/.207 were offline. Separate VM126 (Windows 10
+  build19045) updated directly from177/client107 to192 APPLIED/native0,
+  182.303 seconds, private4, fresh UserSensor and inventory. Support failed
+  with `support_install_failed` and retained1.0.1. The guest reported a
+  pending Windows servicing restart and missing OpenSSH Server. Do not
+  enable Setup192 automatic delivery or promote it until the direct Windows
+  10 source177 test also verifies automatic Support activation.
+  Policy17 still targets189, and Windows177/Linux183 remain primary. See the
+  [192 receipt](docs/verification/2026-11-11-windows192-support-activation.md).
 
-- The scoped server health rollout uses Ubuntu package `endpoint-agent-ubuntu`
-  **3.2.196-1ubuntu1** for PostgreSQL DIRPOST and Windows Core **3.2.196**
-  on Foundation **3.2.193** for FILESERVER. Exact artifacts, provenance and
-  acceptance are in [the server health receipt](docs/verification/2026-11-12-fileserver-postgresql-health.md).
+- Historical Windows rollout checkpoint, 2026-11-11T13:30Z: signed Setup191 is
+  registered as a candidate. Test120 from Foundation189/Core190 reached
+  APPLIED/native0 with 185.362 seconds, fresh UserSensor and inventory.
+  Automatic Support1.1.5 activation compensated to1.1.4. A separate diagnostic
+  activation installed signed1.1.5 and passed pinned SSH with agent/updater
+  stopped and observer disabled. The automatic activation failure was not
+  reproduced by the diagnostic activation. The test services were restored.
+  Windows 10 source177 machines are offline. The connected source177 device
+  .2 has a pre-existing external global sshd, and its service was preserved.
+  Setup191 is unqualified, policy17 still targets189, and Windows177/Linux183
+  remain primary. See the
+  [191 receipt](docs/verification/2026-11-11-windows191-test120-canary.md).
 
-- Proxmox VE 8.4 has a separate Debian 12 amd64 package, `endpoint-agent-debian`
-  **3.2.195-1deb12u1**, distributed by signed APT in `bookworm/main`.
-  The immutable Core source is `5c3eb383e7768464366f76fd7f8f824a0690baf4`.
-  Its Proxmox role reports services, local HTTPS, quorum, node availability
-  and storage through the existing health profile.
-  Release bytes and production acceptance are recorded in
-  [the Proxmox rollout receipt](docs/verification/2026-11-12-proxmox-debian-rollout.md).
+- Historical Windows rollout checkpoint, 2026-11-11T12:35Z: direct 177-to-190 on
+  C1-ARHIT-S7 (.138) reached APPLIED/native0, 182.684 seconds of stable
+  observation, fresh UserSensor and Windows x86_64 inventory. The independent
+  service initially retained Support1.0.1 because Setup190 rejected the stock
+  Windows 10 OpenSSH firewall rule. An operator recovery activated signed
+  Support1.1.4 on .138 and verified pinned SSH. The temporary lease was closed.
+  The .146 pilot was cancelled before native start. Source177 qualification
+  and primary promotion are withheld because signed Setup190 lacks the Windows
+  10 rule recognition fix. Policy17 remains on189, and Windows177/Linux183
+  remain primary. The Core target-slot admission guard is committed and tested
+  without a provider deployment. See the
+  [177-to-190 receipt](docs/verification/2026-11-11-windows190-source177-canary.md).
 
-- Current Windows rollout checkpoint, 2026-11-11T11:51Z: all three first-wave
+- Historical Windows rollout checkpoint, 2026-11-11T11:51Z: all three first-wave
   Windows187 to189 policy17 assignments on .27/.22/.29 accepted native0 with
   fresh UserSensor and Support1.1.4. Signed Full Setup190 contains the Windows
   CIM timeout fix. .27 qualified exact source189 through 2026-12-11T11:42Z.
@@ -122,8 +161,8 @@
   before delivery resumes. Public Windows177/Linux183 remain unchanged. See
   [fleet receipt](docs/verification/2026-11-10-windows186-fleet-auto.md).
 
-- The primary published Windows agent is **3.2.177**; the primary native ALT Linux kit is **3.2.183**. Read [`docs/releases/current-agent-release.json`](docs/releases/current-agent-release.json), [`docs/releases/linux-3.2.183-native.json`](docs/releases/linux-3.2.183-native.json) and [`docs/releases/windows-3.2.177-setup.json`](docs/releases/windows-3.2.177-setup.json) for exact bytes, sources and qualification limits. The Console Windows download serves177 and the single Windows AUTO campaign accepts fifteen immutable installer versions. Policy12 is enabled/all_active/max2 with dynamic future admission. All6 initially available Windows PCs accepted177: test120 by verified clean Setup0, the other five by APPLIED/native0 with fresh independent Support1.0.1. Six offline172 PCs await fresh reconnect; legacy79 and other unqualified/unknown sources remain unsupported. Two removed test identities remain visible and receive no new work. Preserve all historical installer bytes and prior failure receipts.
-- The primary Windows installer is `C:\endpoint-platform-wix-build\setup177-lifecycle-25f2ad8\native-setup-build\releases\EndpointAgentSetup-3.2.177-x64.exe`, bound by `packaging/windows/initial-runtime-3.2.177.json`. Runtime source `25f2ad8a5e13991e4e76260da939d29aafba8674`, native packaging `d21bc3bba119a178607de6f64f620fb53eeadf01`; actual served SHA `9d06a8339c2ed3b2c563f2b5258ad9fdbef0962b6d85f79e6e88490ca7f426fc`, timestamped Valid publisher4D. Exact-source qualifications cover Foundation172 and176/client107. Provider-only parent digest fix `266e38e5c2ead35f95978da1b95cc7a4fadb2a82` compares original enrollment requests through the consumed claim; it changes no signed177 bytes. Signed Support1.0.1 remains independent of Core/observer; portable Microsoft10.4.0.0p1-Preview remains unchanged and its upstream non-production-ready limit stays explicit. This Windows177 artifact is unchanged; the separately published native Linux183 kit is described below.
+- The primary Windows installer is `C:\endpoint-platform-wix-build\setup192-inbox-050b541\native-setup-build\releases\EndpointAgentSetup-3.2.192-x64.exe`, bound by `packaging/windows/initial-runtime-3.2.192.json`. Runtime source `050b541ff0783678ef34df804455ba7f602660a6`, native packaging `721b0ad9061d8120a186bd4424fbcdcf04ed55bd`. The served installer SHA-256 is `b2552b0c46b31d93821679fd41188dd7324e4830f98aee300a772eaa223239b9` and its timestamped Authenticode signature is Valid. Read [current-agent-release.json](docs/releases/current-agent-release.json), [Windows192](docs/releases/windows-3.2.192-setup.json) and [Linux183](docs/releases/linux-3.2.183-native.json) for the exact release bytes and qualification limits.
+- Windows177 remains an immutable historical release with Support1.0.1 and the portable Microsoft10.4.0.0p1-Preview dependency. Policy12 previously delivered177 with native exit0 to the six online devices. Its old source qualifications, artifact and acceptance limits are recorded in [Windows177](docs/releases/windows-3.2.177-setup.json). Preserve historical installer bytes, device cards and failure receipts.
 - Native Linux183 is published at `/srv/endpoint-platform-distribution/alt/endpoint-alt-pilot-3.2.183-1/`, operator kit `C:/endpoint-platform-wix-build/linux178-native/kit183/endpoint-alt-pilot-3.2.183-1.tar.gz`, source `21fc543af8d4b8b24df83f29a27e4e2eeb86c268`, actual archive SHA `c5b552afa4aa27e4df73af0ce68be4ecc88729f30baf3a70e6f9d4c8c709a3f3`. Production provider `fd196e78b2c5cef00c86de79ca359147676f8b2f` uses additive49/50 only; staging `0b8ea9138011c1a4512737629d5a12b0269e4e7d` separately preserves Worktime51. Actual VM107 acceptance covers native0, same-card history/private4, modern full-wipe parent link, genuine user telemetry, expiry/revoke, manual disable through mixed online/offline rebind and root SSH with Core/updater/path stopped108.613629715seconds. See [receipt](docs/verification/2026-11-09-linux183-native-canary.md). Linux fleet rollout was not started, no global Linux enrollment campaign/network authority was created, the initial VM receipt alone does not qualify production Linux SSH; the subsequent explicit physical cohort below supplies separate acceptance. Use the native RPM coordinator, not Core-only OTA, to install privileged Support/helpers. Subsequent explicitly authorized physical105/190/210 acceptance is recorded in `docs/verification/2026-11-09-linux183-physical-cohort.md`: actual production root SSH with Core/updater stopped on each, accepted domain-user telemetry and preserved identity/domain state. The210 historical158 path required archival of an exact redundant production drop-in after canonical not-started recovery; do not generalize that administratively prepared continuation to unattended historical sources or arbitrary drop-ins. No automatic Linux fleet rollout is enabled. The historical156 kit, signatures and Core-only OTA remain immutable; the exact signed156 pair is separately registered for rollback. Historical178-182 candidates remain unqualified.
 - Core **3.2.163**, source `b23857849ad5b877e67d0de3c28d297f9ae5d507`, is the current Windows preparation bridge with signed client1.0.5. Its artifact is `C:\endpoint-platform-wix-build\setup-client-3.2.163-b238578\EndpointCore-3.2.163-b238578.zip`; see [`docs/releases/core-3.2.163-setup-client.json`](docs/releases/core-3.2.163-setup-client.json). It is not a primary installer or Linux release. Historical Core162/client1.0.4 artifacts and reports remain immutable. Foundation156 uses the exact compatible Core155 return, identifier `endpoint-windows-core-3.2.155-setup-source-725739f`, before full Setup158; other qualified profiles retain Core157. Never weaken Core157's Foundation157 minimum. Preserve all failed attempt receipts.
 - Windows power-context patch Core **3.2.164**, source `1c2e54a06d1a7dfb6c2c2e0d2ef2cde2d0fe9896`, requires Foundation **3.2.158**. Immutable artifact: `C:\endpoint-platform-wix-build\core164-power-1c2e54a\EndpointCore-3.2.164-1c2e54a.zip`. See [`docs/releases/core-3.2.164-power-context.json`](docs/releases/core-3.2.164-power-context.json) for actual Endpoint cohort acceptance and limits. This patch does not promote a primary installer, change Foundation158 or replace the compatible163 bridge for Foundation156. Future full Setup media must include the corrected runtime in a new, separately qualified native version; historical installer bytes remain unchanged. Explicit Core cohort assignments do not enable the disabled full-Setup fleet policy or create persistent automatic assignment for future/offline agents.

@@ -12,7 +12,12 @@ from pathlib import Path
 import re
 import uuid
 
-COMPONENT_VERSION = '1.1.4'
+COMPONENT_VERSION = '1.1.7'
+RESTORED_ACTIVATION_CODES = frozenset({
+    'support_activation_image_restored',
+    'support_activation_start_restored',
+    'support_activation_readiness_restored',
+})
 SERVICE_NAME = 'EndpointSupportAccess'
 MAX_LEASE_SECONDS = 86400
 LOCAL_PORT = 22222
