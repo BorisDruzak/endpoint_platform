@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "version": "3.2.204",
+  "platform": "windows_amd64",
+  "status": "staging_candidate",
+  "endpoint_origin": "https://endpoint-staging.sosnadmin.local",
+  "runtime_source_commit": "f6bec5a84df9f73ff063de8c97c7def890820db2",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.204.json",
+  "staging_provider_commit": "cb078a6a8e69c47a7d28a8f83f1f14e1a375978b",
+  "staging_schema": "0052_inventory_installation",
+  "setup": {
+    "filename": "EndpointAgentSetup-3.2.204-x64.exe",
+    "sha256": "01882888c18a2c6e9b8550a3005c9d37f46ea8c5be5c679f339acf76bd86db2a",
+    "size": 179162216,
+    "authenticode": "Valid with timestamp",
+    "release_id": "2cd757ca-fcf3-42ff-8bee-3c85b829e88e",
+    "setup_update_release_id": "b735fe7d-4402-40ed-b545-75755d9ee1f5",
+    "download_published": false
+  },
+  "msi": {
+    "sha256": "4944d38c29eb41ed0d3ad579dc530112c712bd86a89f477ef40985701a620dd2",
+    "size": 137293824,
+    "authenticode": "Valid with timestamp",
+    "product_code": "{CD86ACEF-A688-4BC4-AE0C-4074A7EE9559}"
+  },
+  "setup_observer_version": "1.0.11",
+  "support": {
+    "component_version": "1.1.7",
+    "bundled_openssh_version": "10.4.0.0p1-Preview",
+    "bundle_sha256": "b67ff8becd203502190ec42ac7787c24c2cd3325ed7700485fe7a1c83d2a7957"
+  },
+  "fleet": {
+    "enabled": false,
+    "qualified_source_versions": []
+  }
+}
