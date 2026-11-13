@@ -134,18 +134,21 @@ class EndpointPlatformClient:
                 return device
         raise EndpointPlatformNotFound()
 
-    def get_latest_context(self, device_id: UUID, profile: SafeContextProfile) -> ContextSnapshot | None:
-        """Return the latest current safe snapshot for one allowed profile."""
-
-        self._require_safe_profile(profile)
+    def get_device_context(self, device_id: UUID) -> DeviceContext:
+        """Read the safe snapshots and profile observation times in one response."""
         data = self._get(f"/api/v1/devices/{device_id}/context")
-        context = self._validate(
+        return self._validate(
             data,
             lambda value: _DataResponse[DeviceContext](
                 data=DeviceContext.model_validate(value["data"])
             ),
-        )
-        matching = [snapshot for snapshot in context.data.snapshots if snapshot.profile == profile]
+        ).data
+
+    def get_latest_context(self, device_id: UUID, profile: SafeContextProfile) -> ContextSnapshot | None:
+        """Return the latest current safe snapshot for one allowed profile."""
+        self._require_safe_profile(profile)
+        context = self.get_device_context(device_id)
+        matching = [snapshot for snapshot in context.snapshots if snapshot.profile == profile]
         return max(matching, key=lambda snapshot: snapshot.collected_at, default=None)
 
     def get_latest_inventory_context(self, device_id: UUID) -> InventoryContext | None:

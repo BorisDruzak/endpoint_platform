@@ -346,6 +346,27 @@ def test_safe_read_methods_validate_normalized_service_projections(tmp_path: Pat
     }
 
 
+def test_device_context_preserves_observation_time(tmp_path, monkeypatch):
+    device_id = uuid4()
+    snapshot = _baseline_snapshot(str(uuid4()))
+    observed_at = "2026-07-30T10:00:00Z"
+    response = {"data": {
+        "device": _device_payload(str(device_id))["data"][0],
+        "profiles": [{"profile": "baseline_v1", "status": "completed", "last_collected_at": observed_at}],
+        "snapshots": [snapshot],
+    }}
+    fake = FakeHttpClient(responses=[_response(200, response)])
+    monkeypatch.setattr(client_module.httpx, "Client", lambda **_: fake)
+    client = EndpointPlatformClient("https://endpoint.invalid", token_file=token(tmp_path), ca_file=ca(tmp_path))
+
+    context = client.get_device_context(device_id)
+
+    assert context.device.id == device_id
+    assert context.profiles[0].last_collected_at.isoformat() == "2026-07-30T10:00:00+00:00"
+    assert context.snapshots[0].collected_at.isoformat() == "2026-07-29T10:00:00+00:00"
+    assert len(fake.calls) == 1
+
+
 def test_baseline_history_is_typed_bounded_and_rejects_invalid_comparisons(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
