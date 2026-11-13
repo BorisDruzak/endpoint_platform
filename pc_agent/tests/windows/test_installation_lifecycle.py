@@ -175,7 +175,8 @@ def test_cleanup_conflict_is_independent_and_unowned_policy_is_preserved():
     assert foreign.read(CHROME_POLICY_PATH,'ExtensionSettings')=='unowned'
 
 
-def test_delivery_has_no_redirect_or_proxy_authority_and_binds_request(monkeypatch, tmp_path):
+@pytest.mark.parametrize('host', ['endpoint.sosnadmin.local', 'endpoint-staging.sosnadmin.local'])
+def test_delivery_has_no_redirect_or_proxy_authority_and_binds_request(monkeypatch, tmp_path, host):
     m=notification_module()
     assert hasattr(m,'InstallationHTTPSClient'), 'bounded lifecycle HTTPS sender missing'
     calls=[]
@@ -189,13 +190,19 @@ def test_delivery_has_no_redirect_or_proxy_authority_and_binds_request(monkeypat
         def getresponse(self): return SimpleNamespace(status=302)
         def close(self): calls.append(('close',))
     monkeypatch.setattr(m.http.client,'HTTPSConnection',Connection)
-    sender=m.InstallationHTTPSClient(tmp_path/'ca.crt','x'*43)
+    sender=m.InstallationHTTPSClient(tmp_path/'ca.crt','x'*43,origin='https://'+host)
     from tests.contracts.test_installation_lifecycle import event_data
     with pytest.raises(ValueError): sender(event_data())
-    assert calls[1][1:3]==('endpoint.sosnadmin.local',443)
+    assert calls[1][1:3]==(host,443)
     assert calls[2][1:3]==('POST','/agent/v1/installation-events')
     assert calls[2][3]['headers']['Authorization']=='Bearer '+'x'*43
     assert calls[-1]==('close',)
+
+
+def test_delivery_rejects_origins_outside_endpoint_allowlist(tmp_path):
+    with pytest.raises(ValueError, match='INSTALLATION_AUTHORITY_UNAVAILABLE'):
+        notification_module().InstallationHTTPSClient(
+            tmp_path/'ca.crt', 'x'*43, origin='https://endpoint-staging.sosnadmin.local:8443')
 
 
 def test_support_activation_waits_for_lifecycle_delivery(monkeypatch,tmp_path):

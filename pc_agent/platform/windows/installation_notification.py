@@ -20,13 +20,18 @@ from . import installer_fence
 from .installation_lifecycle import _identity, outbox_for
 
 _ORIGIN = 'https://endpoint.sosnadmin.local'
+_INSTALLATION_HOSTS = {
+    _ORIGIN: 'endpoint.sosnadmin.local',
+    'https://endpoint-staging.sosnadmin.local': 'endpoint-staging.sosnadmin.local',
+}
 
 
 class InstallationHTTPSClient:
     """Fixed origin, pinned CA, no redirects/proxies; one bounded foreground run."""
-    def __init__(self, ca_file, token):
-        if not re.fullmatch('[A-Za-z0-9_-]{43}', token):
+    def __init__(self, ca_file, token, *, origin=_ORIGIN):
+        if origin not in _INSTALLATION_HOSTS or not re.fullmatch('[A-Za-z0-9_-]{43}', token):
             raise ValueError('INSTALLATION_AUTHORITY_UNAVAILABLE')
+        self._host = _INSTALLATION_HOSTS[origin]
         self._token, self.ca_file = token, ca_file
         self._deadline = time.monotonic()+20
 
@@ -38,7 +43,7 @@ class InstallationHTTPSClient:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         context.minimum_version = ssl.TLSVersion.TLSv1_2
         context.load_verify_locations(cafile=str(self.ca_file))
-        connection = http.client.HTTPSConnection('endpoint.sosnadmin.local',443,
+        connection = http.client.HTTPSConnection(self._host,443,
             context=context, timeout=min(8, remaining))
         try:
             connection.request('POST','/agent/v1/installation-events',
@@ -68,9 +73,9 @@ def _sender(data_root):
     from pc_agent.device_credential import read_device_credential
     for name in ('device-credential','endpoint-ca.crt'):
         assert_bootstrap_file(data_root/name)
-    if read_optional_bootstrap_ascii(data_root/'endpoint-origin', default=_ORIGIN) != _ORIGIN:
-        raise ValueError('INSTALLATION_AUTHORITY_UNAVAILABLE')
-    return InstallationHTTPSClient(data_root/'endpoint-ca.crt',read_device_credential(data_root/'device-credential'))
+    origin = read_optional_bootstrap_ascii(data_root/'endpoint-origin', default=_ORIGIN)
+    return InstallationHTTPSClient(data_root/'endpoint-ca.crt',
+        read_device_credential(data_root/'device-credential'), origin=origin)
 
 
 def deliver_retained(paths):
