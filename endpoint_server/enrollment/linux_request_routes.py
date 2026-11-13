@@ -12,6 +12,7 @@ from endpoint_contracts.linux_enrollment import LinuxPreEnrollmentRequestCreateV
 from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.db.models import EnrollmentCampaign, EnrollmentClaim, EnrollmentRequest
 from .campaigns import EnrollmentDenied, hardware_fingerprint_digest
+from .inventory_assignments import load_inventory_assignment, utc
 from .linux_requests import resolve_enrollment_source, select_linux_campaign, build_linux_request
 from .requests import enrollment_request_rate_limited, persist_enrollment_request, request_bindings_match, request_capability_matches
 from .request_routes import (EnrollmentRequestStatusProof, EnrollmentRequestClaimProof, EnrollmentRequestClaimResponse,
@@ -39,6 +40,13 @@ async def create_linux_request(body: LinuxPreEnrollmentRequestCreateV1, request:
     pepper = request.app.state.settings.device_token_pepper
     async with request.app.state.session_provider() as session:
         try:
+            assignment = await load_inventory_assignment(
+                session, installation_id=body.installation_id, hardware_fingerprint=body.hardware_fingerprint,
+                platform=body.platform, pepper=pepper,
+            )
+        except EnrollmentDenied:
+            raise HTTPException(409, 'Enrollment request is no longer eligible') from None
+        try:
             # Serialize Linux intake (including no-campaign review requests)
             # without locking existing Windows requests or their AUTO campaign.
             await lock_linux_intake(session)
@@ -52,6 +60,8 @@ async def create_linux_request(body: LinuxPreEnrollmentRequestCreateV1, request:
                 now=now, blocking_identity_conflict=prior is not None)
             record, binding = build_linux_request(body, source_id=source.id, selection=selection,
                 source_address=source_address, pepper=pepper, now=now)
+            if assignment is not None:
+                record.expires_at = min(record.expires_at, utc(assignment.expires_at))
             existing = await session.scalar(select(EnrollmentRequest).where(
                 EnrollmentRequest.installation_id_digest == record.installation_id_digest,
                 EnrollmentRequest.platform == 'linux').order_by(EnrollmentRequest.created_at.desc()).limit(1))

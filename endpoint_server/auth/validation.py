@@ -15,6 +15,15 @@ async def redacting_validation_exception_handler(
     if request.url.path.startswith(('/agent/v1/support-access','/api/admin/support-access')):
         return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={'detail':'Invalid support access request'},headers={'Cache-Control':'no-store'})
+    if request.url.path in {
+        "/api/v1/enrollment/installation-assignments",
+        "/api/v1/enrollment/installation-receipts/lookup",
+    }:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": "Invalid inventory installation assignment"},
+            headers={"Cache-Control": "no-store"},
+        )
     if request.url.path.startswith("/api/v1/device-binding/challenges"):
         # Both field names and values are attacker-controlled. Possession
         # endpoints project a constant error rather than reflecting either.

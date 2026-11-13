@@ -78,6 +78,10 @@ def _binding_digest(value: str, pepper: bytes, context: bytes) -> str:
     return hmac.new(pepper, context + value.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
+def installation_id_digest(installation_id: str, pepper: bytes) -> str:
+    return _binding_digest(installation_id, pepper, _INSTALLATION_ID_CONTEXT)
+
+
 def build_enrollment_request(
     *,
     installation_id: str,
@@ -100,9 +104,7 @@ def build_enrollment_request(
     created_at = now.astimezone(UTC)
     return EnrollmentRequest(
         id=uuid4(),
-        installation_id_digest=_binding_digest(
-            installation_id, pepper, _INSTALLATION_ID_CONTEXT
-        ),
+        installation_id_digest=installation_id_digest(installation_id, pepper),
         fingerprint_digest=_binding_digest(
             hardware_fingerprint, pepper, _FINGERPRINT_CONTEXT
         ),
@@ -216,10 +218,12 @@ def mark_request_enrolling(request: EnrollmentRequest, *, now: datetime) -> None
 
 
 def mark_request_device_registered(
-    request: EnrollmentRequest, *, device_id: UUID, now: datetime
+    request: EnrollmentRequest, *, device_id: UUID, now: datetime, inventory_directed: bool = False
 ) -> None:
     """Link the created device after the existing agent enrollment transaction."""
     transition_request_status(request.status, "device_registered")
+    if inventory_directed:
+        request.expires_at = request.created_at + _REQUEST_LIFETIME
     request.status = "device_registered"
     request.device_id = device_id
     request.updated_at = now.astimezone(UTC)
@@ -234,9 +238,7 @@ def request_bindings_match(
 ) -> bool:
     """Match re-presented installer evidence against digest-only persistence."""
     try:
-        installation_digest = _binding_digest(
-            installation_id, pepper, _INSTALLATION_ID_CONTEXT
-        )
+        installation_digest = installation_id_digest(installation_id, pepper)
         fingerprint_digest = _binding_digest(
             hardware_fingerprint, pepper, _FINGERPRINT_CONTEXT
         )

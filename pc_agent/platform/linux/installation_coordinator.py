@@ -320,6 +320,18 @@ class RPMBackend:
         return result.returncode
 
     def matches(self, action, source):
+        if not self.installed_packages_match(action, source):
+            return False
+        if action == 'remove':
+            return True
+        # RPM can return zero even when %post did not create the runtime selector.
+        check = subprocess.run(
+            ['/usr/lib/endpoint-agent/check-start-prerequisites', '--allow-unconfigured'],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=15, env=ENV)
+        return check.returncode == 0
+
+    def installed_packages_match(self, action, source):
         result = subprocess.run(['/usr/bin/rpm', '-q', '--qf', '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n',
             'endpoint-agent', 'endpoint-agent-user-sensor'], stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15, env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'})
@@ -540,7 +552,7 @@ def main(argv=None):
                 paths = retain_inputs([args.core_rpm] + ([args.user_sensor_rpm] if args.user_sensor_rpm else []), store, verifier)
                 source = verify_pair(paths[0], paths[1] if len(paths) == 2 else None, verifier)
                 assert_executor_binding(source, verifier(paths[0]), store.json('executor.json'))
-                if args.action == 'remove' and not backend.matches('install', source):
+                if args.action == 'remove' and not backend.installed_packages_match('install', source):
                     raise InstallationPending('remove_source_not_installed')
                 coordinator.operate(args.action, source, paths, device_id=device)
         # Native owner/flock has exited before the bounded notification child.

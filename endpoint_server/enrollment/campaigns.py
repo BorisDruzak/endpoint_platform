@@ -93,11 +93,7 @@ def install_claim_bindings_match(
     """Check stored claim bindings without exposing which input mismatched."""
     try:
         canonical_fingerprint = normalize_hardware_fingerprint(hardware_fingerprint)
-        session_digest = _bound_digest(
-            installation_session,
-            pepper,
-            _INSTALL_SESSION_CONTEXT,
-        )
+        session_digest = install_claim_session_digest(installation_session, pepper)
         fingerprint_digest = _bound_digest(
             canonical_fingerprint,
             pepper,
@@ -116,6 +112,10 @@ def install_claim_bindings_match(
 
 def _bound_digest(value: str, pepper: bytes, context: bytes) -> str:
     return _digest(value, pepper, context)
+
+
+def install_claim_session_digest(installation_session: str, pepper: bytes) -> str:
+    return _bound_digest(installation_session, pepper, _INSTALL_SESSION_CONTEXT)
 
 
 def hardware_fingerprint_digest(hardware_fingerprint: str, pepper: bytes) -> str:
@@ -276,11 +276,7 @@ def issue_install_claim(
         campaign_id=campaign.id,
         claim_identifier=identifier,
         claim_digest=claim_token_digest(token, pepper),
-        installation_session_digest=_bound_digest(
-            installation_session,
-            pepper,
-            _INSTALL_SESSION_CONTEXT,
-        ),
+        installation_session_digest=install_claim_session_digest(installation_session, pepper),
         fingerprint_digest=hardware_fingerprint_digest(canonical_fingerprint, pepper),
         expires_at=expiry,
         device_id=None,

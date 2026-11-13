@@ -28,6 +28,7 @@ from endpoint_server.provisioning.pilot_service import (
 )
 
 from .campaigns import EnrollmentDenied, issue_install_claim
+from .inventory_assignments import INVENTORY_PREFIX
 
 
 router = APIRouter(prefix="/api/v1/provisioning", tags=["provisioning"])
@@ -114,6 +115,8 @@ async def issue_provisioning_install_claim(
         )
     except ValueError as error:
         raise _invalid() from error
+    if install_session_id.startswith(INVENTORY_PREFIX):
+        raise _invalid()
     if principal.client.client_identifier == PILOT_SERVICE_CLIENT_IDENTIFIER:
         try:
             expected_identifier = pilot_credential_identifier(

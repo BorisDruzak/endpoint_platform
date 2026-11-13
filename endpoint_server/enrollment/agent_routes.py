@@ -54,6 +54,7 @@ from .credentials import (
     seal_retry_envelope,
 )
 from .delivery import ExpiredEnrollmentDelivery, derive_enrollment_receipt
+from .inventory_assignments import require_inventory_claim
 from .requests import mark_request_device_registered, mark_request_enrolling
 
 
@@ -463,6 +464,11 @@ async def enroll_agent(
                 platform=body.platform,
             ) or not _claim_allows_enrollment(claim, now=issued_at):
                 raise EnrollmentDenied("Enrollment denied")
+            inventory_assignment = await require_inventory_claim(
+                session, claim, installation_id=body.installation_id,
+                hardware_fingerprint=body.hardware_fingerprint, platform=body.platform,
+                pepper=settings.device_token_pepper,
+            )
             if existing_device is not None:
                 bindings_match = claim is None or (
                     claim.device_id == existing_device.id
@@ -625,7 +631,8 @@ async def enroll_agent(
                 claim.device_id = device.id
             if enrollment_request is not None:
                 mark_request_device_registered(
-                    enrollment_request, device_id=device.id, now=issued_at
+                    enrollment_request, device_id=device.id, now=issued_at,
+                    inventory_directed=inventory_assignment is not None,
                 )
             session.add_all((device, credential, envelope, event))
             if enrollment_request is not None and enrollment_request.platform == 'linux':

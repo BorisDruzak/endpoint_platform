@@ -795,6 +795,8 @@ def _service_operation_openapi() -> dict[str, object]:
     application.include_router(linux_enrollment)
     from endpoint_server.enrollment.ubuntu_requests import router as ubuntu_enrollment
     application.include_router(ubuntu_enrollment)
+    from endpoint_server.enrollment.inventory_receipt_routes import router as inventory_receipts
+    application.include_router(inventory_receipts)
     from endpoint_server.installation_lifecycle.routes import router as installation_router
     application.include_router(installation_router)
     application.include_router(operations_router)
@@ -822,6 +824,8 @@ def _service_operation_openapi() -> dict[str, object]:
         "paths": {
             path: generated["paths"][path]
             for path in (*_SERVICE_OPERATION_PATHS, *_SERVICE_CONTEXT_PATHS, *_PUBLIC_BROWSER_RELEASE_PATHS,
+                         '/api/v1/enrollment/installation-assignments',
+                         '/api/v1/enrollment/installation-receipts/lookup',
                          '/api/v1/enrollment/linux/requests',
                          '/api/v1/enrollment/linux/requests/{request_id}/status',
                          '/api/v1/enrollment/linux/requests/{request_id}/claim',

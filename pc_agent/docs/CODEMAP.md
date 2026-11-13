@@ -2,6 +2,18 @@
 
 ## Runtime boundary
 
+Windows inventory-directed Setup and its provisioner use
+`core/device_fingerprint.collect_windows_inventory_fingerprint`. The original
+fingerprint schema is used after successful WMI reads. A failed WMI query gets
+one bounded retry. Exhausted queries stop fingerprint derivation before the
+next enrollment action.
+
+On ALT, `platform/linux/installation_coordinator.py` verifies installed RPMs and
+runs the packaged Core prerequisite checker before completing native install or
+upgrade reconciliation. A missing or unusable runtime selection keeps the
+recorded native result pending and withholds enrollment. Remove verifies the
+installed RPM source before erase and the package absence after erase.
+
 `platform/windows/acl.preserve_state_file_permissions` preserves selector owner
 and DACL using an already-held restore privilege on the effective thread/process
 token. It restores the prior privilege attributes even on failure and never
@@ -609,6 +621,7 @@ silently discards installed packages after record 2048.
 | Browser machine policy | `pc_agent/platform/windows/{browser_policy,browser_policy_helper,browser_policy_service_entry}.py`, `pc_agent/policy/windows_sensors.py` | fixed extension force-install values, authenticated helper IPC, ownership marker and safe relinquish |
 | Local sensors | `pc_agent/platform/windows/{local_ipc,sensor_pipe_listener,activity_api,user_sensor,user_sensor_runtime,browser_bridge,browser_bridge_entry}.py` | bounded user/browser observation boundary; service listener, per-user sampler and binary native-host entrypoint |
 | Enrollment | `pc_agent/enrollment_identity.py`, `pc_agent/device_credential.py` | device identity and credentials |
+| Windows Setup | `pc_agent/platform/windows/setup_entry.py`, `pc_agent/platform/windows/inventory_setup.py`, `pc_agent/platform/windows/provision.py` | signed MSI entry, staging inventory handoff and enrollment provisioner |
 | Context | `pc_agent/context_profiles/` | typed context collection and execution |
 | Modules | `pc_agent/modules/`, `pc_agent/module_manager.py` | managed module lifecycle |
 | Updates | `pc_agent/gateway_update_runtime.py`, `pc_agent/update_adapter.py` | immutable update selection and application |

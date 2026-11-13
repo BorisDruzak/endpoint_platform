@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import io
 import ipaddress
+import json
 import os
 import re
 import secrets
 import ssl
 import sys
 import tempfile
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,7 +22,10 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 from endpoint_contracts import AgentEnrollmentRequestV1
-from pc_agent.core.device_fingerprint import collect_device_fingerprint
+from pc_agent.core.device_fingerprint import (
+    collect_device_fingerprint,
+    collect_windows_inventory_fingerprint,
+)
 from pc_agent.device_credential import read_device_credential
 from pc_agent.enrollment_bootstrap import (
     HttpsEnrollmentTransport,
@@ -33,7 +39,11 @@ from pc_agent.enrollment_identity import (
 )
 
 from .acl import AclAdapter, PyWin32AclAdapter
+from . import installer_stdio
+from .inventory_setup import INVENTORY_PREFIX, STAGING_ORIGIN, valid_installation_id
 from .service_control import PyWin32ServiceControl, ServiceControl
+from .update_paths import WindowsUpdatePaths
+from .update_transaction import update_transaction
 
 
 CLAIM_FILENAME = "enrollment-claim"
@@ -65,6 +75,12 @@ class ProvisioningRequest:
     installation_id: str = "windows-provisioning"
 
     def validate(self) -> None:
+        if not isinstance(self.installation_id, str) or not self.installation_id or len(self.installation_id) > 128:
+            raise ValueError("installation identifier is invalid")
+        if self.installation_id.startswith(INVENTORY_PREFIX) and (
+            self.endpoint_origin != STAGING_ORIGIN or not valid_installation_id(self.installation_id)
+        ):
+            raise ValueError("inventory enrollment is ineligible")
         parsed = urlsplit(self.endpoint_origin)
         try:
             port = parsed.port
@@ -87,8 +103,6 @@ class ProvisioningRequest:
             ssl.create_default_context(cafile=str(self.ca_file))
         except (OSError, ssl.SSLError, ValueError) as error:
             raise ValueError("Endpoint CA file is missing or invalid") from error
-        if not self.installation_id or len(self.installation_id) > 128:
-            raise ValueError("installation identifier is invalid")
 
 
 def _valid_endpoint_host(hostname: str | None) -> bool:
@@ -180,18 +194,24 @@ class HttpsWindowsEnrollmentClient:
     def enroll(
         self, *, claim: str, endpoint_origin: str, ca_file: Path
     ) -> EnrollmentDelivery:
+        inventory = self._installation_id.startswith(INVENTORY_PREFIX)
         request = AgentEnrollmentRequestV1(
             schema_version="agent_enrollment_request_v1",
             platform="windows",
             hardware_fingerprint=_derive_hardware_fingerprint(
-                collect_device_fingerprint
+                collect_windows_inventory_fingerprint if inventory else collect_device_fingerprint
             ),
             installation_id=self._installation_id,
             delivery_nonce=secrets.token_urlsafe(32),
             requested_at=datetime.now(UTC),
         ).model_dump(mode="json")
+        transport = (
+            HttpsEnrollmentTransport(allow_redirects=False)
+            if inventory
+            else HttpsEnrollmentTransport()
+        )
         delivery = asyncio.run(
-            HttpsEnrollmentTransport().enroll(
+            transport.enroll(
                 endpoint_url=endpoint_origin,
                 ca_file=ca_file,
                 claim=claim,
@@ -212,8 +232,10 @@ class WindowsProvisioner:
         service: ServiceControl | None = None,
         acl: AclAdapter | None = None,
         support_installer: Callable[[], dict] | None = None,
+        mutation_scope: Callable[[], AbstractContextManager[None]] = nullcontext,
     ) -> None:
         self._request = request
+        self._mutation_scope = mutation_scope
         self._enrollment = enrollment or HttpsWindowsEnrollmentClient(
             request.installation_id
         )
@@ -222,7 +244,8 @@ class WindowsProvisioner:
         self._support_installer = support_installer or (lambda: install_enrolled_support(self._request.data_root))
 
     def provision_from_stdin(self, stream: TextIO | None = None) -> ProvisioningResult:
-        raw = (sys.stdin if stream is None else stream).read(MAX_CLAIM_BYTES + 1)
+        source = sys.stdin if stream is None else stream
+        raw = installer_stdio.read_inherited_pipe(MAX_CLAIM_BYTES) if source is None else source.read(MAX_CLAIM_BYTES + 1)
         return self._provision(_claim_from_text(raw))
 
     def provision_from_protected_file(self, path: Path) -> ProvisioningResult:
@@ -245,31 +268,38 @@ class WindowsProvisioner:
         identity_path = data_root / ENROLLMENT_IDENTITY_FILENAME
         installed_ca_path = data_root / ENDPOINT_CA_FILENAME
         endpoint_origin_path = data_root / ENDPOINT_ORIGIN_FILENAME
-        self._acl.protect_directory(data_root)
-        _atomic_write(claim_path, claim.encode("ascii"))
-        self._acl.protect_claim(claim_path)
-        delivery = self._enrollment.enroll(
-            claim=claim,
-            endpoint_origin=self._request.endpoint_origin,
-            ca_file=self._request.ca_file,
-        )
-        device_id = canonical_enrollment_device_id(delivery.device_id)
-        token = _credential_bytes(delivery.device_token)
-        _atomic_write(installed_ca_path, self._request.ca_file.read_bytes())
-        self._acl.protect_credential(installed_ca_path)
-        _atomic_write(
-            endpoint_origin_path, (self._request.endpoint_origin + "\n").encode("ascii")
-        )
-        self._acl.protect_credential(endpoint_origin_path)
-        _atomic_write(credential_path, token)
-        self._acl.protect_credential(credential_path)
-        _atomic_write(identity_path, serialize_enrollment_identity(device_id))
-        # The claim remains intact unless both durable records can be read back.
-        if (
-            read_device_credential(credential_path) != delivery.device_token
-            or read_enrollment_device_id(identity_path) != device_id
-        ):
-            raise RuntimeError("permanent enrollment credential proof failed")
+        with self._mutation_scope():
+            if os.path.lexists(credential_path) or os.path.lexists(identity_path):
+                raise ValueError("an enrollment already exists")
+            if valid_installation_id(self._request.installation_id) and (
+                os.path.lexists(claim_path) or os.path.lexists(endpoint_origin_path)
+            ):
+                raise ValueError("an unfinished enrollment already exists")
+            self._acl.protect_directory(data_root)
+            _atomic_write(claim_path, claim.encode("ascii"))
+            self._acl.protect_claim(claim_path)
+            delivery = self._enrollment.enroll(
+                claim=claim,
+                endpoint_origin=self._request.endpoint_origin,
+                ca_file=self._request.ca_file,
+            )
+            device_id = canonical_enrollment_device_id(delivery.device_id)
+            token = _credential_bytes(delivery.device_token)
+            _atomic_write(installed_ca_path, self._request.ca_file.read_bytes())
+            self._acl.protect_credential(installed_ca_path)
+            _atomic_write(
+                endpoint_origin_path, (self._request.endpoint_origin + "\n").encode("ascii")
+            )
+            self._acl.protect_credential(endpoint_origin_path)
+            _atomic_write(credential_path, token)
+            self._acl.protect_credential(credential_path)
+            _atomic_write(identity_path, serialize_enrollment_identity(device_id))
+            # The claim remains intact unless both durable records can be read back.
+            if (
+                read_device_credential(credential_path) != delivery.device_token
+                or read_enrollment_device_id(identity_path) != device_id
+            ):
+                raise RuntimeError("permanent enrollment credential proof failed")
         try:
             from .installation_notification import sync_enrolled_installation
             if sync_enrolled_installation(data_root) not in {'delivered', 'not_applicable'}:
@@ -367,9 +397,39 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--endpoint-origin", required=True)
     parser.add_argument("--ca-file", required=True)
     parser.add_argument("--data-dir", required=True)
-    parser.add_argument("--installation-id", required=True)
+    identity = parser.add_mutually_exclusive_group(required=True)
+    identity.add_argument("--installation-id")
+    identity.add_argument("--inventory-stdin", action="store_true")
     parser.add_argument("--material-file")
     return parser
+
+
+def _read_inventory_material() -> tuple[str, str]:
+    max_bytes = MAX_CLAIM_BYTES + 256
+    raw = installer_stdio.read_inherited_pipe(max_bytes) if sys.stdin is None else sys.stdin.read(max_bytes + 1)
+    if len(raw) > max_bytes or not raw.isascii():
+        raise ValueError("invalid inventory enrollment material")
+    payload = json.loads(raw)
+    if (
+        not isinstance(payload, dict)
+        or payload.keys() != {"installation_id", "claim"}
+        or not valid_installation_id(payload["installation_id"])
+        or not isinstance(payload["claim"], str)
+        or not payload["claim"].startswith("ic_")
+    ):
+        raise ValueError("invalid inventory enrollment material")
+    return payload["installation_id"], _claim_from_text(payload["claim"])
+
+
+def _report_provisioning(message: str, *, error: bool = False) -> None:
+    stream = sys.stderr if error else sys.stdout
+    if stream is not None:
+        print(message, file=stream)
+    else:
+        try:
+            installer_stdio.write_inherited_pipe((message + "\n").encode("ascii"), handle_number=-12 if error else -11)
+        except OSError:
+            pass
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -378,25 +438,38 @@ def main(argv: Sequence[str] | None = None) -> int:
     if notification is not None:
         return notification
     args = _parser().parse_args(argv)
-    request = ProvisioningRequest(
-        endpoint_origin=args.endpoint_origin,
-        ca_file=Path(args.ca_file),
-        data_root=Path(args.data_dir),
-        installation_id=args.installation_id,
-    )
-    provisioner = WindowsProvisioner(request)
     try:
-        if args.material_file:
+        installation_id = args.installation_id
+        inventory_claim = None
+        if args.inventory_stdin:
+            if args.endpoint_origin != STAGING_ORIGIN or args.material_file:
+                raise ValueError("inventory enrollment is ineligible")
+            installation_id, inventory_claim = _read_inventory_material()
+        elif installation_id.startswith(INVENTORY_PREFIX):
+            raise ValueError("inventory enrollment material requires stdin")
+        request = ProvisioningRequest(
+            endpoint_origin=args.endpoint_origin,
+            ca_file=Path(args.ca_file),
+            data_root=Path(args.data_dir),
+            installation_id=installation_id,
+        )
+        paths = WindowsUpdatePaths(pending_path=request.data_root / "updates" / "pending_update.json")
+        provisioner = WindowsProvisioner(request, mutation_scope=lambda: update_transaction(paths))
+        if inventory_claim is not None:
+            result = provisioner.provision_from_stdin(io.StringIO(inventory_claim))
+        elif args.material_file:
             result = provisioner.provision_from_protected_file(Path(args.material_file))
         else:
             result = provisioner.provision_from_stdin()
     except Exception as error:
         # Keep diagnostics bounded to a class name: transport and filesystem
         # exceptions may otherwise contain claims, tokens, or local paths.
-        print(f"Windows provisioning failed: {type(error).__name__}", file=sys.stderr)
+        _report_provisioning(f"Windows provisioning failed: {type(error).__name__}", error=True)
         return 1
-    import json
-    print(json.dumps({'support_access_status':result.support_access_status,'support_access_error':result.support_access_error}))
+    _report_provisioning(json.dumps({
+        "support_access_status": result.support_access_status,
+        "support_access_error": result.support_access_error,
+    }))
     return 0
 
 

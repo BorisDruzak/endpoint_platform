@@ -203,3 +203,23 @@ async def test_pilot_credential_requires_administrator_session() -> None:
         )
 
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_pilot_refuses_private_inventory_assignment_without_writes() -> None:
+    session = _PilotSession()
+    app = create_app(_settings(), session_provider=_Provider(session))
+    app.dependency_overrides[require_admin] = _principal
+    installation_id = f"inventory-{uuid4()}-{uuid4()}-" + "a" * 32
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local",
+    ) as client:
+        response = await client.post(
+            "/api/admin/provisioning/test-pilot/credentials",
+            json={"campaign_id": str(uuid4()), "install_session_id": installation_id,
+                  "hardware_fingerprint": "sha256:" + "a" * 64},
+        )
+    assert response.status_code == 422
+    assert installation_id not in response.text
+    assert session.added == []
+    assert session.commit_calls == 0

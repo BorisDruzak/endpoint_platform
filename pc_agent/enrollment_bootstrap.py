@@ -167,6 +167,9 @@ class ClaimRemovalHandoff(Protocol):
 class HttpsEnrollmentTransport:
     """The existing HTTPS enrollment route with mandatory local CA trust."""
 
+    def __init__(self, *, allow_redirects: bool = True) -> None:
+        self._allow_redirects = allow_redirects
+
     async def enroll(
         self,
         *,
@@ -184,6 +187,7 @@ class HttpsEnrollmentTransport:
                     headers={"Authorization": f"Bearer {claim}"},
                     json=request,
                     ssl=ssl_context,
+                    allow_redirects=self._allow_redirects,
                 ) as response:
                     raw = await response.text()
                     if response.status in {401, 403, 409, 422}:

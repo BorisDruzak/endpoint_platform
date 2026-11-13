@@ -308,6 +308,179 @@ def test_setup_entry_installs_embedded_msi_before_enrollment(
     assert observed_config[0].endpoint_origin == "https://endpoint.sosnadmin.local"
 
 
+@pytest.mark.parametrize("case", [
+    "live", "denied", "wrong-pc", "wrong-origin", "existing", "unprotected", "reboot", "race", "short-claim", "bad-expiry",
+])
+def test_inventory_assignment_requires_exact_windows_claim_before_msi(tmp_path, monkeypatch, case):
+    from datetime import UTC, datetime, timedelta
+
+    _write_public_payload(tmp_path)
+    config = tmp_path / "setup-config.json"
+    if case != "wrong-origin":
+        public = json.loads(config.read_text())
+        public["endpoint_origin"] = "https://endpoint-staging.sosnadmin.local"
+        config.write_text(json.dumps(public))
+    data_root = tmp_path / "agent-data"
+    assignment = tmp_path / "assignment.json"
+    installation_id = "inventory-11111111-1111-4111-8111-111111111111-22222222-2222-4222-8222-222222222222-" + "a" * 32
+    fingerprint = "sha256:" + "b" * 64
+    assignment.write_text(json.dumps({
+        "schema_version": "endpoint_windows_inventory_assignment_v1",
+        "installation_id": installation_id,
+        "hardware_fingerprint": fingerprint,
+    }))
+    order = []
+    request_id = "33333333-3333-4333-8333-333333333333"
+
+    class Transport:
+        def create_request(self, body):
+            assert body["installation_id"] == installation_id
+            assert body["hardware_fingerprint"] == fingerprint and body["platform"] == "windows"
+            order.append("request")
+            return {"request_id": request_id, "status": "denied" if case == "denied" else "auto_approved"}
+
+        def request_claim(self, _request_id, proof):
+            assert proof["installation_id"] == installation_id and proof["hardware_fingerprint"] == fingerprint
+            order.append("claim")
+            expires = datetime.now(UTC) + timedelta(minutes=1 if case == "short-claim" else 14)
+            return {"claim": "ic_test", "expires_at": "invalid" if case == "bad-expiry" else expires.isoformat()}
+
+        def request_verification(self, _request_id, _capability):
+            order.append("heartbeat")
+            return {"status": "completed"}
+
+    def check_acl(_self, path):
+        assert path == assignment
+        if case == "unprotected":
+            raise setup_entry.WindowsAclError("fixture private error")
+
+    monkeypatch.setattr(setup_entry.PyWin32AclAdapter, "assert_inventory_assignment_file", check_acl)
+    monkeypatch.setattr(setup_entry, "_resource_root", lambda: tmp_path)
+    monkeypatch.setattr(setup_entry, "_data_root", lambda: data_root)
+    monkeypatch.setattr(setup_entry, "_agent_service_installed", lambda: False)
+    monkeypatch.setattr("pc_agent.platform.windows.msi_inventory.NativeMsi", lambda: SimpleNamespace(related_products=lambda _: ()))
+    monkeypatch.setattr(setup_entry, "_classify_installation_state", lambda *_a, **_kw: "valid" if case == "existing" else "clean")
+    def derive(probe):
+        assert probe is setup_entry.collect_windows_inventory_fingerprint
+        return "sha256:" + "c" * 64 if case == "wrong-pc" else fingerprint
+
+    monkeypatch.setattr(setup_entry, "_derive_hardware_fingerprint", derive)
+    def native_install(_path, *, inventory_fresh_only):
+        assert inventory_fresh_only
+        order.append("msi")
+        if case == "race":
+            raise setup_entry.SetupInstallError("INVENTORY_ASSIGNMENT_INELIGIBLE")
+        return 3010 if case == "reboot" else 0
+    monkeypatch.setattr(setup_entry, "_install_embedded_msi", native_install)
+    monkeypatch.setattr(setup_entry, "_installed_provisioner", lambda: tmp_path / "provision.exe")
+    monkeypatch.setattr(setup_entry, "_wait_for_agent_service_running", lambda: True)
+    def make_transport(*_args, allow_redirects):
+        assert allow_redirects is False
+        return Transport()
+    monkeypatch.setattr(setup_entry, "HttpsSetupTransport", make_transport)
+    monkeypatch.setattr(setup_entry, "_run_provisioner", lambda *a, **kw: order.append("provision"))
+
+    result = setup_entry.main(["--quiet", "--inventory-assignment-file", str(assignment)])
+    assert result == {"live": 0, "denied": 30, "reboot": 3010, "short-claim": 40, "bad-expiry": 40}.get(case, 20)
+    assert order == {
+        "live": ["request", "claim", "msi", "provision", "heartbeat"],
+        "denied": ["request"],
+        "reboot": ["request", "claim", "msi"],
+        "race": ["request", "claim", "msi"],
+        "short-claim": ["request", "claim"],
+        "bad-expiry": ["request", "claim"],
+    }.get(case, [])
+    for log in (tmp_path / "diagnostics").glob("*"):
+        assert installation_id not in log.read_text() and fingerprint not in log.read_text()
+
+
+@pytest.mark.parametrize("staging", [True, False])
+def test_signed_setup_inventory_probe_is_read_only_and_staging_scoped(tmp_path, monkeypatch, capsys, staging):
+    _write_public_payload(tmp_path)
+    path = tmp_path / "setup-config.json"
+    config = json.loads(path.read_text())
+    if staging:
+        config["endpoint_origin"] = "https://endpoint-staging.sosnadmin.local"
+        path.write_text(json.dumps(config))
+    fingerprint = "sha256:" + "b" * 64
+    monkeypatch.setattr(setup_entry, "_resource_root", lambda: tmp_path)
+    def derive(probe):
+        assert probe is setup_entry.collect_windows_inventory_fingerprint
+        return fingerprint
+
+    monkeypatch.setattr(setup_entry, "_derive_hardware_fingerprint", derive)
+    monkeypatch.setattr(setup_entry, "_data_root", lambda: pytest.fail("installer state accessed during probe"))
+    assert setup_entry.main(["--inventory-fingerprint"]) == (0 if staging else 20)
+    output = capsys.readouterr().out
+    assert (json.loads(output) if output else None) == ({"hardware_fingerprint": fingerprint} if staging else None)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native Windows ACL")
+def test_inventory_file_acl_uses_only_builtin_admin_and_system_sids(tmp_path, monkeypatch):
+    import ctypes
+    from pc_agent.platform.windows.inventory_setup import read_assignment
+
+    if not ctypes.windll.shell32.IsUserAnAdmin():
+        pytest.skip("setting the builtin Administrators owner requires elevation")
+    security = pytest.importorskip("win32security")
+    assignment = tmp_path / "assignment.json"
+    installation_id = "inventory-11111111-1111-4111-8111-111111111111-22222222-2222-4222-8222-222222222222-" + "a" * 32
+    fingerprint = "sha256:" + "b" * 64
+    assignment.write_text(json.dumps({
+        "schema_version": "endpoint_windows_inventory_assignment_v1",
+        "installation_id": installation_id,
+        "hardware_fingerprint": fingerprint,
+    }))
+    monkeypatch.setattr(security, "LookupAccountName", lambda *_: pytest.fail("uninstalled service SID lookup"))
+
+    def set_acl(extra=""):
+        descriptor = security.ConvertStringSecurityDescriptorToSecurityDescriptor(
+            "O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)" + extra, 1,
+        )
+        security.SetNamedSecurityInfo(
+            str(assignment), security.SE_FILE_OBJECT,
+            security.OWNER_SECURITY_INFORMATION | security.DACL_SECURITY_INFORMATION | security.PROTECTED_DACL_SECURITY_INFORMATION,
+            descriptor.GetSecurityDescriptorOwner(), None, descriptor.GetSecurityDescriptorDacl(), None,
+        )
+
+    set_acl()
+    assert read_assignment(assignment) == (installation_id, fingerprint)
+    set_acl("(A;;FR;;;BU)")
+    with pytest.raises(setup_entry.WindowsAclError):
+        read_assignment(assignment)
+
+
+def test_inventory_provisioner_handoff_keeps_assignment_and_claim_in_stdin(tmp_path, monkeypatch):
+    installation_id = "inventory-11111111-1111-4111-8111-111111111111-22222222-2222-4222-8222-222222222222-" + "a" * 32
+    config = SetupConfig("https://endpoint-staging.sosnadmin.local", tmp_path / "ca", "1.0.0", "1.0.0")
+    calls = []
+    def run(command, **kwargs):
+        calls.append((command, kwargs["input"]))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+    setup_entry._run_provisioner(tmp_path / "provision.exe", config, tmp_path, installation_id, "ic_test", run=run)
+    command, material = calls[0]
+    assert "--inventory-stdin" in command and "--installation-id" not in command
+    assert installation_id not in command and "ic_test" not in command
+    assert json.loads(material) == {"installation_id": installation_id, "claim": "ic_test"}
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Win32 inherited handles")
+def test_windowed_installer_inherited_pipe_handles_roundtrip():
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-c",
+         "from pc_agent.platform.windows import installer_stdio as s; "
+         "s.write_inherited_pipe(s.read_inherited_pipe(30).encode('ascii'))"],
+        input=b"fixture-only",
+        capture_output=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == b"fixture-only"
+
+
 def test_setup_entry_records_started_before_installing_embedded_msi(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

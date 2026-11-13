@@ -2,7 +2,7 @@
 param([Parameter(Mandatory)][ValidateSet('Install','Run')][string]$Mode)
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
-$script:ClientVersion='1.0.10'
+$script:ClientVersion='1.0.11'
 $script:Publisher='4D4C23389F5FF77BC4EB32044761019EAE8FB776'
 $script:Origin='https://endpoint.sosnadmin.local'
 $script:ProgramFiles=[Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
@@ -277,7 +277,12 @@ function Initialize-EndpointClient {
  $script:DeviceId=[guid]::ParseExact([string]$identity.device_id,'D').ToString()
  if($script:DeviceId -cne [string]$identity.device_id -or $script:DeviceId -ceq [guid]::Empty.ToString()){throw 'device_identity_invalid'}
  $originPath=Join-Path $script:AgentData 'endpoint-origin'
- if(Test-Path -LiteralPath $originPath){Assert-PrivateLeaf $originPath;if([IO.File]::ReadAllText($originPath).Trim() -cne $script:Origin){throw 'endpoint_origin_differs'}}
+ if(Test-Path -LiteralPath $originPath){
+  Assert-PrivateLeaf $originPath
+  $origin=[IO.File]::ReadAllText($originPath).Trim()
+  if($origin -cnotin @('https://endpoint.sosnadmin.local','https://endpoint-staging.sosnadmin.local')){throw 'endpoint_origin_differs'}
+  $script:Origin=$origin
+ }
  if([Net.ServicePointManager]::SecurityProtocol -ne [Net.SecurityProtocolType]::SystemDefault -or $null -ne [Net.ServicePointManager]::ServerCertificateValidationCallback){throw 'default_os_tls_required'}
  $raw=[IO.File]::ReadAllBytes((Join-Path $script:AgentData 'device-credential'))
  try{$script:Credential=[Text.Encoding]::ASCII.GetString($raw).TrimEnd([char[]]"`r`n");if($script:Credential -cnotmatch '^[A-Za-z0-9_-]{43}$'){throw 'device_credential_invalid'}}finally{[Array]::Clear($raw,0,$raw.Length)}

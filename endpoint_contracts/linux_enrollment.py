@@ -25,7 +25,7 @@ class LinuxEnrollmentPolicyV1(ContractModelV1):
 # Common evidence constraints match canonical request evidence. Windows fields
 # are deliberately absent rather than populated with fabricated installer IDs.
 class LinuxPreEnrollmentRequestCreateV1(_SecretSafeContractModelV1):
-    _repr_secret_fields = frozenset({'hardware_fingerprint', 'request_capability'})
+    _repr_secret_fields = frozenset({'installation_id', 'hardware_fingerprint', 'request_capability'})
     schema_version: Literal['linux_pre_enrollment_request_create_v1']
     platform: Literal['linux']
     installation_id: Annotated[str, Field(min_length=1, max_length=128)]

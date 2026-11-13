@@ -10,7 +10,8 @@ param(
     [string]$Operation = 'Install',
     [string]$StagedOperationId,
     [string]$SetupImagePath,
-    [string]$CoreArchivePath
+    [string]$CoreArchivePath,
+    [switch]$InventoryFreshOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -3003,6 +3004,22 @@ try {
         Assert-UpdateTransactionSecurity -Mutex $updateMutex
         $gateInstallRoot = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)) 'Endpoint Platform\Agent'
         $gateDataRoot = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)) 'Endpoint Platform\Agent'
+        if ($InventoryFreshOnly) {
+            $managed = @('EndpointAgent','EndpointAgentUpdater','EndpointBrowserPolicy','EndpointSupportAccess')
+            if ($Operation -cne 'Install' -or (Get-Service -ErrorAction Stop | Where-Object { $_.Name -cin $managed })) { exit 20 }
+            $inventorySlots = @($gateInstallRoot)
+            foreach ($leaf in @('device-credential','enrollment-identity.json','enrollment-claim','endpoint-origin')) {
+                $inventorySlots += Join-Path $gateDataRoot $leaf
+            }
+            foreach ($slot in $inventorySlots) {
+                try {
+                    Get-Item -Force -LiteralPath $slot -ErrorAction Stop | Out-Null
+                    exit 20
+                } catch [System.Management.Automation.ItemNotFoundException] {
+                    continue
+                }
+            }
+        }
         $continuationOperation=if($Operation -cin @('RecoverStagedUpdate','RecoverNativeContinuation','RecoverStagedRestoration')){$StagedOperationId}else{''}
         if (Test-ActiveUpdateState -InstallRoot $gateInstallRoot -DataRoot $gateDataRoot -NativeContinuation $continuationOperation) { exit 61 }
         $installerStateRoot = Join-Path (Split-Path -Parent $gateInstallRoot) 'installer-state'
@@ -3182,6 +3199,8 @@ try {
         $bridge = New-InstallerBridge -Manifest $manifest -HelperPath $helperPath -HelperHash $helperHash -StateRoot $installerStateRoot -ServiceStates $previousServiceStates -Fence $interruptedFence -Intent $intent
         $initial = Invoke-InstallerHelper -Bridge $bridge -Phase 'inspect'
     }
+    if ($InventoryFreshOnly -and ($null -ne $initial.selected -or $null -ne $initial.previous -or
+        $null -ne $initial.PSObject.Properties['foundation_release'])) { exit 20 }
     if ($intent -ceq 'install' -and $null -eq $recoveryLocator -and $null -eq $interruptedFence -and
         $null -ne $initial.PSObject.Properties['foundation_release'] -and
         $initial.selected -is [string] -and $initial.selected -cmatch '^[0-9a-f]{64}$' -and

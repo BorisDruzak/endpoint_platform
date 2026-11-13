@@ -168,6 +168,7 @@ class PresenceService:
                     device_id=device_id,
                     device_instance_id=instance.id,
                     session_identifier=f"gateway-{uuid4().hex}",
+                    created_at=now,
                     expires_at=now + _PRESENCE_LIFETIME,
                     closed_at=None,
                     last_seen_at=now,
