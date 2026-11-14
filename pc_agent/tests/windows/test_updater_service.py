@@ -1678,3 +1678,39 @@ def test_updater_preserves_selector_and_does_not_restart_until_stop_is_proven(tm
     assert result.status == "rejected"
     assert paths.current_path.read_bytes() == previous
     assert events == ["stop"]
+
+
+def test_updater_records_failure_when_scm_stop_control_times_out(tmp_path, monkeypatch):
+    pywintypes = pytest.importorskip("pywintypes")
+    from pc_agent.platform.windows.updater_service import PyWin32EndpointAgentService, WindowsUpdater
+
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip", version="3.2.7")
+    _pending(paths, artifact, version="3.2.7")
+    paths.install_root.mkdir(parents=True)
+    previous = b'{"version":"3.2.6"}'
+    paths.current_path.write_bytes(previous)
+
+    def stop(_name):
+        raise pywintypes.error(1053, "ControlService", "service did not respond")
+
+    service = PyWin32EndpointAgentService()
+    monkeypatch.setattr(service, "_modules", lambda: SimpleNamespace(StopService=stop))
+
+    def unexpected_service_action():
+        pytest.fail("SCM stop was not proven")
+
+    monkeypatch.setattr(service, "wait_stopped", unexpected_service_action)
+    monkeypatch.setattr(service, "start", unexpected_service_action)
+    result = WindowsUpdater(
+        paths, acl=_Acl(), service=service, verifier=SimpleNamespace(verify=lambda *_: True),
+        confirmation=SimpleNamespace(),
+    ).run_once()
+
+    assert result.status == "rejected"
+    assert paths.current_path.read_bytes() == previous
+    assert not paths.transition_path.exists()
+    outcome = json.loads((paths.updates_root / "terminal-outcome.json").read_bytes())
+    assert outcome["status"] == "failed"
+    assert outcome["reported_version"] == "3.2.6"
+    assert outcome["safe_code"] == "launcher_apply_failed"

@@ -91,7 +91,16 @@ class PyWin32EndpointAgentService:
     """Fixed-name SCM control; callers cannot select another service."""
 
     def stop(self) -> None:
-        self._modules().StopService(SERVICE_NAME)
+        import ctypes
+
+        import pywintypes
+
+        try:
+            self._modules().StopService(SERVICE_NAME)
+        except pywintypes.error as error:
+            # Preserve the native code for already-stopped handling and expose
+            # other SCM failures to the updater's OSError recovery path.
+            raise ctypes.WinError(error.winerror) from error
 
     def start(self) -> None:
         self._modules().StartService(SERVICE_NAME)
