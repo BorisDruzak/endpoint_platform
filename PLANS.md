@@ -157,8 +157,11 @@ running status or sends command_cancel for expired or terminal commands.
 Operator cancellation remains scoped to the existing undelivered operation
 contract. Installed Windows 3.2.207 replayed an identical session collection
 result after loss of its post-commit ACK. PostgreSQL retained one result,
-and the outbox cleared after ACK delivery. Installed cross-version canary
-remains open.
+and the outbox cleared after ACK delivery. Installed Windows 3.2.207
+also completed a health command on the exact pre-journal Gateway
+baseline with a separate database at migration 0051. Installed Windows
+3.2.192 completed the same profile against the journal-enabled Gateway
+on VM142. Each combination produced one successful result.
 The additive SQLite table keeps the existing schema marker for Core rollback.
 STAB-16 service recovery: Ubuntu 24.04 and Debian 12 package configuration
 routes restart through the distribution helper. An enabled failed service
