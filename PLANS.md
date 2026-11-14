@@ -86,8 +86,11 @@ Both rendered templates passed the service-state matrix. Linux Core freeze
 embeds its clean Git revision, and DEB packaging checks the frozen executable
 against the requested source and version. New Ubuntu and Debian packages
 carry the source revision and Python/PyInstaller versions in their control
-metadata alongside the version and SHA-256 in APT Packages. Installed package
-acceptance remains open.
+metadata alongside the version and SHA-256 in APT Packages. A Debian 12 LXC
+rehearsal built the exact source under umask 077 and verified active upgrade,
+failed enabled restart, offline reinstall, rollback and container restart. See
+the qualification matrix for the temporary systemd override and remaining
+installed package acceptance.
 STAB-17 source: metadata renewal verifies the pinned signer and all signed index
 and DEB hashes before changing the signed dates. The expiry check covers Ubuntu
 noble and Debian bookworm and warns with three days remaining. Ordinary APT
