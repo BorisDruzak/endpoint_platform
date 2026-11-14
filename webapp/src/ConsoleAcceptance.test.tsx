@@ -66,20 +66,31 @@ describe('Русский интерфейс Console', () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.includes('/rollouts/rollout-1?')) return jsonResponse({
         id: 'rollout-1', version: '3.2.83', mode: 'canary', status: 'completed', counts: {},
-        created_at: null, started_at: null, completed_at: null, reason: null, targets_total: 1,
+        created_at: null, started_at: null, completed_at: null, reason: null, targets_total: 2,
         targets: [{ device_id: 'device-1', device_name: 'PC-REPORT', status: 'failed',
           assigned_at: '2026-10-03T08:00:00Z', requested_at: '', scheduled_at: null,
           updated_at: '2026-10-03T08:02:00Z', terminal_at: '2026-10-03T08:02:00Z',
           safe_reason: null, report_status: 'failed', reported_version: '3.2.83',
-          safe_code: hostile, report_created_at: '2026-10-03T08:03:00Z' }],
+          safe_code: hostile, report_created_at: '2026-10-03T08:03:00Z',
+          installation_removed: true, connection_state: 'online' }, {
+          device_id: 'device-2', device_name: 'PC-WAITING', status: 'assigned',
+          assignment_id: 'assignment-2', age_seconds: 18 * 86400, connection_state: 'offline',
+          last_contact_at: '2026-10-01T08:03:00Z',
+        }],
       })
       return jsonResponse({ data: [], total: 0 })
     }))
     render(<MemoryRouter initialEntries={['/admin/updates?open=rollout-1']}><UpdatesPage canWrite={false} /></MemoryRouter>)
     const dialog = await screen.findByRole('dialog', { name: 'Развёртывание' })
-    expect(within(dialog).getByText('Запрошено')).toBeTruthy()
-    expect(within(dialog).getByText('Запланировано')).toBeTruthy()
-    expect(within(dialog).getByText('Последний отчёт')).toBeTruthy()
+    expect(within(dialog).getAllByText('Запрошено')).toHaveLength(2)
+    expect(within(dialog).getAllByText('Запланировано')).toHaveLength(2)
+    expect(within(dialog).getAllByText('Последний отчёт')).toHaveLength(2)
+    expect(within(dialog).getByText('Установка удалена')).toBeTruthy()
+    expect(within(dialog).getByText('Нет свежей связи')).toBeTruthy()
+    expect(within(dialog).getByText('Запрос агента ещё не поступил')).toBeTruthy()
+    expect(within(dialog).getByText('18 дн.')).toBeTruthy()
+    expect(within(dialog).getByText('assignment-2')).toBeTruthy()
+    expect(within(dialog).getByText('rollout-1')).toBeTruthy()
     expect(within(dialog).getByText(hostile)).toBeTruthy()
     expect(dialog.querySelector('img')).toBeNull()
     expect(within(dialog).getAllByText('—').length).toBeGreaterThanOrEqual(2)

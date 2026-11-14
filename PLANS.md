@@ -99,8 +99,10 @@ records historical evidence and the test cases required for each exact new
 OS, source and artifact combination. New installed canary evidence is pending.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
-The cancellation API currently covers paused singleton rollouts. Bulk
-cancellation and component-level fleet presentation remain open.
+The rollout detail shows assignment age and ownership, connection freshness,
+retirement and installation removal alongside the update lifecycle. The
+cancellation API currently covers paused singleton rollouts. Bulk cancellation
+and component-level fleet presentation remain open.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
 
