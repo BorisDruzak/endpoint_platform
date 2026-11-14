@@ -144,8 +144,9 @@ of a failed enabled service, and offline remove and reinstall. Forced power
 loss during unpack and postinst preserved the respective start fence and
 resume record. Exact package reinstall and configure resumed the respective
 transactions with clean dpkg verification and fresh Gateway heartbeats on
-the original device. Production signing and publication and multi-node
-cluster validation remain open.
+the original device. On a dedicated three-node nested cluster, four fresh
+Gateway health snapshots distinguished a missing member with quorum, quorum
+loss, and full recovery. Production signing and publication remain open.
 STAB-17 source: metadata renewal verifies the pinned signer and all signed index
 and DEB hashes before changing the signed dates. The expiry check covers Ubuntu
 noble and Debian bookworm and warns with three days remaining. Ordinary APT
