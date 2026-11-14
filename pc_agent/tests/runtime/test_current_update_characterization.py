@@ -544,27 +544,36 @@ async def test_artifact_request_uses_own_transfer_budget(tmp_path):
 @pytest.mark.asyncio
 async def test_artifact_stream_uses_transfer_deadlines(tmp_path, monkeypatch, stalled):
     from dataclasses import replace
+    from io import BytesIO
     from socket import AF_INET, SOCK_STREAM, socket
+    from zipfile import ZipFile
 
     import aiohttp
     from aiohttp import web
 
-    # Use a compact loopback fault test by default. Set the optional probe
-    # interval above 20 seconds to exercise the original control-plane limit.
     duration = float(os.getenv("ENDPOINT_TEST_SLOW_ARTIFACT_SECONDS", "0.4"))
-    control = 20.0 if duration > 20 else duration / 2
-    if stalled:
+    production_deadlines = duration > 20
+    control = 20.0 if production_deadlines else duration / 2
+    if stalled and not production_deadlines:
         monkeypatch.setattr(endpoint_gateway, "_CORE_ARTIFACT_TIMEOUT", aiohttp.ClientTimeout(
             total=2.0, connect=1.0, sock_read=0.15,
         ))
-    data = b"verified ALT artifact"
+    idle_timeout = endpoint_gateway._CORE_ARTIFACT_TIMEOUT.sock_read
+    core_payload = b"synthetic Core for stream verification"
+    archive = BytesIO()
+    with ZipFile(archive, "w") as core_zip:
+        core_zip.writestr("EndpointCore.exe", core_payload)
+    data = archive.getvalue()
+    digest = hashlib.sha256(data).hexdigest()
+    release_peer = asyncio.Event()
+    server_tls, client_tls = _loopback_artifact_tls(tmp_path)
 
     async def stream(request):
         response = web.StreamResponse()
         await response.prepare(request)
         await response.write(data[:1])
         if stalled:
-            await asyncio.sleep(0.4)
+            await release_peer.wait()
         else:
             for chunk in (data[1:8], data[8:]):
                 await asyncio.sleep(duration / 2)
@@ -578,26 +587,60 @@ async def test_artifact_stream_uses_transfer_deadlines(tmp_path, monkeypatch, st
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
         await runner.setup()
-        await web.SockSite(runner, listener).start()
-        # Origin validation itself is separately covered with HTTPS fixtures.
-        monkeypatch.setattr(endpoint_gateway, "_endpoint_origin", lambda _: ("http", f"127.0.0.1:{port}"))
-        item = replace(_recommendation(), artifact_url=f"http://127.0.0.1:{port}/artifact")
-        destination = tmp_path / "candidate.tar.gz"
+        origin = f"https://127.0.0.1:{port}"
+        item = replace(_recommendation(), artifact_url=f"{origin}/artifact", sha256=digest, size=len(data))
+        destination = tmp_path / "EndpointCore.zip"
         try:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=control)) as session:
+            await web.SockSite(runner, listener, ssl_context=server_tls).start()
+            async with aiohttp.ClientSession(
+                connector=aiohttp.TCPConnector(ssl=client_tls), timeout=aiohttp.ClientTimeout(total=control),
+            ) as session:
                 download = endpoint_gateway._download_gateway_artifact(
-                    session, item, destination, credential_source=lambda: "test",
+                    session, item, destination, endpoint_origin=origin, credential_source=lambda: "test",
                 )
+                loop = asyncio.get_running_loop()
+                started = loop.time()
                 if stalled:
                     with pytest.raises(aiohttp.SocketTimeoutError):
-                        await download
+                        await asyncio.wait_for(download, timeout=idle_timeout + 3)
+                    assert loop.time() - started >= idle_timeout
                     assert not destination.exists()
                 else:
-                    loop = asyncio.get_running_loop()
-                    started = loop.time()
-                    assert await download == (_SHA256, len(data))
+                    assert await asyncio.wait_for(download, timeout=duration + 5) == (digest, len(data))
                     assert loop.time() - started > control
                     assert destination.read_bytes() == data
+                    with ZipFile(destination) as downloaded:
+                        assert downloaded.read("EndpointCore.exe") == core_payload
                 assert not list(tmp_path.glob(".*.tmp"))
         finally:
+            release_peer.set()
             await runner.cleanup()
+
+
+def _loopback_artifact_tls(tmp_path):
+    import ssl
+    from datetime import UTC, datetime, timedelta
+    from ipaddress import IPv4Address
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    subject = x509.Name([x509.NameAttribute(x509.NameOID.COMMON_NAME, "127.0.0.1")])
+    now = datetime.now(UTC)
+    certificate = (
+        x509.CertificateBuilder().subject_name(subject).issuer_name(subject)
+        .public_key(key.public_key()).serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(minutes=1)).not_valid_after(now + timedelta(hours=1))
+        .add_extension(x509.SubjectAlternativeName([x509.IPAddress(IPv4Address("127.0.0.1"))]), critical=False)
+        .sign(key, hashes.SHA256())
+    )
+    cert_file, key_file = tmp_path / "cert.pem", tmp_path / "key.pem"
+    cert_file.write_bytes(certificate.public_bytes(serialization.Encoding.PEM))
+    key_file.write_bytes(key.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption(),
+    ))
+    server = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server.load_cert_chain(cert_file, key_file)
+    return server, ssl.create_default_context(cafile=str(cert_file))

@@ -149,8 +149,13 @@ after unlock and reported 361.779 s of backlog age. Both transient units
 and their temporary database were removed. The staging worker kept
 the same PID and start time. Production deployment remains open.
 STAB-09 source: explicit Core transfer total/connect/idle
-timeouts with matching recovery-supervisor budget. Slow and stalled loopback
-streams verified. STAB-10 source: streaming ALT archive limits, pre-stop
+timeouts with matching recovery-supervisor budget. On Windows the published
+Core 3.2.163 ZIP (22,905,610 bytes) passed loopback HTTPS download in 22.875 s
+with the normal 20 s control request timeout. SHA-256 and the CRCs of all
+123 archive entries matched. The HTTPS regression with a synthetic ZIP
+verified the configured 15 s idle cutoff and removal of the partial file.
+The combined transfer, recovery and supervisor run passed 84 tests with one
+POSIX-only skip. STAB-10 source: streaming ALT archive limits, pre-stop
 staging/state capacity checks and bounded extraction. ALT VM107 passed 48
 installer tests and the isolated systemd recovery harness, including preflight
 rejection with the same Core PID and selector. The 180-second unit budget
