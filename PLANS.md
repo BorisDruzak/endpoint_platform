@@ -35,7 +35,12 @@ On the same VM the frozen 3.2.205 Core ran as LocalService through the
 same coordinator. SCM stopped the suspended Core in 10.092 s and the
 restarted, responsive Core in 1.587 s.
 Three updater and rollback tests verified that an unproven stop preserves
-the selector. The signed Setup path and installed updater remain open.
+the selector. A publisher-signed 3.2.206 Setup passed read-only preflight
+from 3.2.192 on VM143 and started one MSI-selected LocalService Core
+during native trial. Without a Gateway, Setup stopped the trial Core
+before restoring the 3.2.192 selector, returned native 67 and restarted
+the source service with unchanged private-file hashes. Online acceptance
+and the installed Core-only updater stop gate remain open.
 STAB-04 source: durable ALT stop receipt,
 systemd recovery after helper exit, timeout and SIGKILL, and selected Core
 startup with pending present. VM107 isolated systemd fault injection passed
@@ -95,8 +100,9 @@ authorization before stopping Core.
 STAB-12 source: the Windows Setup observer starts read-only preflight in an
 owned process job, bounds stdout during capture and stops on stderr. Windows
 PowerShell 5.1 verified repeated timeouts, output overflow and child cleanup
-against a synthetic console application. Signed Setup under the installed
-observer remains a release qualification. Next code task: STAB-13.
+against a synthetic console application. Running the exact signed 1.0.12
+observer preflight functions against the signed VM143 Setup returned the
+expected in-progress result. Scheduled observer acceptance remains open.
 STAB-13 first change: accepted Windows Core selection retires the exact
 operation ZIP after its durable acceptance record, with path, ACL, identity,
 size and digest checks. The Setup observer retires the verified download for
