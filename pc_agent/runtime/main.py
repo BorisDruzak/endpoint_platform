@@ -254,6 +254,7 @@ def _parser() -> argparse.ArgumentParser:
     modes.add_argument("--verify", action="store_true")
     modes.add_argument("--print-safe-status", action="store_true")
     modes.add_argument("--print-version", action="store_true")
+    modes.add_argument("--print-build-identity", action="store_true")
     modes.add_argument("--print-server-health", action="store_true")
     modes.add_argument("--print-hardware-fingerprint", action="store_true")
     return parser
@@ -290,6 +291,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("--windows-service-child requires --launcher-version from the fixed host")
     if args.print_version:
         print(AGENT_VERSION)
+        return 0
+    if args.print_build_identity:
+        import json
+
+        if sys.platform != "linux" or not getattr(sys, "frozen", False):
+            return 2
+        try:
+            identity_path = Path(sys._MEIPASS) / "endpoint-core-source-revision.txt"
+            with identity_path.open("rb") as source:
+                revision = source.read(42).decode("ascii").removesuffix("\n")
+        except (OSError, UnicodeError):
+            return 2
+        if not re.fullmatch(r"[0-9a-f]{40}", revision):
+            return 2
+        print(json.dumps({
+            "schema_version": "endpoint_linux_core_build_v1",
+            "version": AGENT_VERSION,
+            "source_revision": revision,
+        }))
         return 0
     if args.print_server_health:
         from pc_agent.context_profiles.probe import SystemProbe

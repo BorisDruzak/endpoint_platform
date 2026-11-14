@@ -12,7 +12,9 @@ APT-канал и адресная регистрация узла.
 
 Версией Core управляет DEB. Служба использует `--package-managed-updates`, поэтому Core не запрашивает задания на обновление из общего канала Linux.
 
-Сборка выполняется на Ubuntu 24.04 amd64 с Python 3.12. Укажите ревизию исходников, из которых собран Core.
+Сборка выполняется на Ubuntu 24.04 amd64 с Python 3.12 из чистого Git checkout.
+PyInstaller сохраняет ревизию исходников в Core. Сборщик DEB сверяет её и
+версию с выводом `endpoint-agent --print-build-identity` перед упаковкой.
 
 ```sh
 python -m pip install -r requirements/build-linux.txt

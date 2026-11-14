@@ -82,8 +82,10 @@ The additive SQLite table keeps the existing schema marker for Core rollback.
 STAB-16 service recovery: Ubuntu 24.04 and Debian 12 package configuration
 routes restart through the distribution helper. An enabled failed service
 recovers, a manually stopped service stays stopped, and masks are respected.
-Both rendered templates passed the service-state matrix. Installed package
-acceptance and DEB embedded source provenance remain open.
+Both rendered templates passed the service-state matrix. Linux Core freeze
+embeds its clean Git revision, and DEB packaging checks the frozen executable
+against the requested source and version. Installed package acceptance and
+APT toolchain provenance remain open.
 Release evidence requires an exact-source CI receipt before publication.
 
 ## SSO + WorkTime staged implementation (2026-10-27)

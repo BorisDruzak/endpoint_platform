@@ -77,6 +77,20 @@ def build(
     ).stdout.strip()
     if reported != version:
         raise ValueError(f"frozen core reports {reported!r} instead of {version!r}")
+    try:
+        identity = subprocess.run(
+            [executable, "--print-build-identity"], check=True, text=True,
+            capture_output=True, timeout=15,
+        ).stdout
+        embedded = json.loads(identity) if len(identity) <= 512 else None
+    except (subprocess.SubprocessError, ValueError) as error:
+        raise ValueError("frozen core source revision could not be verified") from error
+    if embedded != {
+        "schema_version": "endpoint_linux_core_build_v1",
+        "version": version,
+        "source_revision": source_revision,
+    }:
+        raise ValueError("frozen core source revision or version does not match package request")
 
     package_version = f"{version}-{profile.revision}"
     output.mkdir(parents=True, exist_ok=True)

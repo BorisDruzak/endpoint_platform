@@ -74,6 +74,11 @@ def test_build_ubuntu_deb_keeps_runtime_and_configuration_in_distinct_paths(tmp_
     def run(args, **kwargs):
         if args == [core / "endpoint-agent", "--print-version"]:
             return SimpleNamespace(stdout="3.2.191\n")
+        if args == [core / "endpoint-agent", "--print-build-identity"]:
+            return SimpleNamespace(stdout=json.dumps({
+                "schema_version": "endpoint_linux_core_build_v1",
+                "version": "3.2.191", "source_revision": revision,
+            }))
         assert args[:3] == ["dpkg-deb", "--root-owner-group", "--build"]
         root, artifact = map(Path, args[3:])
         runtime = root / "usr/lib/endpoint-agent-ubuntu"
@@ -117,6 +122,46 @@ def test_build_ubuntu_deb_rejects_mislabeled_core(tmp_path, monkeypatch):
     assert not output.exists()
 
 
+def test_build_ubuntu_deb_rejects_same_version_from_other_commit(tmp_path, monkeypatch):
+    _ubuntu_host(monkeypatch)
+    core = tmp_path / "core"
+    (core / "_internal").mkdir(parents=True)
+    (core / "endpoint-agent").touch()
+
+    def run(args, **kwargs):
+        if args[-1] == "--print-version":
+            return SimpleNamespace(stdout="3.2.191\n")
+        if args[-1] == "--print-build-identity":
+            return SimpleNamespace(stdout=json.dumps({
+                "schema_version": "endpoint_linux_core_build_v1",
+                "version": "3.2.191", "source_revision": "a" * 40,
+            }))
+        pytest.fail("package generation must not start")
+
+    monkeypatch.setattr(ubuntu.subprocess, "run", run)
+    with pytest.raises(ValueError, match="source revision"):
+        ubuntu.build(core, tmp_path / "output", version="3.2.191", source_revision="b" * 40)
+
+
+def test_frozen_core_reports_source_without_enrollment(tmp_path, monkeypatch, capsys):
+    import sys
+    from pc_agent.runtime.main import main
+    from pc_agent.version import AGENT_VERSION
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    identity = tmp_path / "endpoint-core-source-revision.txt"
+    assert main(["--print-build-identity"]) == 2
+    identity.write_bytes(b"a" * 40 + b"\n")
+    assert main(["--print-build-identity"]) == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "schema_version": "endpoint_linux_core_build_v1",
+        "source_revision": "a" * 40,
+        "version": AGENT_VERSION,
+    }
+
+
 def test_build_debian12_uses_independent_package_and_state(tmp_path, monkeypatch):
     _ubuntu_host(monkeypatch)
     monkeypatch.setattr(
@@ -130,6 +175,11 @@ def test_build_debian12_uses_independent_package_and_state(tmp_path, monkeypatch
     def run(args, **kwargs):
         if args == [core / "endpoint-agent", "--print-version"]:
             return SimpleNamespace(stdout="3.2.193\n")
+        if args == [core / "endpoint-agent", "--print-build-identity"]:
+            return SimpleNamespace(stdout=json.dumps({
+                "schema_version": "endpoint_linux_core_build_v1",
+                "version": "3.2.193", "source_revision": "c" * 40,
+            }))
         root, artifact = map(Path, args[3:])
         control = (root / "DEBIAN/control").read_text()
         assert "Package: endpoint-agent-debian\n" in control
