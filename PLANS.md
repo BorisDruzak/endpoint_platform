@@ -48,7 +48,10 @@ escaped without a terminal report. Source now normalizes the pywin32
 stop exception to the existing recovery path. VM143 verified that the
 corrected frozen updater under SCM leaves the selector in place,
 writes the matching failed outcome and clears the prepared transition.
-The corrected package is signed as laboratory Setup 3.2.207.
+Signed laboratory Setup 3.2.207 installed from 3.2.192 with native 0,
+fresh WSS and matching fixture hashes. Its MSI-installed updater
+repeated the SCM 1053 fault: the selector stayed at 3.2.207, the
+exact operation recorded failure and both transition files cleared.
 STAB-04 source: durable ALT stop receipt,
 systemd recovery after helper exit, timeout and SIGKILL, and selected Core
 startup with pending present. VM107 isolated systemd fault injection passed
