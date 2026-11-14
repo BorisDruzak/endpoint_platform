@@ -14,7 +14,10 @@ STAB-01 source: WSS bounded FIFO and separate command task, fixed worker
 process with capability budgets, deadline admission and owned process-tree
 cleanup. HTTP pull remains sequential. Windows source fault injection covers
 timeout, cancellation and oversized reply. Frozen Core and Linux native
-acceptance remain open. Next code task: STAB-03, then 04/05/06/07/08.
+acceptance remain open. STAB-03 source: bounded Windows Core cancellation,
+suspended launch into an owned Job, confirmed tree teardown and updater
+stop proof. Source fault injection passed on Windows. Installed SCM and
+signed Setup acceptance remain open. Next code task: STAB-04, then 05/06/07/08.
 Release evidence requires an exact-source CI receipt before publication.
 
 ## SSO + WorkTime staged implementation (2026-10-27)

@@ -1584,3 +1584,26 @@ def test_proof_acceptance_requires_unchanged_authority(tmp_path, monkeypatch, ch
     assert worker.run_once().status == "rejected"
     assert not (paths.updates_root / "terminal-outcome.json").exists()
     assert all(leaf.read_bytes() == expected for leaf, expected in preserved.items())
+
+def test_updater_preserves_selector_and_does_not_restart_until_stop_is_proven(tmp_path):
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip", version="3.2.7")
+    _pending(paths, artifact, version="3.2.7")
+    paths.install_root.mkdir(parents=True)
+    previous = b'{"version":"3.2.6"}'
+    paths.current_path.write_bytes(previous)
+    events = []
+    service = SimpleNamespace(
+        stop=lambda: events.append("stop"),
+        wait_stopped=lambda: False,
+        start=lambda: events.append("start"),
+    )
+    result = WindowsUpdater(
+        paths, acl=_Acl(), service=service, verifier=SimpleNamespace(verify=lambda *_: True), confirmation=SimpleNamespace(),
+    ).run_once()
+
+    assert result.status == "rejected"
+    assert paths.current_path.read_bytes() == previous
+    assert events == ["stop"]

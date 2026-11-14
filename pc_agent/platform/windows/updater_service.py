@@ -467,9 +467,9 @@ class WindowsUpdater:
             except Exception as error:
                 if not _is_service_not_active(error):
                     raise
-            service_stopped = True
             if not self._service.wait_stopped():
                 raise ValueError("EndpointAgent did not stop")
+            service_stopped = True
             _write_json_atomic(self._paths.current_path, candidate_selector, trusted_root=self._paths.install_root)
             self._service.start()
             # Candidate WSS/HTTP owners must run while proof is awaited.

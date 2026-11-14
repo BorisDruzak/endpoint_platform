@@ -86,6 +86,12 @@ The fixed Windows `service_launcher.py` forwards SCM shutdown as `S` then EOF;
 ordinary service stop remains EOF only. `runtime/main.py` persists the shutdown
 fact within a two-second budget before stopping the child. Older cores already
 stop on any byte/EOF, and update-pending runtime exit retains precedence.
+`platform/windows/core_process.py` assigns the suspended Core to a dedicated Job
+before resuming it. The host allows ten seconds for graceful stop and then
+terminates the Job, allowing five seconds to confirm that it is empty before
+returning SCM status or scheduling an update. The Core allows five seconds
+for cancellation before exiting itself. The updater requires confirmed SCM
+stop before selector publication or restart after a failed stop.
 
 Gateway WSS EOF/abnormal closure (including aiohttp CLOSED/CLOSING sentinels)
 uses the existing retry lifecycle instead of ending the Windows service. A

@@ -28,6 +28,8 @@ from pc_agent.version import AGENT_VERSION
 
 __all__ = ["RuntimeSettings", "run_runtime", "run_verify"]
 
+_SERVICE_CHILD_STOP_SECONDS = 5.0
+
 
 def _log_enrollment_refusal(reason: str) -> None:
     """Emit only a bounded, credential-free first-boot refusal reason."""
@@ -156,11 +158,15 @@ async def _run_service_child(settings: RuntimeSettings) -> int:
     if runtime.done():
         return await runtime
     runtime.cancel()
+    stopped, _ = await asyncio.wait({runtime}, timeout=_SERVICE_CHILD_STOP_SECONDS)
+    if not stopped:
+        # asyncio.run would wait indefinitely for a task that ignores
+        # cancellation. The fixed service host owns and reaps our Job.
+        os._exit(0)
     try:
-        await runtime
+        return runtime.result()
     except asyncio.CancelledError:
-        pass
-    return 0
+        return 0
 
 
 async def _record_service_shutdown(settings: RuntimeSettings) -> None:
