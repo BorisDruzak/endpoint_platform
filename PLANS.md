@@ -174,6 +174,11 @@ rollback, staged and Support Exporter directories directly link their venv to
 `ce46fd47a3a9`; all protected dependency targets were present.
 Remaining directories still need review of deployment, restore and audit
 records before any retirement.
+The [first restore comparison](docs/verification/2026-11-15-server-release-restore-inventory.md)
+matched all archive entries for two historical deployments against production
+and verified independent scratch extraction from workstation copies. Both
+deployed trees add a shared venv link. Durable archive placement and the
+remaining retirement checks are open.
 STAB-02 foundation: local SQLite records a command ID, device, payload digest,
 and start before execution, then commits completion and outbox together.
 Interrupted starts recover as unknown outcomes. Negotiated WSS sessions

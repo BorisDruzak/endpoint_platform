@@ -16,6 +16,9 @@
   and transitive protection through links between release directories.
 - `inventory_storage.py`: read-only artifact-volume inventory against the four
   release catalog owners. Both inventory modules ship in the server archive.
+- `verify_server_release_payload.py`: operator-side, read-only comparison of a
+  server archive's source payload with a deployed tree. Reports archive SHA-256,
+  missing or different members and extra deployment paths.
 
 No Agent release archive, native package, selector or live server is a target of
 the server archive normalizer. Historical qualified bytes remain immutable.

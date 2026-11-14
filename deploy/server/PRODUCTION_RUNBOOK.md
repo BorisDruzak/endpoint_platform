@@ -379,6 +379,14 @@ reference. Before any separately authorized retirement, check pending
 deployments, restore and audit records, external aliases and references that a
 running process may reopen later. Repeat the inventory immediately before any move.
 
+From the operator checkout, use
+`python -m tools.release.verify_server_release_payload ARCHIVE RELEASE_DIR`
+to compare a retained source archive with a deployed tree or a scratch restore.
+Record the archive SHA-256 and every extra path before approving a retirement.
+For a linked `venv`, record and retain its physical target. Complete the
+protected extraction and metadata checks in section 4 and verify the chosen
+archive copy will remain available after retirement.
+
 The worker logs free bytes on the artifact volume at startup and every 15
 minutes. From the release checkout and its server environment, run
 `python -m tools.release.inventory_storage` to reconcile top-level files
