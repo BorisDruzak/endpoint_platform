@@ -66,6 +66,10 @@ Before admitting a different Setup assignment, a bounded pass retires older
 downloads with a matching terminal journal, device identity and native-start
 receipt. Historical Core caches, deployment releases and retirement of catalog
 artifacts remain open.
+STAB-02 foundation: local SQLite records a command ID, device, payload digest,
+and start before execution, then commits completion and outbox together.
+Interrupted starts recover as unknown outcomes. Runtime wiring, exact WSS ACK
+tracking, server replay handling and reconnect verification are still pending.
 Release evidence requires an exact-source CI receipt before publication.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
