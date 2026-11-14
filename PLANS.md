@@ -180,7 +180,12 @@ and verified independent scratch extraction from workstation copies. Both
 deployed trees add a shared venv link. The two archive copies are retained
 under root-owned `/var/backups/endpoint-platform-release-archives`. GNU tar
 scratch restores on Linux passed exact payload, uid/gid, mode and POSIX ACL
-checks. Review of pilot ownership and retirement remains open.
+checks. Production accepted recent DIRPOST and Proxmox health on the current
+server. The two pilot release trees account for 6.4 MiB on disk versus a
+2.16 GiB gap to the release threshold. The next review targets the larger
+historical trees and exact recovery of their private virtual environments.
+The inventory of 82 larger trees is evidence for prioritization. Retirement
+and projected reclaim still require per-tree verification.
 STAB-02 foundation: local SQLite records a command ID, device, payload digest,
 and start before execution, then commits completion and outbox together.
 Interrupted starts recover as unknown outcomes. Negotiated WSS sessions
