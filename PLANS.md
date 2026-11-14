@@ -84,8 +84,10 @@ routes restart through the distribution helper. An enabled failed service
 recovers, a manually stopped service stays stopped, and masks are respected.
 Both rendered templates passed the service-state matrix. Linux Core freeze
 embeds its clean Git revision, and DEB packaging checks the frozen executable
-against the requested source and version. Installed package acceptance and
-APT toolchain provenance remain open.
+against the requested source and version. New Ubuntu and Debian packages
+carry the source revision and Python/PyInstaller versions in their control
+metadata alongside the version and SHA-256 in APT Packages. Installed package
+acceptance remains open.
 STAB-17 source: metadata renewal verifies the pinned signer and all signed index
 and DEB hashes before changing the signed dates. The daily published-index
 check warns with three days remaining. Ubuntu 24.04 accepted a renewed test

@@ -15,6 +15,11 @@ APT-канал и адресная регистрация узла.
 Сборка выполняется на Ubuntu 24.04 amd64 с Python 3.12 из чистого Git checkout.
 PyInstaller сохраняет ревизию исходников в Core. Сборщик DEB сверяет её и
 версию с выводом `endpoint-agent --print-build-identity` перед упаковкой.
+Новые пакеты записывают в DEB и подписанный индекс APT поля
+`X-Endpoint-Source-Revision`, `X-Endpoint-Python-Version` и
+`X-Endpoint-PyInstaller-Version`. В той же записи `Packages` находятся
+`Version` и `SHA256` точного пакета. У ранее выпущенных DEB эти поля могут
+отсутствовать. Для отката используйте оригинальные пакеты.
 
 ```sh
 python -m pip install -r requirements/build-linux.txt

@@ -76,8 +76,9 @@ def test_build_ubuntu_deb_keeps_runtime_and_configuration_in_distinct_paths(tmp_
             return SimpleNamespace(stdout="3.2.191\n")
         if args == [core / "endpoint-agent", "--print-build-identity"]:
             return SimpleNamespace(stdout=json.dumps({
-                "schema_version": "endpoint_linux_core_build_v1",
+                "schema_version": "endpoint_linux_core_build_v2",
                 "version": "3.2.191", "source_revision": revision,
+                "python_version": "3.12.3", "pyinstaller_version": "6.19.0",
             }))
         assert args[:3] == ["dpkg-deb", "--root-owner-group", "--build"]
         root, artifact = map(Path, args[3:])
@@ -89,6 +90,10 @@ def test_build_ubuntu_deb_keeps_runtime_and_configuration_in_distinct_paths(tmp_
         assert (root / "DEBIAN/conffiles").read_text().splitlines() == [
             "/etc/endpoint-agent-ubuntu/agent.conf",
         ]
+        control = (root / "DEBIAN/control").read_text()
+        assert f"X-Endpoint-Source-Revision: {revision}\n" in control
+        assert "X-Endpoint-Python-Version: 3.12.3\n" in control
+        assert "X-Endpoint-PyInstaller-Version: 6.19.0\n" in control
         service = (root / "usr/lib/systemd/system/endpoint-agent-ubuntu.service").read_text()
         assert "User=endpoint-agent-ubuntu\n" in service
         assert "StateDirectory=endpoint-agent-ubuntu\n" in service
@@ -122,7 +127,13 @@ def test_build_ubuntu_deb_rejects_mislabeled_core(tmp_path, monkeypatch):
     assert not output.exists()
 
 
-def test_build_ubuntu_deb_rejects_same_version_from_other_commit(tmp_path, monkeypatch):
+@pytest.mark.parametrize(("source_revision", "python_version", "error"), [
+    ("b" * 40, "3.12.3", "source revision"),
+    ("a" * 40, "3.12.3\nInjected: field", "toolchain versions"),
+])
+def test_build_ubuntu_deb_rejects_invalid_frozen_provenance(
+    tmp_path, monkeypatch, source_revision, python_version, error,
+):
     _ubuntu_host(monkeypatch)
     core = tmp_path / "core"
     (core / "_internal").mkdir(parents=True)
@@ -133,14 +144,15 @@ def test_build_ubuntu_deb_rejects_same_version_from_other_commit(tmp_path, monke
             return SimpleNamespace(stdout="3.2.191\n")
         if args[-1] == "--print-build-identity":
             return SimpleNamespace(stdout=json.dumps({
-                "schema_version": "endpoint_linux_core_build_v1",
+                "schema_version": "endpoint_linux_core_build_v2",
                 "version": "3.2.191", "source_revision": "a" * 40,
+                "python_version": python_version, "pyinstaller_version": "6.19.0",
             }))
         pytest.fail("package generation must not start")
 
     monkeypatch.setattr(ubuntu.subprocess, "run", run)
-    with pytest.raises(ValueError, match="source revision"):
-        ubuntu.build(core, tmp_path / "output", version="3.2.191", source_revision="b" * 40)
+    with pytest.raises(ValueError, match=error):
+        ubuntu.build(core, tmp_path / "output", version="3.2.191", source_revision=source_revision)
 
 
 def test_frozen_core_reports_source_without_enrollment(tmp_path, monkeypatch, capsys):
@@ -151,14 +163,19 @@ def test_frozen_core_reports_source_without_enrollment(tmp_path, monkeypatch, ca
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
-    identity = tmp_path / "endpoint-core-source-revision.txt"
+    identity = tmp_path / "endpoint-core-build.json"
     assert main(["--print-build-identity"]) == 2
-    identity.write_bytes(b"a" * 40 + b"\n")
+    identity.write_text(json.dumps({
+        "source_revision": "a" * 40,
+        "pyinstaller_version": "6.19.0",
+    }), encoding="ascii")
     assert main(["--print-build-identity"]) == 0
     assert json.loads(capsys.readouterr().out) == {
-        "schema_version": "endpoint_linux_core_build_v1",
+        "schema_version": "endpoint_linux_core_build_v2",
         "source_revision": "a" * 40,
         "version": AGENT_VERSION,
+        "python_version": ".".join(map(str, sys.version_info[:3])),
+        "pyinstaller_version": "6.19.0",
     }
 
 
@@ -177,8 +194,9 @@ def test_build_debian12_uses_independent_package_and_state(tmp_path, monkeypatch
             return SimpleNamespace(stdout="3.2.193\n")
         if args == [core / "endpoint-agent", "--print-build-identity"]:
             return SimpleNamespace(stdout=json.dumps({
-                "schema_version": "endpoint_linux_core_build_v1",
+                "schema_version": "endpoint_linux_core_build_v2",
                 "version": "3.2.193", "source_revision": "c" * 40,
+                "python_version": "3.12.3", "pyinstaller_version": "6.19.0",
             }))
         root, artifact = map(Path, args[3:])
         control = (root / "DEBIAN/control").read_text()

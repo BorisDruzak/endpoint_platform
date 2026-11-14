@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import runpy
 import subprocess
 import sys
+from importlib.metadata import version
 from pathlib import Path
 
 import pytest
@@ -240,8 +242,20 @@ def test_windows_core_artifact_excludes_all_optional_runtime_packages(
 
 
 @pytest.mark.parametrize("platform", ("linux", "windows"))
-def test_core_specs_build_only_the_headless_runtime(platform: str, tmp_path: Path, setup_client_input: Path) -> None:
+def test_core_specs_build_only_the_headless_runtime(
+    platform: str, tmp_path: Path, setup_client_input: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Changing a core package back to a GUI or legacy entrypoint is a bug."""
+    if platform == "linux":
+        def git_output(args, **kwargs):
+            assert kwargs["cwd"] == PROJECT_ROOT
+            assert args[0] == "git"
+            if args[1:] == ["rev-parse", "HEAD"]:
+                return "a" * 40 + "\n"
+            assert args[1:3] == ["status", "--porcelain"]
+            return ""
+
+        monkeypatch.setattr(subprocess, "check_output", git_output)
     captured = _capture_analysis(
         PROJECT_ROOT / "pc_agent" / f"pyinstaller_endpoint_core_{platform}.spec", tmp_path/'work'
     )
@@ -254,6 +268,13 @@ def test_core_specs_build_only_the_headless_runtime(platform: str, tmp_path: Pat
     ]
     if platform == "windows":
         expected_datas.append((str(setup_client_input), "setup-updater"))
+    else:
+        identity = tmp_path / "work" / "endpoint-core-build.json"
+        expected_datas.append((str(identity), "."))
+        assert json.loads(identity.read_text(encoding="ascii")) == {
+            "source_revision": "a" * 40,
+            "pyinstaller_version": version("PyInstaller"),
+        }
     assert captured["datas"] == expected_datas
     assert not FORBIDDEN_SPEC_IMPORTS.intersection(captured["hiddenimports"])
     assert FORBIDDEN_SPEC_IMPORTS.issubset(captured["excludes"])

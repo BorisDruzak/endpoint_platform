@@ -298,17 +298,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         if sys.platform != "linux" or not getattr(sys, "frozen", False):
             return 2
         try:
-            identity_path = Path(sys._MEIPASS) / "endpoint-core-source-revision.txt"
+            identity_path = Path(sys._MEIPASS) / "endpoint-core-build.json"
             with identity_path.open("rb") as source:
-                revision = source.read(42).decode("ascii").removesuffix("\n")
-        except (OSError, UnicodeError):
+                raw = source.read(257)
+                identity = json.loads(raw.decode("ascii")) if len(raw) <= 256 else None
+        except (OSError, ValueError):
             return 2
-        if not re.fullmatch(r"[0-9a-f]{40}", revision):
+        if not isinstance(identity, dict) or set(identity) != {"source_revision", "pyinstaller_version"}:
+            return 2
+        revision, pyinstaller = identity["source_revision"], identity["pyinstaller_version"]
+        if (
+            not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision)
+            or not isinstance(pyinstaller, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", pyinstaller)
+        ):
             return 2
         print(json.dumps({
-            "schema_version": "endpoint_linux_core_build_v1",
+            "schema_version": "endpoint_linux_core_build_v2",
             "version": AGENT_VERSION,
             "source_revision": revision,
+            "python_version": ".".join(map(str, sys.version_info[:3])),
+            "pyinstaller_version": pyinstaller,
         }))
         return 0
     if args.print_server_health:

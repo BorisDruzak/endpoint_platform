@@ -85,12 +85,21 @@ def build(
         embedded = json.loads(identity) if len(identity) <= 512 else None
     except (subprocess.SubprocessError, ValueError) as error:
         raise ValueError("frozen core source revision could not be verified") from error
-    if embedded != {
-        "schema_version": "endpoint_linux_core_build_v1",
-        "version": version,
-        "source_revision": source_revision,
-    }:
+    if (
+        not isinstance(embedded, dict)
+        or embedded.get("schema_version") != "endpoint_linux_core_build_v2"
+        or embedded.get("version") != version or embedded.get("source_revision") != source_revision
+    ):
         raise ValueError("frozen core source revision or version does not match package request")
+    toolchain = {
+        "X-Endpoint-Python-Version": embedded.get("python_version"),
+        "X-Endpoint-PyInstaller-Version": embedded.get("pyinstaller_version"),
+    }
+    if any(not isinstance(value, str) or not VERSION.fullmatch(value) for value in toolchain.values()):
+        raise ValueError("frozen core does not report canonical toolchain versions")
+    provenance = f"X-Endpoint-Source-Revision: {source_revision}\n" + "".join(
+        f"{field}: {value}\n" for field, value in toolchain.items()
+    )
 
     package_version = f"{version}-{profile.revision}"
     output.mkdir(parents=True, exist_ok=True)
@@ -150,6 +159,7 @@ def build(
             f"Depends: libc6 (>= {profile.glibc}), systemd, init-system-helpers, iproute2, util-linux{extra_dependencies}\n"
             f"{conflicts}"
             f"Installed-Size: {(installed_bytes + 1023) // 1024}\n"
+            f"{provenance}"
             f"Description: Endpoint Platform agent for {profile.label}\n"
             " Collects host and server-role context through the Endpoint Gateway.\n",
             encoding="ascii",
