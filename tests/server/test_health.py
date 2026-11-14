@@ -559,7 +559,7 @@ async def test_worker_runs_payload_cleanup_on_minute_cadence_independently_of_sn
         ("cleanup_context_collections", "cleanup_context_collections_with_backlog"),
         ("cleanup_operation_results", "cleanup_operation_results"),
         ("cleanup_module_step_results", "cleanup_module_step_results_with_backlog"),
-        ("retain_security_events", "retain_security_events"),
+        ("retain_security_events", "retain_security_events_with_backlog"),
     ):
         monkeypatch.setattr(
             "endpoint_server.worker." + implementation,

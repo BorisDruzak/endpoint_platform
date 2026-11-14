@@ -118,6 +118,8 @@ in each committed batch, using the existing reads and preserving the current
 retention predicates.
 Snapshot retention reports overdue age for committed deletions under
 time-based policies. Count-based baseline and inventory have no deadline.
+Security and power retention measure overdue age from the rows actually
+deleted by each committed batch.
 Other data-queue ages remain open.
 STAB-09 source: explicit Core transfer total/connect/idle
 timeouts with matching recovery-supervisor budget. Slow and stalled loopback

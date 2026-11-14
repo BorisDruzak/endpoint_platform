@@ -20,6 +20,7 @@ from endpoint_server.context.retention import (
     cleanup_raw_context_payloads_with_backlog, retain_context_snapshots_with_backlog,
 )
 from endpoint_server.context.scheduler import ContextScheduleBatch, schedule_due_collections_with_backlog
+from endpoint_server.db.retention import EventRetentionBatch
 from endpoint_server.db.session import SessionProvider, create_session_provider
 from endpoint_server.enrollment.delivery import cleanup_expired_retry_envelopes, enrollment_retry_backlog_age
 from endpoint_server.operations.service import expire_operations, operation_expiry_backlog_age
@@ -27,8 +28,8 @@ from endpoint_server.operations.evidence import (
     StepCleanupBatch, cleanup_module_step_results_with_backlog,
     cleanup_operation_results, operation_result_cleanup_backlog_age,
 )
-from endpoint_server.security.retention import retain_security_events
-from endpoint_server.power.retention import retain_power_events
+from endpoint_server.security.retention import retain_security_events_with_backlog
+from endpoint_server.power.retention import retain_power_events_with_backlog
 from endpoint_server.activity.analytics_store import analytics_backlog_age, rebuild_daily, retain_analytics
 from endpoint_server.setup_updates.preparation import advance_preparations, setup_preparation_backlog_age
 from endpoint_server.setup_updates.scheduler import schedule_one
@@ -106,7 +107,7 @@ class MaintenanceFailure(Exception):
 
 
 def _committed_batch_backlog_age(result: object) -> float | None:
-    if isinstance(result, (ContextCleanupBatch, ContextScheduleBatch, StepCleanupBatch)):
+    if isinstance(result, (ContextCleanupBatch, ContextScheduleBatch, EventRetentionBatch, StepCleanupBatch)):
         return result.oldest_due_age_seconds
     return None
 
@@ -245,11 +246,14 @@ async def run_worker(
                     committed_backlog=_committed_batch_backlog_age,
                 )
                 for name, job in (
-                    ("retain_security_events", retain_security_events),
-                    ("retain_power_events", retain_power_events),
-                    ("retain_analytics", lambda session: retain_analytics(session, policy=settings.activity_analytics)),
+                    ("retain_security_events", retain_security_events_with_backlog),
+                    ("retain_power_events", retain_power_events_with_backlog),
                 ):
-                    await jobs.run(name, job, due_at=next_payload)
+                    await jobs.run(name, job, due_at=next_payload, committed_backlog=_committed_batch_backlog_age)
+                await jobs.run(
+                    "retain_analytics", lambda session: retain_analytics(session, policy=settings.activity_analytics),
+                    due_at=next_payload,
+                )
                 next_payload = loop.time() + cleanup_interval_seconds
             if loop.time() >= next_schedule:
                 await jobs.run(

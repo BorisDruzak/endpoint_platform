@@ -592,6 +592,9 @@ request time plus the health profile retention interval.
 For `retain_context_snapshots`, the age covers snapshots deleted by the
 committed batch under time-based retention rules. Baseline and inventory
 use version counts and do not contribute to this age.
+For `retain_security_events` and `retain_power_events`, the age covers the
+events actually deleted by the committed batch. Security events use their
+stored expiry. Power events use occurrence time plus 30 days.
 WSS health is a separate operational signal.
 
 Job execution budgets are 15 to 30 seconds, including all transactions in a
