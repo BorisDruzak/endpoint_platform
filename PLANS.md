@@ -177,8 +177,10 @@ records before any retirement.
 The [first restore comparison](docs/verification/2026-11-15-server-release-restore-inventory.md)
 matched all archive entries for two historical deployments against production
 and verified independent scratch extraction from workstation copies. Both
-deployed trees add a shared venv link. Durable archive placement and the
-remaining retirement checks are open.
+deployed trees add a shared venv link. The two archive copies are retained
+under root-owned `/var/backups/endpoint-platform-release-archives`. GNU tar
+scratch restores on Linux passed exact payload, uid/gid, mode and POSIX ACL
+checks. Review of pilot ownership and retirement remains open.
 STAB-02 foundation: local SQLite records a command ID, device, payload digest,
 and start before execution, then commits completion and outbox together.
 Interrupted starts recover as unknown outcomes. Negotiated WSS sessions
