@@ -12,7 +12,10 @@ APT-канал и адресная регистрация узла.
 
 Версией Core управляет DEB. Служба использует `--package-managed-updates`, поэтому Core не запрашивает задания на обновление из общего канала Linux.
 
-Сборка выполняется на Ubuntu 24.04 amd64 с Python 3.12 из чистого Git checkout.
+Сборка выполняется на Ubuntu 24.04 amd64 с Python 3.12 из чистого Git checkout
+в отдельном виртуальном окружении без системных Python-пакетов.
+На Ubuntu системный `pkg_resources` может попасть в анализ PyInstaller и
+вызвать ошибку импорта при запуске уже замороженного Core.
 PyInstaller сохраняет ревизию исходников в Core. Сборщик DEB сверяет её и
 версию с выводом `endpoint-agent --print-build-identity` перед упаковкой.
 Новые пакеты записывают в DEB и подписанный индекс APT поля
@@ -22,9 +25,11 @@ PyInstaller сохраняет ревизию исходников в Core. Сб
 отсутствовать. Для отката используйте оригинальные пакеты.
 
 ```sh
-python -m pip install -r requirements/build-linux.txt
-python -m PyInstaller --noconfirm pc_agent/pyinstaller_endpoint_core_linux.spec
-python tools/build_ubuntu_agent_deb.py --core dist/endpoint-agent --output dist/ubuntu \
+python3.12 -m venv ../endpoint-linux-build-venv
+../endpoint-linux-build-venv/bin/python -m pip install -r requirements/build-linux.txt
+../endpoint-linux-build-venv/bin/python -m PyInstaller --noconfirm pc_agent/pyinstaller_endpoint_core_linux.spec
+dist/endpoint-agent/endpoint-agent --print-build-identity
+../endpoint-linux-build-venv/bin/python tools/build_ubuntu_agent_deb.py --core dist/endpoint-agent --output dist/ubuntu \
   --version 3.2.192 --source-revision "$(git rev-parse HEAD)"
 ```
 
