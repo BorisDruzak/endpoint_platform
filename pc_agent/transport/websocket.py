@@ -458,6 +458,10 @@ class MigrationFallbackGatewayTransport:
         except GatewayTransportUnavailable as error:
             return await self._switch_to_fallback(error, failed=self._primary)
 
+    @property
+    def sequential_command_polling(self) -> bool:
+        return getattr(self._active, "sequential_command_polling", False)
+
     async def receive(self) -> GatewayInboundV1:
         active = self._active
         try:

@@ -2,11 +2,20 @@
 
 ## Runtime boundary
 
-`runtime/lifecycle.py` assigns each Gateway connection one command task and
-a FIFO of up to eight waiting commands. The receive loop continues to route
-policy and telemetry ACKs while that task awaits execution. Overflow returns
-a failed command result with `AGENT_COMMAND_QUEUE_FULL`. Connection teardown
-cancels the task and discards the in-memory queue.
+`runtime/lifecycle.py` assigns each Gateway WSS connection one command task and
+a FIFO of up to eight waiting commands. Policy and telemetry ACKs continue during
+execution. Overflow returns `AGENT_COMMAND_QUEUE_FULL`. HTTP pull waits for the
+current result before requesting the next command, including migration fallback.
+Commands that expire while queued are skipped and the server expires their
+operations. Connection teardown cancels execution and discards the in-memory queue.
+
+`runtime/command_worker.py` starts the fixed Core entrypoint for one allowlisted
+command over bounded stdin/stdout frames. It passes the local network policy,
+checks result identity and assigns the worker to a Windows Job or POSIX process
+group before dispatch. Fixed POSIX probes inherit that process group. Execution
+uses the earlier of the command deadline and the capability budget. The maximum
+is 45 seconds for context, 10 for DNS, 25 for TCP, 35 for ping, and 12 for other
+read-only commands. Timeout and cancellation terminate the owned process tree.
 
 Windows inventory-directed Setup and its provisioner use
 `core/device_fingerprint.collect_windows_inventory_fingerprint`. The original

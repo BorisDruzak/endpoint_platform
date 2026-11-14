@@ -255,6 +255,10 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments == ["--gateway-command-worker"]:
+        from pc_agent.runtime.command_worker import worker_main
+
+        return worker_main()
     if arguments == ["--windows-power-read"]:
         from pc_agent.platform.windows.power_events import read_worker_main
 

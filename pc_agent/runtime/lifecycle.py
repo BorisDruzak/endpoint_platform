@@ -590,9 +590,16 @@ async def _receive_loop(
         inbound = await transport.receive()
         if inbound.root.kind == "command":
             command = inbound.root.payload
+            if command.deadline_at <= datetime.now(UTC):
+                continue
+            if getattr(transport, "sequential_command_polling", False):
+                await _execute_command(transport, executor, command, completion_sink)
+                continue
             try:
                 commands.put_nowait(command)
             except asyncio.QueueFull:
+                if command.deadline_at <= datetime.now(UTC):
+                    continue
                 await _ack_command(transport, command)
                 await transport.send_result(AgentResultV1(
                     schema_version="agent_result_v1",
@@ -625,7 +632,8 @@ async def _command_loop(
     while True:
         command = await commands.get()
         try:
-            await _execute_command(transport, executor, command, completion_sink)
+            if command.deadline_at > datetime.now(UTC):
+                await _execute_command(transport, executor, command, completion_sink)
         finally:
             commands.task_done()
 
@@ -743,7 +751,9 @@ async def _execute_command(
         duration_ms=max(0, int((time.monotonic() - started_at) * 1000)),
         completion_sink=completion_sink,
     )
-    await transport.send_result(result)
+    # The Gateway expires operations itself and rejects late result frames.
+    if result.status != "expired" and command.deadline_at > datetime.now(UTC):
+        await transport.send_result(result)
 
 
 def emit_command_completed_marker(

@@ -996,7 +996,7 @@ async def test_executor_startup_failure_returns_runtime_error(tmp_path: Path) ->
 
 
 def _command(capability: str) -> AgentCommandV1:
-    created_at = datetime(2026, 8, 1, 9, 0, tzinfo=UTC)
+    created_at = datetime.now(UTC)
     return AgentCommandV1.model_construct(
         schema_version="agent_command_v1",
         command_id=UUID("00000000-0000-4000-8000-000000000401"),
@@ -1538,6 +1538,7 @@ async def test_production_http_attempt_preserves_update_poll_deadline_through_li
     assert update_runtime.calls == expected_update_polls
     assert sessions == []
 
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("overflow", [False, True])
 async def test_connected_runtime_receives_acks_while_command_waits(overflow: bool) -> None:
@@ -1618,3 +1619,92 @@ async def test_connected_runtime_receives_acks_while_command_waits(overflow: boo
         with pytest.raises(asyncio.CancelledError):
             await task
     assert released.is_set()
+
+
+@pytest.mark.asyncio
+async def test_connected_http_pull_waits_for_result_before_next_request() -> None:
+    from pc_agent.runtime.lifecycle import _run_connected
+    from pc_agent.transport.base import GatewayIdle
+
+    command = _command("context.diagnostic.collect")
+    sent = []
+
+    class Executor:
+        async def execute(self, received):
+            await asyncio.sleep(0)
+            return AgentResultV1(
+                schema_version="agent_result_v1",
+                command_id=received.command_id,
+                device_id=received.device_id,
+                status="failed",
+                completed_at=datetime.now(UTC),
+            )
+
+    class Transport:
+        sequential_command_polling = True
+
+        async def receive(self):
+            if sent:
+                assert sent == ["receive", "ack", "result"]
+                raise GatewayIdle(0)
+            sent.append("receive")
+            return SimpleNamespace(root=SimpleNamespace(kind="command", payload=command))
+
+        async def send_ack(self, _ack):
+            sent.append("ack")
+
+        async def send_result(self, _result):
+            sent.append("result")
+
+    with pytest.raises(GatewayIdle):
+        await _run_connected(
+            Transport(), Executor(), compatibility_agent_hello(), _gateway_hello(), asyncio.sleep,
+        )
+
+
+@pytest.mark.asyncio
+async def test_connected_runtime_skips_command_that_expires_in_queue() -> None:
+    from uuid import uuid4
+
+    from pc_agent.runtime import lifecycle
+
+    first = _command("context.diagnostic.collect")
+    second = first.model_copy(update={
+        "command_id": uuid4(),
+        "deadline_at": first.created_at + timedelta(seconds=1),
+    })
+    command_queue = asyncio.Queue()
+    release = asyncio.Event()
+    processed = asyncio.Event()
+    executions = []
+
+    class Executor:
+        async def execute(self, command):
+            executions.append(command.command_id)
+            await release.wait()
+            return AgentResultV1(
+                schema_version="agent_result_v1", command_id=command.command_id,
+                device_id=command.device_id, status="failed", completed_at=datetime.now(UTC),
+            )
+
+    class Transport:
+        async def send_ack(self, _ack):
+            pass
+
+        async def send_result(self, _result):
+            processed.set()
+
+    worker = asyncio.create_task(lifecycle._command_loop(Transport(), Executor(), command_queue, None))
+    try:
+        command_queue.put_nowait(first)
+        command_queue.put_nowait(second)
+        async with asyncio.timeout(3):
+            await asyncio.sleep(max(0, (second.deadline_at - datetime.now(UTC)).total_seconds()) + 0.02)
+            release.set()
+            await command_queue.join()
+        assert processed.is_set()
+        assert executions == [first.command_id]
+    finally:
+        worker.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await worker

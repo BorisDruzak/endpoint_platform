@@ -10,6 +10,7 @@ from uuid import uuid4
 import pytest
 
 from endpoint_contracts.commands import AgentCommandV1
+from pc_agent.primitives.read_only.command_execution import execute_read_only_agent_command
 from pc_agent.primitives.system_process import handlers
 from pc_agent.runtime.command_executor import CommandExecutor
 from pc_agent.transport.protocol import compatibility_agent_hello
@@ -48,7 +49,7 @@ def test_new_capabilities_are_advertised_and_executable(monkeypatch: pytest.Monk
     monkeypatch.setattr(handlers.psutil, "process_iter", process_iter)
 
     async def run() -> None:
-        executor = CommandExecutor()
+        executor = CommandExecutor(execute_read_only_command=execute_read_only_agent_command)
         await executor.start()
         try:
             for capability, parameters, discriminator in (

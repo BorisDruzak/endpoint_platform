@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Sequence
+from contextvars import ContextVar
 import json
 import os
 from pathlib import Path
@@ -26,6 +27,7 @@ WINDOWS_INVENTORY_TIMEOUT_SECONDS = 8.0
 _HTTP_PROBE_TIMEOUT = 2.0
 TERMINATION_GRACE_SECONDS = 0.2
 _DRAIN_JOIN_GRACE_SECONDS = 0.2
+IN_OWNED_COMMAND_WORKER = ContextVar("IN_OWNED_COMMAND_WORKER", default=False)
 
 LSBLK_COMMAND = ("lsblk", "--bytes", "--json", "--output", "NAME,MODEL,SIZE,WWN,SERIAL,ROTA,TRAN,TYPE")
 IP_LINK_COMMAND = ("ip", "-json", "link", "show")
@@ -378,7 +380,8 @@ def _bounded_limit(max_bytes: int) -> int:
 
 
 def _execute_bounded_command(
-    command: tuple[str, ...], timeout_seconds: float, limit: int, *, check_exit: bool = False,
+    command: tuple[str, ...], timeout_seconds: float, limit: int, *,
+    check_exit: bool = False,
 ) -> bytes:
     """Capture local command output without materializing unbounded pipe streams."""
     popen_options: dict[str, object] = {
@@ -386,7 +389,9 @@ def _execute_bounded_command(
         "stdout": subprocess.PIPE,
         "stderr": subprocess.PIPE,
     }
-    if os.name == "posix":
+    # The outer owner must retain every fixed probe in its process group.
+    own_process_group = os.name == "posix" and not IN_OWNED_COMMAND_WORKER.get()
+    if own_process_group:
         popen_options["start_new_session"] = True
     process = subprocess.Popen(command, **popen_options)
     assert process.stdout is not None
@@ -405,19 +410,23 @@ def _execute_bounded_command(
             if stdout.full.is_set() or stderr.full.is_set() or time.monotonic() >= deadline:
                 timed_out = time.monotonic() >= deadline
                 cleanup_attempted = True
-                cleanup_failed = not _terminate_and_reap(process)
+                cleanup_failed = not _terminate_and_reap(process, own_process_group=own_process_group)
                 break
             time.sleep(0.01)
     finally:
         if not cleanup_attempted and process.poll() is None:
-            cleanup_failed = not _terminate_and_reap(process) or cleanup_failed
+            cleanup_failed = not _terminate_and_reap(process, own_process_group=own_process_group) or cleanup_failed
         elif not cleanup_attempted and not _wait_for_exit(process):
             cleanup_failed = True
         stdout.join(_DRAIN_JOIN_GRACE_SECONDS)
         stderr.join(_DRAIN_JOIN_GRACE_SECONDS)
         if stdout.is_alive() or stderr.is_alive():
             timed_out = True
-            cleanup_failed = not _terminate_pipe_holding_group(process, stdout, stderr) or cleanup_failed
+            cleanup_failed = (
+                not own_process_group
+                or not _terminate_pipe_holding_group(process, stdout, stderr)
+                or cleanup_failed
+            )
 
     if timed_out or cleanup_failed:
         raise subprocess.TimeoutExpired(command, timeout_seconds)
@@ -430,22 +439,26 @@ def _execute_bounded_command(
     return (bytes(stdout.output) + bytes(stderr.output))[:limit]
 
 
-def _terminate_and_reap(process: subprocess.Popen[bytes]) -> bool:
+def _terminate_and_reap(
+    process: subprocess.Popen[bytes], *, own_process_group: bool,
+) -> bool:
     """Stop a child without letting a hung exit path block a collector."""
     if process.poll() is not None:
         return _wait_for_exit(process)
-    if not _signal_process(process, terminate=True):
+    if not _signal_process(process, terminate=True, own_process_group=own_process_group):
         return _wait_for_exit(process)
     if _wait_for_exit(process):
         return True
-    if not _signal_process(process, terminate=False):
+    if not _signal_process(process, terminate=False, own_process_group=own_process_group):
         return _wait_for_exit(process)
     return _wait_for_exit(process)
 
 
-def _signal_process(process: subprocess.Popen[bytes], *, terminate: bool) -> bool:
+def _signal_process(
+    process: subprocess.Popen[bytes], *, terminate: bool, own_process_group: bool = True,
+) -> bool:
     """Signal a process group where supported, without leaking OS cleanup errors."""
-    if os.name == "posix":
+    if os.name == "posix" and own_process_group:
         try:
             os.killpg(process.pid, signal.SIGTERM if terminate else signal.SIGKILL)
         except AttributeError:

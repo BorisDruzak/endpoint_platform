@@ -10,11 +10,12 @@ separately at `5bdb4a6f319628dff135919a2b6f7e819b8f4b22`. See the
 for source parity, package identity, dependencies and pending release evidence.
 
 Current: production source captured, recovery regression verified on both bases.
-STAB-01 first change: per-connection bounded FIFO and one command task;
-357 agent runtime/transport/architecture tests passed on Windows. Next:
-enforce capability budgets and isolate native handlers in owned processes,
-then STAB-03/04/05/06/07/08 in audit order. Release evidence requires an
-exact-source CI receipt before publication.
+STAB-01 source: WSS bounded FIFO and separate command task, fixed worker
+process with capability budgets, deadline admission and owned process-tree
+cleanup. HTTP pull remains sequential. Windows source fault injection covers
+timeout, cancellation and oversized reply. Frozen Core and Linux native
+acceptance remain open. Next code task: STAB-03, then 04/05/06/07/08.
+Release evidence requires an exact-source CI receipt before publication.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
 
