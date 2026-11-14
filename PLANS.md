@@ -19,6 +19,9 @@ session continued sending heartbeat. The next collection completed.
 An explicit service stop with a paused worker left no live worker and
 completed in 30 ms. On the next WSS session the Core sent the interrupted
 command's unknown outcome once and cleared its durable outbox on ACK.
+While a frozen ALT health worker was paused, the same WSS session applied
+a fresh Console policy and persisted cancellation of a second queued
+command. The canceled command never ran after resuming the first worker.
 The Windows frozen Core and other native failure cases remain open.
 STAB-03 source: bounded Windows Core cancellation,
 suspended launch into an owned Job, confirmed tree teardown and updater
