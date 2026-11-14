@@ -16,6 +16,9 @@ cleanup. HTTP pull remains sequential. Windows source fault injection covers
 timeout, cancellation and oversized reply. Installed ALT 3.2.205-alt7
 terminated a stopped health worker at budget expiry while the same WSS
 session continued sending heartbeat. The next collection completed.
+An explicit service stop with a paused worker left no live worker and
+completed in 30 ms. On the next WSS session the Core sent the interrupted
+command's unknown outcome once and cleared its durable outbox on ACK.
 The Windows frozen Core and other native failure cases remain open.
 STAB-03 source: bounded Windows Core cancellation,
 suspended launch into an owned Job, confirmed tree teardown and updater
