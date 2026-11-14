@@ -39,8 +39,14 @@ the selector. A publisher-signed 3.2.206 Setup passed read-only preflight
 from 3.2.192 on VM143 and started one MSI-selected LocalService Core
 during native trial. Without a Gateway, Setup stopped the trial Core
 before restoring the 3.2.192 selector, returned native 67 and restarted
-the source service with unchanged private-file hashes. Online acceptance
-and the installed Core-only updater stop gate remain open.
+the source service with unchanged private-file hashes. The same Setup
+then accepted a fresh WSS trial on the isolated VM142 Gateway, returned
+native 0 and preserved the four fixture files. Installed SCM stopped
+suspended and responsive Core in 10.121 s and 0.534 s. The installed
+Core-only updater preserved the selector when SCM returned 1053, but
+escaped without a terminal report. Source now normalizes the pywin32
+stop exception to the existing recovery path. Installed retest of the
+corrected binary remains open.
 STAB-04 source: durable ALT stop receipt,
 systemd recovery after helper exit, timeout and SIGKILL, and selected Core
 startup with pending present. VM107 isolated systemd fault injection passed
@@ -102,7 +108,10 @@ owned process job, bounds stdout during capture and stops on stderr. Windows
 PowerShell 5.1 verified repeated timeouts, output overflow and child cleanup
 against a synthetic console application. Running the exact signed 1.0.12
 observer preflight functions against the signed VM143 Setup returned the
-expected in-progress result. Scheduled observer acceptance remains open.
+expected in-progress result. The installed 1.0.12 task ran as SYSTEM,
+sent hello and received no assignment from the isolated Gateway after
+temporarily setting aside the settled pointer for the old lab identity.
+The pointer was restored byte-for-byte.
 STAB-13 first change: accepted Windows Core selection retires the exact
 operation ZIP after its durable acceptance record, with path, ACL, identity,
 size and digest checks. The Setup observer retires the verified download for
