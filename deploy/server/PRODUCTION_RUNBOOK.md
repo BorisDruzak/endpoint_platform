@@ -350,6 +350,18 @@ session protection, and strict hostname/CA HTTPS from the workstation after
 the health check. Enable module execution feature flags only after a compatible
 test Agent, target policy, and actual lab operation have been verified.
 
+### Artifact storage review
+
+The worker logs free bytes on the artifact volume at startup and every 15
+minutes. From the release checkout and its server environment, run
+`python -m tools.release.inventory_storage` to reconcile top-level files
+against the Core OTA, Setup OTA, enrollment Setup and Browser Sensor catalogs.
+It reads `DATABASE_URL` and `ARTIFACT_ROOT` and emits a JSON inventory. A
+registered name remains protected even if the corresponding release is
+retired for new assignments. An unclassified file may belong to an upload in
+progress, native distribution, a static service or historical evidence.
+Review those owners and the restore inventory before scheduling any retirement.
+
 ## 8. Release rollback
 
 If the API release fails after migrations have succeeded, use the recorded

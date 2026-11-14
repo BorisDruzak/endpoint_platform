@@ -60,8 +60,10 @@ failure and rollback retire their exact verified ZIP after server ACK.
 Before Windows Core staging, a bounded pass under the update mutex retires
 older ZIP runtime trees with exact provenance and inventory. Selected,
 previous, pending and current native recovery versions are reserved. Trees
-with MSI, retained-runtime or ambiguous ownership are kept. Legacy download
-caches and server artifact retirement remain open.
+with MSI, retained-runtime or ambiguous ownership are kept. The server
+inventory CLI cross-checks artifact names against four release catalogs.
+Historical caches, deployment releases and retirement of catalog artifacts
+remain open.
 Release evidence requires an exact-source CI receipt before publication.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
