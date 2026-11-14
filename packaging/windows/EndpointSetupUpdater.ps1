@@ -352,12 +352,191 @@ function Get-SetupArtifact($job,[string]$destination){
   [IO.File]::Move($partial,$destination)
  }finally{if($output){$output.Dispose()};if($stream){$stream.Dispose()};if($response){$response.Dispose()};$request.Headers.Authorization=$null;$request.Dispose()}
 }
+function Initialize-SetupPreflightProcess {
+ if('EndpointSetupPreflightProcess' -as [type]){return}
+ Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
+using System.IO.Pipes;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
+
+public static class EndpointSetupPreflightProcess {
+ [StructLayout(LayoutKind.Sequential)]
+ struct StartupInfo {
+  public int Size;
+  public IntPtr Reserved, Desktop, Title;
+  public int X, Y, XSize, YSize, XCountChars, YCountChars, FillAttribute, Flags;
+  public short ShowWindow, ReservedSize;
+  public IntPtr ReservedBytes, Input, Output, Error, Attributes;
+ }
+ [StructLayout(LayoutKind.Sequential)]
+ struct ProcessInfo { public IntPtr Process, Thread; public int Pid, Tid; }
+ [StructLayout(LayoutKind.Sequential)]
+ struct JobAccounting {
+  public long UserTime, KernelTime, PeriodUserTime, PeriodKernelTime;
+  public uint PageFaults, TotalProcesses, ActiveProcesses, TerminatedProcesses;
+ }
+ [StructLayout(LayoutKind.Sequential)]
+ struct JobLimits {
+  public long ProcessTime, JobTime;
+  public uint Flags;
+  public UIntPtr MinWorkingSet, MaxWorkingSet;
+  public uint ActiveProcessLimit;
+  public UIntPtr Affinity;
+  public uint PriorityClass, SchedulingClass;
+  public ulong ReadOps, WriteOps, OtherOps, ReadBytes, WriteBytes, OtherBytes;
+  public UIntPtr ProcessMemory, JobMemory, PeakProcessMemory, PeakJobMemory;
+ }
+ [DllImport("kernel32.dll", SetLastError=true)]
+ static extern IntPtr CreateJobObject(IntPtr security, IntPtr name);
+ [DllImport("kernel32.dll", SetLastError=true)]
+ static extern bool SetInformationJobObject(IntPtr job,int kind,ref JobLimits value,int size);
+ [DllImport("kernel32.dll", SetLastError=true)]
+ static extern bool TerminateJobObject(IntPtr job,uint code);
+ [DllImport("kernel32.dll", SetLastError=true)]
+ static extern bool QueryInformationJobObject(IntPtr job,int kind,out JobAccounting value,int size,IntPtr returned);
+ [DllImport("kernel32.dll", SetLastError=true)]
+ static extern bool InitializeProcThreadAttributeList(IntPtr list,int count,int flags,ref IntPtr size);
+ [DllImport("kernel32.dll", SetLastError=true)]
+ static extern bool UpdateProcThreadAttribute(IntPtr list,int flags,IntPtr key,IntPtr value,IntPtr size,IntPtr previous,IntPtr returned);
+ [DllImport("kernel32.dll")]
+ static extern void DeleteProcThreadAttributeList(IntPtr list);
+ [DllImport("kernel32.dll", CharSet=CharSet.Unicode, ExactSpelling=true, SetLastError=true)]
+ static extern bool CreateProcessW(string application,StringBuilder command,IntPtr processSecurity,IntPtr threadSecurity,
+  bool inherit,uint flags,IntPtr environment,string directory,ref StartupInfo startup,out ProcessInfo process);
+ [DllImport("kernel32.dll", SetLastError=true)]
+ static extern uint WaitForSingleObject(IntPtr handle,uint timeout);
+ [DllImport("kernel32.dll", SetLastError=true)]
+ static extern bool GetExitCodeProcess(IntPtr process,out uint code);
+ [DllImport("kernel32.dll", SetLastError=true)]
+ static extern bool PeekNamedPipe(IntPtr pipe,IntPtr buffer,uint size,IntPtr read,out uint available,IntPtr left);
+ [DllImport("kernel32.dll")]
+ static extern bool CloseHandle(IntPtr value);
+
+ static uint ActiveProcessCount(IntPtr job) {
+  JobAccounting accounting;
+  if(!QueryInformationJobObject(job,1,out accounting,Marshal.SizeOf(typeof(JobAccounting)),IntPtr.Zero))
+   throw new Win32Exception();
+  return accounting.ActiveProcesses;
+ }
+ static int BytesAvailable(AnonymousPipeServerStream pipe) {
+  uint available;
+  if(PeekNamedPipe(pipe.SafePipeHandle.DangerousGetHandle(),IntPtr.Zero,0,IntPtr.Zero,out available,IntPtr.Zero))
+   return (int)available;
+  int error=Marshal.GetLastWin32Error();
+  if(error==109 || error==232)return 0;
+  throw new Win32Exception(error);
+ }
+ static IntPtr AllocateHandles(params IntPtr[] handles) {
+  IntPtr memory=Marshal.AllocHGlobal(handles.Length*IntPtr.Size);
+  Marshal.Copy(handles,0,memory,handles.Length);
+  return memory;
+ }
+ static void SetAttribute(IntPtr list,int key,IntPtr value,int count) {
+  if(!UpdateProcThreadAttribute(list,0,new IntPtr(key),value,new IntPtr(count*IntPtr.Size),IntPtr.Zero,IntPtr.Zero))
+   throw new Win32Exception();
+ }
+ static bool ReadOutput(AnonymousPipeServerStream output,AnonymousPipeServerStream error,
+  MemoryStream captured,byte[] buffer) {
+  if(BytesAvailable(error)!=0)throw new InvalidOperationException("preflight_unavailable");
+  int available=BytesAvailable(output);
+  if(captured.Length+available>32768)throw new InvalidOperationException("preflight_unavailable");
+  if(available==0)return false;
+  int read=output.Read(buffer,0,Math.Min(available,buffer.Length));
+  if(read==0)throw new InvalidOperationException("preflight_unavailable");
+  captured.Write(buffer,0,read);
+  return true;
+ }
+
+ public static string Run(string image,int timeoutMilliseconds) {
+  var clock=Stopwatch.StartNew();
+  using(var input=new AnonymousPipeServerStream(PipeDirection.Out,HandleInheritability.Inheritable))
+  using(var output=new AnonymousPipeServerStream(PipeDirection.In,HandleInheritability.Inheritable))
+  using(var error=new AnonymousPipeServerStream(PipeDirection.In,HandleInheritability.Inheritable))
+  using(var captured=new MemoryStream()) {
+   IntPtr job=CreateJobObject(IntPtr.Zero,IntPtr.Zero);
+   if(job==IntPtr.Zero)throw new Win32Exception();
+   ProcessInfo process=new ProcessInfo();
+   IntPtr list=IntPtr.Zero, inherited=IntPtr.Zero, jobs=IntPtr.Zero;
+   bool initialized=false;
+   try {
+    var limits=new JobLimits { Flags=0x2000 }; // KILL_ON_JOB_CLOSE
+    if(!SetInformationJobObject(job,9,ref limits,Marshal.SizeOf(typeof(JobLimits))))throw new Win32Exception();
+    IntPtr size=IntPtr.Zero;
+    InitializeProcThreadAttributeList(IntPtr.Zero,2,0,ref size);
+    if(size==IntPtr.Zero)throw new Win32Exception();
+    list=Marshal.AllocHGlobal(size);
+    if(!InitializeProcThreadAttributeList(list,2,0,ref size))throw new Win32Exception();
+    initialized=true;
+    var startup=new StartupInfo {
+     Size=Marshal.SizeOf(typeof(StartupInfo)), Attributes=list, Flags=0x100,
+     Input=input.ClientSafePipeHandle.DangerousGetHandle(),
+     Output=output.ClientSafePipeHandle.DangerousGetHandle(),
+     Error=error.ClientSafePipeHandle.DangerousGetHandle()
+    };
+    inherited=AllocateHandles(startup.Input,startup.Output,startup.Error);
+    jobs=AllocateHandles(job);
+    // CreateProcess assigns the job before the image runs and inherits only its pipes.
+    SetAttribute(list,0x20002,inherited,3); // HANDLE_LIST
+    SetAttribute(list,0x2000D,jobs,1); // JOB_LIST
+    var command=new StringBuilder("\""+image+"\" --preflight --quiet");
+    if(!CreateProcessW(image,command,IntPtr.Zero,IntPtr.Zero,true,0x08080000,
+     IntPtr.Zero,null,ref startup,out process))throw new Win32Exception();
+    input.Dispose();
+    output.DisposeLocalCopyOfClientHandle();
+    error.DisposeLocalCopyOfClientHandle();
+    byte[] buffer=new byte[4096];
+    while(true) {
+     if(clock.ElapsedMilliseconds>=timeoutMilliseconds)
+      throw new InvalidOperationException("preflight_observation_expired");
+     if(ReadOutput(output,error,captured,buffer))continue;
+     if(ActiveProcessCount(job)==0)break;
+     Thread.Sleep(10);
+    }
+    // Drain bytes written between the last pipe snapshot and the job becoming empty.
+    while(ReadOutput(output,error,captured,buffer)){}
+    uint code;
+    if(!GetExitCodeProcess(process.Process,out code) || code!=0)
+     throw new InvalidOperationException("preflight_unavailable");
+    return new UTF8Encoding(false,true).GetString(captured.ToArray()).TrimStart('\uFEFF');
+   } finally {
+    try {
+     if(process.Process!=IntPtr.Zero && ActiveProcessCount(job)!=0) {
+      if(!TerminateJobObject(job,1))throw new Win32Exception();
+      var cleanup=Stopwatch.StartNew();
+      while((ActiveProcessCount(job)!=0 || WaitForSingleObject(process.Process,0)!=0)
+        && cleanup.ElapsedMilliseconds<5000)Thread.Sleep(10);
+      if(ActiveProcessCount(job)!=0 || WaitForSingleObject(process.Process,0)!=0)
+       throw new InvalidOperationException("preflight_cleanup_failed");
+     }
+    } finally {
+     if(process.Thread!=IntPtr.Zero)CloseHandle(process.Thread);
+     if(process.Process!=IntPtr.Zero)CloseHandle(process.Process);
+     if(initialized)DeleteProcThreadAttributeList(list);
+     Marshal.FreeHGlobal(list);
+     Marshal.FreeHGlobal(inherited);
+     Marshal.FreeHGlobal(jobs);
+     CloseHandle(job);
+    }
+   }
+  }
+ }
+}
+'@
+}
 function Read-SetupPreflight([string]$setup){
- $info=[Diagnostics.ProcessStartInfo]::new();$info.FileName=$setup;$info.Arguments='--preflight --quiet';$info.UseShellExecute=$false;$info.CreateNoWindow=$true;$info.RedirectStandardOutput=$true;$info.RedirectStandardError=$true
- $process=[Diagnostics.Process]::Start($info);$handle=$process.Handle;$stdout=$process.StandardOutput.ReadToEndAsync();$stderr=$process.StandardError.ReadToEndAsync()
- if(!$process.WaitForExit(180000)){throw 'preflight_observation_expired'}
- $exit=$process.ExitCode;$out=$stdout.Result;$err=$stderr.Result;$process.Dispose()
- if($exit -ne 0 -or $out.Length -gt 32768 -or $err.Length){throw 'preflight_unavailable'}
+ Initialize-SetupPreflightProcess
+ try{
+  $out=[EndpointSetupPreflightProcess]::Run($setup,180000)
+ }catch{
+  $cause=$_.Exception.GetBaseException()
+  if($cause.Message -in @('preflight_observation_expired','preflight_cleanup_failed')){throw $cause.Message}
+  throw 'preflight_unavailable'
+ }
  return $out|ConvertFrom-Json
 }
 function Get-LoggedOnUserSessions {

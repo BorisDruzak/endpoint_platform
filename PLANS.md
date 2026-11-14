@@ -45,7 +45,11 @@ private retained bytes and a pending-request recheck before selector commit.
 ALT VM107 verified OpenPGP acceptance with an ephemeral test key and rejected
 missing, changed and mismatched authorizations. The signed RPM launcher and
 authorization from the real publisher still require release qualification.
-Next code task: STAB-12.
+STAB-12 source: the Windows Setup observer starts read-only preflight in an
+owned process job, bounds stdout during capture and stops on stderr. Windows
+PowerShell 5.1 verified repeated timeouts, output overflow and child cleanup
+against a synthetic console application. Signed Setup under the installed
+observer remains a release qualification. Next code task: STAB-13.
 Release evidence requires an exact-source CI receipt before publication.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
