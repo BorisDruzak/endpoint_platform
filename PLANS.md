@@ -112,8 +112,12 @@ of the five historical intents remain open.
 STAB-19: [local Gateway capacity rehearsal](docs/verification/2026-11-14-stab19-gateway-capacity.md)
 measured connection, replacement, command and health telemetry bursts on a
 single Uvicorn process with PostgreSQL 16. The 192-device wave drained in
-10.398 seconds on replacement, with p95 result ACK 3.257 seconds. Linux/TLS
-sustained qualification, outage drills and complete backup restore remain open.
+10.398 seconds on replacement, with p95 result ACK 3.257 seconds.
+[Local recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
+verified same-instance result replay after API restart and tenant database
+disconnection with the API still running, plus worker recovery and restart.
+Linux/TLS sustained qualification, process crash and PostgreSQL instance
+restart drills, and complete backup restore remain open.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
 

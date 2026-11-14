@@ -53,6 +53,24 @@ async def _receive(ws, kind):
 
 async def _sample(client, stack, origin, device_id, instance_id, token, sequence):
     started = perf_counter()
+    ws = await _connect(client, stack, origin, device_id, instance_id, token)
+    hello_seconds = perf_counter() - started
+    command = await _receive(ws, "command")
+    delivery_seconds = perf_counter() - started
+    now = datetime.now(UTC).isoformat()
+    await ws.send_json(_envelope("heartbeat", 1, {
+        "schema_version": "agent_heartbeat_v1", "device_id": str(device_id),
+        "platform": "linux", "agent_version": "4.0.0", "reported_at": now,
+    }))
+    ack_started = perf_counter()
+    await _grant(ws, device_id, command["command_id"])
+    start_seconds = perf_counter() - ack_started
+    result_started = perf_counter()
+    await _send_result(ws, _result(device_id, command["command_id"], sequence))
+    return hello_seconds, delivery_seconds, start_seconds, perf_counter() - result_started
+
+
+async def _connect(client, stack, origin, device_id, instance_id, token):
     ws = await stack.enter_async_context(client.ws_connect(origin, headers={
         "Authorization": f"Bearer {token}", "X-Forwarded-Proto": "https",
         "X-Forwarded-For": "127.0.0.1",
@@ -62,27 +80,23 @@ async def _sample(client, stack, origin, device_id, instance_id, token, sequence
     hello.update(capabilities=["context.health.collect"], protocol_features=[COMMAND_JOURNAL_FEATURE])
     await ws.send_json(_envelope("agent_hello", 0, hello))
     await _receive(ws, "gateway_hello")
-    hello_seconds = perf_counter() - started
-    command = await _receive(ws, "command")
-    delivery_seconds = perf_counter() - started
-    now = datetime.now(UTC).isoformat()
-    await ws.send_json(_envelope("heartbeat", 1, {
-        "schema_version": "agent_heartbeat_v1", "device_id": str(device_id),
-        "platform": "linux", "agent_version": hello["agent_version"], "reported_at": now,
-    }))
-    ack_started = perf_counter()
+    return ws
+
+
+async def _grant(ws, device_id, command_id):
     await ws.send_json(_envelope("command_ack", 2, {
         "schema_version": "agent_command_ack_v1", "device_id": str(device_id),
-        "command_id": command["command_id"], "status": "running", "acknowledged_at": now,
+        "command_id": command_id, "status": "running", "acknowledged_at": datetime.now(UTC).isoformat(),
     }))
     grant = await _receive(ws, "command_start")
-    assert grant["command_id"] == command["command_id"]
-    start_seconds = perf_counter() - ack_started
-    result_started = perf_counter()
+    assert grant["command_id"] == command_id
+
+
+def _result(device_id, command_id, sequence):
     collected_at = datetime.now(UTC).isoformat()
-    await ws.send_json(_envelope("command_result", sequence, {
+    return _envelope("command_result", sequence, {
         "schema_version": "agent_result_v1", "device_id": str(device_id),
-        "command_id": command["command_id"], "status": "succeeded", "completed_at": collected_at,
+        "command_id": command_id, "status": "succeeded", "completed_at": collected_at,
         "result_items": [{
             "schema_version": "device_context_v1", "profile": "health_v1", "collected_at": collected_at,
             "warnings": [], "sections": {
@@ -90,11 +104,14 @@ async def _sample(client, stack, origin, device_id, instance_id, token, sequence
                 "services": [{"name": "endpoint-agent-update.path", "status": "active"}],
             },
         }],
-    }))
+    })
+
+
+async def _send_result(ws, frame):
+    await ws.send_json(frame)
     result = await _receive(ws, "result_ack")
-    assert result["command_id"] == command["command_id"]
-    assert result["result_sequence"] == sequence
-    return hello_seconds, delivery_seconds, start_seconds, perf_counter() - result_started
+    assert result["command_id"] == frame["payload"]["command_id"]
+    assert result["result_sequence"] == frame["sequence"]
 
 
 @pytest.mark.parametrize("size", [8, 32, 96, 192])
