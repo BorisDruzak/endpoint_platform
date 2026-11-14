@@ -18,7 +18,7 @@ from endpoint_server.config import Settings
 from endpoint_server.context.retention import cleanup_context_collections, cleanup_raw_context_payloads, retain_context_snapshots
 from endpoint_server.context.scheduler import ContextScheduleBatch, schedule_due_collections_with_backlog
 from endpoint_server.db.session import SessionProvider, create_session_provider
-from endpoint_server.enrollment.delivery import cleanup_expired_retry_envelopes
+from endpoint_server.enrollment.delivery import cleanup_expired_retry_envelopes, enrollment_retry_backlog_age
 from endpoint_server.operations.service import expire_operations, operation_expiry_backlog_age
 from endpoint_server.operations.evidence import cleanup_module_step_results, cleanup_operation_results
 from endpoint_server.security.retention import retain_security_events
@@ -201,7 +201,7 @@ async def run_worker(
                 next_disk_check = loop.time() + 900.0
             await jobs.run("cleanup_expired_retry_envelopes", lambda session: cleanup_expired_retry_envelopes(
                 session, request_id=f"server_{uuid4().hex}",
-            ), due_at=tick)
+            ), due_at=tick, measure_backlog=enrollment_retry_backlog_age)
             await jobs.run(
                 "expire_operations", expire_operations, due_at=tick,
                 measure_backlog=operation_expiry_backlog_age,

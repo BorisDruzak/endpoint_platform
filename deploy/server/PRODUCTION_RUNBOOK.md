@@ -579,6 +579,8 @@ For `schedule_due_collections`, the log shows the greatest delay among
 collections newly queued by the committed tick. The first collection is due
 at device registration. Subsequent collections are due one profile interval
 after the previous request. Zero can mean the tick queued nothing.
+For `cleanup_expired_retry_envelopes`, the age is time past the oldest
+enrollment delivery expiry, including rows locked by another transaction.
 WSS health is a separate operational signal.
 
 Job execution budgets are 15 to 30 seconds, including all transactions in a

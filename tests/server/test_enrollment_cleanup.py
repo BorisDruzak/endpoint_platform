@@ -54,6 +54,10 @@ class _CleanupSession:
         self.statement = statement
         return _Result(self.rows)
 
+    async def scalar(self, statement: object) -> datetime | None:
+        self.statement = statement
+        return self.rows[0].expires_at if self.rows else None
+
     def add(self, value: object) -> None:
         self.added.append(value)
 
@@ -111,3 +115,16 @@ async def test_cleanup_rejects_unbounded_or_invalid_limit() -> None:
             )
 
     assert session.statement is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ages, expected", [([], 0.0), ([72, 1], 72.0)])
+async def test_retry_envelope_backlog_uses_read_only_oldest_expiry(ages, expected):
+    from endpoint_server.enrollment.delivery import enrollment_retry_backlog_age
+
+    session = _CleanupSession([_envelope(seconds_ago=age) for age in ages])
+    assert await enrollment_retry_backlog_age(session, now=NOW) == expected
+    compiled = str(session.statement.compile(dialect=postgresql.dialect()))
+    assert "ORDER BY enrollment_retry_envelopes.expires_at" in compiled
+    assert "FOR UPDATE" not in compiled
+    assert not session.deleted and not session.added
