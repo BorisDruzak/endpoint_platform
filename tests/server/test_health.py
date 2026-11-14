@@ -585,6 +585,47 @@ async def test_worker_runs_payload_cleanup_on_minute_cadence_independently_of_sn
 
 
 @pytest.mark.asyncio
+async def test_worker_periodic_jobs_keep_cadence_after_a_slow_batch(monkeypatch):
+    from types import SimpleNamespace
+
+    from endpoint_server import worker
+
+    now = 0.0
+    due_times = {"retain_security_events": [], "schedule_due_collections": [], "retain_context_snapshots": []}
+
+    async def sleep(delay):
+        nonlocal now
+        now += delay
+        if now >= 30:
+            raise asyncio.CancelledError
+
+    async def run_job(_self, name, _job, *, due_at, **_kwargs):
+        nonlocal now
+        if name in due_times:
+            due_times[name].append(due_at)
+        if name == "retain_security_events":
+            now += 3
+
+    async def disk_check(_root):
+        pass
+
+    clock = SimpleNamespace(time=lambda: now)
+    monkeypatch.setattr(worker, "asyncio", SimpleNamespace(get_running_loop=lambda: clock, sleep=sleep))
+    monkeypatch.setattr(worker.MaintenanceJobs, "run", run_job)
+    monkeypatch.setattr(worker, "_report_artifact_disk_pressure", disk_check)
+    with pytest.raises(asyncio.CancelledError):
+        await run_worker(
+            _settings(), WorkerSessionProvider(), cleanup_interval_seconds=10,
+            context_schedule_interval_seconds=10, context_retention_interval_seconds=10,
+        )
+    assert due_times == {
+        "retain_security_events": [10, 20],
+        "schedule_due_collections": [10, 20],
+        "retain_context_snapshots": [10, 20],
+    }
+
+
+@pytest.mark.asyncio
 async def test_worker_budget_reports_stalled_job_and_allows_other_jobs(monkeypatch, caplog):
     from endpoint_server import worker
 

@@ -190,6 +190,13 @@ class MaintenanceJobs:
         )
 
 
+def _next_periodic_deadline(due_at: float, interval: float, now: float) -> float:
+    following = due_at + interval
+    # Keep the scheduled phase until work overruns an entire interval.
+    # Skip the missed tick instead of replaying costly work immediately.
+    return following if following > now else now + interval
+
+
 async def run_worker(
     settings: Settings,
     session_provider: SessionProvider | None = None,
@@ -266,23 +273,20 @@ async def run_worker(
                     lambda session: retain_analytics_with_backlog(session, policy=settings.activity_analytics),
                     due_at=next_payload, committed_backlog=_committed_batch_backlog_age,
                 )
-                next_payload = loop.time() + cleanup_interval_seconds
+                next_payload = _next_periodic_deadline(next_payload, cleanup_interval_seconds, loop.time())
             if loop.time() >= next_schedule:
                 await jobs.run(
                     "schedule_due_collections", schedule_due_collections_with_backlog, due_at=next_schedule,
                     committed_backlog=_committed_batch_backlog_age,
                 )
-                next_schedule = loop.time() + context_schedule_interval_seconds
+                next_schedule = _next_periodic_deadline(next_schedule, context_schedule_interval_seconds, loop.time())
             if loop.time() >= next_retention:
                 await jobs.run(
                     "retain_context_snapshots", retain_context_snapshots_with_backlog, due_at=next_retention,
                     committed_backlog=_committed_batch_backlog_age,
                 )
-                next_retention = loop.time() + context_retention_interval_seconds
-            next_tick = tick + cleanup_interval_seconds
-            now = loop.time()
-            # Skip overrun ticks instead of immediately replaying costly work.
-            tick = next_tick if next_tick > now else now + cleanup_interval_seconds
+                next_retention = _next_periodic_deadline(next_retention, context_retention_interval_seconds, loop.time())
+            tick = _next_periodic_deadline(tick, cleanup_interval_seconds, loop.time())
             await asyncio.sleep(max(0.0, tick - loop.time()))
     finally:
         if owns_provider:

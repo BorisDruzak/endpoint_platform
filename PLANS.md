@@ -127,6 +127,9 @@ committed during a worker tick. Lock contention without a sample is unknown.
 Worktime request generation measures the time since the oldest prior scan in
 the committed batch. A first scan has no earlier cursor. Worktime retention
 reports overdue age from deleted records under the configured personnel policy.
+Periodic payload cleanup, context collection scheduling and snapshot retention
+advance from their scheduled deadlines. A batch finishing within the interval
+no longer skips the following tick.
 Deployed-worker verification remains open.
 STAB-09 source: explicit Core transfer total/connect/idle
 timeouts with matching recovery-supervisor budget. Slow and stalled loopback
