@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+import pytest_asyncio
+from sqlalchemy import select, text
+from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from endpoint_contracts import AgentCommandAckV1, AgentResultV1
+from endpoint_contracts import AgentCommandAckV1, AgentHeartbeatV1, AgentResultV1
 from endpoint_contracts.gateway_ws import CommandEnvelopeV1
 from endpoint_server.context.models import ContextCollection
 from endpoint_server.db.models import (
@@ -25,7 +28,7 @@ from endpoint_server.gateway.connection_registry import (
 )
 from endpoint_server.gateway.presence_service import PresenceService
 
-from .conftest import agent_hello, seed_device
+from .conftest import _GATEWAY_TABLES, agent_hello, seed_device
 
 
 class RecordingSocket:
@@ -498,3 +501,204 @@ async def test_heartbeat_updates_server_presence_without_replacing_source_addres
     assert record is not None
     assert record.source_address == "192.168.101.20"
     assert record.last_seen_at.replace(tzinfo=UTC) == observed_at
+
+
+@pytest_asyncio.fixture(params=["sqlite", "postgresql"])
+async def reconnect_provider(request, session_provider):
+    if request.param == "sqlite":
+        yield session_provider
+        return
+
+    url = os.getenv("ENDPOINT_TEST_POSTGRES_URL")
+    if not url:
+        pytest.skip("set ENDPOINT_TEST_POSTGRES_URL to a disposable loopback PostgreSQL server")
+    parsed = make_url(url)
+    if parsed.host not in {"127.0.0.1", "localhost", "::1"} or parsed.query:
+        pytest.fail("WSS concurrency tests require a disposable loopback PostgreSQL server")
+    schema = f"gateway_reconnect_{uuid4().hex}"
+    engine = create_async_engine(
+        parsed.set(drivername="postgresql+asyncpg"),
+        connect_args={"server_settings": {"search_path": schema, "lock_timeout": "3s"}},
+    )
+    tables = set()
+
+    def add_table(table):
+        if table not in tables:
+            tables.add(table)
+            for key in table.foreign_keys:
+                add_table(key.column.table)
+
+    for table in _GATEWAY_TABLES:
+        add_table(table)
+    try:
+        async with engine.begin() as db:
+            await db.execute(text(f'CREATE SCHEMA "{schema}"'))
+            await db.run_sync(lambda sync: DeviceSession.metadata.create_all(sync, tables=tables))
+        yield async_sessionmaker(engine, expire_on_commit=False)
+    finally:
+        try:
+            async with engine.begin() as db:
+                await db.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+        finally:
+            await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reverse", [False, True])
+async def test_concurrent_handshake_preserves_database_owner(reconnect_provider, monkeypatch, reverse):
+    session_provider = reconnect_provider
+    import asyncio
+    import json
+
+    from endpoint_server.gateway.ws_routes import connect_agent
+    from .conftest import FakeGatewaySocket
+
+    device = await seed_device(session_provider)
+    instance_id = uuid4()
+    registry = ConnectionRegistry()
+    first_committed = asyncio.Event()
+    release = asyncio.Event()
+    second_waiting = asyncio.Event()
+    opens = []
+    original_open = PresenceService.open_session
+
+    class ObservedLock(asyncio.Lock):
+        async def acquire(self):
+            if self.locked():
+                second_waiting.set()
+            return await super().acquire()
+
+    lock = ObservedLock()
+    monkeypatch.setattr(registry, "handshake_lock", lambda _: lock)
+
+    async def paused_open(self, **kwargs):
+        presence = await original_open(self, **kwargs)
+        opens.append(presence)
+        if len(opens) == 1:
+            first_committed.set()
+            await release.wait()
+        return presence
+
+    monkeypatch.setattr(PresenceService, "open_session", paused_open)
+
+    class Socket(FakeGatewaySocket):
+        def __post_init__(self):
+            super().__post_init__()
+            self.app.state.gateway_connection_registry = registry
+            self.hello_sent = asyncio.Event()
+            self.inbound = asyncio.Queue()
+            self.closed = []
+
+        async def accept(self):
+            pass
+
+        async def receive(self):
+            return await self.inbound.get()
+
+        async def send_json(self, message):
+            if message["kind"] == "gateway_hello":
+                self.hello_sent.set()
+
+        async def close(self, code):
+            self.closed.append(code)
+            self.inbound.put_nowait({"type": "websocket.disconnect"})
+
+    sockets = [Socket(session_provider), Socket(session_provider)]
+    first, second = sockets[::-1] if reverse else sockets
+    envelope = {
+        "schema_version": "gateway_ws_envelope_v1",
+        "kind": "agent_hello", "sequence": 0,
+        "payload": agent_hello(device.id, instance_id=instance_id),
+    }
+    first.inbound.put_nowait({"type": "websocket.receive", "text": json.dumps(envelope)})
+    second.inbound.put_nowait({"type": "websocket.receive", "text": json.dumps(envelope)})
+    tasks = [asyncio.create_task(connect_agent(first))]
+    try:
+        async with asyncio.timeout(6):
+            await first_committed.wait()
+            tasks.append(asyncio.create_task(connect_agent(second)))
+            await second_waiting.wait()
+            assert len(opens) == 1
+            release.set()
+            await second.hello_sent.wait()
+            live = await registry.get(device.id)
+            assert live.websocket is second and live.session_id == opens[1].session_id
+            async with session_provider() as db:
+                active = (await db.scalars(select(DeviceSession).where(
+                    DeviceSession.device_id == device.id, DeviceSession.closed_at.is_(None),
+                ))).all()
+            assert [session.id for session in active] == [live.session_id]
+            await tasks[0]
+            assert first.closed == [4001] and not second.closed
+            assert await registry.get(device.id) is live
+    finally:
+        release.set()
+        for socket in sockets:
+            socket.inbound.put_nowait({"type": "websocket.disconnect"})
+        async with asyncio.timeout(5):
+            await asyncio.gather(*tasks)
+
+
+@pytest.mark.asyncio
+async def test_postgresql_heartbeat_and_handshake_lock_session_before_instance(reconnect_provider):
+    import asyncio
+
+    from sqlalchemy import event
+
+    if reconnect_provider.kw["bind"].dialect.name != "postgresql":
+        pytest.skip("row locking requires PostgreSQL")
+    device = await seed_device(reconnect_provider)
+    instance_id = uuid4()
+    old = await _open_session(reconnect_provider, device.id, instance_id)
+    presence = PresenceService(reconnect_provider)
+    lock_order = []
+    engine = reconnect_provider.kw["bind"]
+
+    def record_locks(_connection, _cursor, statement, *_):
+        if not statement.rstrip().endswith("FOR UPDATE"):
+            return
+        for table in ("device_sessions", "device_instances"):
+            if f"FROM {table}" in statement:
+                lock_order.append((asyncio.current_task().get_name(), table))
+
+    event.listen(engine.sync_engine, "before_cursor_execute", record_locks)
+    try:
+        # Put heartbeat ahead of handshake at the session lock. Both requests
+        # use one instance, the case that deadlocks under the inverse order.
+        async with reconnect_provider() as db:
+            await db.scalar(select(DeviceSession).where(
+                DeviceSession.id == old.session_id,
+            ).with_for_update())
+            heartbeat = asyncio.create_task(presence.record_heartbeat(
+                device_id=device.id, session_id=old.session_id,
+                heartbeat=AgentHeartbeatV1(
+                    schema_version="agent_heartbeat_v1", device_id=device.id,
+                    platform="linux", agent_version="4.0.0", reported_at=datetime.now(UTC),
+                ),
+            ), name="heartbeat")
+            replacement = None
+            try:
+                async with asyncio.timeout(5):
+                    while ("heartbeat", "device_sessions") not in lock_order:
+                        await asyncio.sleep(0.01)
+                    replacement = asyncio.create_task(
+                        _open_session(reconnect_provider, device.id, instance_id), name="handshake",
+                    )
+                    while ("handshake", "device_sessions") not in lock_order:
+                        await asyncio.sleep(0.01)
+                    await db.commit()
+                    await asyncio.gather(heartbeat, replacement)
+            finally:
+                if replacement is not None and not replacement.done():
+                    replacement.cancel()
+                if not heartbeat.done():
+                    heartbeat.cancel()
+                await asyncio.gather(*(task for task in (heartbeat, replacement) if task), return_exceptions=True)
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", record_locks)
+    assert [table for task, table in lock_order if task == "heartbeat"] == [
+        "device_sessions", "device_instances",
+    ]
+    assert [table for task, table in lock_order if task == "handshake"] == [
+        "device_sessions", "device_instances",
+    ]

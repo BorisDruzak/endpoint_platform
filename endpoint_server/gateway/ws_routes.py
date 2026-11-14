@@ -190,6 +190,9 @@ async def connect_agent(websocket: WebSocket) -> None:
 
     await websocket.accept()
     presence: GatewayPresence | None = None
+    connection: GatewayConnection | None = None
+    published = False
+    registry = websocket.app.state.gateway_connection_registry
     close_reason = "disconnected"
     device_id = authenticated.principal.device.id
     presence_service = PresenceService(websocket.app.state.session_provider)
@@ -218,11 +221,6 @@ async def connect_agent(websocket: WebSocket) -> None:
                     await _send_safe_error(websocket, "agent_upgrade_required")
                 await websocket.close(code=1002)
                 return
-        presence = await presence_service.open_session(
-            device_id=device_id,
-            hello=first.payload,
-            source_address=str(authenticated.source_address),
-        )
         effective_capabilities = [
             capability
             for capability in first.payload.capabilities
@@ -237,16 +235,28 @@ async def connect_agent(websocket: WebSocket) -> None:
                 )
             )
         ]
-        connection = GatewayConnection(
-            device_id=device_id,
-            session_id=presence.session_id,
-            websocket=websocket,
-            agent_version=first.payload.agent_version,
-            platform=first.payload.platform,
-            effective_capabilities=frozenset(effective_capabilities),
-            protocol_features=frozenset(first.payload.protocol_features),
-        )
-        await websocket.app.state.gateway_connection_registry.register(connection)
+        async with registry.handshake_lock(device_id):
+            await registry.require_capacity(device_id)
+            presence = await presence_service.open_session(
+                device_id=device_id,
+                hello=first.payload,
+                source_address=str(authenticated.source_address),
+            )
+            connection = GatewayConnection(
+                device_id=device_id,
+                session_id=presence.session_id,
+                websocket=websocket,
+                agent_version=first.payload.agent_version,
+                platform=first.payload.platform,
+                effective_capabilities=frozenset(effective_capabilities),
+                protocol_features=frozenset(first.payload.protocol_features),
+            )
+            previous = await registry.publish(connection)
+            published = True
+        if previous is not None:
+            await registry.close_replaced(previous)
+        if await registry.get(device_id) is not connection:
+            return
         async with websocket.app.state.session_provider() as session:
             await queue_connect_refreshes(
                 session,
@@ -264,6 +274,8 @@ async def connect_agent(websocket: WebSocket) -> None:
                 policy_readiness = (
                     "not_required" if effective_policy is None else "required"
                 )
+        if await registry.get(device_id) is not connection:
+            return
         await connection.send(
             GatewayHelloEnvelopeV1(
                 schema_version="gateway_ws_envelope_v1",
@@ -293,6 +305,8 @@ async def connect_agent(websocket: WebSocket) -> None:
                 await session.commit()
             if policy_delivery is not None:
                 await connection.send(policy_delivery)
+        if await registry.get(device_id) is not connection:
+            return
         await command_service.deliver_next(
             device_id,
             presence.session_id,
@@ -309,6 +323,8 @@ async def connect_agent(websocket: WebSocket) -> None:
                 ),
                 timeout=_HEARTBEAT_TIMEOUT_SECONDS,
             )
+            if await registry.get(device_id) is not connection:
+                return
             if isinstance(envelope, HeartbeatEnvelopeV1):
                 await presence_service.record_heartbeat(
                     device_id=device_id,
@@ -437,16 +453,20 @@ async def connect_agent(websocket: WebSocket) -> None:
         SensorHealthRejected,
         SecurityEventRejected,
     ) as error:
+        if published and await registry.get(device_id) is not connection:
+            return
         logger.warning("Gateway state rejected: %s: %s", type(error).__name__, error)
         close_reason = "state_rejected"
         await _send_safe_error(websocket, "state_rejected")
         await websocket.close(code=1008)
     except Exception:
+        if published and await registry.get(device_id) is not connection:
+            return
         close_reason = "internal_error"
         await websocket.close(code=1011)
     finally:
         if presence is not None:
-            await websocket.app.state.gateway_connection_registry.unregister(
+            await registry.unregister(
                 device_id,
                 presence.session_id,
             )

@@ -113,6 +113,18 @@ class PresenceService:
                 )
                 if device is None:
                     raise PresenceRejected("gateway device is unavailable")
+                # Heartbeat and result handling also acquire session before instance.
+                active_sessions = (
+                    await session.scalars(
+                        select(DeviceSession)
+                        .where(
+                            DeviceSession.device_id == device_id,
+                            DeviceSession.closed_at.is_(None),
+                        )
+                        .order_by(DeviceSession.created_at, DeviceSession.id)
+                        .with_for_update()
+                    )
+                ).all()
                 instance = await session.scalar(
                     select(DeviceInstance)
                     .where(
@@ -141,17 +153,6 @@ class PresenceService:
                     instance.platform = hello.platform
                     instance.last_seen_at = now
 
-                active_sessions = (
-                    await session.scalars(
-                        select(DeviceSession)
-                        .where(
-                            DeviceSession.device_id == device_id,
-                            DeviceSession.closed_at.is_(None),
-                        )
-                        .order_by(DeviceSession.created_at, DeviceSession.id)
-                        .with_for_update()
-                    )
-                ).all()
                 for active in active_sessions:
                     active.closed_at = now
                     await self._audit(

@@ -96,23 +96,41 @@ class ConnectionRegistry:
         self._max_connections = max_connections
         self._connections: dict[UUID, GatewayConnection] = {}
         self._lock = asyncio.Lock()
+        # Fixed-size stripes bound memory even during bursts of new device IDs.
+        self._handshake_locks = tuple(asyncio.Lock() for _ in range(256))
 
     @property
     def connection_count(self) -> int:
         return len(self._connections)
 
-    async def register(
+    def handshake_lock(self, device_id: UUID) -> asyncio.Lock:
+        """Serialize the durable open and registry publication for a device."""
+        return self._handshake_locks[device_id.int % len(self._handshake_locks)]
+
+    async def require_capacity(self, device_id: UUID) -> None:
+        async with self._lock:
+            self._require_capacity(device_id)
+
+    def _require_capacity(self, device_id: UUID) -> None:
+        if device_id not in self._connections and len(self._connections) >= self._max_connections:
+            raise RegistryCapacityExceeded("gateway connection capacity reached")
+
+    async def publish(
         self, connection: GatewayConnection
     ) -> GatewayConnection | None:
         async with self._lock:
             previous = self._connections.get(connection.device_id)
-            if previous is None and len(self._connections) >= self._max_connections:
-                raise RegistryCapacityExceeded("gateway connection capacity reached")
+            self._require_capacity(connection.device_id)
             self._connections[connection.device_id] = connection
         if previous is not None and previous.session_id != connection.session_id:
-            await self._replace(previous)
             return previous
         return None
+
+    async def register(self, connection: GatewayConnection) -> GatewayConnection | None:
+        previous = await self.publish(connection)
+        if previous is not None:
+            await self.close_replaced(previous)
+        return previous
 
     async def unregister(self, device_id: UUID, session_id: UUID) -> None:
         async with self._lock:
@@ -137,7 +155,7 @@ class ConnectionRegistry:
         for connection in connections:
             await self._shutdown(connection, "server_shutdown", 1001)
 
-    async def _replace(self, connection: GatewayConnection) -> None:
+    async def close_replaced(self, connection: GatewayConnection) -> None:
         await self._shutdown(
             connection,
             "session_replaced",
