@@ -75,7 +75,7 @@ python tools/release/build_ubuntu_apt_repository.py \
 
 ### Продление подписанного индекса
 
-За продление отвечает издатель Ubuntu APT с доступом к действующему ключу
+За продление отвечает издатель Endpoint APT с доступом к действующему ключу
 подписи. Издатель планирует перевыпуск на четвёртый день после подписи.
 Ежедневная проверка опубликованного индекса с пилотного узла должна уведомлять
 издателя при любом ненулевом коде выхода. Проверка начинает сигнализировать
@@ -83,16 +83,7 @@ python tools/release/build_ubuntu_apt_repository.py \
 ошибку подписи или дату выпуска в будущем.
 
 ```sh
-set -eu
-index="$(mktemp)"
-trap 'rm -f -- "$index"' EXIT
-curl --fail --silent --show-error --max-time 30 \
-  --cacert /etc/apt/keyrings/endpoint-ubuntu-ca.crt \
-  --output "$index" \
-  https://endpoint.sosnadmin.local/downloads/ubuntu/dists/noble/InRelease
-python tools/release/build_ubuntu_apt_repository.py --check "$index" \
-  --keyring /etc/apt/keyrings/endpoint-ubuntu-apt.gpg \
-  --signing-fingerprint D132784F1C7F0D78BDA2842FDE5739F7FD0AFEBE
+sh tools/release/check_endpoint_apt_expiry.sh
 ```
 
 На рабочей станции издателя подготовьте отдельную копию текущего опубликованного
@@ -106,10 +97,16 @@ python tools/release/build_ubuntu_apt_repository.py --renew /release/ubuntu-apt 
   --signing-fingerprint D132784F1C7F0D78BDA2842FDE5739F7FD0AFEBE
 ```
 
+Проверка охватывает `ubuntu/noble` и `debian/bookworm`. Для Debian
+добавьте `--codename bookworm` к командам сборки и продления, укажите дерево
+Debian и пакеты `endpoint-agent-debian`. Место публикации —
+`/srv/endpoint-platform-distribution/debian`.
+
 Команда проверяет подпись, размеры и SHA-256 существующих индексов и пакетов,
 обновляет `Date` и `Valid-Until` и повторно проверяет новую подпись. Перед переносом
 сверьте, что подпись текущего опубликованного индекса совпадает с подписью,
 из которой вы выполнили продление. Опубликуйте `Release`, затем атомарно замените
 `InRelease` переименованием в том же каталоге. После публикации выполните
-проверку выше, `apt-get update` и `apt-cache policy endpoint-agent-ubuntu`
-с обычными настройками APT на пилотном узле.
+проверку выше, `apt-get update` и `apt-cache policy` для
+`endpoint-agent-ubuntu` или `endpoint-agent-debian` с обычными настройками APT
+на пилотном узле соответствующего канала.

@@ -1,4 +1,4 @@
-"""Build a signed Ubuntu Server agent repository from immutable DEB artifacts."""
+"""Build and maintain signed Endpoint agent repositories from immutable DEBs."""
 
 from __future__ import annotations
 
@@ -14,8 +14,10 @@ from tempfile import TemporaryDirectory
 
 
 SUITE = "noble"
-PACKAGE = "endpoint-agent-ubuntu"
-VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+-1ubuntu[0-9]+")
+REPOSITORIES = {
+    "noble": ("endpoint-agent-ubuntu", re.compile(r"[0-9]+\.[0-9]+\.[0-9]+-1ubuntu[0-9]+")),
+    "bookworm": ("endpoint-agent-debian", re.compile(r"[0-9]+\.[0-9]+\.[0-9]+-1deb12u[0-9]+")),
+}
 FINGERPRINT = re.compile(r"[A-Fa-f0-9]{40}")
 VALIDITY = timedelta(days=7)
 RENEWAL_WARNING = timedelta(days=3)
@@ -49,7 +51,7 @@ def _verified_release(path: Path, keyring: Path, fingerprint: str) -> str:
     return verified.stdout.decode("utf-8")
 
 
-def _release_dates(metadata: str) -> tuple[datetime, datetime]:
+def _release_dates(metadata: str, codename: str = SUITE) -> tuple[datetime, datetime]:
     def read(name: str) -> datetime:
         values = re.findall(rf"^{name}: (.+)$", metadata, re.MULTILINE)
         if len(values) != 1:
@@ -60,7 +62,7 @@ def _release_dates(metadata: str) -> tuple[datetime, datetime]:
         return date.astimezone(UTC)
 
     date, expires = read("Date"), read("Valid-Until")
-    if expires <= date or re.findall(r"^Codename: (.+)$", metadata, re.MULTILINE) != [SUITE]:
+    if expires <= date or re.findall(r"^Codename: (.+)$", metadata, re.MULTILINE) != [codename]:
         raise ValueError("unexpected repository dates or codename")
     return date, expires
 
@@ -109,13 +111,17 @@ def _verify_indexes(root: Path, suite: Path, metadata: str) -> None:
         _verify_hash(root, values["Filename"], values["Size"], values["SHA256"])
 
 
-def renew(root: Path, keyring: Path, fingerprint: str, *, now: datetime | None = None) -> datetime:
+def renew(
+    root: Path, keyring: Path, fingerprint: str, *, now: datetime | None = None, codename: str = SUITE,
+) -> datetime:
     """Renew the verified Release metadata on the publisher's staging tree."""
     now = (now or datetime.now(UTC)).astimezone(UTC).replace(microsecond=0)
-    suite = root / "dists" / SUITE
+    if codename not in REPOSITORIES:
+        raise ValueError("unsupported APT codename")
+    suite = root / "dists" / codename
     current = suite / "InRelease"
     metadata = _verified_release(current, keyring, fingerprint)
-    date, expires = _release_dates(metadata)
+    date, expires = _release_dates(metadata, codename)
     if now <= date or now + VALIDITY <= expires:
         raise ValueError("renewal must advance the signed repository dates")
     _verify_indexes(root, suite, metadata)
@@ -136,7 +142,10 @@ def renew(root: Path, keyring: Path, fingerprint: str, *, now: datetime | None =
     return valid_until
 
 
-def build(artifacts: list[Path], output: Path, fingerprint: str) -> None:
+def build(artifacts: list[Path], output: Path, fingerprint: str, *, codename: str = SUITE) -> None:
+    if codename not in REPOSITORIES:
+        raise ValueError("unsupported APT codename")
+    expected_package, version_pattern = REPOSITORIES[codename]
     if not FINGERPRINT.fullmatch(fingerprint):
         raise ValueError("use the full OpenPGP signing-key fingerprint")
     if output.exists() or output.is_symlink():
@@ -149,7 +158,7 @@ def build(artifacts: list[Path], output: Path, fingerprint: str) -> None:
     with TemporaryDirectory(prefix=".endpoint-apt-", dir=output.parent) as temporary:
         root = Path(temporary) / "repository"
         pool = root / "pool"
-        suite = root / "dists" / SUITE
+        suite = root / "dists" / codename
         index = suite / "main" / "binary-amd64"
         pool.mkdir(parents=True)
         index.mkdir(parents=True)
@@ -158,11 +167,11 @@ def build(artifacts: list[Path], output: Path, fingerprint: str) -> None:
                 subprocess.check_output(["dpkg-deb", "--field", artifact, field], text=True).strip()
                 for field in ("Package", "Version", "Architecture")
             ]
-            if package != PACKAGE or architecture != "amd64" or not VERSION.fullmatch(version):
-                raise ValueError(f"unexpected Ubuntu package metadata in {artifact.name}")
-            destination = pool / f"{PACKAGE}_{version}_amd64.deb"
+            if package != expected_package or architecture != "amd64" or not version_pattern.fullmatch(version):
+                raise ValueError(f"unexpected {codename} package metadata in {artifact.name}")
+            destination = pool / f"{expected_package}_{version}_amd64.deb"
             if destination.exists():
-                raise ValueError(f"duplicate Ubuntu package version {version}")
+                raise ValueError(f"duplicate {codename} package version {version}")
             shutil.copyfile(artifact, destination)
         with (index / "Packages").open("wb") as packages:
             subprocess.run(["apt-ftparchive", "packages", "pool"], cwd=root, stdout=packages, check=True)
@@ -170,11 +179,11 @@ def build(artifacts: list[Path], output: Path, fingerprint: str) -> None:
         metadata = subprocess.check_output([
             "apt-ftparchive",
             "-o", "APT::FTPArchive::Release::Origin=Endpoint Platform",
-            "-o", f"APT::FTPArchive::Release::Suite={SUITE}",
-            "-o", f"APT::FTPArchive::Release::Codename={SUITE}",
+            "-o", f"APT::FTPArchive::Release::Suite={codename}",
+            "-o", f"APT::FTPArchive::Release::Codename={codename}",
             "-o", "APT::FTPArchive::Release::Architectures=amd64",
             "-o", "APT::FTPArchive::Release::Components=main",
-            "release", f"dists/{SUITE}",
+            "release", f"dists/{codename}",
         ], cwd=root, text=True)
         valid_until = format_datetime(datetime.now(UTC) + VALIDITY, usegmt=True)
         (suite / "Release").write_text(f"Valid-Until: {valid_until}\n{metadata}", encoding="utf-8")
@@ -190,20 +199,22 @@ def main() -> None:
     actions.add_argument("--check", type=Path, metavar="INRELEASE")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--keyring", type=Path)
+    parser.add_argument("--codename", choices=REPOSITORIES, default=SUITE)
     parser.add_argument("--signing-fingerprint", required=True)
     args = parser.parse_args()
     if args.deb:
         if args.output is None:
             parser.error("--deb requires --output")
-        build(args.deb, args.output, args.signing_fingerprint)
+        build(args.deb, args.output, args.signing_fingerprint, codename=args.codename)
         return
     if args.keyring is None:
         parser.error("--renew and --check require --keyring")
     if args.renew is not None:
-        print(f"Renewed Valid-Until {renew(args.renew, args.keyring, args.signing_fingerprint).isoformat()}")
+        expiry = renew(args.renew, args.keyring, args.signing_fingerprint, codename=args.codename)
+        print(f"Renewed Valid-Until {expiry.isoformat()}")
         return
     metadata = _verified_release(args.check, args.keyring, args.signing_fingerprint)
-    date, expiry = _release_dates(metadata)
+    date, expiry = _release_dates(metadata, args.codename)
     now = datetime.now(UTC)
     if date > now + timedelta(seconds=10):
         raise SystemExit("APT metadata is dated in the future")

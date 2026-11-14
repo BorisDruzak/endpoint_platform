@@ -89,10 +89,10 @@ carry the source revision and Python/PyInstaller versions in their control
 metadata alongside the version and SHA-256 in APT Packages. Installed package
 acceptance remains open.
 STAB-17 source: metadata renewal verifies the pinned signer and all signed index
-and DEB hashes before changing the signed dates. The daily published-index
-check warns with three days remaining. Ubuntu 24.04 accepted a renewed test
-InRelease with ordinary APT and downloaded the identical fixture DEB. Production
-publisher ownership, scheduled alert delivery and live renewal remain open.
+and DEB hashes before changing the signed dates. The expiry check covers Ubuntu
+noble and Debian bookworm and warns with three days remaining. Ordinary APT
+accepted both renewed test indexes and downloaded identical fixture DEBs.
+Production publisher ownership, scheduled alert delivery and live renewal remain open.
 Release evidence requires an exact-source CI receipt before publication.
 STAB-15: the [release qualification matrix](docs/verification/2026-11-14-agent-release-qualification-matrix.md)
 records historical evidence and the test cases required for each exact new

@@ -7,8 +7,9 @@ import pytest
 from tools.release import build_ubuntu_apt_repository as apt
 
 
-def test_renewal_keeps_packages_and_signed_index_hashes(tmp_path, monkeypatch):
-    suite = tmp_path / "dists/noble"
+@pytest.mark.parametrize("codename", ["noble", "bookworm"])
+def test_renewal_keeps_packages_and_signed_index_hashes(tmp_path, monkeypatch, codename):
+    suite = tmp_path / "dists" / codename
     index = suite / "main/binary-amd64/Packages"
     index.parent.mkdir(parents=True)
     package = tmp_path / "pool/test.deb"
@@ -22,7 +23,7 @@ def test_renewal_keeps_packages_and_signed_index_hashes(tmp_path, monkeypatch):
     index.write_bytes(packages)
     now = datetime(2026, 11, 14, tzinfo=UTC)
     suffix = (
-        "Codename: noble\nSHA256:\n"
+        f"Codename: {codename}\nSHA256:\n"
         f" {hashlib.sha256(index.read_bytes()).hexdigest()} {index.stat().st_size} main/binary-amd64/Packages\n"
     )
     release = ("Date: " + format_datetime(now - timedelta(days=4)) + "\nValid-Until: "
@@ -33,7 +34,7 @@ def test_renewal_keeps_packages_and_signed_index_hashes(tmp_path, monkeypatch):
     monkeypatch.setattr(apt, "_sign_release",
                         lambda release, output, fingerprint: output.write_bytes(release.read_bytes()))
     fingerprint = "a" * 40
-    apt.renew(tmp_path, tmp_path / "key.gpg", fingerprint, now=now)
+    apt.renew(tmp_path, tmp_path / "key.gpg", fingerprint, now=now, codename=codename)
     updated = (suite / "InRelease").read_text()
     assert updated.endswith(suffix)
     assert format_datetime(now + timedelta(days=7), usegmt=True) in updated
@@ -41,10 +42,10 @@ def test_renewal_keeps_packages_and_signed_index_hashes(tmp_path, monkeypatch):
     assert index.read_bytes() == packages
     package.write_bytes(b"corrupt package!")
     with pytest.raises(ValueError, match="pool/test.deb"):
-        apt.renew(tmp_path, tmp_path / "key.gpg", fingerprint, now=now + timedelta(days=1))
+        apt.renew(tmp_path, tmp_path / "key.gpg", fingerprint, now=now + timedelta(days=1), codename=codename)
     assert (suite / "InRelease").read_text() == updated
     package.write_bytes(artifact)
     index.write_bytes(b"changed packages")
     with pytest.raises(ValueError, match="hash"):
-        apt.renew(tmp_path, tmp_path / "key.gpg", fingerprint, now=now + timedelta(days=1))
+        apt.renew(tmp_path, tmp_path / "key.gpg", fingerprint, now=now + timedelta(days=1), codename=codename)
     assert (suite / "InRelease").read_text() == updated
