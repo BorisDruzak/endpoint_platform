@@ -31,9 +31,12 @@ suspended launch into an owned Job, confirmed tree teardown and updater
 stop proof. On isolated VM143, SCM stopped the frozen launcher under
 LocalService with a hung fixture and its descendant in 10.106 s and 10.086 s.
 The second start launched one fixture, and the unrelated process survived.
+On the same VM the frozen 3.2.205 Core ran as LocalService through the
+same coordinator. SCM stopped the suspended Core in 10.092 s and the
+restarted, responsive Core in 1.587 s.
 Three updater and rollback tests verified that an unproven stop preserves
-the selector. The signed Setup path with the real Core and updater remains
-open. STAB-04 source: durable ALT stop receipt,
+the selector. The signed Setup path and installed updater remain open.
+STAB-04 source: durable ALT stop receipt,
 systemd recovery after helper exit, timeout and SIGKILL, and selected Core
 startup with pending present. VM107 isolated systemd fault injection passed
 before/after synthetic selector publication, including manual stop/disable
