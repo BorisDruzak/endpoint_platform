@@ -159,9 +159,11 @@ POSIX-only skip. STAB-10 source: streaming ALT archive limits, pre-stop
 staging/state capacity checks and bounded extraction. ALT VM107 passed 48
 installer tests and the isolated systemd recovery harness, including preflight
 rejection with the same Core PID and selector. The 180-second unit budget
-covers the full invocation. Frozen RPM integration and representative payload
-timing remain for release qualification. STAB-11 source: pinned publisher
-signature and exact archive/source authorization from root-owned local state,
+covers the full invocation. The [VM142 lab receipt](docs/verification/2026-11-14-agent-release-qualification-matrix.md#ресурсы-распаковки-alt-core-ota-stab-10)
+records representative archive timing and preflight rejection under four real
+filesystem limits. The lab launcher uses a test publisher key.
+STAB-11 source: pinned publisher signature and exact archive/source
+authorization from root-owned local state,
 private retained bytes and a pending-request recheck before selector commit.
 ALT VM107 verified OpenPGP acceptance with an ephemeral test key and rejected
 missing, changed and mismatched authorizations. The signed RPM launcher and
