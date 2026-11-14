@@ -10,8 +10,11 @@ separately at `5bdb4a6f319628dff135919a2b6f7e819b8f4b22`. See the
 for source parity, package identity, dependencies and pending release evidence.
 
 Current: production source captured, recovery regression verified on both bases.
-Next: STAB-01 command execution isolation, then STAB-03/04/05/06/07/08 in audit
-order. Release evidence requires an exact-source CI receipt before publication.
+STAB-01 first change: per-connection bounded FIFO and one command task;
+357 agent runtime/transport/architecture tests passed on Windows. Next:
+enforce capability budgets and isolate native handlers in owned processes,
+then STAB-03/04/05/06/07/08 in audit order. Release evidence requires an
+exact-source CI receipt before publication.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
 

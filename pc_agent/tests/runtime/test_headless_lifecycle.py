@@ -1537,3 +1537,84 @@ async def test_production_http_attempt_preserves_update_poll_deadline_through_li
     assert sleeps == expected_sleeps
     assert update_runtime.calls == expected_update_polls
     assert sessions == []
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("overflow", [False, True])
+async def test_connected_runtime_receives_acks_while_command_waits(overflow: bool) -> None:
+    from uuid import uuid4
+
+    from pc_agent.runtime.lifecycle import _MAX_QUEUED_COMMANDS, _run_connected
+
+    first = _command("context.diagnostic.collect")
+    backlog = [
+        first.model_copy(update={"command_id": uuid4()})
+        for _ in range(_MAX_QUEUED_COMMANDS + 1)
+    ] if overflow else []
+    rejected = backlog[-1:]
+    started = asyncio.Event()
+    released = asyncio.Event()
+    ack_received = asyncio.Event()
+    heartbeat_sent = asyncio.Event()
+    calls = []
+    acknowledgements = []
+    results = []
+
+    class Executor:
+        async def execute(self, command):
+            calls.append(command.command_id)
+            started.set()
+            try:
+                await asyncio.Future()
+            finally:
+                released.set()
+
+    class Transport:
+        commands = iter([first, *backlog])
+
+        async def receive(self):
+            command = next(self.commands, None)
+            if command is first:
+                return SimpleNamespace(root=SimpleNamespace(kind="command", payload=command))
+            await started.wait()
+            if command is not None:
+                return SimpleNamespace(root=SimpleNamespace(kind="command", payload=command))
+            if not ack_received.is_set():
+                return SimpleNamespace(root=SimpleNamespace(kind="power_event_ack", payload=object()))
+            await asyncio.Future()
+
+        async def send_ack(self, ack):
+            acknowledgements.append(ack.command_id)
+            await asyncio.sleep(0)
+
+        async def send_result(self, result):
+            results.append((result.command_id, result.status, result.message))
+
+        async def send_heartbeat(self, _heartbeat):
+            heartbeat_sent.set()
+
+    async def power_ack(_payload):
+        ack_received.set()
+        return True
+
+    async def sleep(_interval):
+        await started.wait()
+        await asyncio.sleep(0)
+
+    task = asyncio.create_task(_run_connected(
+        Transport(), Executor(), compatibility_agent_hello(), _gateway_hello(), sleep,
+        power_ack_handler=power_ack,
+    ))
+    try:
+        async with asyncio.timeout(1):
+            await ack_received.wait()
+            await heartbeat_sent.wait()
+        assert calls == [first.command_id]
+        assert acknowledgements == [first.command_id, *(command.command_id for command in rejected)]
+        assert results == [
+            (command.command_id, "failed", "AGENT_COMMAND_QUEUE_FULL") for command in rejected
+        ]
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert released.is_set()

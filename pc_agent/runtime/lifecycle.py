@@ -38,6 +38,7 @@ from .status import RuntimePhase, RuntimeStatus
 
 logger = logging.getLogger(__name__)
 _TRAY_STATUS_HEARTBEAT_SECONDS = 60.0
+_MAX_QUEUED_COMMANDS = 8
 
 
 CredentialRejected = GatewayCredentialRejected
@@ -517,8 +518,10 @@ async def _run_connected(
     after_policy_delivery: Callable[[], Awaitable[None]] = _noop_after_event,
     after_server_disconnected: Callable[[], Awaitable[None]] = _noop_after_event,
 ) -> None:
-    """Run receive and heartbeat loops for the lifetime of one connection."""
+    """Run protocol I/O with one bounded FIFO for in-session commands."""
+    commands: asyncio.Queue[AgentCommandV1] = asyncio.Queue(_MAX_QUEUED_COMMANDS)
     tasks = {
+        asyncio.create_task(_command_loop(transport, executor, commands, completion_sink)),
         asyncio.create_task(_receive_loop(
             transport, executor, completion_sink, policy_handler,
             security_ack_handler, security_policy_ack_sent,
@@ -527,6 +530,7 @@ async def _run_connected(
             after_policy_delivery,
             telemetry_result_handler,
             power_ack_handler,
+            commands=commands,
         )),
         asyncio.create_task(
             _heartbeat_loop(
@@ -579,9 +583,26 @@ async def _receive_loop(
     after_policy_delivery: Callable[[], Awaitable[None]] = _noop_after_event,
     telemetry_result_handler: Callable[[TelemetryResultV1], Awaitable[bool]] | None = None,
     power_ack_handler: Callable[[PowerEventAckV1], Awaitable[bool]] | None = None,
+    *,
+    commands: asyncio.Queue[AgentCommandV1],
 ) -> None:
     while True:
         inbound = await transport.receive()
+        if inbound.root.kind == "command":
+            command = inbound.root.payload
+            try:
+                commands.put_nowait(command)
+            except asyncio.QueueFull:
+                await _ack_command(transport, command)
+                await transport.send_result(AgentResultV1(
+                    schema_version="agent_result_v1",
+                    command_id=command.command_id,
+                    device_id=command.device_id,
+                    status="failed",
+                    message="AGENT_COMMAND_QUEUE_FULL",
+                    completed_at=datetime.now(UTC),
+                ))
+            continue
         await _handle_inbound(
             transport, executor, inbound, completion_sink,
             policy_handler=policy_handler,
@@ -593,6 +614,20 @@ async def _receive_loop(
             after_policy_ack_sent=after_policy_ack_sent,
             after_policy_delivery=after_policy_delivery,
         )
+
+
+async def _command_loop(
+    transport: GatewayTransport,
+    executor: RuntimeExecutor,
+    commands: asyncio.Queue[AgentCommandV1],
+    completion_sink: Callable[[dict[str, object]], None] | None,
+) -> None:
+    while True:
+        command = await commands.get()
+        try:
+            await _execute_command(transport, executor, command, completion_sink)
+        finally:
+            commands.task_done()
 
 
 async def _heartbeat_loop(
@@ -679,7 +714,10 @@ async def _handle_inbound(
         raise GatewayTerminalError(error.code)
     if inbound.root.kind != "command":
         raise GatewayTerminalError("unsupported Gateway inbound message")
-    command = inbound.root.payload
+    await _execute_command(transport, executor, inbound.root.payload, completion_sink)
+
+
+async def _ack_command(transport: GatewayTransport, command: AgentCommandV1) -> None:
     ack = AgentCommandAckV1(
         schema_version="agent_command_ack_v1",
         command_id=command.command_id,
@@ -688,6 +726,15 @@ async def _handle_inbound(
         acknowledged_at=datetime.now(UTC),
     )
     await transport.send_ack(ack)
+
+
+async def _execute_command(
+    transport: GatewayTransport,
+    executor: RuntimeExecutor,
+    command: AgentCommandV1,
+    completion_sink: Callable[[dict[str, object]], None] | None,
+) -> None:
+    await _ack_command(transport, command)
     started_at = time.monotonic()
     result = await executor.execute(command)
     emit_command_completed_marker(

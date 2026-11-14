@@ -2,6 +2,12 @@
 
 ## Runtime boundary
 
+`runtime/lifecycle.py` assigns each Gateway connection one command task and
+a FIFO of up to eight waiting commands. The receive loop continues to route
+policy and telemetry ACKs while that task awaits execution. Overflow returns
+a failed command result with `AGENT_COMMAND_QUEUE_FULL`. Connection teardown
+cancels the task and discards the in-memory queue.
+
 Windows inventory-directed Setup and its provisioner use
 `core/device_fingerprint.collect_windows_inventory_fingerprint`. The original
 fingerprint schema is used after successful WMI reads. A failed WMI query gets
