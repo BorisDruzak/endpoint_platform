@@ -406,6 +406,11 @@ class CommandAckEnvelopeV1(_GatewayWsEnvelopeBaseV1):
     payload: AgentCommandAckV1
 
 
+class CommandStartEnvelopeV1(_GatewayWsEnvelopeBaseV1):
+    kind: Literal["command_start"]
+    payload: AgentCommandAckV1
+
+
 class CommandResultEnvelopeV1(_GatewayWsEnvelopeBaseV1):
     kind: Literal["command_result"]
     payload: AgentResultV1
@@ -492,6 +497,7 @@ GatewayWsEnvelopeBodyV1 = Annotated[
     | HeartbeatEnvelopeV1
     | CommandEnvelopeV1
     | CommandAckEnvelopeV1
+    | CommandStartEnvelopeV1
     | CommandResultEnvelopeV1
     | CommandCancelEnvelopeV1
     | ResultAckEnvelopeV1
@@ -518,6 +524,7 @@ class GatewayWsEnvelopeV1(RootModel[GatewayWsEnvelopeBodyV1]):
 
 GatewayInboundBodyV1 = Annotated[
     CommandEnvelopeV1
+    | CommandStartEnvelopeV1
     | CommandCancelEnvelopeV1
     | ResultAckEnvelopeV1
     | PolicyUpdateEnvelopeV1

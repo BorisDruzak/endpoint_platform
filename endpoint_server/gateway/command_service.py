@@ -22,7 +22,10 @@ from endpoint_contracts import (
 from endpoint_contracts.capabilities import module_capability_descriptor
 from endpoint_contracts.modules import EndpointRecipeModuleSpecV1
 from endpoint_contracts.gateway_ws import (
+    CommandCancelEnvelopeV1,
+    CommandCancelV1,
     CommandEnvelopeV1,
+    CommandStartEnvelopeV1,
     GatewayCommandV1,
     ResultAckEnvelopeV1,
     ResultAckV1,
@@ -928,7 +931,8 @@ class CommandService:
         device_id: UUID,
         session_id: UUID,
         acknowledgement: AgentCommandAckV1,
-    ) -> None:
+        start_permission: bool = False,
+    ) -> CommandStartEnvelopeV1 | CommandCancelEnvelopeV1 | None:
         if acknowledgement.device_id != device_id:
             raise CommandStateRejected("acknowledgement device does not match session")
         if acknowledgement.status not in {"acknowledged", "running"}:
@@ -964,6 +968,10 @@ class CommandService:
                 module_relation = await resolve_module_step_relation(session, command)
                 if module_relation is not None:
                     step, module_operation = module_relation
+                    denied = _deny_start(command, module_operation, acknowledgement, start_permission)
+                    if denied is not None:
+                        await session.rollback()
+                        return denied
                     if command.status in _TERMINAL_STATUSES:
                         if step.status != command.status:
                             raise CommandStateRejected(
@@ -997,11 +1005,15 @@ class CommandService:
                     if step.started_at is None:
                         step.started_at = acknowledgement.acknowledged_at
                     await session.commit()
-                    return
+                    return _start_permission(acknowledgement, start_permission)
                 collection, operation = await resolve_command_context_relation(
                     session,
                     command,
                 )
+                denied = _deny_start(command, operation, acknowledgement, start_permission)
+                if denied is not None:
+                    await session.rollback()
+                    return denied
                 if command.status in _TERMINAL_STATUSES:
                     if operation is not None and operation.status != command.status:
                         raise CommandStateRejected(
@@ -1029,6 +1041,7 @@ class CommandService:
                 if collection is not None:
                     collection.status = "collecting"
                 await session.commit()
+                return _start_permission(acknowledgement, start_permission)
             except Exception:
                 await session.rollback()
                 raise
@@ -1333,6 +1346,46 @@ class CommandService:
                 result_sequence=result_sequence,
             ),
         )
+
+
+def _deny_start(
+    command: Command, operation: EndpointOperation | None,
+    acknowledgement: AgentCommandAckV1, enabled: bool,
+) -> CommandCancelEnvelopeV1 | None:
+    if not enabled or acknowledgement.status != "running":
+        return None
+    now = datetime.now(UTC)
+    deadline = _as_utc(command.expires_at)
+    if operation is not None:
+        operation_deadline = _as_utc(operation.deadline_at)
+        if operation_deadline is None or deadline is None:
+            deadline = None
+        else:
+            deadline = min(deadline, operation_deadline)
+    if command.status == "canceled":
+        reason = "operator_requested"
+    elif command.status == "expired" or deadline is None or now >= deadline:
+        reason = "expired"
+    elif command.status in _TERMINAL_STATUSES:
+        reason = "superseded"
+    else:
+        return None
+    return CommandCancelEnvelopeV1(
+        schema_version="gateway_ws_envelope_v1", sequence=0, kind="command_cancel",
+        payload=CommandCancelV1(
+            schema_version="command_cancel_v1", command_id=acknowledgement.command_id,
+            reason=reason, canceled_at=now,
+        ),
+    )
+
+
+def _start_permission(acknowledgement: AgentCommandAckV1, enabled: bool) -> CommandStartEnvelopeV1 | None:
+    if not enabled or acknowledgement.status != "running":
+        return None
+    return CommandStartEnvelopeV1(
+        schema_version="gateway_ws_envelope_v1", sequence=0, kind="command_start",
+        payload=acknowledgement,
+    )
 
 
 __all__ = [

@@ -121,8 +121,8 @@ async def test_connected_commands_replay_without_execution_and_require_exact_ack
         sent.append(result)
         return len(sent)
 
-    async def send_ack(_):
-        return None
+    async def send_ack(acknowledgement):
+        first.authorize_start(acknowledgement.command_id)
 
     from pc_agent.transport.base import GatewayRetryableError
 
@@ -199,3 +199,47 @@ async def test_connected_loop_recovers_unacknowledged_result_at_handshake(tmp_pa
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("allowed", [False, True])
+async def test_command_waits_for_gateway_start_decision(tmp_path, allowed):
+    from pc_agent.runtime.lifecycle import ConnectedCommands
+
+    path = tmp_path / "storage.db"
+    await local_state.migrate_local_state(path)
+    journal = local_state.CommandJournal(path)
+    command = _command(datetime.now(UTC))
+    requested = asyncio.Event()
+    executed = []
+
+    async def send_ack(ack):
+        assert ack.status == "running"
+        requested.set()
+
+    async def execute(value):
+        executed.append(value.command_id)
+        return AgentResultV1(
+            schema_version="agent_result_v1", command_id=value.command_id,
+            device_id=value.device_id, status="succeeded", completed_at=datetime.now(UTC),
+        )
+
+    async def send_result(_):
+        return 1
+
+    state = ConnectedCommands(
+        journal, SimpleNamespace(send_ack=send_ack, send_result=send_result), command.device_id,
+    )
+    async with asyncio.timeout(3):
+        work = asyncio.create_task(state.execute(SimpleNamespace(execute=execute), command, None))
+        await requested.wait()
+        assert executed == []
+        if allowed:
+            state.authorize_start(command.command_id)
+        else:
+            await state.cancel(command.command_id)
+        await work
+    assert executed == ([command.command_id] if allowed else [])
+    if not allowed:
+        assert await journal.begin(command, now=datetime.now(UTC)) == "canceled"
+        assert await journal.pending(command.device_id) == []

@@ -348,11 +348,14 @@ async def connect_agent(websocket: WebSocket) -> None:
                     if changed_policy is not None:
                         await connection.send(changed_policy)
             elif isinstance(envelope, CommandAckEnvelopeV1):
-                await command_service.record_ack(
+                decision = await command_service.record_ack(
                     device_id=device_id,
                     session_id=presence.session_id,
                     acknowledgement=envelope.payload,
+                    start_permission=COMMAND_JOURNAL_FEATURE in connection.protocol_features,
                 )
+                if decision is not None:
+                    await connection.send(decision)
             elif isinstance(envelope, CommandResultEnvelopeV1):
                 acknowledgement = await command_service.record_result(
                     device_id=device_id,

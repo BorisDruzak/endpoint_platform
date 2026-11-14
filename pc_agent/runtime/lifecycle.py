@@ -643,6 +643,12 @@ async def _receive_loop(
         if command_state is not None and inbound.root.kind == "command_cancel":
             await command_state.cancel(inbound.root.payload.command_id)
             continue
+        if command_state is not None and inbound.root.kind == "command_start":
+            permission = inbound.root.payload
+            if permission.device_id != command_state.device_id or permission.status != "running":
+                raise GatewayTerminalError("invalid command start permission")
+            command_state.authorize_start(permission.command_id)
+            continue
         if command_state is not None and inbound.root.kind == "result_ack":
             await command_state.acknowledge(inbound.root.payload)
             continue
@@ -764,12 +770,12 @@ async def _handle_inbound(
     await _execute_command(transport, executor, inbound.root.payload, completion_sink)
 
 
-async def _ack_command(transport: GatewayTransport, command: AgentCommandV1) -> None:
+async def _ack_command(transport: GatewayTransport, command: AgentCommandV1, *, running: bool = False) -> None:
     ack = AgentCommandAckV1(
         schema_version="agent_command_ack_v1",
         command_id=command.command_id,
         device_id=command.device_id,
-        status="acknowledged",
+        status="running" if running else "acknowledged",
         acknowledged_at=datetime.now(UTC),
     )
     await transport.send_ack(ack)
@@ -784,6 +790,24 @@ class ConnectedCommands:
         self.device_id = device_id
         self._in_flight: dict[UUID, tuple[int, AgentResultV1, float]] = {}
         self._send_lock = asyncio.Lock()
+        self._starts: dict[UUID, asyncio.Future[bool]] = {}
+
+    def authorize_start(self, command_id: UUID) -> None:
+        request = self._starts.get(command_id)
+        if request is not None and not request.done():
+            request.set_result(True)
+
+    async def _request_start(self, command: AgentCommandV1) -> bool:
+        decision = asyncio.get_running_loop().create_future()
+        self._starts[command.command_id] = decision
+        try:
+            async with asyncio.timeout(_RESULT_ACK_TIMEOUT_SECONDS):
+                await _ack_command(self.transport, command, running=True)
+                return await decision
+        except TimeoutError as error:
+            raise GatewayRetryableError("command start permission timed out") from error
+        finally:
+            del self._starts[command.command_id]
 
     async def execute(self, executor, command, completion_sink, *, busy=False) -> None:
         if command.device_id != self.device_id:
@@ -804,9 +828,12 @@ class ConnectedCommands:
         status, message = "expired", "AGENT_COMMAND_DEADLINE_EXPIRED"
         result = None
         if command.deadline_at > datetime.now(UTC):
-            await _ack_command(self.transport, command)
             if busy:
+                await _ack_command(self.transport, command)
                 status, message = "failed", "AGENT_COMMAND_QUEUE_FULL"
+            elif not await self._request_start(command):
+                await self.journal.reject_start(command)
+                return
             elif command.deadline_at > datetime.now(UTC):
                 result = await executor.execute(command)
         executed = result is not None
@@ -830,6 +857,9 @@ class ConnectedCommands:
             await self.journal.cancel(self.device_id, command_id)
         except LocalStateError as error:
             raise GatewayRetryableError("command cancel could not be persisted") from error
+        request = self._starts.get(command_id)
+        if request is not None and not request.done():
+            request.set_result(False)
 
     async def _send_result(self, result: AgentResultV1) -> None:
         async with self._send_lock:

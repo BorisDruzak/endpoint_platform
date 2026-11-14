@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+from endpoint_contracts.gateway_ws import COMMAND_JOURNAL_FEATURE, COMMAND_JOURNAL_HEADER
 from endpoint_server.context.models import ContextCollection
 from endpoint_server.db.models import Command
 from endpoint_server.main import create_app
@@ -172,6 +173,41 @@ def test_route_queues_and_delivers_supported_connect_refresh(
             )
 
     assert asyncio.run(queued_profiles()) == ["baseline_v1", "inventory_v1", "network_v1"]
+
+
+@pytest.mark.parametrize("expired", [False, True])
+def test_route_sends_negotiated_command_start_or_cancel(gateway_route_harness, expired):
+    provider = gateway_route_harness.provider
+    device = asyncio.run(seed_device(provider))
+    app = create_app(gateway_route_harness.settings, provider)
+    hello = _hello_envelope(device.id, ["context.baseline.collect"])
+    hello["payload"]["protocol_features"] = [COMMAND_JOURNAL_FEATURE]
+    headers = {**_headers(), COMMAND_JOURNAL_HEADER: "1"}
+    with TestClient(FixedWebSocketPeerApp(app)) as client:
+        with client.websocket_connect("/agent/v1/connect", headers=headers) as socket:
+            assert (COMMAND_JOURNAL_HEADER.encode(), b"1") in socket.extra_headers
+            socket.send_json(hello)
+            assert socket.receive_json()["payload"]["protocol_features"] == [COMMAND_JOURNAL_FEATURE]
+            command = socket.receive_json()["payload"]
+            if expired:
+                async def expire_command():
+                    from uuid import UUID
+                    async with provider() as session:
+                        stored = await session.get(Command, UUID(command["command_id"]))
+                        stored.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+                        await session.commit()
+                asyncio.run(expire_command())
+            socket.send_json({
+                "schema_version": "gateway_ws_envelope_v1", "kind": "command_ack", "sequence": 1,
+                "payload": {
+                    "schema_version": "agent_command_ack_v1", "command_id": command["command_id"],
+                    "device_id": str(device.id), "status": "running",
+                    "acknowledged_at": datetime.now(UTC).isoformat(),
+                },
+            })
+            decision = socket.receive_json()
+            assert decision["kind"] == ("command_cancel" if expired else "command_start")
+            assert decision["payload"]["command_id"] == command["command_id"]
 
 
 def test_route_negotiates_typed_network_capability_only_after_full_server_opt_in(

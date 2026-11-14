@@ -73,8 +73,11 @@ bind the result ACK to the sent command and sequence. The Gateway accepts
 same-instance reconnect results under the original deadline and acknowledges
 late results for cleanup without applying them. An upgrade header gates the
 new hello feature for legacy Gateway parsers. Cancel fences queued work;
-started work retains its observed or uncertain outcome. Installed
-cross-version canary and server-originated cancellation remain open.
+started work retains its observed or uncertain outcome. Before executing,
+negotiated agents request a start decision. Gateway grants it after committing
+running status or sends command_cancel for expired or terminal commands.
+Operator cancellation remains scoped to the existing undelivered operation
+contract. Installed cross-version canary remains open.
 The additive SQLite table keeps the existing schema marker for Core rollback.
 Release evidence requires an exact-source CI receipt before publication.
 

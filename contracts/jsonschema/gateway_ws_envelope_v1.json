@@ -1646,6 +1646,38 @@
       "title": "CommandResultEnvelopeV1",
       "type": "object"
     },
+    "CommandStartEnvelopeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "command_start",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/AgentCommandAckV1"
+        },
+        "schema_version": {
+          "const": "gateway_ws_envelope_v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sequence": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "sequence",
+        "kind",
+        "payload"
+      ],
+      "title": "CommandStartEnvelopeV1",
+      "type": "object"
+    },
     "DlpPolicyV1": {
       "additionalProperties": false,
       "properties": {
@@ -4385,6 +4417,7 @@
       "command_ack": "#/$defs/CommandAckEnvelopeV1",
       "command_cancel": "#/$defs/CommandCancelEnvelopeV1",
       "command_result": "#/$defs/CommandResultEnvelopeV1",
+      "command_start": "#/$defs/CommandStartEnvelopeV1",
       "endpoint_policy_ack": "#/$defs/EndpointPolicyAckEnvelopeV1",
       "endpoint_policy_delivery": "#/$defs/EndpointPolicyDeliveryEnvelopeV1",
       "error": "#/$defs/ErrorEnvelopeV1",
@@ -4417,6 +4450,9 @@
     },
     {
       "$ref": "#/$defs/CommandAckEnvelopeV1"
+    },
+    {
+      "$ref": "#/$defs/CommandStartEnvelopeV1"
     },
     {
       "$ref": "#/$defs/CommandResultEnvelopeV1"

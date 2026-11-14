@@ -190,6 +190,17 @@ class CommandJournal:
                 raise LocalStateError("command completion has no matching start")
             await _store_result(connection, result)
 
+    async def reject_start(self, command: AgentCommandV1) -> None:
+        """Record a Gateway denial for a reserved command that never ran."""
+        async with self._write() as connection:
+            async with connection.execute(
+                """UPDATE endpoint_command_inbox SET state = 'canceled'
+                   WHERE command_id = ? AND device_id = ? AND digest = ? AND state = 'running'""",
+                (str(command.command_id), str(command.device_id), _command_digest(command)),
+            ) as cursor:
+                if cursor.rowcount != 1:
+                    raise LocalStateError("command denial has no matching reservation")
+
     async def recover_interrupted(self, *, now: datetime) -> None:
         async with self._write() as connection:
             async with connection.execute(

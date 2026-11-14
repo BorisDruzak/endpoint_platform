@@ -1714,6 +1714,48 @@ async def test_failed_result_safely_terminalizes_operation_without_snapshot(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("expired_owner", [None, "command", "operation"])
+async def test_gateway_commits_start_or_returns_cancel_under_deadline_lock(
+    session_provider, expired_owner,
+):
+    device = await seed_device(session_provider)
+    operation = await _seed_operation(
+        session_provider, device_id=device.id, now=datetime.now(UTC) - timedelta(minutes=1),
+    )
+    presence = await _open_session(session_provider, device_id=device.id)
+    envelope = await _deliver_operation(
+        session_provider, device_id=device.id, session_id=presence.session_id,
+    )
+    command_id = envelope.payload.command_id
+    if expired_owner is not None:
+        async with session_provider() as session:
+            persisted = await session.get(EndpointOperation, operation.id)
+            command = await session.get(Command, command_id)
+            expired_at = datetime.now(UTC) - timedelta(seconds=1)
+            if expired_owner == "command":
+                command.expires_at = expired_at
+            else:
+                persisted.deadline_at = expired_at
+            await session.commit()
+    decision = await CommandService(session_provider).record_ack(
+        device_id=device.id, session_id=presence.session_id, start_permission=True,
+        acknowledgement=AgentCommandAckV1(
+            schema_version="agent_command_ack_v1", command_id=command_id, device_id=device.id,
+            status="running", acknowledged_at=datetime.now(UTC),
+        ),
+    )
+    expired = expired_owner is not None
+    assert decision.kind == ("command_cancel" if expired else "command_start")
+    assert decision.payload.command_id == command_id
+    if expired:
+        assert decision.payload.reason == "expired"
+    async with session_provider() as session:
+        persisted = await session.get(EndpointOperation, operation.id)
+        command = await session.get(Command, command_id)
+        assert persisted.status == command.status == ("delivered" if expired else "running")
+
+
+@pytest.mark.asyncio
 async def test_result_received_after_server_deadline_cannot_complete_operation(
     session_provider: async_sessionmaker[AsyncSession],
 ) -> None:
