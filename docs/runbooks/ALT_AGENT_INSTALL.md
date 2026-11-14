@@ -219,6 +219,12 @@ PyInstaller's generated `base_library.zip`, with SHA-256 and POSIX mode for
 every regular file. The installer accepts either this exact headless shape or
 the retained legacy launcher/`pc_agent` shape, never a mixture.
 
+The online agent verifies the artifact and persists the assigned and rollback
+identities in its operation journal before publishing the watched
+`pending_alt_update.json`. Publication fsyncs the file and updates directory.
+The scheduled acknowledgement can be retried after restart, including when
+the watcher stops the online agent immediately after the rename.
+
 The agent service itself remains the dedicated unprivileged `endpoint-agent`
 account and cannot write `/opt/endpoint-agent`. A root-owned
 `endpoint-agent-update.path` watches the fixed ALT pending update and fixed

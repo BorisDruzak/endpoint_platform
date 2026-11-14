@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 import aiohttp
 
@@ -91,7 +92,7 @@ async def _download_gateway_artifact(
     if (parsed.scheme, parsed.netloc) != (origin_scheme, origin_netloc):
         raise ValueError("Gateway update artifact must use the Endpoint origin")
     require_disk_space(destination, download_required_bytes(item.size))
-    temporary = destination.with_name(f".{destination.name}.tmp")
+    temporary = destination.with_name(f".{destination.name}.{uuid4().hex}.tmp")
     digest = hashlib.sha256()
     size = 0
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -104,7 +105,7 @@ async def _download_gateway_artifact(
             require_gateway_response(response)
             if response.status != 200:
                 raise ValueError("Gateway update artifact is unavailable")
-            with temporary.open("wb") as output:
+            with temporary.open("xb") as output:
                 async for chunk in response.content.iter_chunked(1024 * 1024):
                     size += len(chunk)
                     if size > item.size:

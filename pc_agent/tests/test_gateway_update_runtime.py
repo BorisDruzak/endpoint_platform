@@ -29,10 +29,10 @@ class _RecommendationAdapter:
         self.acknowledgements.append((operation_id, status))
         return True
 
-    async def record_scheduled_handoff(
+    def prepare_scheduled_handoff(
         self, operation_id: str, *, assigned_version: str, rollback_version: str
     ) -> bool:
-        self.acknowledgements.append((operation_id, "scheduled"))
+        self.acknowledgements.append((operation_id, "prepared"))
         return True
 
     async def retry_scheduled_acknowledgement(self, operation_id: str) -> bool:
@@ -112,7 +112,8 @@ async def test_newer_linux_canary_recommendation_writes_durable_alt_pending_stat
     }
     assert adapter.acknowledgements == [
         (_OPERATION_ID, "requested"),
-        (_OPERATION_ID, "scheduled"),
+        (_OPERATION_ID, "prepared"),
+        (_OPERATION_ID, "scheduled_retry"),
     ]
 
 
@@ -161,7 +162,8 @@ async def test_authenticated_rollback_recommendation_allows_an_older_release(
     assert (await runtime.run_once()).status == "scheduled"
     assert adapter.acknowledgements == [
         (_OPERATION_ID, "requested"),
-        (_OPERATION_ID, "scheduled"),
+        (_OPERATION_ID, "prepared"),
+        (_OPERATION_ID, "scheduled_retry"),
     ]
 
 
@@ -343,3 +345,99 @@ def test_older_rollback_marker_cannot_hide_a_later_operation(success,version,sta
         'reason':'startup_crash_rollback',
     })
     assert result==(later,status,version,code)
+
+
+@pytest.mark.asyncio
+async def test_alt_pending_stays_hidden_if_durable_handoff_cannot_be_written(tmp_path):
+    pending = tmp_path / "updates" / "pending_alt_update.json"
+
+    class Adapter(_RecommendationAdapter):
+        def prepare_scheduled_handoff(self, *_args, **_kwargs):
+            assert not pending.exists()
+            return False
+
+        async def record_scheduled_handoff(self, *_args, **_kwargs):
+            assert not pending.exists(), "root watcher can observe a request without its journal"
+            return False
+
+    adapter = Adapter(RecommendationResult("endpoint", _recommendation(), False, None))
+
+    async def download(item, destination):
+        destination.write_bytes(b"verified-data")
+        return item.sha256, item.size
+
+    runtime = GatewayUpdateRuntime(
+        adapter=adapter, data_root=tmp_path, current_version="3.1.76", download=download,
+    )
+    assert (await runtime.run_once()).status == "handoff_pending"
+    assert not pending.exists()
+
+
+@pytest.mark.parametrize("interruption", ["before_rename", "after_rename"])
+@pytest.mark.asyncio
+async def test_alt_handoff_recovers_after_interruption_at_pending_rename(
+    tmp_path, monkeypatch, interruption,
+):
+    from pc_agent.platform.windows import durable_state
+    from pc_agent.update_adapter import EndpointUpdateAdapter, load_endpoint_update_handoffs
+
+    pending = tmp_path / "updates" / "pending_alt_update.json"
+    operation = _recommendation()
+
+    class Interrupted(BaseException):
+        pass
+
+    class Adapter(EndpointUpdateAdapter):
+        async def fetch_recommendation(self, **kwargs):
+            return RecommendationResult("endpoint", operation, False, None)
+
+        async def acknowledge(self, operation_id, status):
+            return True
+
+        async def report_terminal(self, operation_id, **kwargs):
+            assert operation_id == _OPERATION_ID
+            assert kwargs["status"] == "applied"
+            return True
+
+    def runtime(version):
+        return GatewayUpdateRuntime(
+            adapter=Adapter(
+                api_url="https://endpoint.example.test", bearer_token=lambda: "test",
+                session=None, data_root=tmp_path,
+            ),
+            data_root=tmp_path, current_version=version, download=download,
+        )
+
+    async def download(item, destination):
+        destination.write_bytes(b"verified-data")
+        return item.sha256, item.size
+
+    original_replace = durable_state.os.replace
+
+    def intercept(source, destination):
+        if Path(destination) != pending:
+            return original_replace(source, destination)
+        existing = load_endpoint_update_handoffs(tmp_path)
+        assert existing == [{
+            "operation_id": _OPERATION_ID, "assigned_version": operation.version,
+            "rollback_version": "3.1.76", "scheduled_ack_delivered_at": None,
+        }]
+        if interruption == "after_rename":
+            original_replace(source, destination)
+        raise Interrupted
+
+    with monkeypatch.context() as patch:
+        patch.setattr(durable_state.os, "replace", intercept)
+        with pytest.raises(Interrupted):
+            await runtime("3.1.76").run_once()
+
+    if interruption == "before_rename":
+        assert not pending.exists()
+        assert (await runtime("3.1.76").run_once()).status == "scheduled"
+    assert json.loads(pending.read_text())["operation_id"] == _OPERATION_ID
+    (pending.parent / "update_history.json").write_text(json.dumps([{
+        "operation_id": _OPERATION_ID, "version": operation.version,
+        "previous_version": "3.1.76", "success": True,
+    }]))
+    pending.unlink()
+    assert await runtime(operation.version).report_startup_outcome()

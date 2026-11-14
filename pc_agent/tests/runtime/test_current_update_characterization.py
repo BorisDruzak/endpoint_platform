@@ -301,7 +301,7 @@ class _UpdateAdapter:
         self.calls.append((operation_id, status))
         return True
 
-    async def record_scheduled_handoff(
+    def prepare_scheduled_handoff(
         self, operation_id: str, *, assigned_version: str, rollback_version: str
     ) -> bool:
         self.calls.append(
@@ -327,10 +327,12 @@ async def test_gateway_stages_an_atomic_pending_update(
     """A controlled update exit is permitted only after durable pending state exists."""
     adapter = _UpdateAdapter()
     replace_events: list[tuple[str, str, bool, bool, dict[str, object]]] = []
-    original_replace = Path.replace
+    original_replace = os.replace
 
-    def observe_pending_replace(source: Path, target: Path) -> Path:
-        if source.name == ".pending_alt_update.json.tmp":
+    def observe_pending_replace(source: Path, target: Path) -> None:
+        source, target = Path(source), Path(target)
+        if target.name == "pending_alt_update.json":
+            assert adapter.calls[-1] == (_OPERATION_ID, "scheduled:3.1.77-rc.1:3.1.76")
             replace_events.append(
                 (
                     source.name,
@@ -342,7 +344,7 @@ async def test_gateway_stages_an_atomic_pending_update(
             )
         return original_replace(source, target)
 
-    monkeypatch.setattr(gateway_update_runtime.Path, "replace", observe_pending_replace)
+    monkeypatch.setattr(os, "replace", observe_pending_replace)
 
     async def download(
         item: EndpointRecommendation, destination: Path
@@ -376,10 +378,12 @@ async def test_gateway_stages_an_atomic_pending_update(
         "target": "linux_amd64",
         "version": "3.1.77-rc.1",
     }
-    assert not (pending_path.parent / ".pending_alt_update.json.tmp").exists()
+    assert not list(pending_path.parent.glob(".pending_alt_update.json.*.tmp"))
+    assert len(replace_events) == 1
+    assert replace_events[0][0].startswith(".pending_alt_update.json.")
     assert replace_events == [
         (
-            ".pending_alt_update.json.tmp",
+            replace_events[0][0],
             "pending_alt_update.json",
             True,
             False,
@@ -391,6 +395,7 @@ async def test_gateway_stages_an_atomic_pending_update(
         ("linux_amd64", "canary"),
         (_OPERATION_ID, "requested"),
         (_OPERATION_ID, "scheduled:3.1.77-rc.1:3.1.76"),
+        (_OPERATION_ID, "scheduled_retry"),
     ]
 
 

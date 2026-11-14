@@ -22,7 +22,10 @@ systemd recovery after helper exit, timeout and SIGKILL, and selected Core
 startup with pending present. VM107 isolated systemd fault injection passed
 before/after synthetic selector publication, including manual stop/disable
 and stale-boot receipt. Actual RPM and power-loss verification remain open.
-Next code task: STAB-05, then 06/07/08.
+STAB-05 source: durable operation journal before the watched pending rename;
+fault injection before/after publication preserved outcome reporting. Native
+watcher timing and full power-loss qualification remain open. Next code task:
+STAB-06, then 07/08.
 Release evidence requires an exact-source CI receipt before publication.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
