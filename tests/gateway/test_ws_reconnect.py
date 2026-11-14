@@ -579,6 +579,10 @@ async def test_concurrent_handshake_preserves_database_owner(reconnect_provider,
             await release.wait()
         return presence
 
+    async def no_connect_refresh(*_args):
+        return 0
+
+    monkeypatch.setattr("endpoint_server.gateway.ws_routes.queue_connect_refreshes", no_connect_refresh)
     monkeypatch.setattr(PresenceService, "open_session", paused_open)
 
     class Socket(FakeGatewaySocket):
@@ -605,10 +609,12 @@ async def test_concurrent_handshake_preserves_database_owner(reconnect_provider,
 
     sockets = [Socket(session_provider), Socket(session_provider)]
     first, second = sockets[::-1] if reverse else sockets
+    hello = agent_hello(device.id, instance_id=instance_id)
+    hello["capabilities"] = []
     envelope = {
         "schema_version": "gateway_ws_envelope_v1",
         "kind": "agent_hello", "sequence": 0,
-        "payload": agent_hello(device.id, instance_id=instance_id),
+        "payload": hello,
     }
     first.inbound.put_nowait({"type": "websocket.receive", "text": json.dumps(envelope)})
     second.inbound.put_nowait({"type": "websocket.receive", "text": json.dumps(envelope)})

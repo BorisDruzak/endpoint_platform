@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,7 +15,10 @@ from endpoint_contracts.gateway_ws import (
 )
 
 
+logger = logging.getLogger(__name__)
 _SESSION_REPLACED_CLOSE_CODE = 4001
+_NOTICE_TIMEOUT_SECONDS = 0.5
+_CLOSE_TIMEOUT_SECONDS = 1.0
 
 
 class RegistryCapacityExceeded(RuntimeError):
@@ -152,8 +156,10 @@ class ConnectionRegistry:
         async with self._lock:
             connections = tuple(self._connections.values())
             self._connections.clear()
-        for connection in connections:
-            await self._shutdown(connection, "server_shutdown", 1001)
+        await asyncio.gather(*(
+            self._shutdown(connection, "server_shutdown", 1001)
+            for connection in connections
+        ))
 
     async def close_replaced(self, connection: GatewayConnection) -> None:
         await self._shutdown(
@@ -179,13 +185,21 @@ class ConnectionRegistry:
             ),
         )
         try:
-            await connection.send(notice)
-        except Exception:
-            pass
+            async with asyncio.timeout(_NOTICE_TIMEOUT_SECONDS):
+                await connection.send(notice)
+        except Exception as error:
+            logger.warning(
+                "Gateway socket cleanup reason=%s stage=notice error=%s session_id=%s",
+                reason, type(error).__name__, connection.session_id,
+            )
         try:
-            await connection.websocket.close(code=close_code)
-        except Exception:
-            pass
+            async with asyncio.timeout(_CLOSE_TIMEOUT_SECONDS):
+                await connection.websocket.close(code=close_code)
+        except Exception as error:
+            logger.warning(
+                "Gateway socket cleanup reason=%s stage=close error=%s session_id=%s",
+                reason, type(error).__name__, connection.session_id,
+            )
 
 
 __all__ = [

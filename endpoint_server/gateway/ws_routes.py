@@ -192,6 +192,7 @@ async def connect_agent(websocket: WebSocket) -> None:
     presence: GatewayPresence | None = None
     connection: GatewayConnection | None = None
     published = False
+    replaced_socket_cleanup: asyncio.Task[None] | None = None
     registry = websocket.app.state.gateway_connection_registry
     close_reason = "disconnected"
     device_id = authenticated.principal.device.id
@@ -254,7 +255,7 @@ async def connect_agent(websocket: WebSocket) -> None:
             previous = await registry.publish(connection)
             published = True
         if previous is not None:
-            await registry.close_replaced(previous)
+            replaced_socket_cleanup = asyncio.create_task(registry.close_replaced(previous))
         if await registry.get(device_id) is not connection:
             return
         async with websocket.app.state.session_provider() as session:
@@ -465,16 +466,20 @@ async def connect_agent(websocket: WebSocket) -> None:
         close_reason = "internal_error"
         await websocket.close(code=1011)
     finally:
-        if presence is not None:
-            await registry.unregister(
-                device_id,
-                presence.session_id,
-            )
-            await presence_service.close_session(
-                device_id=device_id,
-                session_id=presence.session_id,
-                reason=close_reason,
-            )
+        try:
+            if presence is not None:
+                await registry.unregister(
+                    device_id,
+                    presence.session_id,
+                )
+                await presence_service.close_session(
+                    device_id=device_id,
+                    session_id=presence.session_id,
+                    reason=close_reason,
+                )
+        finally:
+            if replaced_socket_cleanup is not None:
+                await asyncio.shield(replaced_socket_cleanup)
 
 
 __all__ = [

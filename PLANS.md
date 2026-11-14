@@ -24,8 +24,11 @@ before/after synthetic selector publication, including manual stop/disable
 and stale-boot receipt. Actual RPM and power-loss verification remain open.
 STAB-05 source: durable operation journal before the watched pending rename;
 fault injection before/after publication preserved outcome reporting. Native
-watcher timing and full power-loss qualification remain open. Next code task:
-STAB-06, then 07/08.
+watcher timing and full power-loss qualification remain open. STAB-06:
+serialized WSS ownership publication per device. Both reconnect permutations
+and heartbeat lock ordering verified on PostgreSQL 16. STAB-07: bounded
+notice/close with observable cleanup stages and concurrent server shutdown.
+Next code task: STAB-08.
 Release evidence requires an exact-source CI receipt before publication.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
