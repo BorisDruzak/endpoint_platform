@@ -92,7 +92,11 @@ STAB-17 source: metadata renewal verifies the pinned signer and all signed index
 and DEB hashes before changing the signed dates. The expiry check covers Ubuntu
 noble and Debian bookworm and warns with three days remaining. Ordinary APT
 accepted both renewed test indexes and downloaded identical fixture DEBs.
-Production publisher ownership, scheduled alert delivery and live renewal remain open.
+The daily timer is enabled on the OpenVPN pilot. Its first run verified both live
+signatures. An isolated failure test produced error-priority journal entries
+for both suites and exit 1. Ordinary APT accepted both live suites with the
+existing CA and signed-by keyring in a temporary lists directory. Production
+publisher ownership, alert delivery to the publisher and live renewal remain open.
 Release evidence requires an exact-source CI receipt before publication.
 STAB-15: the [release qualification matrix](docs/verification/2026-11-14-agent-release-qualification-matrix.md)
 records historical evidence and the test cases required for each exact new

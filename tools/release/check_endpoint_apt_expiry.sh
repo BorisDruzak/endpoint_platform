@@ -7,8 +7,11 @@ base_url=${ENDPOINT_APT_BASE_URL:-https://endpoint.sosnadmin.local/downloads}
 ca=${ENDPOINT_APT_CA:-/etc/apt/keyrings/endpoint-ubuntu-ca.crt}
 keyring=${ENDPOINT_APT_KEYRING:-/etc/apt/keyrings/endpoint-ubuntu-apt.gpg}
 fingerprint=${ENDPOINT_APT_FINGERPRINT:-D132784F1C7F0D78BDA2842FDE5739F7FD0AFEBE}
-index=$(mktemp)
-trap 'rm -f -- "$index"' EXIT
+scratch=$(mktemp -d)
+trap 'rm -rf -- "$scratch"' EXIT
+GNUPGHOME=$scratch
+export GNUPGHOME
+index=$scratch/InRelease
 
 failed=0
 for endpoint in ubuntu/noble debian/bookworm; do
@@ -19,6 +22,7 @@ for endpoint in ubuntu/noble debian/bookworm; do
     --output "$index" "$base_url/$channel/dists/$codename/InRelease" ||
     ! python3 "$script_dir/build_ubuntu_apt_repository.py" --check "$index" \
       --codename "$codename" --keyring "$keyring" --signing-fingerprint "$fingerprint"; then
+    printf '<3>Endpoint APT metadata check failed for %s\n' "$endpoint" >&2
     failed=1
   fi
 done
