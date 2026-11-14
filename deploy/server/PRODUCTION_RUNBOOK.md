@@ -589,6 +589,9 @@ For `cleanup_raw_context_payloads` and `cleanup_context_collections`, the age
 also covers only the committed batch. Raw payload deadlines use the original
 result receive time for both copies. Collection bookkeeping deadlines use the
 request time plus the health profile retention interval.
+For `retain_context_snapshots`, the age covers snapshots deleted by the
+committed batch under time-based retention rules. Baseline and inventory
+use version counts and do not contribute to this age.
 WSS health is a separate operational signal.
 
 Job execution budgets are 15 to 30 seconds, including all transactions in a

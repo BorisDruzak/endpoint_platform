@@ -74,6 +74,15 @@ async def retain_context_snapshots(
     limit: int = 100,
     now: datetime | None = None,
 ) -> int:
+    return (await retain_context_snapshots_with_backlog(session, limit=limit, now=now)).snapshots
+
+
+async def retain_context_snapshots_with_backlog(
+    session: AsyncSession,
+    *,
+    limit: int = 100,
+    now: datetime | None = None,
+) -> ContextCleanupBatch:
     """Delete one bounded batch according to profile, preserving current state."""
     if not 1 <= limit <= 100:
         raise ValueError("retention limit must be between 1 and 100")
@@ -108,6 +117,7 @@ async def retain_context_snapshots(
         .order_by(ContextSnapshot.collected_at, ContextSnapshot.id).limit(limit * 4)
     )).all()
     deleted = 0
+    oldest_due_age = 0.0
     for snapshot_id, device_id, profile in (*hot_rows, *stable_rows, *diagnostic_rows):
         await _advisory_lock(session, f"context.current:{device_id}:{profile}")
         snapshot = await session.scalar(select(ContextSnapshot).where(ContextSnapshot.id == snapshot_id).with_for_update())
@@ -129,8 +139,11 @@ async def retain_context_snapshots(
                     ).order_by(ContextSnapshot.collected_at.desc(), ContextSnapshot.id.desc()).limit(1))
                     if snapshot_id == previous_id:
                         continue
-        elif _utc(snapshot.collected_at) >= when - CONTEXT_RETENTION_POLICIES[profile].ttl:
-            continue
+        else:
+            overdue = (when - _utc(snapshot.collected_at) - CONTEXT_RETENTION_POLICIES[profile].ttl).total_seconds()
+            if overdue <= 0:
+                continue
+            oldest_due_age = max(oldest_due_age, overdue)
         if profile == "diagnostic_v1" and current is not None and current.snapshot_id == snapshot_id:
             await session.delete(current)
             await session.flush()
@@ -139,7 +152,7 @@ async def retain_context_snapshots(
         if deleted >= limit:
             break
     await session.flush()
-    return deleted
+    return ContextCleanupBatch(0, deleted, oldest_due_age)
 
 
 async def cleanup_raw_context_payloads(

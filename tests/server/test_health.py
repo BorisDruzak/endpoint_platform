@@ -481,7 +481,7 @@ async def test_worker_isolates_context_scheduler_failure(
         return 0
 
     monkeypatch.setattr("endpoint_server.worker.schedule_due_collections_with_backlog", failing_scheduler)
-    monkeypatch.setattr("endpoint_server.worker.retain_context_snapshots", successful_retention)
+    monkeypatch.setattr("endpoint_server.worker.retain_context_snapshots_with_backlog", successful_retention)
     task = asyncio.create_task(
         run_worker(
             _settings(),

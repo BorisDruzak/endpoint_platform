@@ -131,22 +131,24 @@ async def test_health_hot_history_expires_but_current_survives(session: AsyncSes
     session.add(device)
     await session.flush()
     snapshots = []
-    for minutes in (0, 5, 10):
+    for minutes in (-30, -20, 0, 5, 10):
         when = NOW + timedelta(minutes=minutes)
         collection = ContextCollection(id=uuid4(), device_id=device.id, profile="health_v1",
             requested_by="seed", idempotency_key=f"health-{minutes}", status="completed",
             requested_at=when, completed_at=when)
         snapshot = ContextSnapshot(id=uuid4(), collection_id=collection.id, device_id=device.id,
-            profile="health_v1", collected_at=when, raw_payload={}, normalized_projection={"profile": "health_v1"})
+            profile="health_v1", collected_at=when, raw_payload={}, normalized_projection={"profile": "health_v1"},
+            pinned_at=NOW if minutes == -30 else None)
         session.add_all((collection, snapshot))
         snapshots.append(snapshot)
     await session.flush()
     session.add(ContextCurrent(id=uuid4(), device_id=device.id, profile="health_v1",
-        snapshot_id=snapshots[-1].id, updated_at=NOW + timedelta(minutes=10)))
+        snapshot_id=snapshots[1].id, updated_at=NOW + timedelta(minutes=10)))
     await session.flush()
-    assert await retain_context_snapshots(session, now=NOW + timedelta(hours=24, minutes=7)) == 2
+    batch = await retention.retain_context_snapshots_with_backlog(session, now=NOW + timedelta(hours=24, minutes=7))
+    assert (batch.snapshots, batch.oldest_due_age_seconds) == (2, 420)
     remaining = (await session.scalars(select(ContextSnapshot).where(ContextSnapshot.device_id == device.id))).all()
-    assert [snapshot.id for snapshot in remaining] == [snapshots[-1].id]
+    assert {snapshot.id for snapshot in remaining} == {snapshot.id for snapshot in (snapshots[0], snapshots[1], snapshots[-1])}
 
 
 @pytest.mark.asyncio
@@ -168,7 +170,8 @@ async def test_retention_keeps_current_previous_and_pinned_snapshots(session: As
     )
     await session.flush()
 
-    assert await retain_context_snapshots(session) == 1
+    batch = await retention.retain_context_snapshots_with_backlog(session, now=NOW)
+    assert (batch.snapshots, batch.oldest_due_age_seconds) == (1, 0)
     remaining = set(await session.scalars(select(ContextSnapshot.id)))
     assert remaining == {oldest_pinned.id, previous.id, current.id}
     assert old.id not in remaining

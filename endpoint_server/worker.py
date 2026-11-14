@@ -17,7 +17,7 @@ from sqlalchemy.exc import DBAPIError
 from endpoint_server.config import Settings
 from endpoint_server.context.retention import (
     ContextCleanupBatch, cleanup_context_collections_with_backlog,
-    cleanup_raw_context_payloads_with_backlog, retain_context_snapshots,
+    cleanup_raw_context_payloads_with_backlog, retain_context_snapshots_with_backlog,
 )
 from endpoint_server.context.scheduler import ContextScheduleBatch, schedule_due_collections_with_backlog
 from endpoint_server.db.session import SessionProvider, create_session_provider
@@ -258,7 +258,10 @@ async def run_worker(
                 )
                 next_schedule = loop.time() + context_schedule_interval_seconds
             if loop.time() >= next_retention:
-                await jobs.run("retain_context_snapshots", retain_context_snapshots, due_at=next_retention)
+                await jobs.run(
+                    "retain_context_snapshots", retain_context_snapshots_with_backlog, due_at=next_retention,
+                    committed_backlog=_committed_batch_backlog_age,
+                )
                 next_retention = loop.time() + context_retention_interval_seconds
             next_tick = tick + cleanup_interval_seconds
             now = loop.time()
