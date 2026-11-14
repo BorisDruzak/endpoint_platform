@@ -45,8 +45,10 @@ native 0 and preserved the four fixture files. Installed SCM stopped
 suspended and responsive Core in 10.121 s and 0.534 s. The installed
 Core-only updater preserved the selector when SCM returned 1053, but
 escaped without a terminal report. Source now normalizes the pywin32
-stop exception to the existing recovery path. Installed retest of the
-corrected binary remains open.
+stop exception to the existing recovery path. VM143 verified that the
+corrected frozen updater under SCM leaves the selector in place,
+writes the matching failed outcome and clears the prepared transition.
+The corrected package is signed as laboratory Setup 3.2.207.
 STAB-04 source: durable ALT stop receipt,
 systemd recovery after helper exit, timeout and SIGKILL, and selected Core
 startup with pending present. VM107 isolated systemd fault injection passed
