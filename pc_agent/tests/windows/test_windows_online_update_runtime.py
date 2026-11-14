@@ -488,8 +488,9 @@ async def test_windows_agent_reports_applied_only_from_a_post_handshake_proof(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("changed", [False, True])
 async def test_windows_agent_reports_a_durable_updater_failure_after_wss(
-    tmp_path: Path,
+    tmp_path: Path, changed: bool,
 ) -> None:
     """A rejected offline handoff becomes terminal only after the agent reconnects."""
     from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateRuntime
@@ -500,8 +501,14 @@ async def test_windows_agent_reports_a_durable_updater_failure_after_wss(
     )
     paths.install_root.mkdir(parents=True)
     paths.current_path.write_text('{"version":"3.2.5"}', encoding="utf-8")
-    paths.updates_root.mkdir(parents=True)
-    paths.pending_path.write_text(json.dumps(_pending_payload(version="3.2.6")), encoding="utf-8")
+    paths.downloads_root.mkdir(parents=True)
+    artifact = paths.downloads_root / f"build-3.2.6-{_OPERATION_ID}.zip"
+    artifact.write_bytes(b"wrong" if changed else b"cache")
+    neighbor = paths.downloads_root / "unowned.zip"
+    neighbor.write_bytes(b"cache")
+    pending = _pending_payload(version="3.2.6")
+    pending.update(artifact_path=str(artifact), size=5, sha256=hashlib.sha256(b"cache").hexdigest())
+    paths.pending_path.write_text(json.dumps(pending), encoding="utf-8")
     (paths.updates_root / "terminal-outcome.json").write_text(
         json.dumps(
             {
@@ -530,6 +537,8 @@ async def test_windows_agent_reports_a_durable_updater_failure_after_wss(
     assert adapter.calls == [(_OPERATION_ID, "scheduled_retry"), (_OPERATION_ID, "failed:3.2.5:launcher_apply_failed")]
     assert not paths.pending_path.exists()
     assert not (paths.updates_root / "terminal-outcome.json").exists()
+    assert artifact.exists() is changed
+    assert neighbor.read_bytes() == b"cache"
 
 
 @pytest.mark.asyncio

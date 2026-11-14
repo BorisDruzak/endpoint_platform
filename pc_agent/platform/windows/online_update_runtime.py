@@ -18,6 +18,7 @@ from pc_agent.update_adapter import EndpointRecommendation, _is_operation_id
 from pc_agent.transport.base import GatewayCredentialRejected, GatewayTerminalError
 
 from .update_paths import WindowsUpdatePaths
+from .update_download_retention import retire_update_download
 from .update_transaction import update_transaction, UpdateInProgress, _read_state
 from .durable_state import durable_unlink, write_json_atomic
 from .disk_readiness import download_required_bytes, is_disk_full, require_disk_space
@@ -345,6 +346,8 @@ class WindowsOnlineUpdateRuntime:
                         return False
                     # The attempt uses DIRECTORY_ACL (Agent/Updater modify).
                     # Keep pending/outcome retry authority until it is retired.
+                    if pending is not None:
+                        retire_update_download(self._paths, pending)
                     durable_unlink(attempt_path, trusted_root=self._paths.updates_root, missing_ok=True)
                     durable_unlink(self._paths.pending_path, trusted_root=self._paths.updates_root, missing_ok=True)
                     durable_unlink(outcome_path, trusted_root=self._paths.updates_root, missing_ok=True)

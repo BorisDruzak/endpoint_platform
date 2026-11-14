@@ -56,8 +56,8 @@ size and digest checks. The Setup observer retires the verified download for
 its settled assignment while keeping the Setup journal and native cache.
 Low space is reported before download. The server worker logs free and total
 artifact volume bytes at startup and every 15 minutes. Windows Core terminal
-failures, old runtime trees, legacy caches and server artifact retirement
-remain open.
+failure and rollback retire their exact verified ZIP after server ACK.
+Old runtime trees, legacy caches and server artifact retirement remain open.
 Release evidence requires an exact-source CI receipt before publication.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
