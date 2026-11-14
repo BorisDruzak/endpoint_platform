@@ -13,8 +13,11 @@ Current: production source captured, recovery regression verified on both bases.
 STAB-01 source: WSS bounded FIFO and separate command task, fixed worker
 process with capability budgets, deadline admission and owned process-tree
 cleanup. HTTP pull remains sequential. Windows source fault injection covers
-timeout, cancellation and oversized reply. Frozen Core and Linux native
-acceptance remain open. STAB-03 source: bounded Windows Core cancellation,
+timeout, cancellation and oversized reply. Installed ALT 3.2.205-alt7
+terminated a stopped health worker at budget expiry while the same WSS
+session continued sending heartbeat. The next collection completed.
+The Windows frozen Core and other native failure cases remain open.
+STAB-03 source: bounded Windows Core cancellation,
 suspended launch into an owned Job, confirmed tree teardown and updater
 stop proof. Source fault injection passed on Windows. Installed SCM and
 signed Setup acceptance remain open. STAB-04 source: durable ALT stop receipt,
