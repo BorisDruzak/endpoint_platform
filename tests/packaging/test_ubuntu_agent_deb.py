@@ -12,6 +12,69 @@ from tools import build_ubuntu_agent_deb as ubuntu
 
 
 @pytest.mark.parametrize("target", ubuntu.TARGETS)
+@pytest.mark.parametrize(("state", "enabled", "should_start"), [
+    ("active", "enabled", True),
+    ("activating", "disabled", True),
+    ("failed", "enabled", True),
+    ("failed", "disabled", False),
+    ("inactive", "enabled", False),
+    ("inactive", "masked", False),
+])
+def test_deb_fences_upgrade_and_resumes_only_prior_intent(tmp_path, target, state, enabled, should_start):
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("shell unavailable")
+    profile = ubuntu.TARGETS[target]
+    unit = f"{profile.package}.service"
+    preinst = ubuntu.ROOT / "packaging/ubuntu/preinst"
+    assert preinst.is_file(), "the incoming package must fence the legacy service before unpack"
+    shell = """systemd-sysusers() { :; }
+systemd-tmpfiles() { :; }
+sync() { :; }
+systemctl() {
+    case "$1" in
+        daemon-reload) return 0 ;;
+        start) printf '%s\\n' "$*" ;;
+        is-enabled) printf '%s\\n' "$UNIT_ENABLED" ;;
+        show)
+            case "$*" in
+                *ActiveState*) cat state ;;
+                *MainPID*) echo 0 ;;
+                *) return 2 ;;
+            esac
+            ;;
+        *) return 2 ;;
+    esac
+}
+deb-systemd-invoke() {
+    printf '%s %s\\n' "$1" "$2"
+    if [ "$1" = stop ]; then printf 'inactive\\n' > state; fi
+}
+"""
+    (tmp_path / "state").write_text(state + "\n")
+    env = dict(os.environ, UNIT_ENABLED=enabled)
+    for operation, expected in (
+        ("preinst", f"stop {unit}"),
+        ("postinst", f"start {unit}" if should_start else ""),
+    ):
+        script = profile.render(ubuntu.ROOT / "packaging/ubuntu" / operation).decode()
+        script = script.replace("[ -d /run/systemd/system ]", "true")
+        script = script.replace("/etc/systemd/system/", "./")
+        harness = tmp_path / f"{operation}.sh"
+        harness.write_text(shell + script, encoding="utf-8", newline="\n")
+        result = subprocess.run(
+            [bash, harness.name, "upgrade" if operation == "preinst" else "configure"],
+            cwd=tmp_path, env=env, capture_output=True, text=True, check=True, timeout=15,
+        )
+        assert result.stdout.strip() == expected
+        fence = tmp_path / f"{unit}.d/90-endpoint-package-upgrade.conf"
+        assert fence.exists() == (operation == "preinst")
+        if fence.exists():
+            assert "ConditionPathExists=!./" in fence.read_text()
+    assert not (tmp_path / f"{unit}.d/.endpoint-package-resume").exists()
+
+
+@pytest.mark.parametrize("target", ubuntu.TARGETS)
 @pytest.mark.parametrize(("state", "enabled", "expected"), [
     ("active", "enabled", "restart"),
     ("active", "disabled", "restart"),
@@ -92,6 +155,7 @@ def test_build_ubuntu_deb_keeps_runtime_and_configuration_in_distinct_paths(tmp_
         assert (root / "DEBIAN/conffiles").read_text().splitlines() == [
             "/etc/endpoint-agent-ubuntu/agent.conf",
         ]
+        assert "Endpoint DEB transaction fence" in (root / "DEBIAN/preinst").read_text()
         control = (root / "DEBIAN/control").read_text()
         assert f"X-Endpoint-Source-Revision: {revision}\n" in control
         assert "X-Endpoint-Python-Version: 3.12.3\n" in control

@@ -165,7 +165,7 @@ def build(
             " Collects host and server-role context through the Endpoint Gateway.\n",
             encoding="ascii",
         )
-        for name in ("postinst", "prerm", "postrm"):
+        for name in ("preinst", "postinst", "prerm", "postrm"):
             script = metadata / name
             script.write_bytes(profile.render(packaging / name))
             script.chmod(0o755)

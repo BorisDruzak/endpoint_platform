@@ -113,8 +113,13 @@ reinstall, and reboot with a local TLS peer. One rollback startup failed in
 PyInstaller and recovered on the next systemd attempt. The two exact binaries
 reproduced the loader error when the executable path was replaced after
 loading the archive index. An operator-stopped rollback and upgrade both
-started on the first attempt. Automatic transition safety and full Ubuntu
-Gateway/APT acceptance remain open.
+started on the first attempt. The incoming DEB preinst now fences starts
+before unpack, confirms the old process stopped, and records whether to
+resume it. On Ubuntu VM138, the fence stopped a legacy active 3.2.192
+service, rejected starts in the unpacked state and persisted across reboot.
+Configure removed it and the 3.2.205 Core sent a fresh heartbeat.
+Exact-source signed release, interrupted configure with the new hooks and
+full Ubuntu Gateway/APT acceptance remain open.
 STAB-17 source: metadata renewal verifies the pinned signer and all signed index
 and DEB hashes before changing the signed dates. The expiry check covers Ubuntu
 noble and Debian bookworm and warns with three days remaining. Ordinary APT
