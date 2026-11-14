@@ -121,9 +121,12 @@ recovered a signed synthetic release, database, secrets and artifact into
 an empty database and a separate API process from the recovered source archive.
 The local process-crash drill verified result replay after forced API exit
 before result submission and after commit, and after immediate PostgreSQL
-stop and WAL crash recovery with the API process still running. Linux/TLS
-sustained qualification and restore from a verified external production copy
-remain open.
+stop and WAL crash recovery with the API process still running. The Linux
+Nginx/TLS rehearsal held 32 devices for 125 seconds with the default worker
+tick and completed 64 health collections. Production-scale qualification
+and restore from a verified external production copy remain open. The
+read-only backup inventory found local database dumps and no VM115 backups
+in the checked Proxmox storages.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
 

@@ -57,17 +57,20 @@ async def _sample(client, stack, origin, device_id, instance_id, token, sequence
     hello_seconds = perf_counter() - started
     command = await _receive(ws, "command")
     delivery_seconds = perf_counter() - started
-    now = datetime.now(UTC).isoformat()
-    await ws.send_json(_envelope("heartbeat", 1, {
-        "schema_version": "agent_heartbeat_v1", "device_id": str(device_id),
-        "platform": "linux", "agent_version": "4.0.0", "reported_at": now,
-    }))
+    await _heartbeat(ws, device_id, 1)
     ack_started = perf_counter()
     await _grant(ws, device_id, command["command_id"])
     start_seconds = perf_counter() - ack_started
     result_started = perf_counter()
     await _send_result(ws, _result(device_id, command["command_id"], sequence))
     return hello_seconds, delivery_seconds, start_seconds, perf_counter() - result_started
+
+
+async def _heartbeat(ws, device_id, sequence):
+    await ws.send_json(_envelope("heartbeat", sequence, {
+        "schema_version": "agent_heartbeat_v1", "device_id": str(device_id),
+        "platform": "linux", "agent_version": "4.0.0", "reported_at": datetime.now(UTC).isoformat(),
+    }))
 
 
 async def _connect(client, stack, origin, device_id, instance_id, token):
@@ -83,12 +86,12 @@ async def _connect(client, stack, origin, device_id, instance_id, token):
     return ws
 
 
-async def _grant(ws, device_id, command_id):
+async def _grant(ws, device_id, command_id, *, receive=None):
     await ws.send_json(_envelope("command_ack", 2, {
         "schema_version": "agent_command_ack_v1", "device_id": str(device_id),
         "command_id": command_id, "status": "running", "acknowledged_at": datetime.now(UTC).isoformat(),
     }))
-    grant = await _receive(ws, "command_start")
+    grant = await (_receive(ws, "command_start") if receive is None else receive("command_start"))
     assert grant["command_id"] == command_id
 
 
@@ -107,9 +110,9 @@ def _result(device_id, command_id, sequence):
     })
 
 
-async def _send_result(ws, frame):
+async def _send_result(ws, frame, *, receive=None):
     await ws.send_json(frame)
-    result = await _receive(ws, "result_ack")
+    result = await (_receive(ws, "result_ack") if receive is None else receive("result_ack"))
     assert result["command_id"] == frame["payload"]["command_id"]
     assert result["result_sequence"] == frame["sequence"]
 
