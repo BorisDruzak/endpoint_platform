@@ -92,7 +92,7 @@ def retire_interrupted_core_downloads(paths: WindowsUpdatePaths) -> None:
         return
 
 
-def retire_update_download(paths: WindowsUpdatePaths, pending: dict, *, assert_security=None) -> None:
+def retire_update_download(paths: WindowsUpdatePaths, pending: dict, *, assert_security=None) -> bool:
     """Delete one authenticated operation cache leaf under the update mutex."""
     version, operation = pending.get("version"), pending.get("operation_id")
     digest, size = pending.get("sha256"), pending.get("size")
@@ -103,31 +103,36 @@ def retire_update_download(paths: WindowsUpdatePaths, pending: dict, *, assert_s
         or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest)
         or type(size) is not int or not 0 < size <= MAX_ARTIFACT_BYTES
     ):
-        return
-    artifact = paths.downloads_root / f"build-{version}-{operation}.zip"
-    if not isinstance(pending.get("artifact_path"), str) or Path(pending["artifact_path"]) != artifact:
-        return
+        return False
+    if not isinstance(pending.get("artifact_path"), str):
+        return False
+    artifact = Path(pending["artifact_path"])
+    stem = f"build-{version}-{operation}"
+    if artifact.parent != paths.downloads_root or not re.fullmatch(
+        rf"{re.escape(stem)}(?:-[0-9a-f]{{32}})?\.zip", artifact.name,
+    ):
+        return False
     try:
         _checked_path(artifact, paths.updates_root)
         details = artifact.lstat()
         if not stat.S_ISREG(details.st_mode) or details.st_nlink != 1 or details.st_size != size:
-            return
+            return False
         if assert_security is not None:
             assert_security(artifact)
         with artifact.open("rb") as stream:
             opened = os.fstat(stream.fileno())
             if not os.path.samestat(details, opened) or opened.st_size != size:
-                return
+                return False
             actual = hashlib.sha256()
             remaining = size
             while remaining:
                 chunk = stream.read(min(remaining, 1024 * 1024))
                 if not chunk:
-                    return
+                    return False
                 actual.update(chunk)
                 remaining -= len(chunk)
             if stream.read(1) or actual.hexdigest() != digest:
-                return
+                return False
         observed = artifact.lstat()
         if (
             not os.path.samestat(details, observed)
@@ -135,8 +140,9 @@ def retire_update_download(paths: WindowsUpdatePaths, pending: dict, *, assert_s
             or observed.st_mtime_ns != details.st_mtime_ns
             or observed.st_ctime_ns != details.st_ctime_ns
         ):
-            return
+            return False
         durable_unlink(artifact, trusted_root=paths.updates_root)
+        return True
     except (OSError, ValueError, WindowsAclError):
         # Cache cleanup cannot change an already durable terminal result.
-        return
+        return False

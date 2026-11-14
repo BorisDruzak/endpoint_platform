@@ -391,10 +391,12 @@ per receiving volume. Existing retained cores already occupy space. Download
 and extracted files are flushed before durable handoff. A disk-full rejection
 keeps valid pending state for retry and reports bounded `disk_insufficient`.
 The online Core updater downloads to an attempt-specific staging file. After
-the scheduled ACK, it rechecks lifecycle ownership under the update mutex,
-publishes the verified ZIP, flushes its directory and then writes the pending
-handoff. Failed attempts discard their staging file. A visible pending handoff
-keeps its archive even if the final directory flush reported an error.
+the scheduled ACK, it rechecks lifecycle ownership under the update mutex and
+durably writes the prepared handoff. It publishes and flushes the ZIP, then
+renames the prepared handoff to pending. Without an active recovery record, a
+fresh check can retire the exact attempt archive named by an unconsumed
+preparation record after verifying the archive against its size and digest.
+A visible pending handoff keeps its archive and retries the directory flush.
 An exclusive transfer file lock covers the online attempt across awaits.
 Before checking free space, the holder takes a bounded pass under the update
 mutex and retires abandoned files in the lock-aware writer's staging namespace.

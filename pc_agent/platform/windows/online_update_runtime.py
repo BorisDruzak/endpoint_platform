@@ -21,10 +21,13 @@ from pc_agent.transport.base import GatewayCredentialRejected, GatewayTerminalEr
 
 from .update_paths import WindowsUpdatePaths
 from .update_download_retention import (
-    TRANSFER_PREFIX, own_core_download, retire_interrupted_core_downloads, retire_update_download,
+    TRANSFER_PREFIX, _assert_cache_security, own_core_download, retire_interrupted_core_downloads,
+    retire_update_download,
 )
 from .update_transaction import update_transaction, UpdateInProgress, _read_state
-from .durable_state import _check_directories, _checked_path, durable_unlink, flush_directory, write_json_atomic
+from .durable_state import (
+    _check_directories, _checked_path, durable_unlink, flush_directory, publish_prepared, write_bytes_atomic,
+)
 from .disk_readiness import download_required_bytes, is_disk_full, require_disk_space
 
 
@@ -36,6 +39,8 @@ _TERMINAL_OUTCOME_CODES = {
     "rolled_back": "launcher_rolled_back",
 }
 _TERMINAL_OUTCOME_FILENAME = "terminal-outcome.json"
+_PREPARED_DOWNLOAD_FILENAME = "prepared-core-download.json"
+_PENDING_LIMIT = 16 * 1024
 _PENDING_FIELDS = {
     "archive_type", "artifact_path", "channel", "operation_id", "received_at",
     "requested_by", "requested_reason", "sha256", "size", "target", "version",
@@ -154,6 +159,12 @@ class WindowsOnlineUpdateRuntime:
                         raise ValueError("Windows update startup attempt is invalid") from None
                 if not _is_eligible_recommendation(pending["version"], current, pending.get("requested_reason")):
                     raise ValueError("Windows pending update version is invalid")
+                # Finish a visible handoff's directory barrier before SCM can
+                # consume it, including after a failed publication flush.
+                flush_directory(self._paths.updates_root)
+            elif not self._has_update_recovery_state() and self._prepared_download_present():
+                with own_core_download(self._paths):
+                    self._retire_prepared_download()
         if pending is not None:
             if not await self._adapter.record_scheduled_handoff(
                 pending["operation_id"], assigned_version=pending["version"], rollback_version=current,
@@ -192,12 +203,14 @@ class WindowsOnlineUpdateRuntime:
                 self._paths.downloads_root.mkdir(parents=True, exist_ok=True)
                 _check_directories(self._paths.downloads_root)
                 self._acl.protect_update_path(self._paths.downloads_root)
+                self._retire_prepared_download()
                 retire_interrupted_core_downloads(self._paths)
                 require_disk_space(self._paths.downloads_root, download_required_bytes(recommendation.size))
+            nonce = uuid4().hex
             artifact = self._paths.downloads_root / (
-                f"build-{recommendation.version}-{recommendation.operation_id}.zip"
+                f"build-{recommendation.version}-{recommendation.operation_id}-{nonce}.zip"
             )
-            staging = artifact.with_name(f"{TRANSFER_PREFIX}{uuid4().hex}.staging")
+            staging = artifact.with_name(f"{TRANSFER_PREFIX}{nonce}.staging")
             try:
                 return await self._stage_download(recommendation, current, staging, artifact)
             finally:
@@ -209,7 +222,13 @@ class WindowsOnlineUpdateRuntime:
             self._paths.updates_root / _TERMINAL_OUTCOME_FILENAME,
             self._paths.updates_root / "startup-attempt.json", self._paths.restore_path,
         )
-        return any(path.exists() or path.is_symlink() for path in blockers)
+        for path in blockers:
+            try:
+                path.lstat()
+            except FileNotFoundError:
+                continue
+            return True
+        return False
 
     async def _stage_download(
         self, recommendation: EndpointRecommendation, current: str, staging: Path, artifact: Path,
@@ -259,38 +278,84 @@ class WindowsOnlineUpdateRuntime:
         root = self._paths.updates_root
         _checked_path(staging, root)
         _checked_path(artifact, root)
-        os.replace(staging, artifact)
+        prepared = root / _PREPARED_DOWNLOAD_FILENAME
+        if self._prepared_download_present() or artifact.exists():
+            raise ValueError("Core download publication slot is already occupied")
+        metadata = {
+            "archive_type": "zip",
+            "artifact_path": str(artifact),
+            "channel": recommendation.channel,
+            "operation_id": recommendation.operation_id,
+            "received_at": self._now().astimezone(UTC).isoformat(),
+            "requested_by": "gateway",
+            "requested_reason": recommendation.reason or "scheduled_rollout",
+            "sha256": recommendation.sha256,
+            "size": recommendation.size,
+            "target": "windows_amd64",
+            "version": recommendation.version,
+        }
+        payload = json.dumps(metadata, separators=(",", ":"), allow_nan=False).encode("utf-8")
         try:
-            flush_directory(artifact.parent)
-            write_json_atomic(
-                self._paths.pending_path,
-                {
-                    "archive_type": "zip",
-                    "artifact_path": str(artifact),
-                    "channel": recommendation.channel,
-                    "operation_id": recommendation.operation_id,
-                    "received_at": self._now().astimezone(UTC).isoformat(),
-                    "requested_by": "gateway",
-                    "requested_reason": recommendation.reason or "scheduled_rollout",
-                    "sha256": recommendation.sha256,
-                    "size": recommendation.size,
-                    "target": "windows_amd64",
-                    "version": recommendation.version,
-                },
-                trusted_root=root,
-                max_bytes=16 * 1024,
+            write_bytes_atomic(
+                prepared, payload, trusted_root=root, max_bytes=_PENDING_LIMIT,
                 protect=self._acl.protect_update_path,
             )
+            os.replace(staging, artifact)
+            flush_directory(artifact.parent)
+            publish_prepared(
+                prepared, self._paths.pending_path, expected_bytes=payload, trusted_root=root,
+                max_bytes=_PENDING_LIMIT,
+            )
         except Exception:
-            # Replacement may already be visible if the pending directory flush
-            # failed. Keep the ZIP whenever the pending leaf may refer to it.
             try:
-                self._paths.pending_path.lstat()
-            except FileNotFoundError:
-                self._discard_unpublished_download(artifact)
-            except OSError:
+                if not self._has_update_recovery_state():
+                    self._retire_prepared_download()
+            except (OSError, ValueError):
                 pass
             raise
+
+    def _prepared_download_present(self) -> bool:
+        path = self._paths.updates_root / _PREPARED_DOWNLOAD_FILENAME
+        try:
+            path.lstat()
+        except FileNotFoundError:
+            return False
+        return True
+
+    def _retire_prepared_download(self) -> None:
+        """Reclaim one crash-abandoned publication under both ownership boundaries."""
+        root = self._paths.updates_root
+        prepared = root / _PREPARED_DOWNLOAD_FILENAME
+        if not self._prepared_download_present():
+            return
+        _assert_cache_security(root)
+        metadata = _read_state(prepared, _PENDING_LIMIT)
+        if not isinstance(metadata, dict) or metadata.keys() != _PENDING_FIELDS:
+            raise ValueError("Prepared Core download metadata is invalid")
+        version, operation, raw_path = (
+            metadata["version"], metadata["operation_id"], metadata["artifact_path"],
+        )
+        if not all(isinstance(value, str) for value in (version, operation, raw_path)):
+            raise ValueError("Prepared Core download identity is invalid")
+        artifact = Path(raw_path)
+        stem = re.escape(f"build-{version}-{operation}")
+        if artifact.parent != self._paths.downloads_root or not re.fullmatch(
+            rf"{stem}-[0-9a-f]{{32}}\.zip", artifact.name,
+        ):
+            raise ValueError("Prepared Core download path is invalid")
+        _checked_path(artifact, root)
+        flush_directory(root)
+        _assert_cache_security(artifact.parent)
+        try:
+            artifact.lstat()
+        except FileNotFoundError:
+            pass
+        else:
+            if not retire_update_download(self._paths, metadata, assert_security=_assert_cache_security):
+                raise ValueError("Prepared Core download cannot be verified")
+        # A previous attempt may have unlinked the ZIP but failed to flush it.
+        flush_directory(artifact.parent)
+        durable_unlink(prepared, trusted_root=root)
 
     def _discard_unpublished_download(self, path: Path) -> None:
         try:

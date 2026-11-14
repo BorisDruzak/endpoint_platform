@@ -25,6 +25,74 @@ _OPERATION_ID = "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e"
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["abandoned", "pending", "changed_bytes"])
+async def test_restart_reclaims_only_archive_with_unconsumed_publication_record(
+    tmp_path, monkeypatch, state,
+):
+    from pc_agent.platform.windows import online_update_runtime
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+
+    class Interrupted(BaseException):
+        pass
+
+    paths = WindowsUpdatePaths(tmp_path / "install", tmp_path / "data/updates/pending_update.json")
+    paths.install_root.mkdir()
+    paths.current_path.write_text('{"version":"3.2.1"}')
+    payload = b"verified archive"
+    item = EndpointRecommendation(
+        _OPERATION_ID, "3.2.2", "windows_amd64", "canary",
+        "https://endpoint.example.test/build.zip", "build.zip", "zip",
+        hashlib.sha256(payload).hexdigest(), len(payload), "scheduled_rollout",
+    )
+
+    async def download(_, destination):
+        destination.write_bytes(payload)
+        return item.sha256, item.size
+
+    archives = []
+    original_flush = online_update_runtime.flush_directory
+
+    def interrupt_after_archive(directory):
+        original_flush(directory)
+        if directory == paths.downloads_root:
+            archives.extend(directory.glob("build-*.zip"))
+            if archives:
+                raise Interrupted
+
+    first = online_update_runtime.WindowsOnlineUpdateRuntime(
+        adapter=_Adapter(item), paths=paths, acl=_Acl(), download=download,
+    )
+    with monkeypatch.context() as patch:
+        patch.setattr(online_update_runtime, "flush_directory", interrupt_after_archive)
+        with pytest.raises(Interrupted):
+            await first.run_once()
+    archive, = archives
+    assert archive.read_bytes() == payload
+    assert not paths.pending_path.exists()
+    if state == "pending":
+        pending = _pending_payload()
+        pending.update(artifact_path=str(archive), size=len(payload), sha256=item.sha256)
+        paths.pending_path.write_text(json.dumps(pending))
+    if state == "changed_bytes":
+        archive.write_bytes(b"x" * len(payload))
+    historical = paths.downloads_root / "build-3.1.9-241fe64c-9639-47ca-b2c5-c36b36b11f9a.zip"
+    historical.write_bytes(payload)
+
+    fresh = online_update_runtime.WindowsOnlineUpdateRuntime(
+        adapter=_Adapter(None), paths=paths, acl=_Acl(), download=None,
+    )
+    if state == "changed_bytes":
+        with pytest.raises(ValueError, match="cannot be verified"):
+            await fresh.run_once()
+        assert archive.read_bytes() == b"x" * len(payload)
+    else:
+        assert (await fresh.run_once()).status == ("pending" if state == "pending" else "idle")
+    assert archive.exists() is (state != "abandoned")
+    assert (paths.updates_root / "prepared-core-download.json").exists() is (state != "abandoned")
+    assert historical.read_bytes() == payload
+
+
+@pytest.mark.asyncio
 async def test_interrupted_download_is_reclaimed_before_next_disk_check(tmp_path, monkeypatch):
     import os
     import shutil
@@ -274,7 +342,7 @@ async def test_disk_full_download_has_no_handoff_and_can_retry(tmp_path, monkeyp
         elif failure == "artifact_fsync":
             patch.setattr(os, "fsync", full)
         elif failure == "pending_journal":
-            patch.setattr(online_update_runtime, "write_json_atomic", full)
+            patch.setattr(online_update_runtime, "write_bytes_atomic", full)
         result = await runtime.run_once()
         assert result.status == "disk_insufficient"
         assert result.authenticated_check is True
@@ -389,7 +457,7 @@ async def test_pending_publication_failure_requires_verified_handoff_on_restart(
         "https://endpoint.example.test/build.zip", "build.zip", "zip", hashlib.sha256(payload).hexdigest(), len(payload), "scheduled_rollout")
     class Acl(_Acl):
         def protect_update_path(self, path):
-            if path.name.startswith(".pending_update"):
+            if path.name.startswith(".prepared-core-download"):
                 assert path.read_bytes() == b""
                 assert not paths.pending_path.exists()
             super().protect_update_path(path)
@@ -403,9 +471,26 @@ async def test_pending_publication_failure_requires_verified_handoff_on_restart(
     with monkeypatch.context() as patch:
         if failure == "archive_directory_flush":
             from pc_agent.platform.windows import online_update_runtime
-            patch.setattr(online_update_runtime, "flush_directory", fault)
+            flush = online_update_runtime.flush_directory
+            failed = False
+
+            def fail_first_archive_flush(directory):
+                nonlocal failed
+                if directory == paths.downloads_root and not failed:
+                    failed = True
+                    fault()
+                return flush(directory)
+
+            patch.setattr(online_update_runtime, "flush_directory", fail_first_archive_flush)
         elif failure == "directory_flush":
-            patch.setattr(durable_state, "flush_directory", fault)
+            flush = durable_state.flush_directory
+
+            def fail_after_pending_replace(directory):
+                if paths.pending_path.exists():
+                    fault()
+                return flush(directory)
+
+            patch.setattr(durable_state, "flush_directory", fail_after_pending_replace)
         elif failure == "file_flush":
             patch.setattr(durable_state.os, "fsync", fault)
         else:
@@ -566,9 +651,7 @@ async def test_windows_agent_stages_a_verified_pending_update_for_the_fixed_upda
     pending = json.loads(paths.pending_path.read_text(encoding="utf-8"))
     assert pending == {
         "archive_type": "zip",
-        "artifact_path": str(
-            paths.downloads_root / "build-3.2.2-caa31a48-bf2f-4f1c-8b77-d1be77e12b4e.zip"
-        ),
+        "artifact_path": str(Path(pending["artifact_path"])),
         "channel": "canary",
         "operation_id": _OPERATION_ID,
         "received_at": "2026-08-03T00:00:00+00:00",
@@ -585,8 +668,12 @@ async def test_windows_agent_stages_a_verified_pending_update_for_the_fixed_upda
     assert acl.protected[2].name.startswith(".core-transfer-")
     assert acl.protected[2].suffix == ".staging"
     assert not acl.protected[2].exists()
-    assert Path(pending["artifact_path"]).read_bytes() == payload
-    assert acl.protected[-1].name.startswith(".pending_update.json.")
+    published = Path(pending["artifact_path"])
+    assert published.parent == paths.downloads_root
+    nonce = acl.protected[2].stem.removeprefix(".core-transfer-")
+    assert published.name == f"build-3.2.2-{_OPERATION_ID}-{nonce}.zip"
+    assert published.read_bytes() == payload
+    assert acl.protected[-1].name.startswith(".prepared-core-download.json.")
     assert acl.protected[-1].suffix == ".tmp"
     assert paths.pending_path.is_file()
     assert adapter.calls == [

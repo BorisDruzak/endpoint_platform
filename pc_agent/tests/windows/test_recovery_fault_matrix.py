@@ -241,7 +241,6 @@ async def test_fresh_owners_recover_all_thirteen_fault_boundaries(tmp_path, monk
         patch.setattr(os, "fsync", fsync)
         for module, symbol, selected, fault, after in (
             (update_adapter, "write_json_atomic", "endpoint_update_state.json", "handoff_journal", False),
-            (online_update_runtime, "write_json_atomic", "pending_update.json", "pending_publication", False),
             (updater_service, "_write_json_atomic", "current.json", "after_current_selector", True),
             (updater_service, "_write_json_atomic", "terminal-outcome.json", "terminal_persistence", False),
             (updater_service, "durable_unlink", "pending_update.json", "cleanup", True),
@@ -255,6 +254,13 @@ async def test_fresh_owners_recover_all_thirteen_fault_boundaries(tmp_path, monk
                     rig.hit(_fault)
                 return result
             patch.setattr(module, symbol, wrapped)
+        original_publish = online_update_runtime.publish_prepared
+
+        def publish(*args, **kwargs):
+            rig.hit("pending_publication")
+            return original_publish(*args, **kwargs)
+
+        patch.setattr(online_update_runtime, "publish_prepared", publish)
         try:
             await rig.online().run_once()
             rig.worker().run_once()
@@ -280,6 +286,15 @@ async def test_fresh_owners_recover_all_thirteen_fault_boundaries(tmp_path, monk
     if failure is Crash:
         assert expected == NEW
     assert not final["pending"] and not final["transition"] and not final["attempt"]
+    archives = list(rig.paths.downloads_root.glob("build-*.zip"))
+    if point == "terminal_persistence" and failure is OSError:
+        # The worker quarantines pending when its terminal record cannot be
+        # written. Keep that handed-off archive with the forensic record.
+        rejected, = rig.paths.updates_root.glob("rejected-pending-*.json")
+        assert archives == [Path(json.loads(rejected.read_text())["artifact_path"])]
+    else:
+        assert not archives
+    assert not (rig.paths.updates_root / "prepared-core-download.json").exists()
     assert len(final["reports"]) == 1 and final["reports"][0]["delivered_at"]
     assert final["handoff"][0]["scheduled_ack_delivered_at"]
     report_posts = [body for url, body in rig.posts if url.endswith("/reports")]
@@ -302,7 +317,7 @@ async def test_persistent_enospc_keeps_known_good_and_fresh_owner_can_retry(tmp_
         def full(*_, **__):
             raise OSError(errno.ENOSPC, "source-test-only")
         if point == "pending_publication":
-            patch.setattr(online_update_runtime, "write_json_atomic", full)
+            patch.setattr(online_update_runtime, "publish_prepared", full)
         else:
             async def no_space(*_, **__):
                 full()

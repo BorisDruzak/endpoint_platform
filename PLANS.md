@@ -149,10 +149,13 @@ A visible pending record retains its ZIP across a failed final flush.
 Before disk admission, an exclusive online-transfer file lock and the update
 mutex allow bounded retirement of abandoned staging and HTTP temporary files
 from the lock-aware writer. Windows source tests cover a real subprocess exit
-without cleanup and a concurrent check during an active transfer. Historical
-Core caches, including scratch files from writers without the lock and a ZIP
-left between promotion and pending publication by process death, remain open.
-Server deployment releases and retirement of catalog artifacts remain open.
+without cleanup and a concurrent check during an active transfer. An
+unconsumed, durable publication record allows recovery to retire the exact
+attempt ZIP left between ZIP promotion and pending publication. Recovery
+validates the digest and preserves changed bytes or active handoffs. Historical
+Core caches, scratch files from writers without the lock and archives tied to
+quarantined handoff records remain open, along with server deployment releases
+and retirement of catalog artifacts.
 STAB-02 foundation: local SQLite records a command ID, device, payload digest,
 and start before execution, then commits completion and outbox together.
 Interrupted starts recover as unknown outcomes. Negotiated WSS sessions
