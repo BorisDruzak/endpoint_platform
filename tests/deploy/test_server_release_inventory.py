@@ -2,8 +2,10 @@
 
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,6 +15,34 @@ from tools.release import inventory_deployments
 CURRENT = "endpoint-platform-aabbccddeeff-setup205-observer"
 PREVIOUS = "endpoint-platform-112233445566"
 OTHER = "endpoint-platform-001122334455"
+
+
+@pytest.mark.parametrize("available, expected_status", [(10 * 1024**3, 0), (10 * 1024**3 - 1, 2)])
+def test_space_check_uses_release_volume_without_reading_selectors(
+    tmp_path, monkeypatch, capsys, available, expected_status,
+):
+    paths = []
+
+    def usage(path):
+        paths.append(path)
+        return SimpleNamespace(free=available, total=20 * 1024**3)
+
+    monkeypatch.setattr(shutil, "disk_usage", usage)
+    monkeypatch.setattr(sys, "argv", [
+        "inventory_deployments", "--check-release-space", "--releases-root", str(tmp_path),
+        "--current", str(tmp_path / "absent-selector"),
+    ])
+    if expected_status:
+        with pytest.raises(SystemExit) as exit_info:
+            inventory_deployments.main()
+        assert exit_info.value.code == expected_status
+    else:
+        inventory_deployments.main()
+    assert paths == [tmp_path]
+    report = json.loads(capsys.readouterr().out)
+    assert report["volume_free_bytes"] == available
+    assert report["minimum_free_bytes"] == 10 * 1024**3
+    assert report["release_space_ready"] is (expected_status == 0)
 
 
 @pytest.fixture

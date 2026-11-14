@@ -190,6 +190,9 @@ The first full deployment backup, `b9976195cf68`, preserved its private venv
 and matched all 5,796 paths after isolated extraction. The protected archive
 occupies 30.1 MiB versus 111.5 MiB for the source. The 81.4 MiB difference
 is potential savings. The deployed tree remains in place.
+The deployment runbook now checks the actual release volume before preparing
+or extracting a release. The check works without selectors and exits 2 below
+10 GiB. On production it reported 8,384,782,336 bytes available and exited 2.
 STAB-02 foundation: local SQLite records a command ID, device, payload digest,
 and start before execution, then commits completion and outbox together.
 Interrupted starts recover as unknown outcomes. Negotiated WSS sessions

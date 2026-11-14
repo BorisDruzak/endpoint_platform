@@ -116,9 +116,13 @@ Never use symlinks for the environment or secret files.
 ## 4. Install release and service assets
 
 Extract the uploaded archive to its immutable versioned directory and create
-the virtual environment:
+the virtual environment. After section 3 has provisioned the release directory,
+run the release-volume check from the operator checkout:
 
 ```powershell
+Get-Content -Raw tools/release/inventory_deployments.py |
+  ssh endpoint-platform-server "/usr/bin/python3.12 -B - --check-release-space"
+if ($LASTEXITCODE -ne 0) { throw 'Release volume check failed' }
 scp $releaseArchive endpoint-platform-server:/tmp/
 ssh endpoint-platform-server "printf '%s\n' '$releaseCommit' | sudo install -o root -g root -m 0644 /dev/stdin /etc/endpoint-platform/release-commit"
 Remove-Item -LiteralPath $releaseArchive
@@ -294,7 +298,9 @@ Replace `ADMIN_USERNAME` with the administrator login approved by the operator.
 ## 7. Upgrade an existing production host
 
 Use the release archive from section 1. The existing service and Nginx units
-remain in place. Record the current release symlink and migration revision,
+remain in place. Run the release-volume check from section 4 before preparing
+the upgrade, even if the installed release predates the inventory tool.
+Record the current release symlink and migration revision,
 then make a database backup before changing either. Keep the backup on the
 host in a PostgreSQL-owned private directory and record its SHA-256 outside
 the database. `pg_restore -l` must read the archive successfully.
@@ -317,11 +323,12 @@ sudo -u postgres pg_dump -Fc endpoint_platform -f "${backup}"
 sudo -u postgres pg_restore -l "${backup}" >/dev/null
 sudo sha256sum "${backup}"
 printf '%s\n' "${previous_release}" | sudo install -o root -g root -m 0644 /dev/stdin /etc/endpoint-platform/previous-release
-df -h /
 ```
 
-Require at least 10 GiB free and verify the workstation and uploaded archive
-SHA-256 values match. Apply section4's protected extraction/full closure gate
+Recheck the release volume before extracting the archive. The check exits 2
+when fewer than 10 GiB are available under `/opt/endpoint-platform/releases`.
+Verify the workstation and uploaded archive SHA-256 values match. Apply
+section 4's protected extraction/full closure gate
 to the immutable release directory BEFORE creating its Python3.12 venv or
 installing `requirements-server.txt`, and finish dependency/Settings validation before
 switching `current`. Do not copy credentials, CA files, or local build caches

@@ -16,10 +16,28 @@ _COMMIT = re.compile(r"[0-9a-f]{12}")
 _MAX_ENTRIES = 1_000_000
 _MARKER_LIMIT = 4096
 _REPARSE_POINT = 0x400
+_MINIMUM_FREE_BYTES = 10 * 1024**3
 
 
 def _physical_directory(details: os.stat_result) -> bool:
     return stat.S_ISDIR(details.st_mode) and not getattr(details, "st_file_attributes", 0) & _REPARSE_POINT
+
+
+def _release_root_details(root: Path) -> os.stat_result:
+    details = root.lstat()
+    if not _physical_directory(details) or root.resolve(strict=True) != root:
+        raise ValueError("releases root must be a physical directory")
+    return details
+
+
+def _volume_space(root: Path) -> dict[str, int | bool]:
+    space = shutil.disk_usage(root)
+    return {
+        "volume_free_bytes": space.free,
+        "volume_total_bytes": space.total,
+        "minimum_free_bytes": _MINIMUM_FREE_BYTES,
+        "release_space_ready": space.free >= _MINIMUM_FREE_BYTES,
+    }
 
 
 def _identity(details: os.stat_result) -> tuple:
@@ -210,9 +228,7 @@ def read_inventory(
     staged: Path | None = None, proc: Path | None = None,
 ) -> dict[str, object]:
     root = root.absolute()
-    root_details = root.lstat()
-    if not _physical_directory(root_details) or root.resolve(strict=True) != root:
-        raise ValueError("releases root must be a physical directory")
+    root_details = _release_root_details(root)
     active, rollback = _pointers(root, current, previous)
     commit = _staged_commit(staged)
     if pins and not all(_RELEASE_NAME.fullmatch(pin) for pin in pins):
@@ -253,7 +269,6 @@ def read_inventory(
         or _identity(root.lstat()) != _identity(root_details)
     ):
         raise ValueError("deployment pointers changed during inventory")
-    space = shutil.disk_usage(root)
     return {
         "current": active,
         "previous": rollback,
@@ -263,8 +278,7 @@ def read_inventory(
         "releases": [rows[name] for name in sorted(rows)],
         "missing_release_dependencies": missing_dependencies,
         "unclassified_entries": sorted(unclassified),
-        "volume_free_bytes": space.free,
-        "volume_total_bytes": space.total,
+        **_volume_space(root),
     }
 
 
@@ -276,15 +290,26 @@ def main() -> None:
     parser.add_argument("--release-commit", type=Path, default=Path("/etc/endpoint-platform/release-commit"))
     parser.add_argument("--proc-root", type=Path, default=Path("/proc") if os.name == "posix" else None)
     parser.add_argument("--pin", action="append", default=[], metavar="RELEASE_DIRECTORY")
+    parser.add_argument(
+        "--check-release-space", action="store_true",
+        help="check the release volume without scanning deployments; exit 2 below 10 GiB",
+    )
     args = parser.parse_args()
     try:
-        inventory = read_inventory(
-            args.releases_root, args.current, args.previous_release,
-            pins=args.pin, staged=args.release_commit, proc=args.proc_root,
-        )
+        if args.check_release_space:
+            root = args.releases_root.absolute()
+            _release_root_details(root)
+            inventory = _volume_space(root)
+        else:
+            inventory = read_inventory(
+                args.releases_root, args.current, args.previous_release,
+                pins=args.pin, staged=args.release_commit, proc=args.proc_root,
+            )
     except (OSError, ValueError) as error:
         parser.exit(1, f"deployment storage inventory failed: {error}\n")
     print(json.dumps(inventory, indent=2, sort_keys=True))
+    if args.check_release_space and not inventory["release_space_ready"]:
+        parser.exit(2)
 
 
 if __name__ == "__main__":

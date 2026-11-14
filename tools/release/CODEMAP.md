@@ -14,6 +14,8 @@
 - `inventory_deployments.py`: read-only release-volume inventory with current,
   rollback, staged commit, explicit pins, observed Linux process references,
   and transitive protection through links between release directories.
+  `--check-release-space` checks the 10 GiB deployment threshold on the
+  release volume and works before the initial selector is created.
 - `inventory_storage.py`: read-only artifact-volume inventory against the four
   release catalog owners. Both inventory modules ship in the server archive.
 - `verify_server_release_payload.py`: operator-side, read-only comparison of a
