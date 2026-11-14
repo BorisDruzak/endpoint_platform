@@ -90,7 +90,11 @@ metadata alongside the version and SHA-256 in APT Packages. A Debian 12 LXC
 rehearsal built the exact source under umask 077 and verified active upgrade,
 failed enabled restart, offline reinstall, rollback and container restart. See
 the qualification matrix for the temporary systemd override and remaining
-installed package acceptance.
+installed package acceptance. Isolated Debian 12 VM137 repeated the package
+lifecycle through locally signed APT with the stock service sandbox and
+received authenticated hello and heartbeat at a local TLS peer after reboot.
+Forced VM power-off between unpack and configure recovered with dpkg configure
+and preserved identity. Real Gateway enrollment/session acceptance remains open.
 STAB-17 source: metadata renewal verifies the pinned signer and all signed index
 and DEB hashes before changing the signed dates. The expiry check covers Ubuntu
 noble and Debian bookworm and warns with three days remaining. Ordinary APT
