@@ -13,7 +13,9 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from endpoint_contracts.activity import ActivityObservationV1
 from endpoint_server.activity.analytics_models import ActivityInterval, ActivityCursor, ActivityDaily
 from endpoint_server.activity.analytics_policy import AnalyticsPolicy
-from endpoint_server.activity.analytics_store import record_observation, rebuild_daily, retain_analytics
+from endpoint_server.activity.analytics_store import (
+    analytics_backlog_age, rebuild_daily, record_observation, retain_analytics,
+)
 from endpoint_server.activity.analytics_math import summarize, normalize_login, day_bounds, utc
 from endpoint_server.db.models import Device
 
@@ -29,6 +31,7 @@ async def db():
             Device.__table__.create(c)
             with Operations.context(MigrationContext.configure(c)):
                 import_module('endpoint_server.db.migrations.versions.0038_activity_analytics').upgrade()
+                import_module('endpoint_server.db.migrations.versions.0053_activity_dirty_since').upgrade()
         await connection.run_sync(migrate)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:
@@ -56,6 +59,35 @@ async def record(session, device, obs, **kwargs):
 
 async def rows(session):
     return list((await session.scalars(select(ActivityInterval).order_by(ActivityInterval.started_at))).all())
+
+
+@pytest.mark.asyncio
+async def test_backlog_starts_at_first_pending_change_after_publication(db):
+    session, device, _ = db
+    policy = AnalyticsPolicy()
+    await record(session, device, observation())
+    await rebuild_daily(session, policy=policy, now=NOW + timedelta(seconds=10))
+    assert await analytics_backlog_age(session, policy=policy) == 0
+    await record(session, device, observation(15))
+    first = await session.scalar(select(ActivityDaily.dirty_since))
+    await record(session, device, observation(20))
+    assert await session.scalar(select(ActivityDaily.dirty_since)) == first
+    assert await analytics_backlog_age(session, policy=policy, now=utc(first) + timedelta(seconds=60)) == 60
+    await rebuild_daily(session, policy=policy, now=NOW + timedelta(seconds=25))
+    assert await analytics_backlog_age(session, policy=policy) == 0
+
+
+@pytest.mark.asyncio
+async def test_existing_dirty_rows_have_unknown_backlog_until_rebuilt(db):
+    session, device, _ = db
+    policy = AnalyticsPolicy()
+    await record(session, device, observation())
+    existing = (await session.scalars(select(ActivityDaily))).first()
+    existing.dirty_since = None  # Existing dirty row after the additive migration.
+    await record(session, device, observation(15))
+    assert await analytics_backlog_age(session, policy=policy) is None
+    await rebuild_daily(session, policy=policy, now=NOW + timedelta(seconds=20))
+    assert await analytics_backlog_age(session, policy=policy) == 0
 
 
 @pytest.mark.asyncio

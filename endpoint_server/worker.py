@@ -23,7 +23,7 @@ from endpoint_server.operations.service import expire_operations, operation_expi
 from endpoint_server.operations.evidence import cleanup_module_step_results, cleanup_operation_results
 from endpoint_server.security.retention import retain_security_events
 from endpoint_server.power.retention import retain_power_events
-from endpoint_server.activity.analytics_store import rebuild_daily, retain_analytics
+from endpoint_server.activity.analytics_store import analytics_backlog_age, rebuild_daily, retain_analytics
 from endpoint_server.setup_updates.preparation import advance_preparations, setup_preparation_backlog_age
 from endpoint_server.setup_updates.scheduler import schedule_one
 
@@ -121,7 +121,7 @@ class MaintenanceJobs:
     async def run(
         self, name: str, job: Callable[[Any], Awaitable[object]], *,
         due_at: float, batches: int = 1, continue_if: Callable[[object], bool] = bool,
-        measure_backlog: Callable[[Any], Awaitable[float]] | None = None,
+        measure_backlog: Callable[[Any], Awaitable[float | None]] | None = None,
     ) -> None:
         loop = asyncio.get_running_loop()
         started = loop.time()
@@ -132,11 +132,13 @@ class MaintenanceJobs:
         error = "none"
         completed = 0
         backlog_age = None
+        backlog_sampled = False
 
         async def measure_then_run(session: Any) -> object:
-            nonlocal backlog_age
-            if measure_backlog is not None and backlog_age is None:
+            nonlocal backlog_age, backlog_sampled
+            if measure_backlog is not None and not backlog_sampled:
                 backlog_age = await measure_backlog(session)
+                backlog_sampled = True
             return await job(session)
 
         task = measure_then_run if measure_backlog is not None else job
@@ -209,7 +211,9 @@ async def run_worker(
             # 256 user-days per tick, one commit per batch.
             await jobs.run("rebuild_daily", lambda session: rebuild_daily(
                 session, policy=settings.activity_analytics,
-            ), due_at=tick, batches=16, continue_if=lambda count: isinstance(count, int) and count >= 16)
+            ), due_at=tick, batches=16, continue_if=lambda count: isinstance(count, int) and count >= 16,
+                measure_backlog=lambda session: analytics_backlog_age(session, policy=settings.activity_analytics),
+            )
             await _run_worktime_maintenance(provider, enabled=settings.worktime_enabled, jobs=jobs, due_at=tick)
             if loop.time() >= next_payload:
                 for name, job in (

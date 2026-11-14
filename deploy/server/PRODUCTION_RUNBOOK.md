@@ -569,8 +569,13 @@ age is elapsed time from the oldest scheduled attempt still awaiting success.
 It measures worker schedule lag. `data_backlog_age_seconds` measures time past
 the oldest active deadline for `expire_operations`, and time since creation
 of the oldest active chain for `advance_preparations`. Zero indicates no
-aged work at sampling time. `unknown` means no data age was measured for that
-attempt. WSS health is a separate operational signal.
+aged work at sampling time. For `rebuild_daily` the age starts when the oldest
+supported daily rollup first transitions to dirty. Migration
+`0053_activity_dirty_since` leaves existing dirty rows without an enqueue time.
+Apply it before starting the updated API and worker.
+The rollup metric reports `unknown` until such rows are published or removed
+by retention. Jobs without a data-queue measurement also report `unknown`.
+WSS health is a separate operational signal.
 
 Job execution budgets are 15 to 30 seconds, including all transactions in a
 single job's batch loop. PostgreSQL transaction-local lock and statement

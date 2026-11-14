@@ -152,7 +152,8 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0052_inventory_installation"]
+    assert script.get_heads() == ["0053_activity_dirty_since"]
+    assert script.get_revision("0053_activity_dirty_since").down_revision == "0052_inventory_installation"
     assert script.get_revision("0052_inventory_installation").down_revision == "0051_staging_linux_worktime"
     merge = script.get_revision("0051_staging_linux_worktime")
     assert merge.is_merge_point

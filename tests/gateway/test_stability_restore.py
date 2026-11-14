@@ -209,7 +209,7 @@ async def test_restore_signed_release_and_resume(update_service_provider, update
         str(path.relative_to(workspace).as_posix()): _digest(path)
         for path in workspace.rglob("*") if path.is_file() and path.parent != identity
     }
-    manifest = json.dumps({"revision": revision, "schema": "0052_inventory_installation",
+    manifest = json.dumps({"revision": revision, "schema": "0053_activity_dirty_since",
                            "files": release_files}, sort_keys=True).encode()
     workspace.joinpath("release.json").write_bytes(manifest)
     workspace.joinpath("release.sig").write_bytes(signing.sign(manifest))

@@ -54,6 +54,9 @@ class ClosableSessionProvider:
 
 
 class _WorkerResult:
+    def first(self) -> None:
+        return None
+
     class _Scalars:
         def all(self) -> list[object]:
             return []
@@ -75,6 +78,8 @@ class WorkerSession:
         self._job: str | None = None
 
     async def execute(self, statement: object) -> _WorkerResult:
+        if getattr(statement, "column_descriptions", [{}])[0].get("entity") is ActivityDaily:
+            return _WorkerResult()
         del statement
         self._job = "cleanup"
         if self.fail_cleanup:

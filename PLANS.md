@@ -103,6 +103,9 @@ Backlog age reports scheduled worker lag. For operation expiry the same log
 also reports the time past the oldest active deadline, including rows held by
 another transaction, verified on disposable PostgreSQL 16.15. Setup
 preparation reports the age of the oldest active chain across stage changes.
+Activity rollups record the first dirty transition in additive migration
+0053 and report unknown while a dirty row has no enqueue timestamp.
+Migration and concurrent rollup tests passed on disposable PostgreSQL 16.15.
 Other data-queue ages remain open.
 STAB-09 source: explicit Core transfer total/connect/idle
 timeouts with matching recovery-supervisor budget. Slow and stalled loopback
