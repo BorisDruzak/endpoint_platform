@@ -146,8 +146,13 @@ receipt. Windows Core uses an attempt-specific staging file and publishes its
 ZIP only after the scheduled ACK and a lifecycle recheck under the update
 mutex. Failure before pending publication retires the unreferenced ZIP.
 A visible pending record retains its ZIP across a failed final flush.
-Historical Core caches, staging files left by a killed process, deployment
-releases and retirement of catalog artifacts remain open.
+Before disk admission, an exclusive online-transfer file lock and the update
+mutex allow bounded retirement of abandoned staging and HTTP temporary files
+from the lock-aware writer. Windows source tests cover a real subprocess exit
+without cleanup and a concurrent check during an active transfer. Historical
+Core caches, including scratch files from writers without the lock and a ZIP
+left between promotion and pending publication by process death, remain open.
+Server deployment releases and retirement of catalog artifacts remain open.
 STAB-02 foundation: local SQLite records a command ID, device, payload digest,
 and start before execution, then commits completion and outbox together.
 Interrupted starts recover as unknown outcomes. Negotiated WSS sessions

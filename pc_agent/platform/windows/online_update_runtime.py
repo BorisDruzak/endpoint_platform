@@ -7,6 +7,7 @@ import os
 import re
 import ssl
 from collections.abc import Awaitable, Callable
+from contextlib import ExitStack
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,9 +20,11 @@ from pc_agent.update_adapter import EndpointRecommendation, _is_operation_id
 from pc_agent.transport.base import GatewayCredentialRejected, GatewayTerminalError
 
 from .update_paths import WindowsUpdatePaths
-from .update_download_retention import retire_update_download
+from .update_download_retention import (
+    TRANSFER_PREFIX, own_core_download, retire_interrupted_core_downloads, retire_update_download,
+)
 from .update_transaction import update_transaction, UpdateInProgress, _read_state
-from .durable_state import _checked_path, durable_unlink, flush_directory, write_json_atomic
+from .durable_state import _check_directories, _checked_path, durable_unlink, flush_directory, write_json_atomic
 from .disk_readiness import download_required_bytes, is_disk_full, require_disk_space
 
 
@@ -178,20 +181,35 @@ class WindowsOnlineUpdateRuntime:
         if not await self._adapter.acknowledge(recommendation.operation_id, "requested"):
             return WindowsOnlineUpdateResult("request_ack_pending")
 
-        with update_transaction(self._paths, timeout_ms=0):
-            require_disk_space(self._paths.downloads_root, download_required_bytes(recommendation.size))
-            self._paths.updates_root.mkdir(parents=True, exist_ok=True)
-            self._acl.protect_update_path(self._paths.updates_root)
-            self._paths.downloads_root.mkdir(parents=True, exist_ok=True)
-            self._acl.protect_update_path(self._paths.downloads_root)
-        artifact = self._paths.downloads_root / (
-            f"build-{recommendation.version}-{recommendation.operation_id}.zip"
+        with ExitStack() as ownership:
+            with update_transaction(self._paths, timeout_ms=0):
+                if self._has_update_recovery_state():
+                    return WindowsOnlineUpdateResult("update_in_progress")
+                self._paths.updates_root.mkdir(parents=True, exist_ok=True)
+                _check_directories(self._paths.updates_root)
+                self._acl.protect_update_path(self._paths.updates_root)
+                ownership.enter_context(own_core_download(self._paths))
+                self._paths.downloads_root.mkdir(parents=True, exist_ok=True)
+                _check_directories(self._paths.downloads_root)
+                self._acl.protect_update_path(self._paths.downloads_root)
+                retire_interrupted_core_downloads(self._paths)
+                require_disk_space(self._paths.downloads_root, download_required_bytes(recommendation.size))
+            artifact = self._paths.downloads_root / (
+                f"build-{recommendation.version}-{recommendation.operation_id}.zip"
+            )
+            staging = artifact.with_name(f"{TRANSFER_PREFIX}{uuid4().hex}.staging")
+            try:
+                return await self._stage_download(recommendation, current, staging, artifact)
+            finally:
+                self._discard_unpublished_download(staging)
+
+    def _has_update_recovery_state(self) -> bool:
+        blockers = (
+            self._paths.pending_path, self._paths.transition_path,
+            self._paths.updates_root / _TERMINAL_OUTCOME_FILENAME,
+            self._paths.updates_root / "startup-attempt.json", self._paths.restore_path,
         )
-        staging = artifact.with_name(f".core-download-{uuid4().hex}.staging")
-        try:
-            return await self._stage_download(recommendation, current, staging, artifact)
-        finally:
-            self._discard_unpublished_download(staging)
+        return any(path.exists() or path.is_symlink() for path in blockers)
 
     async def _stage_download(
         self, recommendation: EndpointRecommendation, current: str, staging: Path, artifact: Path,
@@ -226,12 +244,7 @@ class WindowsOnlineUpdateRuntime:
         ):
             return WindowsOnlineUpdateResult("request_ack_pending")
         with update_transaction(self._paths, timeout_ms=0):
-            blockers = (
-                self._paths.pending_path, self._paths.transition_path,
-                self._paths.updates_root / _TERMINAL_OUTCOME_FILENAME,
-                self._paths.updates_root / "startup-attempt.json", self._paths.restore_path,
-            )
-            if any(path.exists() or path.is_symlink() for path in blockers):
+            if self._has_update_recovery_state():
                 return WindowsOnlineUpdateResult("update_in_progress")
             changed = _load_current_version(self._paths.current_path) != current
             if not changed:

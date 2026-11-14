@@ -25,6 +25,108 @@ _OPERATION_ID = "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e"
 
 
 @pytest.mark.asyncio
+async def test_interrupted_download_is_reclaimed_before_next_disk_check(tmp_path, monkeypatch):
+    import os
+    import shutil
+    import subprocess
+    import sys
+    from types import SimpleNamespace
+    from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateRuntime
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+
+    paths = WindowsUpdatePaths(tmp_path / "install", tmp_path / "data/updates/pending_update.json")
+    paths.install_root.mkdir()
+    paths.current_path.write_text('{"version":"3.2.1"}')
+    paths.downloads_root.mkdir(parents=True)
+    staging = paths.downloads_root / (".core-transfer-" + "a" * 32 + ".staging")
+    partial = paths.downloads_root / ("." + staging.name + "." + "b" * 32 + ".tmp")
+    linked = paths.downloads_root / (".core-transfer-" + "c" * 32 + ".staging")
+    historical = paths.downloads_root / (".core-download-" + "d" * 32 + ".staging")
+    canonical = paths.downloads_root / f"build-3.2.9-{_OPERATION_ID}.zip"
+    child = '''
+import os
+import sys
+from pathlib import Path
+from pc_agent.platform.windows.update_download_retention import own_core_download
+from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+
+paths = WindowsUpdatePaths(Path(sys.argv[1]), Path(sys.argv[2]))
+with own_core_download(paths):
+    for name in sys.argv[3:]:
+        (paths.downloads_root / name).write_bytes(b"interrupted transfer")
+    os._exit(0)
+'''
+    subprocess.run(
+        [sys.executable, "-c", child, str(paths.install_root), str(paths.pending_path), staging.name, partial.name],
+        check=True, timeout=15,
+    )
+    assert staging.exists() and partial.exists()
+    for path in (historical, canonical):
+        path.write_bytes(b"previous bytes")
+    os.link(canonical, linked)
+    payload = b"verified archive"
+    item = EndpointRecommendation(
+        _OPERATION_ID, "3.2.2", "windows_amd64", "canary",
+        "https://endpoint.example.test/build.zip", "build.zip", "zip",
+        hashlib.sha256(payload).hexdigest(), len(payload), "scheduled_rollout",
+    )
+
+    def free_space(_):
+        enough = not staging.exists() and not partial.exists()
+        return SimpleNamespace(free=1024**3 if enough else 0)
+
+    monkeypatch.setattr(shutil, "disk_usage", free_space)
+
+    async def download(_, destination):
+        destination.write_bytes(payload)
+        return item.sha256, item.size
+
+    runtime = WindowsOnlineUpdateRuntime(adapter=_Adapter(item), paths=paths, acl=_Acl(), download=download)
+    assert (await runtime.run_once()).status == "scheduled"
+    assert not staging.exists() and not partial.exists()
+    for path in (canonical, linked, historical):
+        assert path.read_bytes() == b"previous bytes"
+
+
+@pytest.mark.asyncio
+async def test_overlapping_checks_preserve_active_download(tmp_path):
+    import asyncio
+    from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateRuntime
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+
+    paths = WindowsUpdatePaths(tmp_path / "install", tmp_path / "data/updates/pending_update.json")
+    paths.install_root.mkdir()
+    paths.current_path.write_text('{"version":"3.2.1"}')
+    payload = b"verified archive"
+    item = EndpointRecommendation(
+        _OPERATION_ID, "3.2.2", "windows_amd64", "canary",
+        "https://endpoint.example.test/build.zip", "build.zip", "zip",
+        hashlib.sha256(payload).hexdigest(), len(payload), "scheduled_rollout",
+    )
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def active_download(_, destination):
+        destination.write_bytes(payload)
+        started.set()
+        await release.wait()
+        assert destination.read_bytes() == payload
+        return item.sha256, item.size
+
+    async def competing_download(*_):
+        pytest.fail("a second downloader entered the active transfer")
+
+    first = WindowsOnlineUpdateRuntime(adapter=_Adapter(item), paths=paths, acl=_Acl(), download=active_download)
+    second = WindowsOnlineUpdateRuntime(adapter=_Adapter(item), paths=paths, acl=_Acl(), download=competing_download)
+    active = asyncio.create_task(first.run_once())
+    try:
+        await asyncio.wait_for(started.wait(), timeout=5)
+        assert (await second.run_once()).status == "update_in_progress"
+    finally:
+        release.set()
+        assert (await active).status == "scheduled"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("interruption", ["ack", "selector", "competing_pending", "startup_attempt"])
 async def test_unpublished_download_does_not_leave_an_operation_archive(tmp_path, interruption):
     from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateRuntime
@@ -480,7 +582,7 @@ async def test_windows_agent_stages_a_verified_pending_update_for_the_fixed_upda
     assert acl.protected[:2] == [paths.updates_root, paths.downloads_root]
     assert len(acl.protected) == 4
     assert acl.protected[2].parent == paths.downloads_root
-    assert acl.protected[2].name.startswith(".core-download-")
+    assert acl.protected[2].name.startswith(".core-transfer-")
     assert acl.protected[2].suffix == ".staging"
     assert not acl.protected[2].exists()
     assert Path(pending["artifact_path"]).read_bytes() == payload

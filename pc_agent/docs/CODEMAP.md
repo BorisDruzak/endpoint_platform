@@ -395,6 +395,10 @@ the scheduled ACK, it rechecks lifecycle ownership under the update mutex,
 publishes the verified ZIP, flushes its directory and then writes the pending
 handoff. Failed attempts discard their staging file. A visible pending handoff
 keeps its archive even if the final directory flush reported an error.
+An exclusive transfer file lock covers the online attempt across awaits.
+Before checking free space, the holder takes a bounded pass under the update
+mutex and retires abandoned files in the lock-aware writer's staging namespace.
+The pass leaves older scratch names and canonical operation archives alone.
 The Windows recovery supervisor keeps the current core and WSS alive after
 SCM starts the updater; the offline worker owns stopping the Agent only after
 verified staging and durable preparation. The worker first reserves exact old
