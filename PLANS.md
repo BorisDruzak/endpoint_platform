@@ -150,7 +150,10 @@ started work retains its observed or uncertain outcome. Before executing,
 negotiated agents request a start decision. Gateway grants it after committing
 running status or sends command_cancel for expired or terminal commands.
 Operator cancellation remains scoped to the existing undelivered operation
-contract. Installed cross-version canary remains open.
+contract. Installed Windows 3.2.207 replayed an identical session collection
+result after loss of its post-commit ACK. PostgreSQL retained one result,
+and the outbox cleared after ACK delivery. Installed cross-version canary
+remains open.
 The additive SQLite table keeps the existing schema marker for Core rollback.
 STAB-16 service recovery: Ubuntu 24.04 and Debian 12 package configuration
 routes restart through the distribution helper. An enabled failed service
