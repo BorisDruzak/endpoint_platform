@@ -11,6 +11,7 @@ from alembic.operations import Operations
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from endpoint_contracts.activity import ActivityObservationV1
+from endpoint_server.activity import analytics_store
 from endpoint_server.activity.analytics_models import ActivityInterval, ActivityCursor, ActivityDaily
 from endpoint_server.activity.analytics_policy import AnalyticsPolicy
 from endpoint_server.activity.analytics_store import (
@@ -162,6 +163,39 @@ async def test_daily_union_timezone_overlap_and_retention(db):
     assert await session.scalar(select(func.count()).select_from(ActivityDaily)) > 0
     await retain_analytics(session, policy=AnalyticsPolicy(), now=NOW + timedelta(days=92))
     assert await session.scalar(select(func.count()).select_from(ActivityDaily)) == 0
+
+
+@pytest.mark.asyncio
+async def test_retention_measures_deleted_rows_and_excludes_dirty_detail(db):
+    session, device, _ = db
+    policy = AnalyticsPolicy(detail_days=1, aggregate_days=2, organization_timezone='UTC')
+    start = datetime(2026, 10, 19, 12, tzinfo=UTC)
+    await record_observation(
+        session, device, observation(), state='ACTIVE', policy_version_id=None, policy=policy,
+    )
+    interval = await session.scalar(select(ActivityInterval))
+    interval.started_at = interval.ended_at = interval.last_observed_at = start
+    daily = await session.scalar(select(ActivityDaily))
+    cursor = await session.scalar(select(ActivityCursor))
+    cursor.last_observed_at = start
+    due = datetime(2026, 10, 21, 0, tzinfo=UTC)
+    dirty_batch = await analytics_store.retain_analytics_with_backlog(
+        session, policy=policy, now=due + timedelta(seconds=5),
+    )
+    assert (dirty_batch.detail_deleted, dirty_batch.oldest_due_age_seconds) == (0, 0)
+    daily.dirty = False
+    detail_batch = await analytics_store.retain_analytics_with_backlog(
+        session, policy=policy, now=due + timedelta(seconds=5),
+    )
+    assert (detail_batch.detail_deleted, detail_batch.oldest_due_age_seconds) == (1, 5)
+    cursor_batch = await analytics_store.retain_analytics_with_backlog(
+        session, policy=policy, now=start + timedelta(days=2, seconds=3),
+    )
+    assert (cursor_batch.detail_deleted, cursor_batch.oldest_due_age_seconds) == (0, 3)
+    daily_batch = await analytics_store.retain_analytics_with_backlog(
+        session, policy=policy, now=due + timedelta(days=1, seconds=7),
+    )
+    assert (daily_batch.detail_deleted, daily_batch.oldest_due_age_seconds) == (0, 7)
 
 
 def test_calendar_days_include_dst_and_validate_policy():

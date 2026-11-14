@@ -1,4 +1,5 @@
 """Transactional append/extend path and bounded worker jobs for Activity history."""
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
@@ -197,6 +198,19 @@ async def rebuild_daily(session: AsyncSession, *, policy: AnalyticsPolicy,
 
 async def retain_analytics(session: AsyncSession, *, policy: AnalyticsPolicy,
                            now: datetime | None = None, batch_size: int = 500) -> int:
+    batch = await retain_analytics_with_backlog(session, policy=policy, now=now, batch_size=batch_size)
+    return batch.detail_deleted
+
+
+@dataclass(frozen=True, slots=True)
+class AnalyticsRetentionBatch:
+    detail_deleted: int
+    oldest_due_age_seconds: float
+
+
+async def retain_analytics_with_backlog(
+    session: AsyncSession, *, policy: AnalyticsPolicy, now: datetime | None = None, batch_size: int = 500,
+) -> AnalyticsRetentionBatch:
     if not 1 <= batch_size <= 1000:
         raise ValueError('retention batch must be between 1 and 1000')
     when = utc(now or datetime.now(UTC))
@@ -209,13 +223,33 @@ async def retain_analytics(session: AsyncSession, *, policy: AnalyticsPolicy,
         ActivityInterval.ended_at < cutoff,
         (ActivityInterval.user_key.is_(None) | ActivityInterval.user_key.not_in(dirty_users)),
     ).order_by(ActivityInterval.ended_at).limit(batch_size)
-    result = await session.execute(delete(ActivityInterval).where(ActivityInterval.id.in_(eligible)))
+    detail = (await session.scalars(
+        delete(ActivityInterval).where(ActivityInterval.id.in_(eligible)).returning(ActivityInterval.ended_at)
+    )).all()
+    aggregate_cutoff = when - timedelta(days=policy.aggregate_days)
     stale = select(ActivityDaily.id).where(
-        ActivityDaily.day < (when - timedelta(days=policy.aggregate_days)).date(),
+        ActivityDaily.day < aggregate_cutoff.date(),
     ).order_by(ActivityDaily.day).limit(batch_size)
-    await session.execute(delete(ActivityDaily).where(ActivityDaily.id.in_(stale)))
+    daily = (await session.scalars(
+        delete(ActivityDaily).where(ActivityDaily.id.in_(stale)).returning(ActivityDaily.day)
+    )).all()
     cursors = select(ActivityCursor.id).where(
-        ActivityCursor.last_observed_at < when - timedelta(days=policy.aggregate_days),
+        ActivityCursor.last_observed_at < aggregate_cutoff,
     ).limit(batch_size)
-    await session.execute(delete(ActivityCursor).where(ActivityCursor.id.in_(cursors)))
-    return result.rowcount
+    observed = (await session.scalars(
+        delete(ActivityCursor).where(ActivityCursor.id.in_(cursors)).returning(ActivityCursor.last_observed_at)
+    )).all()
+
+    deadlines = [when]
+    if detail:
+        ended = utc(min(detail))
+        # Detail becomes eligible when the cutoff has passed its local day in every report timezone.
+        deadlines.append(max(
+            day_bounds(ended.astimezone(ZoneInfo(z)).date() + timedelta(days=policy.detail_days + 1), z)[0]
+            for z in policy.timezones
+        ))
+    if daily:
+        deadlines.append(day_bounds(min(daily) + timedelta(days=policy.aggregate_days + 1), 'UTC')[0])
+    if observed:
+        deadlines.append(utc(min(observed)) + timedelta(days=policy.aggregate_days))
+    return AnalyticsRetentionBatch(len(detail), (when - min(deadlines)).total_seconds())

@@ -30,7 +30,9 @@ from endpoint_server.operations.evidence import (
 )
 from endpoint_server.security.retention import retain_security_events_with_backlog
 from endpoint_server.power.retention import retain_power_events_with_backlog
-from endpoint_server.activity.analytics_store import analytics_backlog_age, rebuild_daily, retain_analytics
+from endpoint_server.activity.analytics_store import (
+    AnalyticsRetentionBatch, analytics_backlog_age, rebuild_daily, retain_analytics_with_backlog,
+)
 from endpoint_server.setup_updates.preparation import advance_preparations, setup_preparation_backlog_age
 from endpoint_server.setup_updates.scheduler import schedule_one
 
@@ -107,7 +109,9 @@ class MaintenanceFailure(Exception):
 
 
 def _committed_batch_backlog_age(result: object) -> float | None:
-    if isinstance(result, (ContextCleanupBatch, ContextScheduleBatch, EventRetentionBatch, StepCleanupBatch)):
+    if isinstance(result, (
+        AnalyticsRetentionBatch, ContextCleanupBatch, ContextScheduleBatch, EventRetentionBatch, StepCleanupBatch,
+    )):
         return result.oldest_due_age_seconds
     return None
 
@@ -251,8 +255,9 @@ async def run_worker(
                 ):
                     await jobs.run(name, job, due_at=next_payload, committed_backlog=_committed_batch_backlog_age)
                 await jobs.run(
-                    "retain_analytics", lambda session: retain_analytics(session, policy=settings.activity_analytics),
-                    due_at=next_payload,
+                    "retain_analytics",
+                    lambda session: retain_analytics_with_backlog(session, policy=settings.activity_analytics),
+                    due_at=next_payload, committed_backlog=_committed_batch_backlog_age,
                 )
                 next_payload = loop.time() + cleanup_interval_seconds
             if loop.time() >= next_schedule:

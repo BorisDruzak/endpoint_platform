@@ -120,6 +120,8 @@ Snapshot retention reports overdue age for committed deletions under
 time-based policies. Count-based baseline and inventory have no deadline.
 Security and power retention measure overdue age from the rows actually
 deleted by each committed batch.
+Activity retention measures the oldest deadline among deleted detail, daily
+rollups and cursors, using the current calendar and timestamp cutoffs.
 Other data-queue ages remain open.
 STAB-09 source: explicit Core transfer total/connect/idle
 timeouts with matching recovery-supervisor budget. Slow and stalled loopback

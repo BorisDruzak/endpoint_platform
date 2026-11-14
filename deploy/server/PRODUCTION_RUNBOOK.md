@@ -595,6 +595,10 @@ use version counts and do not contribute to this age.
 For `retain_security_events` and `retain_power_events`, the age covers the
 events actually deleted by the committed batch. Security events use their
 stored expiry. Power events use occurrence time plus 30 days.
+For `retain_analytics`, the age covers deletions of activity detail, daily
+rollups and cursors. Detail uses the last applicable report timezone midnight,
+daily rollups use the UTC date cutoff, and cursors use their last observation
+plus the aggregate retention period.
 WSS health is a separate operational signal.
 
 Job execution budgets are 15 to 30 seconds, including all transactions in a
