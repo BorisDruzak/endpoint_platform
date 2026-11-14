@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import io
 import json
 import os
 import tarfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -32,6 +34,7 @@ def _write_bundle(
     corrupt_manifest: bool = False,
     layout: str = "legacy",
     mode_overrides: dict[str, int] | None = None,
+    long_payload_path: bool = False,
 ) -> None:
     if layout == "legacy":
         files = {
@@ -51,6 +54,8 @@ def _write_bundle(
         }
     else:
         raise AssertionError("unknown fixture layout")
+    if long_payload_path:
+        files[f"pc_agent/{'x' * 120}.dat"] = (b"data", 0o644)
     if mode_overrides:
         files = {
             name: (value, mode_overrides.get(name, mode))
@@ -1129,3 +1134,90 @@ def test_verified_existing_alt_release_can_be_selected_for_rollback(
         "success": True,
         "version": "3.1.77-rc.1",
     }
+
+
+@pytest.mark.parametrize(
+    ("limit", "value", "message"),
+    [
+        ("_MAX_EXPANDED_BYTES", 10, "expanded"),
+        ("_MAX_MEMBER_BYTES", 6, "size limit"),
+        ("_MAX_ARCHIVE_MEMBERS", 2, "member count"),
+        ("_MAX_MANIFEST_BYTES", 128, "size limit"),
+    ],
+)
+def test_alt_archive_limits_reject_before_creating_staging(
+    tmp_path, monkeypatch, limit, value, message
+):
+    artifact = tmp_path / "bundle.tar.gz"
+    _write_bundle(artifact)
+    monkeypatch.setattr(alt_update_installer, limit, value)
+    staging = tmp_path / "staging"
+    with pytest.raises(ValueError, match=message):
+        alt_update_installer._extract_and_validate(
+            artifact_path=artifact, staging=staging, expected_version="3.1.77-rc.1",
+        )
+    assert not staging.exists()
+
+
+def test_alt_pax_long_path_remains_publishable(tmp_path):
+    artifact = tmp_path / "bundle.tar.gz"
+    _write_bundle(artifact, long_payload_path=True)
+    staging = tmp_path / "staging"
+    alt_update_installer._extract_and_validate(
+        artifact_path=artifact, staging=staging, expected_version="3.1.77-rc.1",
+    )
+    assert (staging / "pc_agent" / ("x" * 120 + ".dat")).read_bytes() == b"data"
+
+
+@pytest.mark.parametrize("filesystem", ["install", "data"])
+@pytest.mark.parametrize("shortage", ["bytes", "inodes"])
+def test_alt_preflight_rejects_allocation_shortage_without_changing_release(
+    tmp_path, monkeypatch, filesystem, shortage
+):
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _initial_selector(install_root)
+    artifact = data_root / "updates" / "downloads" / "candidate.tar.gz"
+    artifact.parent.mkdir(parents=True)
+    _write_bundle(artifact)
+    pending = _pending(data_root, artifact)
+    selector = install_root / "current.json"
+    original = selector.read_bytes()
+
+    def allocation(path):
+        exhausted = path.is_relative_to(tmp_path / filesystem)
+        return SimpleNamespace(
+            f_frsize=4096,
+            f_bsize=4096,
+            f_bavail=1 if exhausted and shortage == "bytes" else 20000,
+            f_files=10000,
+            f_favail=1 if exhausted and shortage == "inodes" else 10000,
+        )
+
+    monkeypatch.setattr(alt_update_installer.os, "statvfs", allocation)
+    assert alt_update_installer.preflight_alt_update(
+        install_root, data_root, pending
+    ) == (False, "alt_update_no_space")
+    assert selector.read_bytes() == original
+    assert not (install_root / "versions" / "_alt_update_staging").exists()
+    assert not pending.exists()
+    history = json.loads((data_root / "updates" / "update_history.json").read_text())
+    assert history[-1]["operation_id"] == _OPERATION_ID
+    assert history[-1]["success"] is False
+
+
+def test_alt_preflight_keeps_pending_if_failure_cannot_be_recorded(tmp_path, monkeypatch):
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    artifact = data_root / "updates" / "downloads" / "candidate.tar.gz"
+    artifact.parent.mkdir(parents=True)
+    _write_bundle(artifact)
+    pending = _pending(data_root, artifact)
+
+    def no_space(*args, **kwargs):
+        raise OSError(errno.ENOSPC, "test allocation exhausted")
+
+    monkeypatch.setattr(alt_update_installer, "_require_update_space", no_space)
+    monkeypatch.setattr(alt_update_installer, "_append_history", no_space)
+    assert alt_update_installer.preflight_alt_update(
+        install_root, data_root, pending
+    ) == (False, "alt_update_no_space")
+    assert pending.is_file()

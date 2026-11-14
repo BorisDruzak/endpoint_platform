@@ -48,9 +48,12 @@ helper.write_text(helper_source.replace("/var/lib/endpoint-agent-update/core-sto
 helper.chmod(0o700)
 launcher.write_text(f'''#!/usr/bin/python3
 from pathlib import Path
-import os, time
+import os, sys, time
 root = Path({str(root)!r})
 mode = (root / "mode").read_text()
+if "--preflight-alt-update" in sys.argv:
+    (root / "preflight").write_text("entered")
+    raise SystemExit(1 if mode == "reject-preflight" else 0)
 if mode == "after-selector":
     (root / "new-selector").write_text("candidate")
     os.replace(root / "new-selector", root / "current.json")
@@ -73,6 +76,18 @@ try:
     subprocess.run(["systemd-analyze", "verify", str(unit_root / update), str(unit_root / core)], check=True, timeout=20)
     ctl("daemon-reload")
     ctl("enable", "--runtime", "--now", core)
+    pending = data / "updates" / "pending_alt_update.json"
+    pending.touch()
+    selected.write_text("old")
+    mode.write_text("reject-preflight")
+    original_pid = ctl("show", "-p", "MainPID", "--value", core).stdout.strip()
+    assert ctl("start", update, check=False).returncode != 0
+    assert (root / "preflight").exists() and not phase.exists()
+    assert active() and ctl("show", "-p", "MainPID", "--value", core).stdout.strip() == original_pid
+    assert selected.read_text() == "old" and not (state / "core-stop").exists()
+    pending.unlink()
+    print("preflight rejection preserved Core PID and selector")
+
     for case, action, expected in [
         ("success", "exit", "old"),
         ("before-selector", "kill", "old"),

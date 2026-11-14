@@ -6,6 +6,7 @@ readonly AGENT_SERVICE=endpoint-agent.service
 readonly DATA_ROOT=/var/lib/endpoint-agent
 readonly INSTALL_ROOT=/opt/endpoint-agent
 readonly STABLE_LAUNCHER=/opt/endpoint-agent/launcher
+readonly PENDING_UPDATE=/var/lib/endpoint-agent/updates/pending_alt_update.json
 readonly ROLLBACK_REQUEST=/var/lib/endpoint-agent/updates/rollback-request.json
 readonly STOP_OWNER=/var/lib/endpoint-agent-update/core-stop
 readonly BOOT_ID_FILE=/proc/sys/kernel/random/boot_id
@@ -208,6 +209,10 @@ case "$?" in
     *) exit 1 ;;
 esac
 systemctl is-active --quiet "$AGENT_SERVICE" || exit 0
+if [[ -f "$PENDING_UPDATE" && ! -e "$ROLLBACK_REQUEST" && ! -L "$ROLLBACK_REQUEST" ]]; then
+    "$STABLE_LAUNCHER" --preflight-alt-update --no-gui \
+        --data-dir "$DATA_ROOT" --install-root "$INSTALL_ROOT" || exit $?
+fi
 set_stop_owner acquire || exit $?
 systemctl --job-mode=fail stop "$AGENT_SERVICE" || exit $?
 [[ "$(systemctl show --property=ActiveState --value "$AGENT_SERVICE")" == inactive ]] || exit 1

@@ -238,8 +238,17 @@ request cleanup. A failed selector replacement restores the former
 `previous.json` record. If that authority is missing or inconsistent on replay,
 the worker quarantines the pending record and publishes a fixed failure record
 instead of leaving the path unit in an activation loop.
-The companion one-shot worker validates the request metadata, stops the agent,
-and invokes only the fixed stable launcher. Rollback mode compares the request
+The root update helper asks the fixed stable launcher to check the archive
+before stopping Core. The limits are 512 MiB compressed, 512 MiB per file,
+2 GiB expanded payload, and 1,024 archive members. The helper checks bytes
+and inodes on the release staging and update state filesystems with a 64 MiB
+margin on each. Existing release directories count as used space. The launcher
+checks capacity again before staging. A preflight rejection records the
+operation outcome when update state is writable and leaves Core running. If
+state writes fail, the pending request remains and systemd records the failure.
+The 180-second updater service timeout covers preflight and publication.
+
+Rollback mode compares the request
 to root-owned `current.json` and `previous.json`, re-verifies the exact previous
 manifest, files, hashes and modes, and atomically replaces only `current.json`.
 It writes the terminal `startup_crash_rollback` marker only after selector
@@ -257,8 +266,9 @@ Core. systemd bounds repeated helper activations with a start limit.
 
 Run `tests/deploy/verify_alt_update_recovery.py` with the helper and service
 source paths on a dedicated ALT systemd host to verify the recovery hook with
-isolated units. The harness checks SIGKILL, systemd timeout, enablement and
-synthetic selector preservation. Verify actual RPM installation and power-loss
+isolated units. The harness checks SIGKILL, systemd timeout, enablement,
+synthetic selector preservation and an unchanged Core PID after preflight
+rejection. Verify actual RPM installation and power-loss
 recovery separately.
 
 If interrupted after selector publication, the next fixed-request activation

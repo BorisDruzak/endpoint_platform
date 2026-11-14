@@ -34,7 +34,12 @@ conservative commit uncertainty. PostgreSQL row-lock regression verified.
 Backlog age reports scheduled worker lag. Data-queue age remains a separate
 operational measure. STAB-09 source: explicit Core transfer total/connect/idle
 timeouts with matching recovery-supervisor budget. Slow and stalled loopback
-streams verified. Next code task: STAB-10.
+streams verified. STAB-10 source: streaming ALT archive limits, pre-stop
+staging/state capacity checks and bounded extraction. ALT VM107 passed 48
+installer tests and the isolated systemd recovery harness, including preflight
+rejection with the same Core PID and selector. The 180-second unit budget
+covers the full invocation. Frozen RPM integration and representative payload
+timing remain for release qualification. Next code task: STAB-11.
 Release evidence requires an exact-source CI receipt before publication.
 
 ## SSO + WorkTime staged implementation (2026-10-27)

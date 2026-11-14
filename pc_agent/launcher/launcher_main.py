@@ -20,6 +20,7 @@ from pc_agent.launcher.installer import apply_update, _find_agent_binary
 from pc_agent.alt_update_installer import (
     apply_alt_rollback,
     apply_alt_update,
+    preflight_alt_update,
     write_alt_rollback_request,
 )
 from pc_agent.version import AGENT_VERSION, EXIT_UPDATE_PENDING
@@ -228,6 +229,11 @@ def main() -> None:
         help="Migration fallback passed only to the neutral headless entrypoint",
     )
     parser.add_argument(
+        "--preflight-alt-update",
+        action="store_true",
+        help="Check one pending ALT archive and staging capacity (root worker only)",
+    )
+    parser.add_argument(
         "--apply-alt-update",
         action="store_true",
         help="Apply one pending ALT update without starting the agent (root worker only)",
@@ -249,21 +255,21 @@ def main() -> None:
     pending_path, apply_pending_update = select_update_installation(data_root=data_root)
     updates_dir = data_root / "updates"
     versions_dir = install_root / "versions"
-    if args.apply_alt_update and args.apply_alt_rollback:
+    worker_modes = (args.preflight_alt_update, args.apply_alt_update, args.apply_alt_rollback)
+    if sum(worker_modes) > 1:
         _log("ALT worker modes are mutually exclusive")
         raise SystemExit(2)
-    if args.apply_alt_update or args.apply_alt_rollback:
+    if any(worker_modes):
         if not alt_update_mode_enabled():
-            option = (
-                "--apply-alt-rollback"
-                if args.apply_alt_rollback
-                else "--apply-alt-update"
-            )
-            _log(f"{option} requires ENDPOINT_AGENT_ALT_UPDATE_MODE=1")
+            _log("ALT worker mode requires ENDPOINT_AGENT_ALT_UPDATE_MODE=1")
             raise SystemExit(2)
         if os.name != "nt" and os.geteuid() != 0:
             _log("ALT worker mode must run from the root-owned systemd worker")
             raise SystemExit(1)
+        if args.preflight_alt_update:
+            ok, message = preflight_alt_update(install_root, data_root, pending_path)
+            _log(f"Privileged ALT preflight: {message}")
+            raise SystemExit(0 if ok else 1)
         if args.apply_alt_rollback:
             ok, message = apply_pending_alt_rollback_as_worker(
                 install_root=install_root, data_root=data_root
