@@ -21,8 +21,9 @@ $tokens=$null
 $errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile($Script,[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Updater source parse failed'}
-foreach($name in @('Assert-NoReparse','Get-JobRoot','Test-TerminalPhase','Remove-SettledSetupDownload')){
+foreach($name in @('Assert-NoReparse','Get-JobRoot','Test-TerminalPhase','Read-BoundedJson','Remove-SettledSetupDownload','Remove-HistoricalSetupDownloads')){
  $function=$ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name},$true)
+ if(!$function){continue}
  Invoke-Expression $function.Extent.Text
 }
 function Assert-AdministrativePath($path){}
@@ -52,6 +53,40 @@ foreach($scenario in @('applied','unknown','ack_pending','not_started','changed'
  if((Test-Path -LiteralPath $setup) -eq ($scenario -in @('applied','not_started'))){throw "Unexpected retention outcome: $scenario"}
  if([IO.File]::ReadAllText($journal) -cne 'persistent audit'){throw 'Audit altered'}
  if($scenario -notin @('not_started','marker_conflict') -and [IO.File]::ReadAllText($marker) -cne 'native marker'){throw 'Marker altered'}
+}
+$script:DeviceId='11111111-1111-4111-8111-111111111111'
+$active='33333333-3333-4333-8333-333333333333'
+$scenarios=@('active','settled','foreign_device','foreign_assignment','unknown','ack_pending','wrong_marker')
+foreach($scenario in $scenarios){
+ $index=[Array]::IndexOf($scenarios,$scenario)
+ $id=if($scenario -eq 'active'){$active}else{'44444444-4444-4444-8444-'+($index.ToString('D12'))}
+ $path=Get-JobRoot $id
+ $null=New-Item -ItemType Directory -Path $path -Force
+ $file=Join-Path $path 'Setup.exe'
+ [IO.File]::WriteAllText($file,'setup')
+ $hash=(Get-FileHash -LiteralPath $file).Hash.ToLowerInvariant()
+ $job=@{assignment_id=$id;device_id=$script:DeviceId;attempt_id=$assignment;
+  phase='applied';report=$null;native_started=$true;native_exit=0;
+  release=@{sha256=$hash;size=5}}
+ $marker=@{assignment_id=$id;attempt_id=$assignment;sha256=$hash;utc='2026-11-14T13:00:00Z'}
+ switch($scenario){
+  'foreign_device' {$job.device_id=$assignment}
+  'foreign_assignment' {$job.assignment_id=$assignment}
+  'unknown' {$job.native_exit=$null}
+  'ack_pending' {$job.report=@{phase='applied'}}
+  'wrong_marker' {$marker.attempt_id=$active}
+ }
+ [IO.File]::WriteAllText((Join-Path $path 'job.json'),($job|ConvertTo-Json -Depth 5))
+ [IO.File]::WriteAllText((Join-Path $path 'native-started.json'),($marker|ConvertTo-Json))
+}
+Remove-HistoricalSetupDownloads $active
+Remove-HistoricalSetupDownloads $active
+foreach($scenario in $scenarios){
+ $index=[Array]::IndexOf($scenarios,$scenario)
+ $id=if($scenario -eq 'active'){$active}else{'44444444-4444-4444-8444-'+($index.ToString('D12'))}
+ $path=Get-JobRoot $id
+ if((Test-Path -LiteralPath (Join-Path $path 'Setup.exe')) -eq ($scenario -eq 'settled')){throw "Historical retention failed: $scenario"}
+ if(!(Test-Path -LiteralPath (Join-Path $path 'job.json')) -or !(Test-Path -LiteralPath (Join-Path $path 'native-started.json'))){throw 'Historical audit lost'}
 }
 """, encoding="ascii")
     powershell = Path(os.environ["SystemRoot"]) / "System32/WindowsPowerShell/v1.0/powershell.exe"

@@ -1108,6 +1108,42 @@ function Remove-SettledSetupDownload($job){
   (Get-FileHash -LiteralPath $setup).Hash -ine $job.release.sha256){return}
  [IO.File]::Delete($setup)
 }
+function Remove-HistoricalSetupDownloads([string]$activeAssignment){
+ if($activeAssignment -cnotmatch '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$'){return}
+ $jobs=Join-Path $script:StateRoot 'jobs'
+ Assert-AdministrativePath $jobs
+ $entries=[IO.Directory]::EnumerateDirectories($jobs).GetEnumerator()
+ $scanned=0;$inspected=0
+ try{
+  while($scanned -lt 1024 -and $inspected -lt 8 -and $entries.MoveNext()){
+   $scanned++
+   $root=$entries.Current
+   $id=[IO.Path]::GetFileName($root)
+   if($id -ceq $activeAssignment -or $id -cnotmatch '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$'){continue}
+   try{
+    Assert-AdministrativePath $root
+    $setup=Join-Path $root 'Setup.exe'
+    Assert-NoReparse $setup
+    if(!(Test-Path -LiteralPath $setup -PathType Leaf)){continue}
+    $journal=Join-Path $root 'job.json'
+    Assert-AdministrativePath $journal
+    $job=Read-BoundedJson $journal
+    if($job.assignment_id -cne $id -or $job.device_id -cne $script:DeviceId -or $job.report -or
+     !(Test-TerminalPhase $job.phase) -or $job.native_started -isnot [bool]){continue}
+    if($job.native_started){
+     if($null -eq $job.native_exit){continue}
+     $markerPath=Join-Path $root 'native-started.json'
+     Assert-AdministrativePath $markerPath
+     $marker=Read-BoundedJson $markerPath 4096
+     if(!$job.attempt_id -or $marker.assignment_id -cne $id -or
+      $marker.attempt_id -cne $job.attempt_id -or $marker.sha256 -cne $job.release.sha256){continue}
+    }
+    $inspected++
+    Remove-SettledSetupDownload $job
+   }catch{}
+  }
+ }finally{$entries.Dispose()}
+}
 function Sync-ServerJob($job){
  $status=Invoke-EndpointJson 'GET' ('/agent/v1/setup-updates/assignments/'+$job.assignment_id+'/status')
  if($status.phase -ceq 'cancelled' -and !$job.native_started){$job.phase='cancelled';$job.report=$null;Save-Job $job}
@@ -1155,6 +1191,7 @@ function Invoke-SetupClient {
   if($job -and !(Test-TerminalPhase $job.phase)){throw 'active_assignment_differs'}
   $jobs=Join-Path $script:StateRoot 'jobs';New-AdministrativeDirectory $jobs;$root=Get-JobRoot $assignment;New-AdministrativeDirectory $root
   if(Test-Path -LiteralPath (Join-Path $root 'job.json')){throw 'prior_assignment_must_not_reinstall'}
+  if($job){try{Remove-HistoricalSetupDownloads $job.assignment_id}catch{}}
   $job=[pscustomobject][ordered]@{assignment_id=$assignment;device_id=$script:DeviceId;attempt_id=[guid]::NewGuid().ToString();release=$recommendation.release;phase='assigned';report=$null;native_started=$false;observation_expired=$false;native_pid=0;native_created=$null;native_exit=$null;native_ended=$null;started_at=$null;native_stage=$null;previous_native_id=$null;before=$null;private_before=$null;companions=@();soak=$null}
   Save-Job $job;Write-PrivateJson (Join-Path $script:StateRoot 'active.json') @{assignment_id=$assignment}
   $script:CurrentJob=$job

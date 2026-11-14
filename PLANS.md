@@ -62,8 +62,10 @@ older ZIP runtime trees with exact provenance and inventory. Selected,
 previous, pending and current native recovery versions are reserved. Trees
 with MSI, retained-runtime or ambiguous ownership are kept. The server
 inventory CLI cross-checks artifact names against four release catalogs.
-Historical caches, deployment releases and retirement of catalog artifacts
-remain open.
+Before admitting a different Setup assignment, a bounded pass retires older
+downloads with a matching terminal journal, device identity and native-start
+receipt. Historical Core caches, deployment releases and retirement of catalog
+artifacts remain open.
 Release evidence requires an exact-source CI receipt before publication.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
