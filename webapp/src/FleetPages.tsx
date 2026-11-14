@@ -26,13 +26,43 @@ type DashboardData = {
   attention: { kind: string; device_id: string; label: string }[]
 }
 type Snapshot = { id: string; profile: string; collected_at: string; last_observed_at: string | null; fresh: boolean; semantic_hash: string | null; warnings: string[]; sections: Record<string, unknown> }
-type Detail = { device: AgentVersions & { installation_state?: InstallationState; installation_conflict?: boolean; last_activity_observed_at?: string | null; power?: PowerSummary | null; id: string; display_name: string; device_identifier: string; online: boolean; last_seen_at: string | null; hostname: string | null; os_name: string | null; os_version: string | null; current_user: string | null }; snapshots: Snapshot[]; capabilities: { capability: string; display_name_ru: string; category: string }[] }
+type ComponentObservation = { observed_at: string; fresh: boolean; version?: string | null }
+type ComponentEvidence = {
+  core: ComponentObservation | null
+  foundation: ComponentObservation | null
+  updater: ComponentObservation | null
+  observer: (ComponentObservation & { reported_ready: boolean }) | null
+  user_sensor: ComponentObservation | null
+  support: { component: ComponentObservation | null; access_verified_at: string | null }
+}
+type Detail = { device: AgentVersions & { component_evidence?: ComponentEvidence | null; installation_state?: InstallationState; installation_conflict?: boolean; last_activity_observed_at?: string | null; power?: PowerSummary | null; id: string; display_name: string; device_identifier: string; online: boolean; last_seen_at: string | null; hostname: string | null; os_name: string | null; os_version: string | null; current_user: string | null }; snapshots: Snapshot[]; capabilities: { capability: string; display_name_ru: string; category: string }[] }
 type Change = { event_id: string; event_kind: string; profile: string; occurred_at: string; summary_code: string; safe_details: Record<string, unknown> }
 type ChangePage = { data: Change[]; limit: number; offset: number; has_more: boolean }
 type DeviceUpdate = UpdateObservability & { rollout_id: string; version: string; mode: string; status: string }
 type DeviceUpdatePage = { data: DeviceUpdate[]; total: number; limit: number; offset: number }
 
 const dateText = (value: string | null) => value ? new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : 'Нет данных'
+
+function ComponentEvidencePanel({ evidence }: { evidence: ComponentEvidence }) {
+  const observation = (value: ComponentObservation | null) => value
+    ? [value.version, value.fresh ? 'Актуально' : 'Устарело', dateText(value.observed_at)].filter(Boolean).join(' · ')
+    : 'Нет данных'
+  const observer = evidence.observer
+  const support = evidence.support
+  return <section className="panel" aria-labelledby="agent-components-heading">
+    <h2 id="agent-components-heading">Компоненты агента</h2>
+    <dl className="simple-facts">
+      <dt>Core · Gateway WSS</dt><dd>{observation(evidence.core)}</dd>
+      <dt>Foundation · отчёт Observer</dt><dd>{observation(evidence.foundation)}</dd>
+      <dt>Updater</dt><dd>{observation(evidence.updater)}</dd>
+      <dt>Setup Observer</dt><dd>{observation(observer)}{observer && (observer.reported_ready ? ' · Последний отчёт: готов' : ' · Последний отчёт: не готов')}</dd>
+      <dt>UserSensor</dt><dd>{observation(evidence.user_sensor)}</dd>
+      <dt>Support · отчёт компонента</dt><dd>{observation(support.component)}</dd>
+      <dt>Support · проверка SSH</dt><dd>{support.access_verified_at ? `Подтверждение оператора · ${dateText(support.access_verified_at)}` : 'Подтверждение SSH отсутствует'}</dd>
+    </dl>
+  </section>
+}
+
 const sizeText = (value: number | null) => value === null ? '—' : `${(value / 1024 ** 3).toFixed(1)} ГБ`
 const valueLabels: Record<string, Record<string, string>> = {
   platform: { windows: 'Windows', linux: 'Linux' },
@@ -180,7 +210,7 @@ export function DeviceDetailPage({ canWrite = false }: { canWrite?: boolean }) {
   useEffect(() => { setChangeOffset(0); setHistoryOffset(0); setUpdateOffset(0); setDetail(null); setUpdates(null) }, [deviceId])
   useEffect(() => {
     let active = true
-    request<Detail>(`/api/admin/console/devices/${deviceId}?include_power=true`)
+    request<Detail>(`/api/admin/console/devices/${deviceId}?include_power=true&include_components=true`)
       .then(value => { if (active) setDetail(value) })
       .catch(reason => { if (active) setError(reason.message) })
     return () => { active = false }
@@ -249,6 +279,7 @@ export function DeviceDetailPage({ canWrite = false }: { canWrite?: boolean }) {
     {tab === 'activity' && deviceId && <DeviceActivityStatus key={`${deviceId}-${revision}`} deviceId={deviceId} />}
     {tab === 'policy' && deviceId && <DevicePolicyStatus key={`${deviceId}-${revision}`} deviceId={deviceId} />}
     {tab === 'modules' && deviceId && <DeviceModules deviceId={deviceId} />}
+    {tab === 'overview' && detail.device.component_evidence && <ComponentEvidencePanel evidence={detail.device.component_evidence} />}
     {tab === 'overview' && deviceId && <DevicePowerHistory key={`${deviceId}-${revision}`} deviceId={deviceId} online={detail.device.online} lastSeenAt={detail.device.last_seen_at} activityObservedAt={detail.device.last_activity_observed_at} summary={detail.device.power} />}
     {tab === 'overview' && <div className="detail-columns">{inventory ? Object.entries(inventory.sections).map(([name, value]) => <section className="panel" key={name}><h2>{{system:'Система',hardware:'Оборудование',memory:'Память',storage:'Накопители',interfaces:'Сеть'}[name] ?? name}</h2><SectionRows data={typeof value === 'object' && !Array.isArray(value) && value ? value as Record<string, unknown> : { [name]: value }} /></section>) : <section className="panel"><p>Инвентаризационный Context ещё не получен.</p></section>}{session && <section className="panel"><h2>Сеанс</h2><SectionRows data={session.sections} /></section>}<section className="panel"><h2>Поддерживаемые возможности</h2>{detail.capabilities?.length ? <ul>{detail.capabilities.map(item => <li key={item.capability}>{item.display_name_ru} <code>{item.capability}</code></li>)}</ul> : <p className="muted">Нет доступных возможностей для подключённого агента.</p>}</section></div>}
     {tab === 'context' && <><div className="panel context-actions"><label>Профиль <select value={refreshProfile} onChange={event => { setRefreshProfile(event.target.value); setHistoryOffset(0); setHistory([]) }}>{Object.entries(profileLabels).map(([profile, label]) => <option value={profile} key={profile}>{label}</option>)}</select></label><button onClick={refreshContext}>Обновить данные</button>{collection && <span>Сбор: {collectionLabels[collection.status] ?? collection.status}</span>}{refreshError && <span className="error" role="alert">{refreshError}</span>}</div>{health && serverHealth && <ServerHealthChecks health={serverHealth} observed={dateText(health.last_observed_at)} fresh={health.fresh} />}<div className="detail-columns">{Object.entries(profileLabels).map(([profile, label]) => { const snapshot = detail.snapshots.find(item => item.profile === profile); return <section className="panel" key={profile}><h2>{label}</h2>{snapshot ? <><p className="muted">Состояние: Готово · Изменено: {dateText(snapshot.collected_at)}</p><p className="muted">Последнее наблюдение: {dateText(snapshot.last_observed_at)}</p><p className="muted">Свежесть: {snapshot.fresh ? 'Актуален' : 'Устарел'}</p><p className="muted">Снимок: {snapshot.id}</p>{snapshot.warnings.length > 0 && <p className="error">Предупреждения: {snapshot.warnings.join(', ')}</p>}<SectionRows data={profile === 'health_v1' ? Object.fromEntries(Object.entries(snapshot.sections).filter(([key]) => key !== 'server')) : snapshot.sections} /></> : <p className="muted">Данные не собраны.</p>}</section> })}</div><section className="panel"><h2>{refreshProfile === 'baseline_v1' || refreshProfile === 'inventory_v1' ? 'Сохранённые снимки' : 'История за 24 часа'} · {profileLabels[refreshProfile]}</h2>{history.length ? <ul className="change-list">{history.map(item => <li key={item.id}>{dateText(item.collected_at)} · {item.id}</li>)}</ul> : <p className="muted">Наблюдений за период нет.</p>}<div className="pagination"><button disabled={historyOffset === 0} onClick={() => setHistoryOffset(Math.max(0, historyOffset - 20))}>Назад</button><span>Страница {Math.floor(historyOffset / 20) + 1}</span><button disabled={!historyHasMore} onClick={() => setHistoryOffset(historyOffset + 20)}>Далее</button></div></section></>}

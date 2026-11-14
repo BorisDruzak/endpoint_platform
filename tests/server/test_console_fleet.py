@@ -11,7 +11,7 @@ import pytest
 import pytest_asyncio
 import asyncpg
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import event, func, literal, select, union_all
+from sqlalchemy import event, func, literal, select, union_all, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.engine import make_url
 
@@ -139,6 +139,10 @@ async def test_fleet_is_paginated_and_does_not_expose_raw_context() -> None:
 
 @pytest.mark.asyncio
 async def test_console_device_api_uses_session_and_safe_projection() -> None:
+    from endpoint_server.policy.models import PolicySensorHealthCurrent
+    from endpoint_server.setup_updates.models import SetupClientPresence
+    from endpoint_server.support_access.models import SupportAccess
+
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(lambda sync: [
@@ -146,6 +150,7 @@ async def test_console_device_api_uses_session_and_safe_projection() -> None:
                 Device.metadata.tables["installation_states"], Device.__table__, DeviceSession.__table__, DeviceInstance.__table__,
                 ContextCollection.__table__, ContextSnapshot.__table__, ContextCurrent.__table__, DeviceEvent.__table__,
                 AuditEvent.__table__, UpdateTarget.__table__,
+                SetupClientPresence.__table__, PolicySensorHealthCurrent.__table__, SupportAccess.__table__,
             )
         ])
     sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -203,6 +208,24 @@ async def test_console_device_api_uses_session_and_safe_projection() -> None:
     async with sessions() as session:
         session.add_all([device, snapshot, *inventory_snapshots, *older_inventory, *baseline_snapshots])
         await session.flush()
+        instance = DeviceInstance(device_id=device.id, instance_identifier="component-core",
+                                  agent_version="3.2.205", launcher_version="3.2.205", last_seen_at=now)
+        session.add(instance)
+        await session.flush()
+        session.add_all([
+            DeviceSession(device_id=device.id, device_instance_id=instance.id,
+                          session_identifier="gateway-components", last_seen_at=now,
+                          expires_at=now + timedelta(hours=1)),
+            SetupClientPresence(device_id=device.id, client_version="1.0.11", foundation_version="3.2.192",
+                                ready=True, last_seen_at=now - timedelta(days=1)),
+            PolicySensorHealthCurrent(device_id=device.id, observation_id=uuid4(), policy_id=uuid4(),
+                policy_version=1, observed_at=now, received_at=now, activity_listener_state="READY",
+                user_sensor_last_seen_at=now - timedelta(minutes=8), security_spool_state="UNKNOWN",
+                usb_source_state="UNKNOWN", print_source_state="UNKNOWN"),
+            SupportAccess(device_id=device.id, source_credential_id=uuid4(), component_version="1.1.7",
+                tunnel_public_key="opaque-tunnel-value", host_public_key="opaque-host-value",
+                remote_port=32001, reported_at=now, installed=True, tunnel_connected=True),
+        ])
         session.add(ContextCurrent(device_id=device.id, profile="session_v1", snapshot_id=snapshot.id, updated_at=now))
         session.add(ContextCurrent(device_id=device.id, profile="inventory_v1", snapshot_id=inventory_snapshots[-1].id, updated_at=now))
         session.add(DeviceEvent(device_id=device.id, event_identifier="context:test:RAM_CHANGED",
@@ -239,7 +262,18 @@ async def test_console_device_api_uses_session_and_safe_projection() -> None:
             device.id, uuid4(), object(), agent_version="3.2.67", platform="windows_amd64",
             effective_capabilities=frozenset({"system.resource_snapshot", "printer.list"}),
         ))
-        response = await client.get(f"/api/admin/console/devices/{device.id}")
+        response = await client.get(f"/api/admin/console/devices/{device.id}?include_components=true")
+        async with sessions.begin() as session:
+            await session.execute(update(PolicySensorHealthCurrent).values(user_sensor_last_seen_at=now))
+            activity = ContextSnapshot(id=uuid4(), collection_id=uuid4(), device_id=device.id,
+                                       profile="activity_v1", collected_at=now,
+                                       raw_payload={}, normalized_projection={})
+            session.add(activity)
+            await session.flush()
+            session.add(ContextCurrent(device_id=device.id, profile="activity_v1",
+                                      snapshot_id=activity.id, updated_at=now, last_observed_at=now))
+            await session.execute(update(SupportAccess).values(access_verified_at=now - timedelta(hours=1)))
+        observed_components = await client.get(f"/api/admin/console/devices/{device.id}?include_components=true")
         changes = await client.get(f"/api/admin/console/devices/{device.id}/changes")
         changes_first = await client.get(f"/api/admin/console/devices/{device.id}/changes?limit=2")
         changes_second = await client.get(f"/api/admin/console/devices/{device.id}/changes?limit=2&offset=2")
@@ -258,6 +292,20 @@ async def test_console_device_api_uses_session_and_safe_projection() -> None:
         audit_count = await session.scalar(select(func.count()).select_from(AuditEvent).where(AuditEvent.action == "context.collection_requested"))
     await engine.dispose()
     assert response.status_code == 200
+    evidence = response.json()["device"]["component_evidence"]
+    assert evidence["core"]["version"] == "3.2.205" and evidence["core"]["fresh"] is True
+    assert evidence["foundation"]["version"] == "3.2.192" and evidence["foundation"]["fresh"] is False
+    assert evidence["observer"]["version"] == "1.0.11" and evidence["observer"]["fresh"] is False
+    assert evidence["updater"] is None
+    assert evidence["user_sensor"]["observed_at"] and evidence["user_sensor"]["fresh"] is False
+    assert evidence["support"]["component"]["fresh"] is True
+    assert evidence["support"]["access_verified_at"] is None
+    assert "opaque-tunnel-value" not in response.text and "opaque-host-value" not in response.text
+    assert offline.json()["device"]["component_evidence"] is None
+    assert observed_components.status_code == 200
+    renewed = observed_components.json()["device"]["component_evidence"]
+    assert renewed["user_sensor"]["fresh"] is True
+    assert datetime.fromisoformat(renewed["support"]["access_verified_at"]) == now - timedelta(hours=1)
     assert offline.json()["capabilities"] == []
     assert response.json()["capabilities"] == [{
         "capability": "system.resource_snapshot",

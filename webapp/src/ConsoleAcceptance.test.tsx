@@ -130,9 +130,16 @@ describe('Русский интерфейс Console', () => {
     expect(await screen.findByText(/Результат закреплён/)).toBeTruthy()
   })
   it('показывает поля инвентаризации и других профилей понятными подписями', async () => {
+    const observed_at = '2026-09-24T08:00:00Z'
     vi.stubGlobal('fetch', vi.fn(async (url: string) => jsonResponse(
       url.includes('/power?') ? { data: [], total: 0, offset: 0, limit: 20, has_more: false } : url.includes('/context/history?') ? { data: [], has_more: false } : {
-        device: { id: 'device-1', display_name: 'Рабочая станция', device_identifier: 'PC-01', online: true, last_seen_at: null, agent_version: '3.2.63', hostname: 'PC-01', os_name: 'Windows 11', os_version: '11', current_user: 'operator' },
+        device: { id: 'device-1', display_name: 'Рабочая станция', device_identifier: 'PC-01', online: true, last_seen_at: null, agent_version: '3.2.63', hostname: 'PC-01', os_name: 'Windows 11', os_version: '11', current_user: 'operator', component_evidence: {
+          core: { version: '3.2.63', observed_at, fresh: true },
+          foundation: { version: '3.2.62', observed_at, fresh: false },
+          updater: null, observer: { version: '1.0.11', observed_at, fresh: false, reported_ready: true },
+          user_sensor: { observed_at, fresh: false },
+          support: { component: { version: '1.1.7', observed_at, fresh: true }, access_verified_at: null },
+        } },
         capabilities: [{ capability: 'system.resource_snapshot', display_name_ru: 'Состояние ресурсов системы', category: 'system' }],
         snapshots: [
           { id: 'inventory-1', profile: 'inventory_v1', collected_at: '2026-09-24T08:00:00Z', fresh: true, semantic_hash: null, warnings: [], sections: {
@@ -153,6 +160,12 @@ describe('Русский интерфейс Console', () => {
     </Routes></MemoryRouter>)
 
     await screen.findByRole('heading', { name: 'Рабочая станция' })
+    const components = within(screen.getByRole('region', { name: 'Компоненты агента' }))
+    expect(components.getByText(/3\.2\.62.*Устарело/)).toBeTruthy()
+    expect(components.getByText('Updater')).toBeTruthy()
+    expect(components.getByText(/1\.0\.11.*Последний отчёт: готов/)).toBeTruthy()
+    expect(components.getByText('UserSensor')).toBeTruthy()
+    expect(components.getByText('Подтверждение SSH отсутствует')).toBeTruthy()
     expect(screen.getByText(/Пользователь: operator/)).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Поддерживаемые возможности' })).toBeTruthy()
     expect(screen.getByText('system.resource_snapshot')).toBeTruthy()

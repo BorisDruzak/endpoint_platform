@@ -101,8 +101,10 @@ STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fl
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
 retirement and installation removal alongside the update lifecycle. The
-cancellation API currently covers paused singleton rollouts. Bulk cancellation
-and component-level fleet presentation remain open.
+device overview dates WSS Core, observer-reported Foundation, Setup Observer,
+corroborated UserSensor and Support telemetry separately. It distinguishes
+Support telemetry from the operator's SSH attestation. Independent updater
+telemetry and bulk cancellation remain open.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
 
