@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -16,6 +17,8 @@ def module():
         "identity_recovery", ROOT / "tools/keycloak/recover_pilot_identity.py")
     result = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(result)
+    # Simulated file descriptors must not reach pytest capture or traceback code.
+    result.os = SimpleNamespace(**vars(result.os))
     return result
 
 
