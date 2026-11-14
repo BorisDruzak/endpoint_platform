@@ -35,12 +35,16 @@ VM142 exercised the installed updater with a service-local launcher and
 lab trust overlay. A signed 3.2.206 candidate applied and rolled back through
 the path unit. SIGKILL, a shortened systemd timeout and VM power loss after
 Core stop passed pre-selector recovery and single-entry operation replay.
-Post-selector power loss, Gateway assignment/outcome replay and the pinned
-publisher's signed authorization remain open.
+After post-selector power loss, replay retained the selected and previous
+selectors and candidate executable in place and recorded one outcome.
+A separate Gateway canary drove actual download, durable handoff and one
+applied report. The pinned publisher's signed authorization and Gateway
+outcome replay with a lost first response remain open.
 STAB-05 source: durable operation journal before the watched pending rename;
-fault injection before/after publication preserved outcome reporting. Native
-watcher timing and full power-loss qualification remain open. STAB-06:
-serialized WSS ownership publication per device. Both reconnect permutations
+fault injection before/after publication preserved outcome reporting. VM142
+confirmed live watcher handoff and applied reporting, plus local post-selector
+power-loss replay. A combined Gateway assignment and power-cut test remains open.
+STAB-06: serialized WSS ownership publication per device. Both reconnect permutations
 and heartbeat lock ordering verified on PostgreSQL 16. STAB-07: bounded
 notice/close with observable cleanup stages and concurrent server shutdown.
 STAB-08 source: per-job execution deadlines and PostgreSQL lock/statement
