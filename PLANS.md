@@ -253,6 +253,10 @@ The first full deployment backup, `b9976195cf68`, preserved its private venv
 and matched all 5,796 paths after isolated extraction. The protected archive
 occupies 30.1 MiB versus 111.5 MiB for the source. The 81.4 MiB difference
 is potential savings. The deployed tree remains in place.
+The next [restore check](docs/verification/2026-11-15-server-release-restore-inventory.md#копии-d3459936a251-и-b9976195cf68-вне-серверного-тома)
+verified all 5,682 paths of `d3459936a251`, including its private venv.
+Both verified deployment archives now have SHA-256-checked workstation
+copies outside the server volume. The deployed trees remain in place.
 The deployment runbook now checks the actual release volume before preparing
 or extracting a release. The check works without selectors and exits 2 below
 10 GiB. On production it reported 8,384,782,336 bytes available and exited 2.
