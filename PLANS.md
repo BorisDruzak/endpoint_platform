@@ -94,7 +94,11 @@ installed package acceptance. Isolated Debian 12 VM137 repeated the package
 lifecycle through locally signed APT with the stock service sandbox and
 received authenticated hello and heartbeat at a local TLS peer after reboot.
 Forced VM power-off between unpack and configure recovered with dpkg configure
-and preserved identity. Real Gateway enrollment/session acceptance remains open.
+and preserved identity. The real loopback Gateway then accepted the exact DEB
+through request, administrator approval and first-boot claim. PostgreSQL
+proved one device and registration, four accepted context profiles, and a
+fresh heartbeat in the new WSS session after VM reboot. Request verification
+and enrollment delivery acknowledgement remain open.
 STAB-17 source: metadata renewal verifies the pinned signer and all signed index
 and DEB hashes before changing the signed dates. The expiry check covers Ubuntu
 noble and Debian bookworm and warns with three days remaining. Ordinary APT
