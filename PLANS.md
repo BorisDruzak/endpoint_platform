@@ -31,7 +31,12 @@ lab-signed RPM through source-bound manual approval and first-boot claim
 exchange in the installed service. It completed all five context profiles and
 verified the request once. After claim removal and reboot, the same device
 sent a heartbeat in a new WSS session with identical retained files.
-Authorized OTA fault injection remains open.
+VM142 exercised the installed updater with a service-local launcher and
+lab trust overlay. A signed 3.2.206 candidate applied and rolled back through
+the path unit. SIGKILL, a shortened systemd timeout and VM power loss after
+Core stop passed pre-selector recovery and single-entry operation replay.
+Post-selector power loss, Gateway assignment/outcome replay and the pinned
+publisher's signed authorization remain open.
 STAB-05 source: durable operation journal before the watched pending rename;
 fault injection before/after publication preserved outcome reporting. Native
 watcher timing and full power-loss qualification remain open. STAB-06:
