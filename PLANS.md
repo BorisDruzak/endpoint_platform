@@ -21,7 +21,13 @@ signed Setup acceptance remain open. STAB-04 source: durable ALT stop receipt,
 systemd recovery after helper exit, timeout and SIGKILL, and selected Core
 startup with pending present. VM107 isolated systemd fault injection passed
 before/after synthetic selector publication, including manual stop/disable
-and stale-boot receipt. Actual RPM and power-loss verification remain open.
+and stale-boot receipt.
+The isolated ALT 11.4 VM142 installed a lab-signed headless 3.2.205 RPM
+built from the exact committed source. Its installed path unit rejected
+an unauthorized pending update with the same Core PID and selector.
+Offline remove/reinstall and reboot preserved the selector and fixture
+identity, CA and config. Authorized OTA fault injection and real Gateway
+reconnect on the installed RPM remain open.
 STAB-05 source: durable operation journal before the watched pending rename;
 fault injection before/after publication preserved outcome reporting. Native
 watcher timing and full power-loss qualification remain open. STAB-06:
