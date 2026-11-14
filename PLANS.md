@@ -166,8 +166,11 @@ STAB-11 source: pinned publisher signature and exact archive/source
 authorization from root-owned local state,
 private retained bytes and a pending-request recheck before selector commit.
 ALT VM107 verified OpenPGP acceptance with an ephemeral test key and rejected
-missing, changed and mismatched authorizations. The signed RPM launcher and
-authorization from the real publisher still require release qualification.
+missing, changed and mismatched authorizations. The
+[VM142 publisher receipt](docs/verification/2026-11-14-agent-release-qualification-matrix.md#приёмка-stab-11-со-штатной-подписью)
+records positive acceptance of the exact 3.2.206 archive by the unmodified
+RPM launcher with the pinned publisher, successful rollback, and fresh WSS
+for both versions on the same device. This was an isolated local pending.
 An installed ALT headless RPM now carries the pinned publisher public key and
 requires GnuPG. The lab-signed alt6 exposed a stale revision in the selector
 on same-agent-version upgrade. On VM142, alt7 refreshed that selector, passed
