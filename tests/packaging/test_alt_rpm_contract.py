@@ -69,6 +69,26 @@ def test_rpm_spec_disables_debuginfo_rewriting_of_manifest_covered_payload() -> 
     assert "%global __find_debuginfo_files %{nil}" in _text(SPEC)
 
 
+def test_headless_rpm_includes_the_pinned_ota_verifier_inputs() -> None:
+    from pc_agent.alt_update_installer import _PUBLISHER_KEY, _PUBLISHER_KEY_SHA256
+
+    key = PACKAGE_ROOT / "pilot" / _PUBLISHER_KEY.name
+    key_path = _PUBLISHER_KEY.as_posix()
+    spec = _text(SPEC)
+    assert hashlib.sha256(key.read_bytes()).hexdigest() == _PUBLISHER_KEY_SHA256
+    assert f"Source57: {key.name}\n%if_with native_setup" in spec
+    assert "Requires: gnupg\n%if_with native_setup" in spec
+    assert f"install -m 0644 %{{SOURCE57}} %buildroot{key_path}" in (
+        spec.split("%install\n", 1)[1].split("%if_with native_setup", 1)[0]
+    )
+    assert key_path in (
+        spec.split("%files\n", 1)[1].split("%if_with native_setup", 1)[0]
+    )
+    assert f'stage_file 0644 "$script_dir/pilot/{key.name}"' in (
+        _text(BUILD).split("native_setup=false", 1)[0]
+    )
+
+
 def test_git_archive_emits_the_alt_spec_with_lf_line_endings() -> None:
     """CRLF in the archived spec makes rpmbuild append CR to %{SOURCE0}."""
     archive = subprocess.run(

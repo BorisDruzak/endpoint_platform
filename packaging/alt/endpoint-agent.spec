@@ -11,11 +11,7 @@
 
 Name: endpoint-agent
 Version: %{agent_version}
-%if_with native_setup
 Release: alt6
-%else
-Release: alt5
-%endif
 Summary: Endpoint Platform headless management agent for ALT Linux
 License: Proprietary
 Group: System/Servers
@@ -31,6 +27,7 @@ Source14: check-start-prerequisites.py
 Source15: start-endpoint-agent.py
 Source20: endpoint-agent.tmpfiles
 Source21: endpoint-agent.logrotate
+Source57: endpoint-rpm-release.asc
 %if_with native_setup
 Source50: endpoint-agent-setup.bin
 Source51: endpoint-support-access.tar.gz
@@ -39,7 +36,6 @@ Source53: endpoint-support-access.service
 Source54: endpoint-agent-setup-retry.service
 Source55: endpoint-agent-setup-retry.timer
 Source56: build_linux_native_manifest.py
-Source57: endpoint-rpm-release.asc
 %endif
 %if_with user_sensor
 Source30: endpoint-kde-probe
@@ -63,10 +59,10 @@ BuildRequires: rpm-build-python3
 Requires(pre): shadow-utils
 Requires: python3
 Requires: systemd
+Requires: gnupg
 %if_with native_setup
 Requires: openssh-clients
 Requires: openssh-server
-Requires: gnupg
 Requires: rpm
 %endif
 
@@ -102,6 +98,7 @@ install -d -m 0755 \
     %buildroot/usr/lib/systemd/system \
     %buildroot/usr/lib/tmpfiles.d \
     %buildroot/etc/logrotate.d \
+    %buildroot/usr/share/endpoint-agent \
     %buildroot/usr/share/doc/endpoint-agent
 cp -a endpoint-agent %buildroot/opt/endpoint-agent/versions/%{version}/endpoint-agent
 install -m 0644 manifest.json \
@@ -118,16 +115,16 @@ install -m 0755 %{SOURCE15} %buildroot/usr/lib/endpoint-agent/start-endpoint-age
 install -m 0644 %{SOURCE20} %buildroot/usr/lib/tmpfiles.d/endpoint-agent.conf
 install -m 0644 %{SOURCE21} %buildroot/etc/logrotate.d/endpoint-agent
 install -m 0644 %{_sourcedir}/README.md %buildroot/usr/share/doc/endpoint-agent/README.md
+install -m 0644 %{SOURCE57} %buildroot/usr/share/endpoint-agent/endpoint-rpm-release.asc
 %if_with native_setup
 install -d -m 0755 %buildroot/usr/lib/endpoint-agent-setup %buildroot/usr/lib/endpoint-support-access \
-    %buildroot/usr/sbin %buildroot/usr/share/endpoint-agent
+    %buildroot/usr/sbin
 install -m 0755 %{SOURCE50} %buildroot/usr/lib/endpoint-agent-setup/endpoint-agent-setup
 tar -xzf %{SOURCE51} -C %buildroot/usr/lib/endpoint-support-access
 install -m 0755 %{SOURCE52} %buildroot/usr/sbin/endpoint-agent-setup
 install -m 0644 %{SOURCE53} %buildroot/usr/lib/systemd/system/endpoint-support-access.service
 install -m 0644 %{SOURCE54} %buildroot/usr/lib/systemd/system/endpoint-agent-setup-retry.service
 install -m 0644 %{SOURCE55} %buildroot/usr/lib/systemd/system/endpoint-agent-setup-retry.timer
-install -m 0644 %{SOURCE57} %buildroot/usr/share/endpoint-agent/endpoint-rpm-release.asc
 # PID1 checks this private installation-completion proof. Support itself remains
 # independent; lease disable/revocation never clears the native completion gate.
 for native_unit in endpoint-agent.service endpoint-agent-update.service endpoint-agent-update.path; do
@@ -297,6 +294,8 @@ systemctl daemon-reload || :
 /usr/lib/systemd/system/endpoint-agent-update.path
 /usr/lib/tmpfiles.d/endpoint-agent.conf
 %config /etc/logrotate.d/endpoint-agent
+%dir /usr/share/endpoint-agent
+/usr/share/endpoint-agent/endpoint-rpm-release.asc
 %if_with native_setup
 /usr/lib/endpoint-agent-setup
 /usr/lib/endpoint-support-access
@@ -305,7 +304,6 @@ systemctl daemon-reload || :
 /usr/lib/systemd/system/endpoint-agent-setup-retry.service
 /usr/lib/systemd/system/endpoint-agent-setup-retry.timer
 /usr/share/endpoint-agent/native-source.json
-/usr/share/endpoint-agent/endpoint-rpm-release.asc
 %endif
 
 %if_with user_sensor

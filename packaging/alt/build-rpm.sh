@@ -288,6 +288,7 @@ stage_file 0755 "$script_dir/SOURCES/check-start-prerequisites.py" "$build_root/
 stage_file 0755 "$script_dir/SOURCES/start-endpoint-agent.py" "$build_root/SOURCES/start-endpoint-agent.py"
 stage_file 0644 "$script_dir/SOURCES/endpoint-agent.tmpfiles" "$build_root/SOURCES/endpoint-agent.tmpfiles"
 stage_file 0644 "$script_dir/SOURCES/endpoint-agent.logrotate" "$build_root/SOURCES/endpoint-agent.logrotate"
+stage_file 0644 "$script_dir/pilot/endpoint-rpm-release.asc" "$build_root/SOURCES/endpoint-rpm-release.asc"
 native_setup=false
 if [[ "$version" == 3.2.183 ]]; then
     native_setup=true
@@ -323,7 +324,6 @@ PY
         stage_file 0644 "$script_dir/SOURCES/$name" "$build_root/SOURCES/$name"
     done
     stage_file 0644 "$project_root/tools/build_linux_native_manifest.py" "$build_root/SOURCES/build_linux_native_manifest.py"
-    stage_file 0644 "$script_dir/pilot/endpoint-rpm-release.asc" "$build_root/SOURCES/endpoint-rpm-release.asc"
 fi
 if [[ "$with_user_sensor" == true ]]; then
     [[ "$(uname -s)" == Linux ]] || die 'KDE sensor builds require Linux'
