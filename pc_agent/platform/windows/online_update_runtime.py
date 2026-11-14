@@ -10,6 +10,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 import aiohttp
 
@@ -20,7 +21,7 @@ from pc_agent.transport.base import GatewayCredentialRejected, GatewayTerminalEr
 from .update_paths import WindowsUpdatePaths
 from .update_download_retention import retire_update_download
 from .update_transaction import update_transaction, UpdateInProgress, _read_state
-from .durable_state import durable_unlink, write_json_atomic
+from .durable_state import _checked_path, durable_unlink, flush_directory, write_json_atomic
 from .disk_readiness import download_required_bytes, is_disk_full, require_disk_space
 
 
@@ -186,28 +187,35 @@ class WindowsOnlineUpdateRuntime:
         artifact = self._paths.downloads_root / (
             f"build-{recommendation.version}-{recommendation.operation_id}.zip"
         )
+        staging = artifact.with_name(f".core-download-{uuid4().hex}.staging")
         try:
-            actual_hash, actual_size = await self._download(recommendation, artifact)
+            return await self._stage_download(recommendation, current, staging, artifact)
+        finally:
+            self._discard_unpublished_download(staging)
+
+    async def _stage_download(
+        self, recommendation: EndpointRecommendation, current: str, staging: Path, artifact: Path,
+    ) -> WindowsOnlineUpdateResult:
+        try:
+            actual_hash, actual_size = await self._download(recommendation, staging)
         except (aiohttp.ClientConnectorCertificateError, aiohttp.ClientConnectorSSLError, ssl.SSLError) as error:
-            artifact.unlink(missing_ok=True)
             raise GatewayTerminalError("Endpoint update artifact TLS trust failed") from error
         except (GatewayCredentialRejected, GatewayTerminalError):
-            artifact.unlink(missing_ok=True)
             raise
         except OSError as error:
-            artifact.unlink(missing_ok=True)
             if is_disk_full(error):
                 return WindowsOnlineUpdateResult("disk_insufficient")
             return WindowsOnlineUpdateResult("download_rejected")
         except Exception:
-            artifact.unlink(missing_ok=True)
             return WindowsOnlineUpdateResult("download_rejected")
         if actual_hash != recommendation.sha256 or actual_size != recommendation.size:
-            artifact.unlink(missing_ok=True)
             return WindowsOnlineUpdateResult("download_rejected")
-        self._acl.protect_update_path(artifact)
+        _checked_path(staging, self._paths.updates_root)
+        if staging.lstat().st_nlink != 1:
+            return WindowsOnlineUpdateResult("download_rejected")
+        self._acl.protect_update_path(staging)
         # Injected downloaders obey the same durability gate as the HTTP owner.
-        with artifact.open("r+b") as downloaded:
+        with staging.open("r+b") as downloaded:
             os.fsync(downloaded.fileno())
         # Persist operation metadata and acknowledge scheduled before publishing
         # the SCM request; a process crash must never strand terminal reporting.
@@ -218,35 +226,67 @@ class WindowsOnlineUpdateRuntime:
         ):
             return WindowsOnlineUpdateResult("request_ack_pending")
         with update_transaction(self._paths, timeout_ms=0):
-            if (self._paths.pending_path.exists() or self._paths.transition_path.exists()
-                or (self._paths.updates_root / _TERMINAL_OUTCOME_FILENAME).exists()):
+            blockers = (
+                self._paths.pending_path, self._paths.transition_path,
+                self._paths.updates_root / _TERMINAL_OUTCOME_FILENAME,
+                self._paths.updates_root / "startup-attempt.json", self._paths.restore_path,
+            )
+            if any(path.exists() or path.is_symlink() for path in blockers):
                 return WindowsOnlineUpdateResult("update_in_progress")
             changed = _load_current_version(self._paths.current_path) != current
             if not changed:
-                write_json_atomic(
-                    self._paths.pending_path,
-                    {
-                        "archive_type": "zip",
-                        "artifact_path": str(artifact),
-                        "channel": recommendation.channel,
-                        "operation_id": recommendation.operation_id,
-                        "received_at": self._now().astimezone(UTC).isoformat(),
-                        "requested_by": "gateway",
-                        "requested_reason": recommendation.reason or "scheduled_rollout",
-                        "sha256": actual_hash,
-                        "size": actual_size,
-                        "target": "windows_amd64",
-                        "version": recommendation.version,
-                    },
-                    trusted_root=self._paths.updates_root,
-                    max_bytes=16 * 1024,
-                    protect=self._acl.protect_update_path,
-                )
+                self._publish_download(recommendation, staging, artifact)
         if changed:
             await self._adapter.report_terminal(recommendation.operation_id, status="failed",
                 reported_version=_load_current_version(self._paths.current_path), safe_code="launcher_apply_failed")
             return WindowsOnlineUpdateResult("update_in_progress")
         return WindowsOnlineUpdateResult("scheduled")
+
+    def _publish_download(self, recommendation: EndpointRecommendation, staging: Path, artifact: Path) -> None:
+        root = self._paths.updates_root
+        _checked_path(staging, root)
+        _checked_path(artifact, root)
+        os.replace(staging, artifact)
+        try:
+            flush_directory(artifact.parent)
+            write_json_atomic(
+                self._paths.pending_path,
+                {
+                    "archive_type": "zip",
+                    "artifact_path": str(artifact),
+                    "channel": recommendation.channel,
+                    "operation_id": recommendation.operation_id,
+                    "received_at": self._now().astimezone(UTC).isoformat(),
+                    "requested_by": "gateway",
+                    "requested_reason": recommendation.reason or "scheduled_rollout",
+                    "sha256": recommendation.sha256,
+                    "size": recommendation.size,
+                    "target": "windows_amd64",
+                    "version": recommendation.version,
+                },
+                trusted_root=root,
+                max_bytes=16 * 1024,
+                protect=self._acl.protect_update_path,
+            )
+        except Exception:
+            # Replacement may already be visible if the pending directory flush
+            # failed. Keep the ZIP whenever the pending leaf may refer to it.
+            try:
+                self._paths.pending_path.lstat()
+            except FileNotFoundError:
+                self._discard_unpublished_download(artifact)
+            except OSError:
+                pass
+            raise
+
+    def _discard_unpublished_download(self, path: Path) -> None:
+        try:
+            _checked_path(path, self._paths.updates_root)
+            if path.lstat().st_nlink == 1:
+                durable_unlink(path, trusted_root=self._paths.updates_root)
+        except (OSError, ValueError):
+            # Retention must preserve the original update result.
+            pass
 
     async def report_startup_outcome(self) -> bool:
         try:

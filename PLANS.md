@@ -142,8 +142,12 @@ with MSI, retained-runtime or ambiguous ownership are kept. The server
 inventory CLI cross-checks artifact names against four release catalogs.
 Before admitting a different Setup assignment, a bounded pass retires older
 downloads with a matching terminal journal, device identity and native-start
-receipt. Historical Core caches, deployment releases and retirement of catalog
-artifacts remain open.
+receipt. Windows Core uses an attempt-specific staging file and publishes its
+ZIP only after the scheduled ACK and a lifecycle recheck under the update
+mutex. Failure before pending publication retires the unreferenced ZIP.
+A visible pending record retains its ZIP across a failed final flush.
+Historical Core caches, staging files left by a killed process, deployment
+releases and retirement of catalog artifacts remain open.
 STAB-02 foundation: local SQLite records a command ID, device, payload digest,
 and start before execution, then commits completion and outbox together.
 Interrupted starts recover as unknown outcomes. Negotiated WSS sessions

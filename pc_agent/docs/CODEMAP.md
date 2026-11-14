@@ -390,6 +390,11 @@ extraction and journal allocations with a 64-MiB or 10-percent margin, summed
 per receiving volume. Existing retained cores already occupy space. Download
 and extracted files are flushed before durable handoff. A disk-full rejection
 keeps valid pending state for retry and reports bounded `disk_insufficient`.
+The online Core updater downloads to an attempt-specific staging file. After
+the scheduled ACK, it rechecks lifecycle ownership under the update mutex,
+publishes the verified ZIP, flushes its directory and then writes the pending
+handoff. Failed attempts discard their staging file. A visible pending handoff
+keeps its archive even if the final directory flush reported an error.
 The Windows recovery supervisor keeps the current core and WSS alive after
 SCM starts the updater; the offline worker owns stopping the Agent only after
 verified staging and durable preparation. The worker first reserves exact old
