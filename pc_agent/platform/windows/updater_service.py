@@ -434,6 +434,7 @@ class WindowsUpdater:
                 pending.version, previous, pending.requested_reason
             ):
                 raise ValueError("candidate version is not eligible from current selector")
+            self._retire_old_zip_runtimes(pending.version)
             self._publish_tray_status(
                 previous,
                 agent_state="starting",
@@ -555,6 +556,76 @@ class WindowsUpdater:
             transaction.close()
             if staging is not None and staging.exists():
                 shutil.rmtree(staging, ignore_errors=True)
+
+    def _retire_old_zip_runtimes(self, pending_version: str) -> None:
+        from itertools import islice
+
+        from endpoint_contracts.runtime_payload import version_tuple
+        from .installation_provenance import MSI_MARKER, RETAINED_RECEIPT, ZIP_RECEIPT, _inspect_zip
+        from .installer_fence import assert_namespace_security
+        from .staged_update_state import _selector as native_selector, read_staged_update
+
+        if self._transition is not None:
+            return
+        paths = self._paths
+        try:
+            current = _load_selector(paths.current_path)["version"]
+            previous = _load_selector(paths.previous_path)["version"]
+            # Preserve installed newer releases and the direct rollback slot.
+            upper_bound = min(version_tuple(current), version_tuple(previous))
+            protected = {pending_version, current, previous}
+            native = read_staged_update(paths)
+            if native is not None:
+                if native.phase not in {"accepted", "rolled-back"}:
+                    return
+                binding = native.binding
+                protected.update((binding.candidate_version, binding.old_release["version"],
+                                  native_selector(binding.selected_before)["version"]))
+                if binding.previous_before is not None:
+                    protected.add(native_selector(binding.previous_before)["version"])
+            assert_namespace_security(paths.versions_root, include_self=True)
+            with os.scandir(paths.versions_root) as entries:
+                candidates = [paths.versions_root / entry.name for entry in islice(entries, 1024)]
+        except (OSError, ValueError):
+            return
+
+        inspected = 0
+        for root in candidates:
+            try:
+                if root.name in protected or version_tuple(root.name) >= upper_bound:
+                    continue
+                _reject_reparse_path(root)
+                if not root.is_dir():
+                    continue
+                if any(os.path.lexists(root / marker) for marker in (MSI_MARKER, RETAINED_RECEIPT)):
+                    continue
+                if not (root / ZIP_RECEIPT).is_file():
+                    continue
+                inspected += 1
+                assert_namespace_security(root, include_self=True)
+                expected = {"version": root.name}
+                for count, path in enumerate(root.rglob("*"), start=1):
+                    if count > MAX_ARCHIVE_MEMBERS * 2:
+                        raise ValueError("old runtime inventory exceeds limit")
+                    _reject_reparse_path(path)
+                identity = _inspect_zip(root, b"", expected).identity
+                if identity.version == root.name:
+                    directories = {
+                        parent.as_posix() for item in identity.files
+                        for parent in Path(item.path).parents if parent.parts
+                    }
+                    for directory, subdirs, _ in os.walk(root, followlinks=False):
+                        for name in subdirs:
+                            relative = (Path(directory) / name).relative_to(root).as_posix()
+                            if relative not in directories:
+                                raise ValueError("unowned directory in retired runtime")
+                    shutil.rmtree(root)
+                    flush_directory(paths.versions_root)
+            except (OSError, ValueError):
+                # Cache retirement must not affect the selected update.
+                pass
+            if inspected >= 4:
+                break
 
     def _record_terminal_outcome(self, **outcome) -> None:
         try:

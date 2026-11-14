@@ -370,6 +370,53 @@ def test_accepted_transition_retires_only_its_verified_cache(tmp_path, changed):
     assert not paths.pending_path.exists()
 
 
+@pytest.mark.parametrize("recovering", [False, True])
+def test_zip_runtime_retirement_preserves_reserved_versions_and_unknown_trees(tmp_path, monkeypatch, recovering):
+    from endpoint_contracts.runtime_payload import BUNDLE_FILENAME, CONTRACT_FILENAME
+    from pc_agent.platform.windows import installer_fence, updater_service
+
+    paths = _paths(tmp_path)
+    paths.versions_root.mkdir(parents=True)
+    monkeypatch.setattr(installer_fence, "assert_namespace_security", lambda *a, **kw: None)
+
+    def make_release(version):
+        root = paths.versions_root / version
+        root.mkdir()
+        contract = json.dumps(dict(schema_version=1, version=version,
+            source_revision="a" * 40, minimum_launcher_version=None)).encode()
+        files = {"pc_agent.exe": b"fixture", CONTRACT_FILENAME: contract}
+        for name, data in files.items():
+            (root / name).write_bytes(data)
+        (root / BUNDLE_FILENAME).write_text(json.dumps(dict(
+            schema_version=1, version=version, source_revision="a" * 40,
+            files=[dict(path=name, size=len(data), sha256=hashlib.sha256(data).hexdigest())
+                   for name, data in files.items()],
+        )), encoding="utf-8")
+        (root / ".endpoint-update.json").write_text(
+            json.dumps(dict(version=version, size=123, sha256="b" * 64)), encoding="utf-8"
+        )
+        return root
+
+    old = make_release("3.2.1")
+    current, previous, pending = (make_release(f"3.2.{i}") for i in (5, 4, 6))
+    native = make_release("3.2.2")
+    (native / ".endpoint-msi-runtime.json").touch()
+    unknown = make_release("3.2.3")
+    (unknown / "other.txt").touch()
+    unowned_directory = make_release("3.2.0")
+    (unowned_directory / "unowned").mkdir()
+    paths.current_path.write_text(json.dumps({"version": current.name}))
+    paths.previous_path.write_text(json.dumps({"version": previous.name}))
+
+    worker = updater_service.WindowsUpdater(paths, acl=_Acl())
+    if recovering:
+        worker._transition = {"status": "prepared"}
+    worker._retire_old_zip_runtimes(pending.name)
+
+    assert old.exists() is recovering
+    assert all(path.is_dir() for path in (current, previous, pending, native, unknown, unowned_directory))
+
+
 def test_old_selected_restart_survives_persistent_exhaustion_and_retries(tmp_path, monkeypatch):
     import errno
     from pc_agent.platform.windows import durable_state, updater_service

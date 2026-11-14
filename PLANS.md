@@ -57,7 +57,11 @@ its settled assignment while keeping the Setup journal and native cache.
 Low space is reported before download. The server worker logs free and total
 artifact volume bytes at startup and every 15 minutes. Windows Core terminal
 failure and rollback retire their exact verified ZIP after server ACK.
-Old runtime trees, legacy caches and server artifact retirement remain open.
+Before Windows Core staging, a bounded pass under the update mutex retires
+older ZIP runtime trees with exact provenance and inventory. Selected,
+previous, pending and current native recovery versions are reserved. Trees
+with MSI, retained-runtime or ambiguous ownership are kept. Legacy download
+caches and server artifact retirement remain open.
 Release evidence requires an exact-source CI receipt before publication.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
