@@ -124,8 +124,11 @@ Configure retry cleared it and restored fresh Gateway heartbeat on the
 existing completed enrollment. Ubuntu VM138 reinstalled an exact-source DEB
 through locally signed APT. A forced stop during unpack preserved the fence
 across reboot, and exact reinstall restored a first-attempt heartbeat to the
-local TLS peer. Production signing and publication, Ubuntu enrollment against
-the real Gateway and installed Proxmox verification remain open.
+local TLS peer. A separate Ubuntu loopback Gateway and fresh PostgreSQL
+accepted the exact build through a completed enrollment and persisted all
+five context profiles and a fresh heartbeat after reboot. The first automatic baseline was still collecting
+when an explicit Console collection supplied the required snapshot.
+Production signing and publication and installed Proxmox verification remain open.
 STAB-17 source: metadata renewal verifies the pinned signer and all signed index
 and DEB hashes before changing the signed dates. The expiry check covers Ubuntu
 noble and Debian bookworm and warns with three days remaining. Ordinary APT
