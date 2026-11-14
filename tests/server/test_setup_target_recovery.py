@@ -74,7 +74,7 @@ async def recovered(db, state):
 
 
 @pytest.mark.parametrize('completed_preparation', [False, True])
-@pytest.mark.parametrize('observer_version', ['1.0.6', '1.0.7', '1.0.8'])
+@pytest.mark.parametrize('observer_version', ['1.0.6', '1.0.7', '1.0.8', '1.0.11'])
 async def test_target_recovery_records_failed_once_preserves_source_and_native_21(db, recovered, completed_preparation, observer_version):
     r = recovered
     r.presence.client_version = observer_version
