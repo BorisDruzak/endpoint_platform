@@ -52,8 +52,10 @@ against a synthetic console application. Signed Setup under the installed
 observer remains a release qualification. Next code task: STAB-13.
 STAB-13 first change: accepted Windows Core selection retires the exact
 operation ZIP after its durable acceptance record, with path, ACL, identity,
-size and digest checks. Terminal failures, Setup EXE caches, old runtime
-trees and server artifacts require separate retention decisions.
+size and digest checks. The Setup observer retires the verified download for
+its settled assignment while keeping the Setup journal and native cache.
+Low space is reported before download. Windows Core terminal failures, old
+runtime trees, legacy caches and server artifacts remain open.
 Release evidence requires an exact-source CI receipt before publication.
 
 ## SSO + WorkTime staged implementation (2026-10-27)

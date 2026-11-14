@@ -1088,6 +1088,26 @@ function Get-ActiveJob {
  return $job
 }
 function Test-TerminalPhase([string]$phase){return $phase -cin @('applied','already_current','failed','rolled_back','blocked','cancelled')}
+function Remove-SettledSetupDownload($job){
+ if(!$job -or $job.report -or !(Test-TerminalPhase $job.phase)){return}
+ $root=Get-JobRoot $job.assignment_id
+ Assert-AdministrativePath $root
+ $started=Join-Path $root 'native-started.json'
+ Assert-NoReparse $started
+ # Preserve evidence if the journal and native-start marker disagree, or if
+ # native work started and its local exit remains unknown.
+ if([bool]$job.native_started -ne (Test-Path -LiteralPath $started)){return}
+ if($job.native_started -and $null -eq $job.native_exit){return}
+ $setup=Join-Path $root 'Setup.exe'
+ Assert-NoReparse $setup
+ if(!(Test-Path -LiteralPath $setup -PathType Leaf)){return}
+ Assert-AdministrativePath $setup
+ if($job.release.sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+  $job.release.size -is [bool] -or $job.release.size -le 0 -or $job.release.size -gt 536870912 -or
+  (Get-Item -LiteralPath $setup).Length -ne $job.release.size -or
+  (Get-FileHash -LiteralPath $setup).Hash -ine $job.release.sha256){return}
+ [IO.File]::Delete($setup)
+}
 function Sync-ServerJob($job){
  $status=Invoke-EndpointJson 'GET' ('/agent/v1/setup-updates/assignments/'+$job.assignment_id+'/status')
  if($status.phase -ceq 'cancelled' -and !$job.native_started){$job.phase='cancelled';$job.report=$null;Save-Job $job}
@@ -1110,6 +1130,9 @@ function Invoke-SetupClient {
  if($job -and $job.report){
   $pending=$job.report;Send-Progress $job $pending.phase $pending.proof $pending.safe_code
  }
+ if($job -and (Test-TerminalPhase $job.phase)){
+  try{Remove-SettledSetupDownload $job}catch{}
+ }
  if($job -and $job.native_started -and !(Test-TerminalPhase $job.phase)){
   if($null -eq $job.native_exit){
    $process=Get-CimInstance Win32_Process -Filter ('ProcessId='+[int]$job.native_pid) -ErrorAction SilentlyContinue
@@ -1125,6 +1148,9 @@ function Invoke-SetupClient {
  $recommendation=Invoke-EndpointJson 'GET' '/agent/v1/setup-updates/recommendation'
  if(!$recommendation){Save-ClientStatus $(if($maintenanceReady){'idle'}else{'user_companion_unavailable'}) $job;return}
  $assignment=Assert-SetupRecommendation $recommendation
+ if($job -and $job.assignment_id -ceq $assignment -and (Test-TerminalPhase $job.phase)){
+  Save-ClientStatus 'operation_reported' $job;return
+ }
  if(!$job -or $job.assignment_id -cne $assignment){
   if($job -and !(Test-TerminalPhase $job.phase)){throw 'active_assignment_differs'}
   $jobs=Join-Path $script:StateRoot 'jobs';New-AdministrativeDirectory $jobs;$root=Get-JobRoot $assignment;New-AdministrativeDirectory $root
@@ -1138,7 +1164,9 @@ function Invoke-SetupClient {
   if($job.phase -ceq 'assigned'){Send-Progress $job 'downloading'}
   $script:Stage='download'
   $free=[IO.DriveInfo]::new([IO.Path]::GetPathRoot($root)).AvailableFreeSpace
-  if($free -lt ([long]$job.release.size*3+536870912)){throw 'client_disk_insufficient'}
+  if($free -lt ([long]$job.release.size*3+536870912)){
+   Save-ClientStatus 'client_disk_insufficient' $job;return
+  }
   Get-SetupArtifact $job $setup;Assert-AdministrativePath $setup
   $pin=[IO.File]::Open($setup,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read);Assert-SignedFile $setup $job.release.sha256
   $script:Stage='preflight';$before=Read-SetupPreflight $setup;$decision=Assert-FullSetupSource $before $job.release
