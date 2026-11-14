@@ -311,3 +311,40 @@ def test_unprivileged_alt_worker_cli_refuses_before_dispatch(monkeypatch, tmp_pa
     with pytest.raises(SystemExit) as caught:
         launcher_main.main()
     assert caught.value.code == 1
+
+
+@pytest.mark.parametrize("pending_exit", [False, True])
+def test_alt_launcher_runs_selected_core_with_unconsumed_pending(
+    monkeypatch, tmp_path, pending_exit,
+):
+    install = tmp_path / "install"
+    data = tmp_path / "data"
+    install.mkdir()
+    (install / "current.json").write_text("{}")
+    pending = data / "updates" / "pending_alt_update.json"
+    pending.parent.mkdir(parents=True)
+    pending.write_text("{}")
+    monkeypatch.setenv("ENDPOINT_AGENT_ALT_UPDATE_MODE", "1")
+    monkeypatch.setattr(launcher_main, "_load_current_state", lambda *_: (
+        {}, "3.2.1", None, install / "endpoint-agent",
+    ))
+    monkeypatch.setattr(launcher_main, "_alt_previous_version", lambda *_, **__: None)
+    monkeypatch.setattr(launcher_main, "_agent_argv", lambda *_, **__: ["endpoint-agent"])
+    monkeypatch.setattr(launcher_main, "apply_alt_update", lambda *_: pytest.fail("unprivileged apply"))
+    monkeypatch.setattr(launcher_main.time, "sleep", lambda _: None)
+    exits = iter([42, 0] if pending_exit else [0])
+    launches = []
+
+    def spawn(*args, **kwargs):
+        launches.append(args[0])
+        return SimpleNamespace(wait=lambda: next(exits))
+
+    monkeypatch.setattr(launcher_main.subprocess, "Popen", spawn)
+    monkeypatch.setattr(sys, "argv", [
+        "launcher", "--data-dir", str(data), "--install-root", str(install), "--no-gui",
+    ])
+    with pytest.raises(SystemExit) as exit_info:
+        launcher_main.main()
+    assert exit_info.value.code == 0
+    assert len(launches) == (2 if pending_exit else 1)
+    assert pending.read_text() == "{}"

@@ -1010,6 +1010,11 @@ def _write_update_json(
         view = memoryview(serialized)
         while view:
             view = view[os.write(descriptor, view) :]
+        # Publish service-readable state in the same atomic transaction as
+        # its bytes. A killed root worker cannot strand a private history file.
+        if os.geteuid() == 0:
+            owner = os.fstat(updates_fd)
+            os.fchown(descriptor, owner.st_uid, owner.st_gid)
         os.fchmod(descriptor, 0o600)
         os.fsync(descriptor)
         os.close(descriptor)

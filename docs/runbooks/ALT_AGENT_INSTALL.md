@@ -237,8 +237,23 @@ and invokes only the fixed stable launcher. Rollback mode compares the request
 to root-owned `current.json` and `previous.json`, re-verifies the exact previous
 manifest, files, hashes and modes, and atomically replaces only `current.json`.
 It writes the terminal `startup_crash_rollback` marker only after selector
-publication; rejected requests leave the selector unchanged. The worker starts
-the unprivileged service again after a handled request.
+publication; rejected requests leave the selector unchanged.
+
+The updater records the current boot ID in a root-only stop receipt before
+stopping an active, enabled Core. systemd runs its recovery hook after normal
+exit, timeout or a killed helper. The hook starts Core only while the receipt
+is current and the unit is still enabled. It preserves a queued conflicting
+stop and verifies the service is active before clearing the receipt. A stale
+receipt from a prior boot is discarded. On boot, ordinary service enablement
+starts the selected Core and the path unit can replay the request. A pending
+request does not prevent the unprivileged launcher from starting the selected
+Core. systemd bounds repeated helper activations with a start limit.
+
+Run `tests/deploy/verify_alt_update_recovery.py` with the helper and service
+source paths on a dedicated ALT systemd host to verify the recovery hook with
+isolated units. The harness checks SIGKILL, systemd timeout, enablement and
+synthetic selector preservation. Verify actual RPM installation and power-loss
+recovery separately.
 
 If interrupted after selector publication, the next fixed-request activation
 idempotently finishes the terminal marker and cleanup. Rollback state I/O pins

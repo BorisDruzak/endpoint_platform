@@ -243,7 +243,7 @@ def create_http_pull_transport(
             update_result = await update_runtime.run_once()
             if on_update_poll_complete is not None:
                 on_update_poll_complete()
-            if update_result.status == "scheduled":
+            if update_result.status == "scheduled" and os.getenv("ENDPOINT_AGENT_ALT_UPDATE_MODE") != "1":
                 raise SystemExit(EXIT_UPDATE_PENDING)
     return HttpPullGatewayTransport(
         ca_file=ca_file,

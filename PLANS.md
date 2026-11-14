@@ -17,7 +17,12 @@ timeout, cancellation and oversized reply. Frozen Core and Linux native
 acceptance remain open. STAB-03 source: bounded Windows Core cancellation,
 suspended launch into an owned Job, confirmed tree teardown and updater
 stop proof. Source fault injection passed on Windows. Installed SCM and
-signed Setup acceptance remain open. Next code task: STAB-04, then 05/06/07/08.
+signed Setup acceptance remain open. STAB-04 source: durable ALT stop receipt,
+systemd recovery after helper exit, timeout and SIGKILL, and selected Core
+startup with pending present. VM107 isolated systemd fault injection passed
+before/after synthetic selector publication, including manual stop/disable
+and stale-boot receipt. Actual RPM and power-loss verification remain open.
+Next code task: STAB-05, then 06/07/08.
 Release evidence requires an exact-source CI receipt before publication.
 
 ## SSO + WorkTime staged implementation (2026-10-27)

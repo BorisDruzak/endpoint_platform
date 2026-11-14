@@ -297,9 +297,6 @@ def main() -> None:
         sys.exit(1)
     if alt_update_mode_enabled():
         previous_version = _alt_previous_version(install_root, current_version=version)
-    if pending_update_requires_privileged_worker(data_root=data_root):
-        _log("pending ALT update is delegated to the root-owned systemd worker")
-        raise SystemExit(0)
     env = os.environ.copy()
     env["PC_AGENT_DATA_DIR"] = str(data_root)
     env["PC_AGENT_INSTALL_ROOT"] = str(install_root)
@@ -308,14 +305,11 @@ def main() -> None:
     immediate_crash_attempts = 0
     immediate_crash_version: str | None = None
     while True:
-        if pending_path.exists():
+        if not alt_update_mode_enabled() and pending_path.exists():
             _log("pending_update.json found, applying update...")
-            if alt_update_mode_enabled():
-                ok_, msg = apply_pending_update(install_root, data_root, pending_path)
-            else:
-                ok_, msg = apply_pending_update(
-                    install_root, data_root, pending_path, log_message=_log
-                )
+            ok_, msg = apply_pending_update(
+                install_root, data_root, pending_path, log_message=_log
+            )
             if ok_:
                 _log(f"Update applied: {msg}; restarting with new version")
             else:
@@ -355,17 +349,15 @@ def main() -> None:
             raise SystemExit(78)
         if ret == EXIT_UPDATE_PENDING:
             if alt_update_mode_enabled():
-                _log("Agent exited with update-pending (42); root worker will apply it")
-                raise SystemExit(0)
+                _log("Agent exited with update-pending (42); starting selected Core while root worker owns publication")
+                time.sleep(1)
+                continue
             _log("Agent exited with update-pending (42); will apply update and restart")
             backoff = 1.0
             immediate_crash_attempts = 0
             immediate_crash_version = None
             continue
-        if pending_path.exists():
-            if alt_update_mode_enabled():
-                _log("pending ALT update is delegated to the root-owned systemd worker")
-                raise SystemExit(0)
+        if not alt_update_mode_enabled() and pending_path.exists():
             _log("pending_update.json present after exit; applying update")
             immediate_crash_attempts = 0
             immediate_crash_version = None
@@ -428,7 +420,10 @@ def main() -> None:
                             attempts=immediate_crash_attempts,
                             reason="startup_crash_rollback_requested",
                         )
-                        raise SystemExit(0)
+                        # Keep the service running until the root worker owns
+                        # its stop. If the watcher is unavailable, retry slowly.
+                        time.sleep(max_backoff)
+                        continue
                 else:
                     _log(
                         f"Terminal startup crash detected for {version}; "
