@@ -368,10 +368,16 @@ directories using Linux `/proc`. Inspect `process_scan_incomplete_pids` for
 inaccessible process data. Use the free space figure before upgrade to review
 the 10 GiB requirement.
 
+The report lists direct links between release directories under
+`release_dependencies`. A link from any protected release also protects its
+target and that target's dependencies. Review `missing_release_dependencies`
+before an upgrade or rollback. Shared virtual environments can be required
+even while all application services are stopped.
+
 An empty `protected_by` list indicates that this scan found no matching
 reference. Before any separately authorized retirement, check pending
-deployments, restore and audit records and references that a running process
-may reopen later. Repeat the inventory immediately before any move.
+deployments, restore and audit records, external aliases and references that a
+running process may reopen later. Repeat the inventory immediately before any move.
 
 The worker logs free bytes on the artifact volume at startup and every 15
 minutes. From the release checkout and its server environment, run

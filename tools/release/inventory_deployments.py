@@ -82,7 +82,7 @@ def _staged_commit(staged: Path | None) -> str | None:
 
 
 def _release_reference(root: Path, value: str) -> str | None:
-    path = Path(value.removesuffix(" (deleted)"))
+    path = Path(value)
     if not path.is_absolute():
         return None
     try:
@@ -90,6 +90,11 @@ def _release_reference(root: Path, value: str) -> str | None:
     except ValueError:
         return None
     return name if _RELEASE_NAME.fullmatch(name) else None
+
+
+def _readlink(path: Path) -> str:
+    value = os.fspath(path.readlink())
+    return value.removeprefix("\\\\?\\") if os.name == "nt" else value
 
 
 def _scan_processes(root: Path, proc: Path) -> tuple[dict[str, set[int]], list[int]]:
@@ -103,16 +108,13 @@ def _scan_processes(root: Path, proc: Path) -> tuple[dict[str, set[int]], list[i
         remaining -= 1
         if remaining < 0:
             raise ValueError("process references exceed inventory limit")
-        name = _release_reference(root, value)
+        name = _release_reference(root, value.removesuffix(" (deleted)"))
         if name is not None:
             references.setdefault(name, set()).add(pid)
 
     def observe_link(link: Path, pid: int) -> None:
         try:
-            value = os.fspath(link.readlink())
-            if os.name == "nt":
-                value = value.removeprefix("\\\\?\\")
-            observe(value, pid)
+            observe(_readlink(link), pid)
         except FileNotFoundError:
             pass  # The descriptor or process has already exited.
         except OSError:
@@ -146,12 +148,13 @@ def _scan_processes(root: Path, proc: Path) -> tuple[dict[str, set[int]], list[i
     return references, sorted(incomplete)
 
 
-def _measure(root: Path, volume: int, remaining: int) -> tuple[int, int, int]:
+def _measure(root: Path, volume: int, remaining: int) -> tuple[int, int, int, set[str]]:
     """Count apparent regular-file bytes without traversing links or mounts."""
     physical = root.lstat()
     if not _physical_directory(physical) or physical.st_dev != volume:
-        return 0, 1, remaining
+        return 0, 1, remaining, set()
     directories = [root]
+    dependencies = set()
     total = unmeasured = 0
     while directories:
         directory = directories.pop()
@@ -165,7 +168,15 @@ def _measure(root: Path, volume: int, remaining: int) -> tuple[int, int, int]:
                     raise ValueError("release directories exceed inventory limit")
                 # Windows DirEntry.stat does not populate st_dev.
                 details = os.lstat(entry.path) if os.name == "nt" else entry.stat(follow_symlinks=False)
-                if details.st_dev != volume or getattr(details, "st_file_attributes", 0) & _REPARSE_POINT:
+                if stat.S_ISLNK(details.st_mode) or getattr(details, "st_file_attributes", 0) & _REPARSE_POINT:
+                    unmeasured += 1
+                    path = Path(entry.path)
+                    if stat.S_ISLNK(details.st_mode) or path.is_junction():
+                        destination = os.path.abspath(directory / _readlink(path))
+                        name = _release_reference(root.parent, destination)
+                        if name is not None and name != root.name:
+                            dependencies.add(name)
+                elif details.st_dev != volume:
                     unmeasured += 1
                 elif stat.S_ISDIR(details.st_mode):
                     directories.append(Path(entry.path))
@@ -175,7 +186,23 @@ def _measure(root: Path, volume: int, remaining: int) -> tuple[int, int, int]:
                     unmeasured += 1
         if _identity(directory.lstat()) != _identity(before):
             raise ValueError("release directory changed during inventory")
-    return total, unmeasured, remaining
+    return total, unmeasured, remaining, dependencies
+
+
+def _add_dependency_protection(rows: dict) -> list[str]:
+    """Preserve dependencies of every protected release, including cycles."""
+    queue = [name for name, row in rows.items() if row["protected_by"]]
+    visited = set(queue)
+    required = set()
+    while queue:
+        for name in rows[queue.pop()]["release_dependencies"]:
+            required.add(name)
+            if name in rows and name not in visited:
+                visited.add(name)
+                queue.append(name)
+    for name in required & rows.keys():
+        rows[name]["protected_by"].append("release_dependency")
+    return sorted(required - rows.keys())
 
 
 def read_inventory(
@@ -191,7 +218,7 @@ def read_inventory(
     if pins and not all(_RELEASE_NAME.fullmatch(pin) for pin in pins):
         raise ValueError("pins must be exact release directory names")
     pinned = {_release_target(root, root / pin) for pin in pins or ()}
-    rows, unclassified = [], []
+    rows, unclassified = {}, []
     remaining = _MAX_ENTRIES
     with os.scandir(root) as entries:
         for entry in entries:
@@ -203,14 +230,14 @@ def read_inventory(
             if not _RELEASE_NAME.fullmatch(name) or not _physical_directory(details):
                 unclassified.append(name)
                 continue
-            size, unmeasured, remaining = _measure(Path(entry.path), root_details.st_dev, remaining)
-            rows.append({
+            size, unmeasured, remaining, dependencies = _measure(Path(entry.path), root_details.st_dev, remaining)
+            rows[name] = {
                 "name": name, "regular_file_bytes": size,
                 "unmeasured_entries": unmeasured,
-            })
+                "release_dependencies": sorted(dependencies),
+            }
     references, incomplete = _scan_processes(root, proc) if proc is not None else ({}, [])
-    for row in rows:
-        name = row["name"]
+    for name, row in rows.items():
         pids = sorted(references.get(name, ()))
         row["protected_by"] = [
             reason for reason, selected in (
@@ -219,6 +246,7 @@ def read_inventory(
             ) if selected
         ]
         row["process_ids"] = pids
+    missing_dependencies = _add_dependency_protection(rows)
     if (
         _pointers(root, current, previous) != (active, rollback)
         or _staged_commit(staged) != commit
@@ -232,7 +260,8 @@ def read_inventory(
         "staged_commit": commit,
         "process_scan_performed": proc is not None,
         "process_scan_incomplete_pids": incomplete,
-        "releases": sorted(rows, key=lambda row: row["name"]),
+        "releases": [rows[name] for name in sorted(rows)],
+        "missing_release_dependencies": missing_dependencies,
         "unclassified_entries": sorted(unclassified),
         "volume_free_bytes": space.free,
         "volume_total_bytes": space.total,

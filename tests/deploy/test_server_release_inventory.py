@@ -134,3 +134,31 @@ def test_inventory_reports_inaccessible_process_evidence(deployment, monkeypatch
     monkeypatch.setattr(Path, "readlink", readlink)
     report = inventory_deployments.read_inventory(releases, current, previous, proc=proc)
     assert report["process_scan_incomplete_pids"] == [73]
+
+
+def test_inventory_follows_release_dependencies_from_protected_roots(deployment):
+    releases, current, previous = deployment
+    library = "endpoint-platform-a1a2a3a4a5a6"
+    (releases / library).mkdir()
+    (releases / CURRENT / "venv").symlink_to(Path("..") / OTHER, target_is_directory=True)
+    (releases / OTHER / "shared").symlink_to(releases / library, target_is_directory=True)
+    (releases / library / "cycle").symlink_to(releases / OTHER, target_is_directory=True)
+
+    report = inventory_deployments.read_inventory(releases, current, previous)
+    rows = {row["name"]: row for row in report["releases"]}
+    assert rows[CURRENT]["release_dependencies"] == [OTHER]
+    assert rows[OTHER]["protected_by"] == ["release_dependency"]
+    assert rows[library]["protected_by"] == ["release_dependency"]
+    assert rows[OTHER]["unmeasured_entries"] == 1
+    assert rows[PREVIOUS]["release_dependencies"] == []
+
+
+def test_inventory_reports_dangling_release_target(deployment):
+    releases, current, previous = deployment
+    missing = "endpoint-platform-abcdefabcdef"
+    (releases / PREVIOUS / "venv").symlink_to(releases / missing / "venv", target_is_directory=True)
+
+    report = inventory_deployments.read_inventory(releases, current, previous)
+    rows = {row["name"]: row for row in report["releases"]}
+    assert rows[PREVIOUS]["release_dependencies"] == [missing]
+    assert report["missing_release_dependencies"] == [missing]

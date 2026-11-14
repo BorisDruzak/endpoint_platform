@@ -167,6 +167,11 @@ The release-commit marker names `5c3eb383e776`. Support Exporter runs from
 `ed643cddf0f5`, and API, worker and Exporter map dependencies from
 `ce46fd47a3a9`. The inventory now surfaces these live references in addition
 to current and rollback. It reported no inaccessible PIDs in that pass.
+The inventory also tracks on-disk dependencies between release directories
+and protects those reachable from current, rollback, staged, process or pin
+roots. The production pass found 21 directories with such links. Active,
+rollback, staged and Support Exporter directories directly link their venv to
+`ce46fd47a3a9`; all protected dependency targets were present.
 Remaining directories still need review of deployment, restore and audit
 records before any retirement.
 STAB-02 foundation: local SQLite records a command ID, device, payload digest,
