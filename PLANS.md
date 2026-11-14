@@ -50,6 +50,10 @@ owned process job, bounds stdout during capture and stops on stderr. Windows
 PowerShell 5.1 verified repeated timeouts, output overflow and child cleanup
 against a synthetic console application. Signed Setup under the installed
 observer remains a release qualification. Next code task: STAB-13.
+STAB-13 first change: accepted Windows Core selection retires the exact
+operation ZIP after its durable acceptance record, with path, ACL, identity,
+size and digest checks. Terminal failures, Setup EXE caches, old runtime
+trees and server artifacts require separate retention decisions.
 Release evidence requires an exact-source CI receipt before publication.
 
 ## SSO + WorkTime staged implementation (2026-10-27)

@@ -658,9 +658,55 @@ class WindowsUpdater:
             if not isinstance(payload, dict) or not self._matches_transition(payload):
                 raise ValueError("accepted transition pending identity differs")
             self._validator._security.assert_update_path(self._paths.pending_path)
+            if isinstance(payload.get("artifact_path"), str):
+                self._retire_accepted_download(Path(payload["artifact_path"]))
         durable_unlink(self._paths.pending_path, trusted_root=self._paths.updates_root, missing_ok=True)
         _clear_startup_attempt(self._paths)
         self._clear_transition()
+
+    def _retire_accepted_download(self, requested_artifact: Path) -> None:
+        transition = self._transition
+        version = transition["candidate"]["version"]
+        operation_id = transition["operation_id"]
+        artifact = self._paths.downloads_root / f"build-{version}-{operation_id}.zip"
+        if requested_artifact != artifact:
+            return
+        try:
+            _reject_reparse_chain(self._paths.updates_root, artifact)
+            details = artifact.lstat()
+            if (
+                not stat.S_ISREG(details.st_mode)
+                or details.st_nlink != 1
+                or details.st_size != transition["artifact_size"]
+            ):
+                return
+            self._validator._security.assert_update_path(artifact)
+            with artifact.open("rb") as stream:
+                opened = os.fstat(stream.fileno())
+                if not os.path.samestat(details, opened) or opened.st_size != details.st_size:
+                    return
+                digest = hashlib.sha256()
+                remaining = opened.st_size
+                while remaining:
+                    chunk = stream.read(min(remaining, 1024 * 1024))
+                    if not chunk:
+                        return
+                    digest.update(chunk)
+                    remaining -= len(chunk)
+                if digest.hexdigest() != transition["artifact_sha256"] or stream.read(1):
+                    return
+            observed = artifact.lstat()
+            if (
+                not os.path.samestat(details, observed)
+                or observed.st_size != details.st_size
+                or observed.st_mtime_ns != details.st_mtime_ns
+                or observed.st_ctime_ns != details.st_ctime_ns
+            ):
+                return
+            durable_unlink(artifact, trusted_root=self._paths.updates_root)
+        except (OSError, ValueError, WindowsAclError):
+            # The accepted selector remains authoritative if cache cleanup fails.
+            return
 
     def _reconcile_transition(self, pending: PendingUpdate) -> UpdateResult | None:
         if not self._matches_transition({"version": pending.version, "operation_id": pending.operation_id,

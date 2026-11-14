@@ -326,10 +326,10 @@ def test_persistent_exhaustion_restores_without_new_payload_allocation(tmp_path,
     assert restarted.run_once().status == "applied"
 
 
-def _interrupted_transition(tmp_path, *, selected=True):
+def _interrupted_transition(tmp_path, *, selected=True, archive_name="candidate.zip"):
     from pc_agent.platform.windows import updater_service
     paths = _paths(tmp_path)
-    artifact = _artifact(paths.downloads_root / "candidate.zip")
+    artifact = _artifact(paths.downloads_root / archive_name)
     _pending(paths, artifact)
     paths.install_root.mkdir(parents=True)
     old = {"schema_version": 1, "source_revision": "b" * 40, "version": "3.1.9"}
@@ -344,6 +344,30 @@ def _interrupted_transition(tmp_path, *, selected=True):
     if selected:
         updater_service._write_json_atomic(paths.current_path, candidate, trusted_root=paths.install_root)
     return paths, old
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_accepted_transition_retires_only_its_verified_cache(tmp_path, changed):
+    from pc_agent.platform.windows import updater_service
+
+    name = "build-3.2.0-caa31a48-bf2f-4f1c-8b77-d1be77e12b4e.zip"
+    paths, _ = _interrupted_transition(tmp_path, archive_name=name)
+    archive = paths.downloads_root / name
+    other = paths.downloads_root / "build-3.2.1-241fe64c-9639-47ca-b2c5-c36b36b11f9a.zip"
+    other.write_bytes(archive.read_bytes())
+    worker = updater_service.WindowsUpdater(
+        paths, acl=_Acl(), confirmation=SimpleNamespace(is_confirmed=lambda **_: True)
+    )
+    worker._transition = updater_service._load_selector_transition(paths)
+    worker._mark_accepted()
+    if changed:
+        original = archive.read_bytes()
+        archive.write_bytes(bytes([original[0] ^ 1]) + original[1:])
+
+    assert worker.run_once().status == "applied"
+    assert archive.exists() is changed
+    assert other.is_file()
+    assert not paths.pending_path.exists()
 
 
 def test_old_selected_restart_survives_persistent_exhaustion_and_retries(tmp_path, monkeypatch):
