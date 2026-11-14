@@ -110,8 +110,11 @@ audit event. Direct enrollment delivery acknowledgement remains open.
 Ubuntu VM138 built the exact Core in an isolated dependency path and exercised
 upgrade, failed-service repair, manual stop, masking, rollback, offline
 reinstall, and reboot with a local TLS peer. One rollback startup failed in
-PyInstaller and recovered on the next systemd attempt. Its cause and full
-Ubuntu Gateway/APT acceptance remain open.
+PyInstaller and recovered on the next systemd attempt. The two exact binaries
+reproduced the loader error when the executable path was replaced after
+loading the archive index. An operator-stopped rollback and upgrade both
+started on the first attempt. Automatic transition safety and full Ubuntu
+Gateway/APT acceptance remain open.
 STAB-17 source: metadata renewal verifies the pinned signer and all signed index
 and DEB hashes before changing the signed dates. The expiry check covers Ubuntu
 noble and Debian bookworm and warns with three days remaining. Ordinary APT
