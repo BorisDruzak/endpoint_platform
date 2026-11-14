@@ -116,8 +116,11 @@ single Uvicorn process with PostgreSQL 16. The 192-device wave drained in
 [Local recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified same-instance result replay after API restart and tenant database
 disconnection with the API still running, plus worker recovery and restart.
+[Local backup restore](docs/verification/2026-11-14-stab19-backup-restore.md)
+recovered a signed synthetic release, database, secrets and artifact into
+an empty database and a separate API process from the recovered source archive.
 Linux/TLS sustained qualification, process crash and PostgreSQL instance
-restart drills, and complete backup restore remain open.
+restart drills, and restore from a verified external production copy remain open.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
 
