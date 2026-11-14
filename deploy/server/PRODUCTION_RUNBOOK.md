@@ -581,6 +581,10 @@ at device registration. Subsequent collections are due one profile interval
 after the previous request. Zero can mean the tick queued nothing.
 For `cleanup_expired_retry_envelopes`, the age is time past the oldest
 enrollment delivery expiry, including rows locked by another transaction.
+For `cleanup_operation_results`, it is time past the earliest expiry of an
+unpinned result with retained payload. For `cleanup_module_step_results`, it
+is the greatest delay past the retention cutoff in the committed batch of
+step copies. Rows skipped due to locks are outside that batch measurement.
 WSS health is a separate operational signal.
 
 Job execution budgets are 15 to 30 seconds, including all transactions in a

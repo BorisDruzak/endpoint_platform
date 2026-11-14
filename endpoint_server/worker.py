@@ -20,7 +20,10 @@ from endpoint_server.context.scheduler import ContextScheduleBatch, schedule_due
 from endpoint_server.db.session import SessionProvider, create_session_provider
 from endpoint_server.enrollment.delivery import cleanup_expired_retry_envelopes, enrollment_retry_backlog_age
 from endpoint_server.operations.service import expire_operations, operation_expiry_backlog_age
-from endpoint_server.operations.evidence import cleanup_module_step_results, cleanup_operation_results
+from endpoint_server.operations.evidence import (
+    StepCleanupBatch, cleanup_module_step_results_with_backlog,
+    cleanup_operation_results, operation_result_cleanup_backlog_age,
+)
 from endpoint_server.security.retention import retain_security_events
 from endpoint_server.power.retention import retain_power_events
 from endpoint_server.activity.analytics_store import analytics_backlog_age, rebuild_daily, retain_analytics
@@ -222,8 +225,19 @@ async def run_worker(
                 for name, job in (
                     ("cleanup_raw_context_payloads", cleanup_raw_context_payloads),
                     ("cleanup_context_collections", cleanup_context_collections),
-                    ("cleanup_operation_results", cleanup_operation_results),
-                    ("cleanup_module_step_results", cleanup_module_step_results),
+                ):
+                    await jobs.run(name, job, due_at=next_payload)
+                await jobs.run(
+                    "cleanup_operation_results", cleanup_operation_results, due_at=next_payload,
+                    measure_backlog=operation_result_cleanup_backlog_age,
+                )
+                await jobs.run(
+                    "cleanup_module_step_results", cleanup_module_step_results_with_backlog, due_at=next_payload,
+                    committed_backlog=lambda result: (
+                        result.oldest_due_age_seconds if isinstance(result, StepCleanupBatch) else None
+                    ),
+                )
+                for name, job in (
                     ("retain_security_events", retain_security_events),
                     ("retain_power_events", retain_power_events),
                     ("retain_analytics", lambda session: retain_analytics(session, policy=settings.activity_analytics)),

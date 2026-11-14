@@ -2005,9 +2005,14 @@ async def _completed_evidence_operation(route_fixture: RouteFixture) -> tuple[UU
 
 @pytest.mark.asyncio
 async def test_evidence_expiry_scrubs_result_but_keeps_operation(route_fixture: RouteFixture) -> None:
+    from endpoint_server.operations.evidence import operation_result_cleanup_backlog_age
+
     operation_id, when = await _completed_evidence_operation(route_fixture)
     async with route_fixture.session_provider() as session:
+        assert await operation_result_cleanup_backlog_age(session, now=when) == 0
+        assert await operation_result_cleanup_backlog_age(session, now=when + timedelta(hours=25)) == 3600
         assert await cleanup_operation_results(session, now=when + timedelta(hours=25)) == 1
+        assert await operation_result_cleanup_backlog_age(session, now=when + timedelta(hours=25)) == 0
         await session.commit()
         evidence = await session.scalar(select(OperationEvidence).where(OperationEvidence.operation_id == operation_id))
         assert evidence.safe_payload is None
@@ -2023,6 +2028,8 @@ async def test_evidence_expiry_scrubs_result_but_keeps_operation(route_fixture: 
 
 @pytest.mark.asyncio
 async def test_pinned_evidence_survives_expiry_and_is_audited(route_fixture: RouteFixture) -> None:
+    from endpoint_server.operations.evidence import operation_result_cleanup_backlog_age
+
     operation_id, when = await _completed_evidence_operation(route_fixture)
     async with route_fixture.session_provider() as session:
         evidence = await pin_operation_evidence(session, operation_id, actor_kind="admin",
@@ -2031,6 +2038,7 @@ async def test_pinned_evidence_survives_expiry_and_is_audited(route_fixture: Rou
         assert evidence.pinned_at is not None
         assert evidence.expires_at is None
     async with route_fixture.session_provider() as session:
+        assert await operation_result_cleanup_backlog_age(session, now=when + timedelta(hours=25)) == 0
         assert await cleanup_operation_results(session, now=when + timedelta(hours=25)) == 0
         evidence = await session.scalar(select(OperationEvidence).where(OperationEvidence.operation_id == operation_id))
         assert evidence.safe_payload is not None

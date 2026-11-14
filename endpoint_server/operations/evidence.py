@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -18,6 +19,12 @@ from endpoint_server.operations.redaction import sanitize_agent_public_text
 
 class EvidenceConflict(ValueError):
     pass
+
+
+@dataclass(frozen=True, slots=True)
+class StepCleanupBatch:
+    scrubbed: int
+    oldest_due_age_seconds: float
 
 
 def _utc(value: datetime) -> datetime:
@@ -96,13 +103,42 @@ async def pin_operation_evidence(
     return evidence
 
 
+def _expired_unpinned_results(when: datetime):
+    return (
+        OperationEvidence.expires_at <= when,
+        OperationEvidence.safe_payload.is_not(None),
+        OperationEvidence.pinned_at.is_(None),
+    )
+
+
+def _seconds_past(cutoff: datetime, oldest: datetime | None) -> float:
+    if oldest is None:
+        return 0.0
+    # SQLite returns naive datetimes for UTC columns.
+    if oldest.tzinfo is None:
+        oldest = oldest.replace(tzinfo=UTC)
+    return max(0.0, (cutoff - oldest).total_seconds())
+
+
+async def operation_result_cleanup_backlog_age(session: AsyncSession, *, now: datetime | None = None) -> float:
+    """Measure expired, unpinned results, including rows locked by a pin request."""
+    when = _utc(now or datetime.now(UTC))
+    oldest = await session.scalar(
+        select(OperationEvidence.expires_at)
+        .where(*_expired_unpinned_results(when))
+        .order_by(OperationEvidence.expires_at)
+        .limit(1)
+    )
+    return _seconds_past(when, oldest)
+
+
 async def cleanup_operation_results(session: AsyncSession, *, now: datetime | None = None, limit: int = 100) -> int:
     if not 1 <= limit <= 1000:
         raise ValueError("cleanup limit must be between 1 and 1000")
     when = _utc(now or datetime.now(UTC))
     rows = (await session.scalars(
         select(OperationEvidence)
-        .where(OperationEvidence.expires_at <= when, OperationEvidence.safe_payload.is_not(None), OperationEvidence.pinned_at.is_(None))
+        .where(*_expired_unpinned_results(when))
         .order_by(OperationEvidence.expires_at, OperationEvidence.id)
         .limit(limit).with_for_update(skip_locked=True)
     )).all()
@@ -117,6 +153,12 @@ async def cleanup_operation_results(session: AsyncSession, *, now: datetime | No
 
 
 async def cleanup_module_step_results(session: AsyncSession, *, now: datetime | None = None, limit: int = 100) -> int:
+    return (await cleanup_module_step_results_with_backlog(session, now=now, limit=limit)).scrubbed
+
+
+async def cleanup_module_step_results_with_backlog(
+    session: AsyncSession, *, now: datetime | None = None, limit: int = 100,
+) -> StepCleanupBatch:
     """Scrub old step copies, including operations that predate evidence rows."""
     if not 1 <= limit <= 1000:
         raise ValueError("cleanup limit must be between 1 and 1000")
@@ -126,7 +168,8 @@ async def cleanup_module_step_results(session: AsyncSession, *, now: datetime | 
         ModuleOperationStep.safe_result_json.is_not(None),
     ).order_by(ModuleOperationStep.completed_at, ModuleOperationStep.id)
         .limit(limit).with_for_update(skip_locked=True))).all()
+    age = _seconds_past(cutoff, rows[0].completed_at if rows else None)
     for step in rows:
         step.safe_result_json = None
     await session.flush()
-    return len(rows)
+    return StepCleanupBatch(len(rows), age)

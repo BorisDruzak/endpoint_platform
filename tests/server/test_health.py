@@ -560,7 +560,7 @@ async def test_worker_runs_payload_cleanup_on_minute_cadence_independently_of_sn
         "retain_security_events",
     ):
         monkeypatch.setattr(
-            "endpoint_server.worker." + name,
+            "endpoint_server.worker." + (name + "_with_backlog" if name == "cleanup_module_step_results" else name),
             lambda session, job=name: record(job, session),
         )
     task = asyncio.create_task(run_worker(

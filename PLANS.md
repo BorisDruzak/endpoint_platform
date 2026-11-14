@@ -110,6 +110,9 @@ Context scheduling reports the greatest delay among newly queued collections
 after commit, using the existing eligibility pass and no additional queries.
 Enrollment delivery cleanup reports time past the oldest eligible expiry,
 including expired envelopes still locked by another transaction.
+Operation evidence cleanup reports the oldest expired unpinned payload.
+Module step cleanup reports the oldest overdue copy in its committed batch
+using its existing bounded read.
 Other data-queue ages remain open.
 STAB-09 source: explicit Core transfer total/connect/idle
 timeouts with matching recovery-supervisor budget. Slow and stalled loopback

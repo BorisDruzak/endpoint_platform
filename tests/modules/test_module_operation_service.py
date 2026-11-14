@@ -459,6 +459,16 @@ async def test_module_operation_deadline_expires_each_remaining_child_step() -> 
                 AuditEvent.action == "endpoint.module_operation_expired"
             )
         )
+        from endpoint_server.operations.evidence import cleanup_module_step_results_with_backlog
+
+        steps[0].safe_result_json = {"fixture": True}
+        await session.flush()
+        due = operation.completed_at + timedelta(hours=24, seconds=60)
+        batch = await cleanup_module_step_results_with_backlog(session, now=due)
+        assert (batch.scrubbed, batch.oldest_due_age_seconds) == (1, 60)
+        assert steps[0].safe_result_json is None
+        empty = await cleanup_module_step_results_with_backlog(session, now=due)
+        assert (empty.scrubbed, empty.oldest_due_age_seconds) == (0, 0)
     assert operation.status == "expired"
     assert operation.completed_at == operation.deadline_at + timedelta(seconds=1)
     assert [step.status for step in steps] == ["expired", "expired"]

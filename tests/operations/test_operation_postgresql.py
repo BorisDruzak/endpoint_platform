@@ -41,7 +41,10 @@ from endpoint_server.operations.service import (
     expire_operations,
     operation_expiry_backlog_age,
 )
-from endpoint_server.operations.evidence import create_operation_evidence, cleanup_operation_results, pin_operation_evidence
+from endpoint_server.operations.evidence import (
+    cleanup_operation_results, create_operation_evidence,
+    operation_result_cleanup_backlog_age, pin_operation_evidence,
+)
 from endpoint_server.policy.network_targets import NetworkTargetPolicyV1
 
 
@@ -310,6 +313,10 @@ async def test_pin_wins_against_expiry_cleanup_on_postgresql(operation_database_
             assert pinned.safe_payload == {"safe": "result"}
             async with factory() as cleanup_session:
                 # The row is locked by the uncommitted pin, so SKIP LOCKED cannot scrub it.
+                async with asyncio.timeout(3):
+                    assert await operation_result_cleanup_backlog_age(
+                        cleanup_session, now=NOW + timedelta(hours=25),
+                    ) == 3540
                 assert await cleanup_operation_results(cleanup_session, now=NOW + timedelta(hours=25)) == 0
                 await cleanup_session.commit()
             await holder.commit()
@@ -318,6 +325,9 @@ async def test_pin_wins_against_expiry_cleanup_on_postgresql(operation_database_
                 await holder.rollback()
             await holder.close()
         async with factory() as cleanup_session:
+            assert await operation_result_cleanup_backlog_age(
+                cleanup_session, now=NOW + timedelta(hours=25),
+            ) == 0
             assert await cleanup_operation_results(cleanup_session, now=NOW + timedelta(hours=25)) == 0
             evidence = await cleanup_session.scalar(select(OperationEvidence).where(OperationEvidence.operation_id == operation_id))
             assert evidence.safe_payload == {"safe": "result"}
