@@ -1221,3 +1221,41 @@ def test_alt_preflight_keeps_pending_if_failure_cannot_be_recorded(tmp_path, mon
         install_root, data_root, pending
     ) == (False, "alt_update_no_space")
     assert pending.is_file()
+
+
+def test_alt_retained_bundle_survives_original_download_replacement(tmp_path, monkeypatch):
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _initial_selector(install_root)
+    artifact = data_root / "updates" / "downloads" / "candidate.tar.gz"
+    artifact.parent.mkdir(parents=True)
+    _write_bundle(artifact)
+    pending = _pending(data_root, artifact)
+    original = alt_update_installer._inspect_archive
+
+    def inspect(retained, expected_version):
+        details = os.fstat(retained.fileno())
+        assert details.st_nlink == 0
+        assert details.st_mode & 0o077 == 0
+        artifact.rename(artifact.with_suffix(".saved"))
+        artifact.write_bytes(b"replacement file")
+        return original(retained, expected_version)
+
+    monkeypatch.setattr(alt_update_installer, "_inspect_archive", inspect)
+    assert apply_alt_update(install_root, data_root, pending) == (True, "3.1.77-rc.1")
+
+
+def test_alt_preflight_rejects_redirected_download_directory(tmp_path):
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _initial_selector(install_root)
+    downloads = data_root / "updates" / "downloads"
+    downloads.parent.mkdir(parents=True)
+    external = tmp_path / "other-downloads"
+    external.mkdir()
+    _write_bundle(external / "candidate.tar.gz")
+    downloads.symlink_to(external, target_is_directory=True)
+    pending = _pending(data_root, downloads / "candidate.tar.gz")
+
+    assert alt_update_installer.preflight_alt_update(
+        install_root, data_root, pending
+    ) == (False, "invalid_alt_archive")
+    assert json.loads((install_root / "current.json").read_text())["version"] == "3.1.76"

@@ -39,7 +39,9 @@ staging/state capacity checks and bounded extraction. ALT VM107 passed 48
 installer tests and the isolated systemd recovery harness, including preflight
 rejection with the same Core PID and selector. The 180-second unit budget
 covers the full invocation. Frozen RPM integration and representative payload
-timing remain for release qualification. Next code task: STAB-11.
+timing remain for release qualification. STAB-11 retains a verified archive
+in a private anonymous descriptor and opens the download relative to the
+pinned update directory. Independent publisher authorization is still needed.
 Release evidence requires an exact-source CI receipt before publication.
 
 ## SSO + WorkTime staged implementation (2026-10-27)

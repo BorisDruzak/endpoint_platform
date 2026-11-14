@@ -11,9 +11,10 @@ import re
 import shutil
 import stat
 import tarfile
+import tempfile
 import uuid
 import zlib
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, Iterator
@@ -66,9 +67,9 @@ def preflight_alt_update(
         return True, "pending state requires worker validation"
     try:
         _require_update_space(data_root / "updates", _MAX_HISTORY_BYTES, 4)
-        artifact = _verified_artifact(data_root, payload)
-        _, expanded, inodes = _inspect_archive(artifact, payload["version"])
-        _require_update_space(install_root / "versions" / "_alt_update_staging", expanded, inodes)
+        with _verified_artifact(install_root, data_root, payload) as artifact:
+            _, expanded, inodes = _inspect_archive(artifact, payload["version"])
+            _require_update_space(install_root / "versions" / "_alt_update_staging", expanded, inodes)
     except (OSError, ValueError, EOFError, tarfile.TarError, zlib.error) as exc:
         reason = (
             "alt_update_no_space"
@@ -102,13 +103,16 @@ def apply_alt_update(
     payload: dict[str, Any] | None = None
     committed = False
     recoverable_target = False
+    retained = ExitStack()
     try:
         with _pinned_updates_dir(data_root, repair=True) as (updates, updates_fd):
             payload = _load_pending(
                 data_root, pending_path, updates=updates, updates_fd=updates_fd
             )
         _require_update_space(data_root / "updates", _MAX_HISTORY_BYTES, 4)
-        artifact_path = _verified_artifact(data_root, payload)
+        artifact_path = retained.enter_context(
+            _verified_artifact(install_root, data_root, payload)
+        )
         current = _load_selector(install_root / "current.json", root_authority=True)
         _verify_selected_release(install_root, current)
         staging_parent = install_root / "versions" / "_alt_update_staging"
@@ -205,6 +209,7 @@ def apply_alt_update(
             pass
         return False, type(exc).__name__
     finally:
+        retained.close()
         try:
             if "staging" in locals() and staging.exists():
                 shutil.rmtree(staging)
@@ -424,28 +429,61 @@ def _validate_service_state_file(data_root: Path, details: os.stat_result) -> No
         raise ValueError("unsafe ALT service state metadata")
 
 
-def _verified_artifact(data_root: Path, payload: dict[str, Any]) -> Path:
+@contextmanager
+def _verified_artifact(
+    install_root: Path, data_root: Path, payload: dict[str, Any]
+) -> Iterator[BinaryIO]:
+    """Copy the fixed download into an inaccessible directory before using it."""
     if payload["size"] > _MAX_ARCHIVE_BYTES:
         raise ValueError("ALT compressed archive exceeds limit")
     downloads = data_root / "updates" / "downloads"
     artifact = Path(payload["artifact_path"])
-    try:
-        artifact.relative_to(downloads)
-    except ValueError as exc:
-        raise ValueError("artifact is outside ALT downloads directory") from exc
-    if artifact.is_symlink() or not artifact.is_file():
-        raise ValueError("artifact is not a regular file")
-    digest = hashlib.sha256()
-    size = 0
-    with artifact.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            size += len(chunk)
-            if size > payload["size"]:
-                raise ValueError("ALT compressed archive exceeds declared size")
-            digest.update(chunk)
-    if size != payload["size"] or digest.hexdigest() != payload["sha256"]:
-        raise ValueError("artifact digest mismatch")
-    return artifact
+    if artifact.parent != downloads or artifact.name in {"", ".", ".."}:
+        raise ValueError("artifact is outside the ALT download location")
+    versions = install_root / "versions"
+    _validate_directory_metadata(versions, expected_mode=0o755, root_authority=True)
+    _require_update_space(versions, payload["size"], 2)
+    with tempfile.TemporaryFile(dir=versions) as retained:
+        with _open_alt_download(data_root, artifact) as source:
+            digest = hashlib.sha256()
+            size = 0
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                size += len(chunk)
+                if size > payload["size"]:
+                    raise ValueError("ALT compressed archive exceeds declared size")
+                digest.update(chunk)
+                retained.write(chunk)
+            if size != payload["size"] or digest.hexdigest() != payload["sha256"]:
+                raise ValueError("artifact digest mismatch")
+        retained.flush()
+        yield retained
+
+
+@contextmanager
+def _open_alt_download(data_root: Path, artifact: Path) -> Iterator[BinaryIO]:
+    if os.name == "nt":
+        if not artifact.is_file() or any(
+            path.is_symlink() for path in (artifact, artifact.parent, artifact.parent.parent)
+        ):
+            raise ValueError("unsafe ALT download path")
+        with artifact.open("rb") as source:
+            yield source
+        return
+    with _pinned_updates_dir(data_root) as (_, updates_fd):
+        parent = os.open(
+            "downloads", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=updates_fd
+        )
+        try:
+            leaf = os.open(
+                artifact.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent
+            )
+            with os.fdopen(leaf, "rb") as source:
+                details = os.fstat(source.fileno())
+                if not stat.S_ISREG(details.st_mode) or details.st_nlink != 1:
+                    raise ValueError("unsafe ALT download")
+                yield source
+        finally:
+            os.close(parent)
 
 
 def _load_selector(path: Path, *, root_authority: bool = False) -> dict[str, Any]:
@@ -510,9 +548,16 @@ class _BoundedTarInfo(tarfile.TarInfo):
 
 
 @contextmanager
-def _read_archive(artifact_path: Path) -> Iterator[tarfile.TarFile]:
-    with gzip.open(artifact_path, "rb") as stream:
-        with tarfile.open(fileobj=_BoundedTarReader(stream), mode="r|", tarinfo=_BoundedTarInfo) as archive:
+def _read_archive(artifact: BinaryIO | Path) -> Iterator[tarfile.TarFile]:
+    if isinstance(artifact, Path):
+        compressed = gzip.open(artifact, "rb")
+    else:
+        artifact.seek(0)
+        compressed = gzip.GzipFile(fileobj=artifact, mode="rb")
+    with compressed:
+        with tarfile.open(
+            fileobj=_BoundedTarReader(compressed), mode="r|", tarinfo=_BoundedTarInfo
+        ) as archive:
             yield archive
 
 
@@ -542,7 +587,7 @@ def _archive_members(
         yield name, member
 
 
-def _inspect_archive(artifact_path: Path, expected_version: str) -> tuple[_Manifest, int, int]:
+def _inspect_archive(artifact_path: BinaryIO | Path, expected_version: str) -> tuple[_Manifest, int, int]:
     files = {}
     directories = set()
     manifest = None
@@ -585,7 +630,7 @@ def _require_update_space(path: Path, expanded: int, inodes: int) -> None:
 
 
 def _extract_and_validate(
-    *, artifact_path: Path, staging: Path, expected_version: str
+    *, artifact_path: BinaryIO | Path, staging: Path, expected_version: str
 ) -> _Manifest:
     manifest, expanded, inodes = _inspect_archive(artifact_path, expected_version)
     _require_update_space(staging.parent, expanded, inodes)
