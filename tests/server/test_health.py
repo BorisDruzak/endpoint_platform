@@ -290,6 +290,30 @@ async def test_worker_exits_when_cancelled() -> None:
         await task
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("free_gib, expected", [(1, "low"), (8, "ok")])
+async def test_worker_artifact_disk_pressure_is_read_only_and_redacted(
+    monkeypatch, caplog, tmp_path, free_gib, expected
+):
+    import logging
+    from collections import namedtuple
+    from endpoint_server import worker
+
+    usage = namedtuple("Usage", "total used free")
+    root = tmp_path / "private-release-location"
+    root.mkdir()
+    release = root / "immutable-release.zip"
+    release.write_bytes(b"release")
+    gib = 1024**3
+    monkeypatch.setattr(worker.shutil, "disk_usage",
+                        lambda path: usage(100 * gib, (100 - free_gib) * gib, free_gib * gib))
+    with caplog.at_level(logging.INFO, logger=worker.__name__):
+        await worker._report_artifact_disk_pressure(root)
+    assert f"artifact_disk status={expected} free_bytes={free_gib * gib}" in caplog.text
+    assert root.name not in caplog.text
+    assert release.read_bytes() == b"release"
+
+
 def test_worker_module_fails_closed_when_runtime_settings_are_missing() -> None:
     """An executable worker module must load settings instead of exiting idle."""
     environment = dict(os.environ)

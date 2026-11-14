@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -27,6 +29,7 @@ from endpoint_server.setup_updates.scheduler import schedule_one
 
 
 logger = logging.getLogger(__name__)
+_ARTIFACT_SPACE_WARNING_BYTES = 5 * 1024**3
 _DEFAULT_JOB_BUDGET_SECONDS = 15.0
 _ROLLBACK_BUDGET_SECONDS = 3.0
 _JOB_BUDGETS = {
@@ -96,6 +99,19 @@ class MaintenanceFailure(Exception):
     """Only fixed codes from the worker wrapper may enter diagnostics."""
 
 
+async def _report_artifact_disk_pressure(root: Path) -> None:
+    try:
+        async with asyncio.timeout(3):
+            usage = await asyncio.to_thread(shutil.disk_usage, root)
+    except (OSError, TimeoutError):
+        logger.warning("artifact_disk status=unavailable")
+        return
+    low = usage.free < min(_ARTIFACT_SPACE_WARNING_BYTES, usage.total // 10)
+    logger.log(logging.WARNING if low else logging.INFO,
+        "artifact_disk status=%s free_bytes=%d capacity_bytes=%d",
+        "low" if low else "ok", usage.free, usage.total)
+
+
 class MaintenanceJobs:
     def __init__(self, provider: SessionProvider) -> None:
         self.provider = provider
@@ -160,8 +176,12 @@ async def run_worker(
     next_payload = tick + cleanup_interval_seconds
     next_schedule = tick + context_schedule_interval_seconds
     next_retention = tick + context_retention_interval_seconds
+    next_disk_check = tick
     try:
         while True:
+            if loop.time() >= next_disk_check:
+                await _report_artifact_disk_pressure(settings.artifact_root)
+                next_disk_check = loop.time() + 900.0
             await jobs.run("cleanup_expired_retry_envelopes", lambda session: cleanup_expired_retry_envelopes(
                 session, request_id=f"server_{uuid4().hex}",
             ), due_at=tick)

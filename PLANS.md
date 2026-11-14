@@ -54,8 +54,10 @@ STAB-13 first change: accepted Windows Core selection retires the exact
 operation ZIP after its durable acceptance record, with path, ACL, identity,
 size and digest checks. The Setup observer retires the verified download for
 its settled assignment while keeping the Setup journal and native cache.
-Low space is reported before download. Windows Core terminal failures, old
-runtime trees, legacy caches and server artifacts remain open.
+Low space is reported before download. The server worker logs free and total
+artifact volume bytes at startup and every 15 minutes. Windows Core terminal
+failures, old runtime trees, legacy caches and server artifact retirement
+remain open.
 Release evidence requires an exact-source CI receipt before publication.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
