@@ -38,12 +38,15 @@ Core stop passed pre-selector recovery and single-entry operation replay.
 After post-selector power loss, replay retained the selected and previous
 selectors and candidate executable in place and recorded one outcome.
 A separate Gateway canary drove actual download, durable handoff and one
-applied report. The pinned publisher's signed authorization and Gateway
-outcome replay with a lost first response remain open.
+applied report. A combined canary recovered after power loss at selector commit.
+The frozen Core retried the same report key after the server committed the
+result and exited before sending HTTP 200. The original applied report
+remained the only database row for that operation. The pinned publisher's
+signed authorization remains open.
 STAB-05 source: durable operation journal before the watched pending rename;
 fault injection before/after publication preserved outcome reporting. VM142
-confirmed live watcher handoff and applied reporting, plus local post-selector
-power-loss replay. A combined Gateway assignment and power-cut test remains open.
+confirmed live watcher handoff, post-selector power-loss replay and applied
+report delivery after reconnect for a real Gateway assignment.
 STAB-06: serialized WSS ownership publication per device. Both reconnect permutations
 and heartbeat lock ordering verified on PostgreSQL 16. STAB-07: bounded
 notice/close with observable cleanup stages and concurrent server shutdown.
