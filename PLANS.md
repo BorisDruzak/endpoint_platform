@@ -28,8 +28,12 @@ to 2 seconds, canceled a second worker and ran a succeeding command. Installed
 Windows service and Gateway qualification remain open.
 STAB-03 source: bounded Windows Core cancellation,
 suspended launch into an owned Job, confirmed tree teardown and updater
-stop proof. Source fault injection passed on Windows. Installed SCM and
-signed Setup acceptance remain open. STAB-04 source: durable ALT stop receipt,
+stop proof. On isolated VM143, SCM stopped the frozen launcher under
+LocalService with a hung fixture and its descendant in 10.106 s and 10.086 s.
+The second start launched one fixture, and the unrelated process survived.
+Three updater and rollback tests verified that an unproven stop preserves
+the selector. The signed Setup path with the real Core and updater remains
+open. STAB-04 source: durable ALT stop receipt,
 systemd recovery after helper exit, timeout and SIGKILL, and selected Core
 startup with pending present. VM107 isolated systemd fault injection passed
 before/after synthetic selector publication, including manual stop/disable
