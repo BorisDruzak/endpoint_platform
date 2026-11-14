@@ -79,6 +79,11 @@ running status or sends command_cancel for expired or terminal commands.
 Operator cancellation remains scoped to the existing undelivered operation
 contract. Installed cross-version canary remains open.
 The additive SQLite table keeps the existing schema marker for Core rollback.
+STAB-16 service recovery: Ubuntu 24.04 and Debian 12 package configuration
+routes restart through the distribution helper. An enabled failed service
+recovers, a manually stopped service stays stopped, and masks are respected.
+Both rendered templates passed the service-state matrix. Installed package
+acceptance and DEB embedded source provenance remain open.
 Release evidence requires an exact-source CI receipt before publication.
 
 ## SSO + WorkTime staged implementation (2026-10-27)

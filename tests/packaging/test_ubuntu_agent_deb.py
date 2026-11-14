@@ -1,10 +1,57 @@
 import json
 from pathlib import Path
+import shutil
+import subprocess
 from types import SimpleNamespace
 
 import pytest
 
 from tools import build_ubuntu_agent_deb as ubuntu
+
+
+@pytest.mark.parametrize("target", ubuntu.TARGETS)
+@pytest.mark.parametrize(("state", "enabled", "expected"), [
+    ("active", "enabled", "restart"),
+    ("active", "disabled", "restart"),
+    ("failed", "enabled", "restart"),
+    ("failed", "enabled-runtime", "restart"),
+    ("failed", "disabled", ""),
+    ("failed", "masked", ""),
+    ("active", "masked-runtime", ""),
+    ("inactive", "enabled", ""),
+])
+def test_deb_postinst_recovers_only_restartable_service(
+    tmp_path, target, state, enabled, expected,
+):
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("shell unavailable")
+    profile = ubuntu.TARGETS[target]
+    script = profile.render(ubuntu.ROOT / "packaging/ubuntu/postinst").decode()
+    assert "/run/systemd/system" in script
+    harness = tmp_path / "postinst-test.sh"
+    harness.write_text(
+        """systemd-sysusers() { :; }
+systemd-tmpfiles() { :; }
+systemctl() {
+    case "$1" in
+        daemon-reload) return 0 ;;
+        is-active) [ "$SERVICE_STATE" = active ] ;;
+        is-failed) [ "$SERVICE_STATE" = failed ] ;;
+        is-enabled) printf '%s\\n' "$ENABLED_STATE" ;;
+        *) return 2 ;;
+    esac
+}
+deb-systemd-invoke() { printf '%s %s\\n' "$1" "$2"; }
+SERVICE_STATE=$2
+ENABLED_STATE=$3
+""" + script.replace("[ -d /run/systemd/system ]", "true"), encoding="utf-8", newline="\n",
+    )
+    result = subprocess.run(
+        [bash, str(harness), "configure", state, enabled],
+        capture_output=True, text=True, check=True, timeout=15,
+    )
+    assert result.stdout.strip() == (f"{expected} {profile.package}.service" if expected else "")
 
 
 def _ubuntu_host(monkeypatch):
