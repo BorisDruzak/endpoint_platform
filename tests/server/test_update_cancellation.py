@@ -83,6 +83,51 @@ async def cancellation_body(case):
             "evidence_sha256": "b" * 64, "verified_at": datetime.now(UTC).isoformat()}}
 
 
+@pytest.mark.parametrize("changed", [None, "requested", "membership"])
+async def test_bulk_unrequested_cancellation_revalidates_membership_and_replays(cancellation_case, changed):
+    case = cancellation_case
+    async with case["provider"]() as session:
+        rollout = await session.get(UpdateRollout, case["ids"]["rollout"])
+        rollout.mode = "bulk"
+        device = Device(id=uuid4(), device_identifier=uuid4().hex)
+        session.add(device)
+        await session.flush()
+        second = UpdateTarget(id=uuid4(), rollout_id=rollout.id, device_id=device.id,
+                              target_identifier=uuid4().hex, operation_id=str(uuid4()),
+                              status="assigned", assigned_at=datetime.now(UTC))
+        session.add(second)
+        await session.commit()
+        second_id = second.id
+    preview = await case["client"].get(path(case, "unrequested-cancellation-context"))
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["target_count"] == 2
+    if changed is not None:
+        async with case["provider"]() as session:
+            second = await session.get(UpdateTarget, second_id)
+            if changed == "requested":
+                second.status = "requested"
+                second.requested_at = datetime.now(UTC)
+            else:
+                second.operation_id = str(uuid4())
+            await session.commit()
+    body = {"expected": preview.json(), "cancellation_id": str(uuid4())}
+    response = await case["client"].post(path(case, "cancel-unrequested"), json=body)
+    assert response.status_code == (409 if changed is not None else 200), response.text
+    async with case["provider"]() as session:
+        rollout = await session.get(UpdateRollout, case["ids"]["rollout"])
+        first = await session.get(UpdateTarget, case["ids"]["target"])
+        second = await session.get(UpdateTarget, second_id)
+        if changed is not None:
+            assert (rollout.status, first.status) == ("paused", "assigned")
+            assert second.status == ("requested" if changed == "requested" else "assigned")
+        else:
+            assert (rollout.status, first.status, second.status) == ("cancelled", "cancelled", "cancelled")
+            assert first.terminal_at == second.terminal_at == rollout.cancelled_at
+    if changed is None:
+        replay = await case["client"].post(path(case, "cancel-unrequested"), json=body)
+        assert replay.status_code == 200 and replay.json() == response.json()
+
+
 @pytest.mark.parametrize("target_status", ["assigned", "requested", "scheduled"])
 async def test_cancel_paused_singleton_preserves_history_and_releases_only_owner(cancellation_case, target_status):
     case = cancellation_case

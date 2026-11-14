@@ -103,8 +103,10 @@ The rollout detail shows assignment age and ownership, connection freshness,
 retirement and installation removal alongside the update lifecycle. The
 device overview dates WSS Core, observer-reported Foundation, Setup Observer,
 corroborated UserSensor and Support telemetry separately. It distinguishes
-Support telemetry from the operator's SSH attestation. Independent updater
-telemetry and bulk cancellation remain open.
+Support telemetry from the operator's SSH attestation. Paused bulk Core
+rollouts with entirely unrequested assignments can be cancelled through an
+audited, replayable action. Independent updater telemetry and live resolution
+of the five historical intents remain open.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
 

@@ -44,7 +44,7 @@ from .service import recommendation_for_device, record_ack, record_report
 
 
 router = APIRouter(prefix="/agent/v1/updates", tags=["agent-updates"])
-_DELIVERABLE_TARGET_STATUSES = ("assigned", "requested", "scheduled")
+_DELIVERABLE_TARGET_STATUSES = ("requested", "scheduled")
 
 
 @dataclass(frozen=True, slots=True)

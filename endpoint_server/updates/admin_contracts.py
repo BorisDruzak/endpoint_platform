@@ -83,3 +83,22 @@ class UpdateRolloutCancellationResponseV1(_CancellationModel):
 class UpdateCancellationUnavailableV1(_CancellationModel):
     code: Literal["update_cancellation_attempt_not_applied", "update_cancellation_outcome_unknown"]
     detail: Literal["update_cancellation_attempt_not_applied", "update_cancellation_outcome_unknown"]
+
+
+class UnrequestedBulkCancellationContext(_CancellationModel):
+    rollout_id: NonNilUUID
+    paused_at: UTCDateTime
+    target_count: Annotated[int, Field(ge=1, le=10_000)]
+    membership_sha256: Sha256V1
+
+
+class UnrequestedBulkCancellationRequest(_CancellationModel):
+    expected: UnrequestedBulkCancellationContext
+    cancellation_id: NonNilUUID
+
+
+class UnrequestedBulkCancellationReceipt(_CancellationModel):
+    cancellation_id: NonNilUUID
+    rollout_id: NonNilUUID
+    target_count: Annotated[int, Field(ge=1, le=10_000)]
+    cancelled_at: UTCDateTime

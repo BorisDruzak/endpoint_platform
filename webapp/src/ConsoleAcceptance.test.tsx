@@ -96,6 +96,37 @@ describe('Русский интерфейс Console', () => {
     expect(within(dialog).getAllByText('—').length).toBeGreaterThanOrEqual(2)
     expect(dialog.textContent).not.toContain('Invalid Date')
   })
+  it('повторяет массовую отмену с тем же подтверждённым составом после ошибки сервера', async () => {
+    const bodies: string[] = []
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const expected = { rollout_id: 'bulk-1', paused_at: '2026-11-14T08:00:00Z', target_count: 2, membership_sha256: 'a'.repeat(64) }
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/api/admin/console/session')) return jsonResponse({ username: 'operator', scopes: ['updates:write'], csrf_token: 'test-csrf' })
+      if (url.endsWith('/unrequested-cancellation-context')) return jsonResponse(expected)
+      if (url.endsWith('/cancel-unrequested')) {
+        bodies.push(String(init?.body))
+        return bodies.length === 1
+          ? new Response(JSON.stringify({ detail: 'Неизвестный исход' }), { status: 503, headers: { 'Content-Type': 'application/json' } })
+          : jsonResponse({})
+      }
+      if (url.includes('/rollouts/bulk-1?')) return jsonResponse({
+        id: 'bulk-1', version: '3.2.156', mode: 'bulk', status: bodies.length === 2 ? 'cancelled' : 'paused',
+        counts: { assigned: 2 }, targets_total: 2, targets: [],
+      })
+      return jsonResponse({ data: [], total: 0 })
+    }))
+    await getSession()
+    render(<MemoryRouter initialEntries={['/admin/updates?open=bulk-1']}><UpdatesPage canWrite /></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Отменить незапрошенные назначения' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('Сервер временно недоступен')
+    fireEvent.click(screen.getByRole('button', { name: 'Повторить отмену' }))
+    await vi.waitFor(() => expect(bodies).toHaveLength(2))
+    expect(bodies[0]).toBe(bodies[1])
+    expect(JSON.parse(bodies[0]).expected).toEqual(expected)
+    expect(confirm).toHaveBeenCalledTimes(1)
+    confirm.mockRestore()
+  })
+
   it('закрепляет доступный безопасный результат операции', async () => {
     let pinned = false
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {

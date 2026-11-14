@@ -46,8 +46,11 @@ from .service import (
 from .admin_contracts import (
     UpdateRolloutCancellationContextV1, UpdateRolloutCancellationRequestV1,
     UpdateRolloutCancellationResponseV1, UpdateCancellationUnavailableV1,
+    UnrequestedBulkCancellationContext, UnrequestedBulkCancellationRequest,
+    UnrequestedBulkCancellationReceipt,
 )
 from .admin_transaction import NOT_APPLIED
+from .bulk_cancellation import bulk_cancellation_context, cancel_unrequested_bulk
 
 
 router = APIRouter(prefix="/api/admin/updates", tags=["admin-updates"])
@@ -105,6 +108,41 @@ async def cancel_rollout(
         try:
             return await cancel_paused_singleton_rollout(session, rollout_id, cancellation, principal,
                 audit_request_id(request), authorization_revalidator=revalidate, operation_budget=budget)
+        except UpdateError as error:
+            raise _admin_error(error) from error
+    return await _bounded_cancellation_route(request, readonly=False, operation=operation)
+
+
+@router.get("/rollouts/{rollout_id}/unrequested-cancellation-context",
+    response_model=UnrequestedBulkCancellationContext, responses=_CANCELLATION_RESPONSES)
+async def get_unrequested_cancellation_context(
+    rollout_id: UUID, request: Request,
+    cookie: Annotated[str | None, Security(_CANCELLATION_COOKIE)] = None,
+):
+    async def operation(session, budget, principal):
+        try:
+            return await bulk_cancellation_context(session, rollout_id, budget=budget)
+        except UpdateError as error:
+            raise _admin_error(error) from error
+    return await _bounded_cancellation_route(request, readonly=True, operation=operation)
+
+
+@router.post("/rollouts/{rollout_id}/cancel-unrequested",
+    response_model=UnrequestedBulkCancellationReceipt, responses=_CANCELLATION_RESPONSES,
+    openapi_extra={"parameters": [{"name": "x-csrf-token", "in": "header", "required": True,
+        "description": "Mandatory per-session CSRF token; enforced within bounded authentication",
+        "schema": {"type": "string"}}]})
+async def cancel_bulk_rollout(
+    rollout_id: UUID, cancellation: UnrequestedBulkCancellationRequest, request: Request,
+    cookie: Annotated[str | None, Security(_CANCELLATION_COOKIE)] = None,
+):
+    """Retire a paused bulk rollout before delivery; requires updates:write."""
+    async def operation(session, budget, principal):
+        async def revalidate():
+            await revalidate_update_admin_in_transaction(request, session, principal, budget)
+        try:
+            return await cancel_unrequested_bulk(session, rollout_id, cancellation, principal,
+                                                 audit_request_id(request), budget=budget, revalidate=revalidate)
         except UpdateError as error:
             raise _admin_error(error) from error
     return await _bounded_cancellation_route(request, readonly=False, operation=operation)

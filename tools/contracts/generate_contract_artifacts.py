@@ -855,6 +855,8 @@ def _admin_cancellation_openapi(*, power: bool = False) -> dict[str, object]:
     selected_paths=('/api/admin/console/devices/{device_id}/power',) if power else (
         "/api/admin/updates/rollouts/{rollout_id}/cancellation-context",
         "/api/admin/updates/rollouts/{rollout_id}/cancel",
+        "/api/admin/updates/rollouts/{rollout_id}/unrequested-cancellation-context",
+        "/api/admin/updates/rollouts/{rollout_id}/cancel-unrequested",
     )
     paths = {path: generated['paths'][path] for path in selected_paths}
 
