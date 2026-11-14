@@ -101,6 +101,10 @@ fresh heartbeat in the new WSS session after VM reboot. A second run used the
 canonical verification endpoint to reach completed exactly once. A forced VM
 stop inside postinst preserved half-configured state, and rerunning dpkg
 configure restored the package and fresh Gateway heartbeat on the same device.
+A separate power-off froze dpkg while a runtime file was being unpacked.
+Exact same-version reinstall recovered the half-installed package and passed
+dpkg integrity and identity checks. Gateway persisted a new heartbeat in
+the post-reinstall session with the original device ID.
 The worker removed the expired retry envelope and wrote the periodic cleanup
 audit event. Direct enrollment delivery acknowledgement remains open.
 STAB-17 source: metadata renewal verifies the pinned signer and all signed index
