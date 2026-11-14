@@ -566,8 +566,11 @@ Use `journalctl -u endpoint-platform-worker.service -g worker_job` to check
 each job. Successful and failed attempts include UTC attempt and last-success
 timestamps, duration, committed batch count and a fixed error code. Backlog
 age is elapsed time from the oldest scheduled attempt still awaiting success.
-It measures worker schedule lag. Data queue age and WSS health are separate
-operational signals.
+It measures worker schedule lag. `data_backlog_age_seconds` measures time past
+the oldest active deadline for `expire_operations`, and time since creation
+of the oldest active chain for `advance_preparations`. Zero indicates no
+aged work at sampling time. `unknown` means no data age was measured for that
+attempt. WSS health is a separate operational signal.
 
 Job execution budgets are 15 to 30 seconds, including all transactions in a
 single job's batch loop. PostgreSQL transaction-local lock and statement

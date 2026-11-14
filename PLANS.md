@@ -101,7 +101,9 @@ budgets, bounded rollback, redacted attempt/last-success/lag logging and
 conservative commit uncertainty. PostgreSQL row-lock regression verified.
 Backlog age reports scheduled worker lag. For operation expiry the same log
 also reports the time past the oldest active deadline, including rows held by
-another transaction. Other data-queue ages remain open.
+another transaction, verified on disposable PostgreSQL 16.15. Setup
+preparation reports the age of the oldest active chain across stage changes.
+Other data-queue ages remain open.
 STAB-09 source: explicit Core transfer total/connect/idle
 timeouts with matching recovery-supervisor budget. Slow and stalled loopback
 streams verified. STAB-10 source: streaming ALT archive limits, pre-stop

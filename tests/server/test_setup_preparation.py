@@ -5,7 +5,9 @@ from sqlalchemy import select, delete
 
 from endpoint_server.db.models import UpdateBuild, UpdateTarget, DeviceInstance
 from endpoint_server.setup_updates.models import SetupClientPresence, SetupAssignment
-from endpoint_server.setup_updates.preparation import request_setup, advance_preparations, cancel_preparation
+from endpoint_server.setup_updates.preparation import (
+    advance_preparations, cancel_preparation, request_setup, setup_preparation_backlog_age,
+)
 from endpoint_server.setup_updates.service import record_presence
 from tests.server.test_setup_update_service import db, state, NOW
 from endpoint_server.setup_updates.service import SetupConflict
@@ -47,6 +49,9 @@ async def test_old_agent_preparation_uses_existing_ota_then_real_rollback_then_f
     db.add_all([bridge, baseline, instance]);await db.flush()
     parent = await request_setup(db, device.id, release.id, 'Full Setup canary', actor='test-admin', request_id='start', now=NOW)
     assert parent.status == 'preparing_client'
+    parent.created_at = NOW - timedelta(minutes=5)
+    await db.flush()
+    assert await setup_preparation_backlog_age(db, now=NOW) == 300
     child = await db.scalar(select(UpdateTarget).where(UpdateTarget.rollout_id == parent.bridge_rollout_id))
     assert child.status == 'assigned'
     await advance_preparations(db, now=NOW)
@@ -55,12 +60,14 @@ async def test_old_agent_preparation_uses_existing_ota_then_real_rollback_then_f
     await record_presence(db, device.id, dict(client_version='1.0.5', ready=True, core_version='3.2.163', foundation_version='3.2.158'), now=NOW)
     await advance_preparations(db, now=NOW)
     assert parent.status == 'restoring_core' and parent.return_rollout_id is not None
+    assert await setup_preparation_backlog_age(db, now=NOW + timedelta(seconds=15)) == 315
     returned = await db.scalar(select(UpdateTarget).where(UpdateTarget.rollout_id == parent.return_rollout_id))
     assert returned.status == 'assigned'
     returned.status = 'applied'
     await record_presence(db, device.id, dict(client_version='1.0.5', ready=True, core_version='3.2.157', foundation_version='3.2.158'), now=NOW)
     await advance_preparations(db, now=NOW)
     assert parent.status == 'completed'
+    assert await setup_preparation_backlog_age(db, now=NOW + timedelta(seconds=15)) == 0
     actual = await db.get(SetupAssignment, parent.assignment_id)
     assert actual.id == parent.id and actual.status == 'assigned' and actual.release_id == release.id
     count = len((await db.scalars(select(UpdateTarget))).all())

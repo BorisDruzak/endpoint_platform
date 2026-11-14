@@ -297,6 +297,18 @@ async def advance_preparations(session, *, now=None):
         await session.flush()
 
 
+async def setup_preparation_backlog_age(session, *, now=None) -> float:
+    """Age of the oldest owned preparation across its active stages."""
+    measured_at = now_utc(now)
+    oldest = await session.scalar(
+        select(SetupPreparation.created_at)
+        .where(SetupPreparation.status.in_(ACTIVE_PREPARATIONS))
+        .order_by(SetupPreparation.created_at)
+        .limit(1)
+    )
+    return max(0.0, (measured_at - utc(oldest)).total_seconds()) if oldest is not None else 0.0
+
+
 async def cancel_preparation(session, preparation_id, *, actor, request_id, now=None):
     identity = await session.scalar(select(SetupPreparation.device_id).where(SetupPreparation.id == preparation_id))
     if identity is None:

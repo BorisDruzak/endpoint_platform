@@ -351,18 +351,20 @@ def isolated_maintenance_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
     from endpoint_server import worker
 
     async def preparation_noop(session):
-        del session
+        session._job = "preparation"
+        return 0
 
     async def fleet_noop(provider):
         del provider
 
     async def isolated_transaction(provider, job, **kwargs):
-        if job in (preparation_noop, fleet_noop):
+        if job is fleet_noop:
             return None
         return await transactional_job(provider, job, **kwargs)
 
     transactional_job = worker._run_transactional_job
     monkeypatch.setattr(worker, "advance_preparations", preparation_noop)
+    monkeypatch.setattr(worker, "setup_preparation_backlog_age", preparation_noop)
     monkeypatch.setattr(worker, "schedule_one", fleet_noop)
     monkeypatch.setattr(worker, "_run_transactional_job", isolated_transaction)
 
@@ -387,9 +389,9 @@ async def test_worker_commits_cleanup_and_does_not_close_injected_provider(isola
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    assert provider.session.commit_calls == 3
+    assert provider.session.commit_calls == 4
     assert provider.session.rollback_calls == 0
-    assert provider.session.completed_jobs == ["cleanup", "operation_expiry", "analytics"]
+    assert provider.session.completed_jobs == ["cleanup", "operation_expiry", "preparation", "analytics"]
     assert provider.close_calls == 0
 
 
@@ -413,9 +415,9 @@ async def test_worker_rolls_back_failed_cleanup_and_remains_cancellable(isolated
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    assert provider.session.commit_calls == 2
+    assert provider.session.commit_calls == 3
     assert provider.session.rollback_calls == 1
-    assert provider.session.completed_jobs == ["cleanup", "operation_expiry", "analytics"]
+    assert provider.session.completed_jobs == ["cleanup", "operation_expiry", "preparation", "analytics"]
     assert provider.close_calls == 0
 
 
@@ -427,9 +429,9 @@ async def test_worker_rolls_back_failed_analytics_without_rolling_back_sibling_j
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    assert provider.session.commit_calls == 2
+    assert provider.session.commit_calls == 3
     assert provider.session.rollback_calls == 1
-    assert provider.session.completed_jobs == ["cleanup", "operation_expiry", "analytics"]
+    assert provider.session.completed_jobs == ["cleanup", "operation_expiry", "preparation", "analytics"]
     assert provider.close_calls == 0
 
 

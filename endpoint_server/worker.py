@@ -24,7 +24,7 @@ from endpoint_server.operations.evidence import cleanup_module_step_results, cle
 from endpoint_server.security.retention import retain_security_events
 from endpoint_server.power.retention import retain_power_events
 from endpoint_server.activity.analytics_store import rebuild_daily, retain_analytics
-from endpoint_server.setup_updates.preparation import advance_preparations
+from endpoint_server.setup_updates.preparation import advance_preparations, setup_preparation_backlog_age
 from endpoint_server.setup_updates.scheduler import schedule_one
 
 
@@ -201,7 +201,10 @@ async def run_worker(
                 "expire_operations", expire_operations, due_at=tick,
                 measure_backlog=operation_expiry_backlog_age,
             )
-            await jobs.run("advance_preparations", advance_preparations, due_at=tick)
+            await jobs.run(
+                "advance_preparations", advance_preparations, due_at=tick,
+                measure_backlog=setup_preparation_backlog_age,
+            )
             await jobs.run("schedule_fleet", schedule_one, due_at=tick, batches=16)
             # 256 user-days per tick, one commit per batch.
             await jobs.run("rebuild_daily", lambda session: rebuild_daily(
