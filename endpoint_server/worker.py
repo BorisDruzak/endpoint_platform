@@ -34,7 +34,7 @@ from endpoint_server.activity.analytics_store import (
     AnalyticsRetentionBatch, analytics_backlog_age, rebuild_daily, retain_analytics_with_backlog,
 )
 from endpoint_server.setup_updates.preparation import advance_preparations, setup_preparation_backlog_age
-from endpoint_server.setup_updates.scheduler import schedule_one
+from endpoint_server.setup_updates.scheduler import FleetScheduleBatch, schedule_one_with_backlog
 
 
 logger = logging.getLogger(__name__)
@@ -110,7 +110,8 @@ class MaintenanceFailure(Exception):
 
 def _committed_batch_backlog_age(result: object) -> float | None:
     if isinstance(result, (
-        AnalyticsRetentionBatch, ContextCleanupBatch, ContextScheduleBatch, EventRetentionBatch, StepCleanupBatch,
+        AnalyticsRetentionBatch, ContextCleanupBatch, ContextScheduleBatch, EventRetentionBatch,
+        FleetScheduleBatch, StepCleanupBatch,
     )):
         return result.oldest_due_age_seconds
     return None
@@ -167,8 +168,10 @@ class MaintenanceJobs:
                     raise MaintenanceFailure("job_timeout")
                 result = await _run_transactional_job(self.provider, task, budget=remaining)
                 completed += 1
-                if committed_backlog is not None and completed == 1:
-                    backlog_age = committed_backlog(result)
+                if committed_backlog is not None:
+                    sample = committed_backlog(result)
+                    if sample is not None:
+                        backlog_age = sample if backlog_age is None else max(backlog_age, sample)
                 if not continue_if(result):
                     break
             self.last_success[name] = datetime.now(UTC)
@@ -227,7 +230,11 @@ async def run_worker(
                 "advance_preparations", advance_preparations, due_at=tick,
                 measure_backlog=setup_preparation_backlog_age,
             )
-            await jobs.run("schedule_fleet", schedule_one, due_at=tick, batches=16)
+            await jobs.run(
+                "schedule_fleet", schedule_one_with_backlog, due_at=tick, batches=16,
+                continue_if=lambda result: isinstance(result, FleetScheduleBatch) and result.evaluated,
+                committed_backlog=_committed_batch_backlog_age,
+            )
             # 256 user-days per tick, one commit per batch.
             await jobs.run("rebuild_daily", lambda session: rebuild_daily(
                 session, policy=settings.activity_analytics,

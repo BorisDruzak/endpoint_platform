@@ -1,4 +1,5 @@
 """Bounded fleet admission: one device and one transaction per scheduler step."""
+from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 from sqlalchemy import and_, select, text
@@ -57,24 +58,34 @@ async def pause_on_failure(session, policy, *, now):
 
 async def schedule_one(session, *, now=None):
     """Return false when paused/contended; caller commits after each bounded step."""
+    return (await schedule_one_with_backlog(session, now=now)).evaluated
+
+
+@dataclass(frozen=True, slots=True)
+class FleetScheduleBatch:
+    evaluated: bool
+    oldest_due_age_seconds: float | None
+
+
+async def schedule_one_with_backlog(session, *, now=None) -> FleetScheduleBatch:
     now = now_utc(now)
     if session.bind.dialect.name == 'postgresql':
         await session.execute(text("SET LOCAL lock_timeout = '5s'"))
         await session.execute(text("SET LOCAL statement_timeout = '10s'"))
     if not await fleet_lock(session):
-        return False
+        return FleetScheduleBatch(False, None)
     policy = await session.scalar(select(SetupFleetPolicy).with_for_update()
         .execution_options(populate_existing=True))
     if policy is None or not policy.enabled or policy.release_id is None:
-        return False
+        return FleetScheduleBatch(False, 0.0)
     if await pause_on_failure(session, policy, now=now):
-        return False
+        return FleetScheduleBatch(False, 0.0)
     release = await session.get(SetupRelease, policy.release_id)
     if release is None:
-        return False
+        return FleetScheduleBatch(False, None)
     # Oldest observation first prevents permanently offline devices starving
     # later UUIDs. History remains immutable across revision/target changes.
-    query = select(Device.id, SetupFleetDecision).outerjoin(SetupFleetDecision, and_(
+    query = select(Device.id, Device.created_at, SetupFleetDecision).outerjoin(SetupFleetDecision, and_(
         SetupFleetDecision.device_id == Device.id, SetupFleetDecision.policy_id == policy.id,
         SetupFleetDecision.policy_revision == policy.revision,
         SetupFleetDecision.target_sha256 == release.sha256)).where(Device.retired_at.is_(None))
@@ -83,8 +94,13 @@ async def schedule_one(session, *, now=None):
     item = (await session.execute(query.order_by(SetupFleetDecision.evaluated_at.asc().nulls_first(), Device.id)
         .limit(1))).first()
     if item is None:
-        return False
-    device_id, decision = item
+        return FleetScheduleBatch(False, 0.0)
+    device_id, created_at, decision = item
+    since = (
+        max(now_utc(created_at), now_utc(policy.updated_at))
+        if decision is None else now_utc(decision.evaluated_at)
+    )
+    measured = FleetScheduleBatch(True, max(0.0, (now - since).total_seconds()))
     if decision is None:
         decision = SetupFleetDecision(id=uuid4(), policy_id=policy.id, policy_revision=policy.revision,
             device_id=device_id, release_id=release.id, target_sha256=release.sha256,
@@ -96,10 +112,10 @@ async def schedule_one(session, *, now=None):
         decision.status, code = await owned_job_state(session, decision)
         decision.safe_code = code or decision.status
         await session.flush()
-        return True
+        return measured
     if decision.safe_code == 'canonical_request_rejected':
         # Changing policy does not grant authority to replay a rejected chain.
-        return True
+        return measured
     # Gateway writes presence under Device. Respect canonical Build -> Device
     # order, then evaluate fresh state while reconnect/version cannot race us.
     await lock_builds(session)
@@ -109,11 +125,11 @@ async def schedule_one(session, *, now=None):
     decision.status, decision.safe_code = result.status, result.code
     if result.status != 'eligible':
         await session.flush()
-        return True
+        return measured
     if len(await active_chain_devices(session)) >= policy.max_parallel:
         decision.status, decision.safe_code = 'waiting', 'capacity_full'
         await session.flush()
-        return True
+        return measured
     # Savepoint contains only this canonical request. A bounded safe decision
     # survives source rejection; database/credentials/payloads are never copied.
     decision_id = decision.id
@@ -139,7 +155,7 @@ async def schedule_one(session, *, now=None):
             details={'revision': policy.revision, 'device_id': str(device_id),
                 'safe_code': 'canonical_request_rejected'})
     await session.flush()
-    return True
+    return measured
 
 
 async def schedule_fleet(provider, *, limit=16):

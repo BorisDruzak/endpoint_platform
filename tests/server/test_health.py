@@ -370,7 +370,7 @@ def isolated_maintenance_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
     transactional_job = worker._run_transactional_job
     monkeypatch.setattr(worker, "advance_preparations", preparation_noop)
     monkeypatch.setattr(worker, "setup_preparation_backlog_age", preparation_noop)
-    monkeypatch.setattr(worker, "schedule_one", fleet_noop)
+    monkeypatch.setattr(worker, "schedule_one_with_backlog", fleet_noop)
     monkeypatch.setattr(worker, "_run_transactional_job", isolated_transaction)
 
 
@@ -606,7 +606,7 @@ async def test_worker_budget_reports_stalled_job_and_allows_other_jobs(monkeypat
     monkeypatch.setattr(worker, "cleanup_expired_retry_envelopes", stalled)
     monkeypatch.setattr(worker, "expire_operations", expire)
     monkeypatch.setattr(worker, "advance_preparations", noop)
-    monkeypatch.setattr(worker, "schedule_one", noop, raising=False)
+    monkeypatch.setattr(worker, "schedule_one_with_backlog", noop)
     monkeypatch.setattr(worker, "rebuild_daily", noop)
     with caplog.at_level("INFO", logger=worker.__name__):
         task = asyncio.create_task(run_worker(_settings(), provider))
@@ -644,6 +644,29 @@ async def test_worker_reports_data_backlog_independently_of_schedule_lag(caplog)
     assert "data_backlog_age_seconds=unknown" in caplog.records[-1].message
     assert "safe_error=job_failed" in caplog.records[-2].message
     assert "private details" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_worker_reports_oldest_committed_fleet_evaluation_in_tick(caplog):
+    from endpoint_server import worker
+
+    batches = iter((
+        worker.FleetScheduleBatch(True, 5),
+        worker.FleetScheduleBatch(True, 20),
+        worker.FleetScheduleBatch(False, None),
+    ))
+
+    async def evaluate(_session):
+        return next(batches)
+
+    with caplog.at_level("INFO", logger=worker.__name__):
+        await worker.MaintenanceJobs(WorkerSessionProvider()).run(
+            "schedule_fleet", evaluate, due_at=asyncio.get_running_loop().time(), batches=16,
+            continue_if=lambda result: result.evaluated,
+            committed_backlog=worker._committed_batch_backlog_age,
+        )
+    assert "data_backlog_age_seconds=20.000" in caplog.records[-1].message
+    assert "safe_error=none" in caplog.records[-1].message
 
 
 @pytest.mark.asyncio

@@ -122,6 +122,8 @@ Security and power retention measure overdue age from the rows actually
 deleted by each committed batch.
 Activity retention measures the oldest deadline among deleted detail, daily
 rollups and cursors, using the current calendar and timestamp cutoffs.
+Setup fleet scheduling measures the longest wait among device evaluations
+committed during a worker tick. Lock contention without a sample is unknown.
 Other data-queue ages remain open.
 STAB-09 source: explicit Core transfer total/connect/idle
 timeouts with matching recovery-supervisor budget. Slow and stalled loopback

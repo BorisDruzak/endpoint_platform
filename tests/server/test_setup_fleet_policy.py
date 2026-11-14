@@ -8,6 +8,7 @@ from sqlalchemy import select
 from endpoint_server.db.models import DeviceInstance, DeviceSession, UpdateTarget
 from endpoint_server.setup_updates.models import SetupAssignment, SetupFleetPolicy, SetupFleetDecision, SetupFleetQualification
 from endpoint_server.setup_updates.policy import evaluate_device, load_device_facts, update_policy, qualify_release, FleetPolicyUpdate
+from endpoint_server.setup_updates import scheduler
 from endpoint_server.setup_updates.scheduler import schedule_one
 from endpoint_server.setup_updates.service import SetupConflict
 from tests.server.test_setup_update_service import db, state, NOW, proof
@@ -145,6 +146,18 @@ async def test_preview_is_read_only_and_pause_stops_new_chains(db, fleet):
     assert await schedule_one(db, now=NOW) is False
     assert (await db.scalars(select(SetupAssignment).where(SetupAssignment.device_id == fleet[0].id))).all() == []
     assert (await db.scalars(select(SetupFleetDecision))).all() == []
+
+
+async def test_scheduler_measures_wait_for_first_and_repeat_evaluation(db, fleet):
+    device, _, policy, _ = fleet
+    device.created_at = NOW + timedelta(seconds=3)
+    first = await scheduler.schedule_one_with_backlog(db, now=NOW + timedelta(seconds=5))
+    assert (first.evaluated, first.oldest_due_age_seconds) == (True, 2)
+    repeat = await scheduler.schedule_one_with_backlog(db, now=NOW + timedelta(seconds=12))
+    assert (repeat.evaluated, repeat.oldest_due_age_seconds) == (True, 7)
+    policy.enabled = False
+    paused = await scheduler.schedule_one_with_backlog(db, now=NOW + timedelta(seconds=13))
+    assert (paused.evaluated, paused.oldest_due_age_seconds) == (False, 0)
 
 
 async def test_active_manual_native_hold_occupies_capacity_and_is_not_cancelled(db, fleet):

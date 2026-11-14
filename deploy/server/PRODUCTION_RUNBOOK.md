@@ -599,6 +599,10 @@ For `retain_analytics`, the age covers deletions of activity detail, daily
 rollups and cursors. Detail uses the last applicable report timezone midnight,
 daily rollups use the UTC date cutoff, and cursors use their last observation
 plus the aggregate retention period.
+For `schedule_fleet`, age is the longest wait among evaluations committed in
+the tick. A first evaluation starts at the later of policy revision time
+and device creation. A repeat starts at the prior evaluation in that
+revision. A skipped tick due to lock contention has no sample.
 WSS health is a separate operational signal.
 
 Job execution budgets are 15 to 30 seconds, including all transactions in a

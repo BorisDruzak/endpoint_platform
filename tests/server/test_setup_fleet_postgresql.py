@@ -15,7 +15,7 @@ from endpoint_server.db.session import AsyncSessionProvider
 from endpoint_server.main import create_app
 from endpoint_server.setup_updates.models import SetupRelease, SetupAssignment, SetupFleetQualification, SetupFleetPolicy, SetupFleetDecision
 from endpoint_server.setup_updates.policy import FleetPolicyUpdate, update_policy
-from endpoint_server.setup_updates.scheduler import schedule_one
+from endpoint_server.setup_updates.scheduler import schedule_one, schedule_one_with_backlog
 from endpoint_server.setup_updates.preparation import request_setup
 from endpoint_server.setup_updates.service import record_presence, SetupConflict
 from tests.server.test_update_agent_api import _settings
@@ -25,7 +25,7 @@ pytestmark = pytest.mark.usefixtures('preserve_migration_loggers')
 
 
 @pytest.fixture(scope='module')
-def fleet_database(update_migration_database_urls):
+def fleet_database(update_migration_database_urls, preserve_migration_loggers):
     url, plain = update_migration_database_urls
     command.upgrade(_alembic_config(url), 'head')
     return url, plain
@@ -106,7 +106,9 @@ def test_competing_workers_cannot_claim_the_last_slot_or_replay_on_restart(fleet
                 # The first request remains uncommitted: a second worker skips
                 # admission rather than reading the same apparently free slot.
                 async with provider() as second:
-                    assert await asyncio.wait_for(schedule_one(second, now=now), 2) is False
+                    contended = await asyncio.wait_for(schedule_one_with_backlog(second, now=now), 2)
+                    assert not contended.evaluated
+                    assert contended.oldest_due_age_seconds is None
                     await second.commit()
                 await first.commit()
             async with provider() as restarted:
