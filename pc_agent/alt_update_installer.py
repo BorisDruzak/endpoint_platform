@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import stat
+import subprocess
 import tarfile
 import tempfile
 import uuid
@@ -40,6 +41,10 @@ _MAX_ARCHIVE_MEMBERS = 1024
 _MAX_METADATA_BYTES = 64 * 1024
 _MAX_MANIFEST_BYTES = 1024 * 1024
 _SPACE_MARGIN_BYTES = 64 * 1024 * 1024
+_OTA_AUTHORIZATIONS = Path("/etc/endpoint-agent/ota-authorizations")
+_PUBLISHER_KEY = Path("/usr/share/endpoint-agent/endpoint-rpm-release.asc")
+_PUBLISHER_KEY_SHA256 = "12175df39caa5a67336aeb002b5c71d3a9d3047961f5ad90cf959650044b456c"
+_PUBLISHER_FINGERPRINT = "BC24B8EE43DBB05A748E11A4343B5DA748370631"
 ROLLBACK_REQUEST_SCHEMA = "endpoint_alt_rollback_request_v1"
 ROLLBACK_REQUEST_NAME = "rollback-request.json"
 PREVIOUS_SELECTOR_NAME = "previous.json"
@@ -67,8 +72,11 @@ def preflight_alt_update(
         return True, "pending state requires worker validation"
     try:
         _require_update_space(data_root / "updates", _MAX_HISTORY_BYTES, 4)
+        source_revision = _authorized_source_revision(payload)
         with _verified_artifact(install_root, data_root, payload) as artifact:
-            _, expanded, inodes = _inspect_archive(artifact, payload["version"])
+            manifest, expanded, inodes = _inspect_archive(artifact, payload["version"])
+            if manifest.source_revision != source_revision:
+                raise ValueError("ALT OTA authorization source mismatch")
             _require_update_space(install_root / "versions" / "_alt_update_staging", expanded, inodes)
     except (OSError, ValueError, EOFError, tarfile.TarError, zlib.error) as exc:
         reason = (
@@ -110,6 +118,7 @@ def apply_alt_update(
                 data_root, pending_path, updates=updates, updates_fd=updates_fd
             )
         _require_update_space(data_root / "updates", _MAX_HISTORY_BYTES, 4)
+        source_revision = _authorized_source_revision(payload)
         artifact_path = retained.enter_context(
             _verified_artifact(install_root, data_root, payload)
         )
@@ -121,6 +130,7 @@ def apply_alt_update(
             artifact_path=artifact_path,
             staging=staging,
             expected_version=payload["version"],
+            expected_source_revision=source_revision,
         )
         target = install_root / "versions" / manifest.version
         if target.exists() or target.is_symlink():
@@ -148,6 +158,12 @@ def apply_alt_update(
         _fsync_directory(target.parent)
         _verify_existing_release(target, manifest)
         candidate = _selector_for_manifest(manifest)
+        with _pinned_updates_dir(data_root) as (updates, updates_fd):
+            observed = _load_pending(
+                data_root, pending_path, updates=updates, updates_fd=updates_fd
+            )
+        if observed != payload:
+            return False, "alt_pending_changed"
         previous_path = install_root / PREVIOUS_SELECTOR_NAME
         if current == candidate:
             # Replay after current.json was already committed.  The distinct
@@ -185,8 +201,12 @@ def apply_alt_update(
                     "version": manifest.version,
                 },
             )
-            with _pinned_updates_dir(data_root, repair=True) as (updates, updates_fd):
-                _unlink_update_leaf(updates, updates_fd, "pending_alt_update.json")
+            with _pinned_updates_dir(data_root) as (updates, updates_fd):
+                observed = _load_pending(
+                    data_root, pending_path, updates=updates, updates_fd=updates_fd
+                )
+                if observed == payload:
+                    _unlink_update_leaf(updates, updates_fd, "pending_alt_update.json")
         except (OSError, ValueError, json.JSONDecodeError):
             # current.json is the commit point.  Leave the pending request for
             # an idempotent replay instead of reporting an active build failed.
@@ -429,6 +449,93 @@ def _validate_service_state_file(data_root: Path, details: os.stat_result) -> No
         raise ValueError("unsafe ALT service state metadata")
 
 
+def _authorized_source_revision(payload: dict[str, Any]) -> str:
+    """Only locally installed, publisher-signed release metadata grants OTA authority."""
+    digest = payload["sha256"]
+    manifest = _OTA_AUTHORIZATIONS / f"{digest}.json"
+    signature = manifest.with_suffix(".json.sig")
+    manifest_bytes = _read_authority_file(manifest, 4096)
+    signature_bytes = _read_authority_file(signature, 16384)
+    key_bytes = _read_authority_file(_PUBLISHER_KEY, 16384)
+    if hashlib.sha256(key_bytes).hexdigest() != _PUBLISHER_KEY_SHA256:
+        raise ValueError("ALT OTA publisher key does not match pinned key")
+    _verify_publisher_signature(manifest_bytes, signature_bytes, key_bytes)
+    authorization = _load_json_no_duplicates(manifest_bytes.decode("utf-8"))
+    if not isinstance(authorization, dict):
+        raise ValueError("invalid ALT OTA authorization")
+    source_revision = authorization.get("source_revision")
+    if not isinstance(source_revision, str) or not re.fullmatch(r"[0-9a-f]{40}", source_revision):
+        raise ValueError("invalid ALT OTA authorization source")
+    expected = {
+        "schema_version": "endpoint_alt_ota_v1",
+        "version": payload["version"],
+        "source_revision": source_revision,
+        "sha256": digest,
+        "size": payload["size"],
+        "target": "linux_amd64",
+        "channel": "canary",
+        "archive_type": "tar.gz",
+    }
+    if authorization != expected or type(authorization["size"]) is not int:
+        raise ValueError("ALT OTA authorization does not match pending release")
+    return source_revision
+
+
+def _validate_authority_file(path: Path, *, directory: bool = False) -> os.stat_result:
+    details = path.lstat()
+    check_type = stat.S_ISDIR if directory else stat.S_ISREG
+    if (not check_type(details.st_mode) or details.st_uid != 0 or details.st_gid != 0
+            or details.st_mode & 0o022 or (not directory and details.st_nlink != 1)):
+        raise ValueError("unsafe ALT OTA trust path")
+    return details
+
+
+def _read_authority_file(path: Path, limit: int) -> bytes:
+    for directory in reversed(path.parents):
+        _validate_authority_file(directory, directory=True)
+    if not 0 < _validate_authority_file(path).st_size <= limit:
+        raise ValueError("ALT OTA trust file exceeds size limit")
+    with path.open("rb") as stream:
+        content = stream.read(limit + 1)
+    if not 0 < len(content) <= limit:
+        raise ValueError("ALT OTA trust file exceeds size limit")
+    return content
+
+
+def _verify_publisher_signature(manifest: bytes, signature: bytes, key: bytes) -> None:
+    with tempfile.TemporaryDirectory(prefix="endpoint-ota-trust-") as directory:
+        home = Path(directory)
+        key_path, manifest_path, signature_path = (
+            home / "publisher.asc", home / "release.json", home / "release.json.sig"
+        )
+        key_path.write_bytes(key)
+        manifest_path.write_bytes(manifest)
+        signature_path.write_bytes(signature)
+        gpg = ["/usr/bin/gpg", "--no-options", "--homedir", directory, "--batch"]
+        env = {"PATH": "/usr/bin:/bin", "HOME": directory, "LC_ALL": "C"}
+        try:
+            subprocess.run(
+                [*gpg, "--import", str(key_path)],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=10, check=True, env=env,
+            )
+            status = subprocess.run(
+                [*gpg, "--no-auto-key-retrieve", "--status-fd", "1",
+                 "--verify", str(signature_path), str(manifest_path)],
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                timeout=10, check=True, env=env,
+            ).stdout.decode("ascii", errors="replace")
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise ValueError("ALT OTA signature verification failed") from exc
+    signatures = [
+        line.split() for line in status.splitlines() if line.startswith("[GNUPG:] VALIDSIG ")
+    ]
+    if (len(signatures) != 1 or len(signatures[0]) < 11
+            or signatures[0][2] != _PUBLISHER_FINGERPRINT
+            or signatures[0][9] not in {"8", "9", "10"} or signatures[0][10] != "00"):
+        raise ValueError("ALT OTA signature does not match the pinned publisher")
+
+
 @contextmanager
 def _verified_artifact(
     install_root: Path, data_root: Path, payload: dict[str, Any]
@@ -630,9 +737,12 @@ def _require_update_space(path: Path, expanded: int, inodes: int) -> None:
 
 
 def _extract_and_validate(
-    *, artifact_path: BinaryIO | Path, staging: Path, expected_version: str
+    *, artifact_path: BinaryIO | Path, staging: Path, expected_version: str,
+    expected_source_revision: str | None = None,
 ) -> _Manifest:
     manifest, expanded, inodes = _inspect_archive(artifact_path, expected_version)
+    if expected_source_revision is not None and manifest.source_revision != expected_source_revision:
+        raise ValueError("ALT OTA authorization source mismatch")
     _require_update_space(staging.parent, expanded, inodes)
     if staging.exists() or staging.is_symlink():
         raise ValueError("unsafe ALT staging path")

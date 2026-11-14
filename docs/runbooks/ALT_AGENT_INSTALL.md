@@ -192,8 +192,36 @@ it will not use an external artifact host. Before assigning a canary, place
 the reviewed `.tar.gz` file under the controller's root-owned `ARTIFACT_ROOT`
 using the exact `artifact_name` registered in the immutable build manifest.
 The controller serves it at `/agent/v1/updates/artifacts/{build_identifier}`
-only to the device that has an active target for that build. Verify the
-lifecycle in this order: `requested`, `scheduled`, service restart, then
+only to the device that has an active target for that build.
+
+Authorize the exact OTA release on each canary host before assigning it. Create
+a UTF-8 JSON object with exactly these fields:
+
+| Field | Value |
+| --- | --- |
+| `schema_version` | `endpoint_alt_ota_v1` |
+| `target`, `channel`, `archive_type` | `linux_amd64`, `canary`, `tar.gz` |
+| `version` | Exact version in the frozen archive manifest |
+| `source_revision` | Full lowercase 40-character Git revision in that manifest |
+| `sha256`, `size` | SHA-256 of the compressed archive and its integer byte size |
+
+The offline publisher produces a binary detached signature over the exact JSON
+bytes using the pinned Endpoint RPM signing key and SHA-256. Install the JSON as
+`/etc/endpoint-agent/ota-authorizations/<archive-sha256>.json` and its signature
+alongside it with the `.json.sig` suffix. The administrator installs both as
+root:root with mode `0644` and keeps the directory root:root with mode `0755`.
+The launcher verifies both files using the pinned key supplied by the signed
+RPM at `/usr/share/endpoint-agent/endpoint-rpm-release.asc`. Rollback uses the
+existing root-owned previous selector. A generic launcher deployment needs the
+same independently provisioned public key before using OTA.
+
+The launcher checks authorization before opening the archive, copies the
+compressed bytes into a private file descriptor, checks its digest and expands
+only that copy. The inspected archive manifest must match the authorized source.
+Missing authorization or a bad signature rejects the operation before stopping
+Core. Use the signed native RPM workflow to deploy the fixed launcher itself.
+
+Verify the lifecycle in this order: `requested`, `scheduled`, service restart, then
 `applied` (or `failed`/`rolled_back`). A `scheduled` acknowledgement alone is
 not success. Pausing a rollout stops new recommendations and acknowledgements,
 but an already assigned target may still submit its terminal launcher outcome;
