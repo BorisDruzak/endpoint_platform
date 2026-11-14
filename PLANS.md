@@ -1,5 +1,18 @@
 # Endpoint Platform Plan
 
+## Agent and server stability (2026-11-14)
+
+Source and acceptance order originate in the stability audit in the operator
+checkout. Development branch is `codex/endpoint-agent-server-stability`, based
+on Windows 205 release checkout `c9a46030`. Production server source is pinned
+separately at `5bdb4a6f319628dff135919a2b6f7e819b8f4b22`. See the
+[STAB-14 baseline](docs/verification/2026-11-14-stability-release-baseline.md)
+for source parity, package identity, dependencies and pending release evidence.
+
+Current: production source captured, recovery regression verified on both bases.
+Next: STAB-01 command execution isolation, then STAB-03/04/05/06/07/08 in audit
+order. Release evidence requires an exact-source CI receipt before publication.
+
 ## SSO + WorkTime staged implementation (2026-10-27)
 
 Latest checkpoint (supersedes initial progress below): auth/WorkTime/DLP/UI and
