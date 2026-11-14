@@ -137,8 +137,17 @@ two-minute isolated Windows process run with PostgreSQL 16.15 at migration
 with zero commits. Power, analytics and Context jobs committed in the
 same tick. After unlock, the next minute's tick deleted the same event
 and reported 361.792 s of data backlog age. The hourly snapshot job is
-covered by the accelerated regression. Deployed Linux worker verification
-remains open.
+covered by the accelerated regression. On the Ubuntu 24.04.3 staging host,
+an isolated user systemd unit ran the standard entry point for source
+`e44016670afd9163f3fc0ca6fe64f3147bbe6af5` against PostgreSQL 16.15 at
+migration 0053. The server source archive SHA-256 was
+`6c57a87cac6a845aea7bef143b88606635abda66cd2a58cce4143eb0fe6bd609`.
+With default intervals, 15 jobs completed. The locked security row
+produced `lock_timeout` in 3.005 s with zero commits. Power, analytics
+and Context committed that tick. The next minute's tick deleted the row
+after unlock and reported 361.779 s of backlog age. Both transient units
+and their temporary database were removed. The staging worker kept
+the same PID and start time. Production deployment remains open.
 STAB-09 source: explicit Core transfer total/connect/idle
 timeouts with matching recovery-supervisor budget. Slow and stalled loopback
 streams verified. STAB-10 source: streaming ALT archive limits, pre-stop
