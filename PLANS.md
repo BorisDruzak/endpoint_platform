@@ -135,7 +135,12 @@ rebuilt Core exited from bootstrap with zero Gateway sessions or context
 collections. The installed service completed the automatic baseline on
 the first session, and enrollment verification reached completed without
 an administrator collection.
-Production signing and publication and installed Proxmox verification remain open.
+Nested PVE 8.4 VM139 used a separately signed lab APT to install 3.2.195
+and upgrade to the exact 3.2.205 from the enrollment-only change.
+The loopback Gateway accepted health with trusted API status and available
+storage, and recorded fresh WSS after nested hypervisor reboot.
+Production signing and publication, cluster validation, and the remaining
+Proxmox package fault and recovery scenarios remain open.
 STAB-17 source: metadata renewal verifies the pinned signer and all signed index
 and DEB hashes before changing the signed dates. The expiry check covers Ubuntu
 noble and Debian bookworm and warns with three days remaining. Ordinary APT
