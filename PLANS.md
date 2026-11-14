@@ -99,8 +99,10 @@ notice/close with observable cleanup stages and concurrent server shutdown.
 STAB-08 source: per-job execution deadlines and PostgreSQL lock/statement
 budgets, bounded rollback, redacted attempt/last-success/lag logging and
 conservative commit uncertainty. PostgreSQL row-lock regression verified.
-Backlog age reports scheduled worker lag. Data-queue age remains a separate
-operational measure. STAB-09 source: explicit Core transfer total/connect/idle
+Backlog age reports scheduled worker lag. For operation expiry the same log
+also reports the time past the oldest active deadline, including rows held by
+another transaction. Other data-queue ages remain open.
+STAB-09 source: explicit Core transfer total/connect/idle
 timeouts with matching recovery-supervisor budget. Slow and stalled loopback
 streams verified. STAB-10 source: streaming ALT archive limits, pre-stop
 staging/state capacity checks and bounded extraction. ALT VM107 passed 48

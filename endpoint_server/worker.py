@@ -19,7 +19,7 @@ from endpoint_server.context.retention import cleanup_context_collections, clean
 from endpoint_server.context.scheduler import schedule_due_collections
 from endpoint_server.db.session import SessionProvider, create_session_provider
 from endpoint_server.enrollment.delivery import cleanup_expired_retry_envelopes
-from endpoint_server.operations.service import expire_operations
+from endpoint_server.operations.service import expire_operations, operation_expiry_backlog_age
 from endpoint_server.operations.evidence import cleanup_module_step_results, cleanup_operation_results
 from endpoint_server.security.retention import retain_security_events
 from endpoint_server.power.retention import retain_power_events
@@ -121,6 +121,7 @@ class MaintenanceJobs:
     async def run(
         self, name: str, job: Callable[[Any], Awaitable[object]], *,
         due_at: float, batches: int = 1, continue_if: Callable[[object], bool] = bool,
+        measure_backlog: Callable[[Any], Awaitable[float]] | None = None,
     ) -> None:
         loop = asyncio.get_running_loop()
         started = loop.time()
@@ -130,12 +131,21 @@ class MaintenanceJobs:
         deadline = started + budget
         error = "none"
         completed = 0
+        backlog_age = None
+
+        async def measure_then_run(session: Any) -> object:
+            nonlocal backlog_age
+            if measure_backlog is not None and backlog_age is None:
+                backlog_age = await measure_backlog(session)
+            return await job(session)
+
+        task = measure_then_run if measure_backlog is not None else job
         try:
             for _ in range(batches):
                 remaining = deadline - loop.time()
                 if remaining <= 0:
                     raise MaintenanceFailure("job_timeout")
-                result = await _run_transactional_job(self.provider, job, budget=remaining)
+                result = await _run_transactional_job(self.provider, task, budget=remaining)
                 completed += 1
                 if not continue_if(result):
                     break
@@ -147,9 +157,11 @@ class MaintenanceJobs:
         logger.log(
             logging.INFO if error == "none" else logging.WARNING,
             "worker_job job=%s last_attempt=%s last_success=%s duration_seconds=%.3f "
-            "backlog_age_seconds=%.3f budget_seconds=%.1f committed_batches=%d safe_error=%s",
+            "backlog_age_seconds=%.3f data_backlog_age_seconds=%s "
+            "budget_seconds=%.1f committed_batches=%d safe_error=%s",
             name, attempt_at.isoformat(), last_success.isoformat() if last_success else "none",
-            loop.time() - started, max(0.0, started - oldest_due), budget, completed, error,
+            loop.time() - started, max(0.0, started - oldest_due),
+            f"{backlog_age:.3f}" if backlog_age is not None else "unknown", budget, completed, error,
         )
 
 
@@ -185,7 +197,10 @@ async def run_worker(
             await jobs.run("cleanup_expired_retry_envelopes", lambda session: cleanup_expired_retry_envelopes(
                 session, request_id=f"server_{uuid4().hex}",
             ), due_at=tick)
-            await jobs.run("expire_operations", expire_operations, due_at=tick)
+            await jobs.run(
+                "expire_operations", expire_operations, due_at=tick,
+                measure_backlog=operation_expiry_backlog_age,
+            )
             await jobs.run("advance_preparations", advance_preparations, due_at=tick)
             await jobs.run("schedule_fleet", schedule_one, due_at=tick, batches=16)
             # 256 user-days per tick, one commit per batch.

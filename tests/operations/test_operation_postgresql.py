@@ -39,6 +39,7 @@ from endpoint_server.operations.service import (
     OperationConflict,
     create_operation_outcome,
     expire_operations,
+    operation_expiry_backlog_age,
 )
 from endpoint_server.operations.evidence import create_operation_evidence, cleanup_operation_results, pin_operation_evidence
 from endpoint_server.policy.network_targets import NetworkTargetPolicyV1
@@ -543,7 +544,7 @@ async def test_expiry_skips_locked_operation_then_finishes_after_release_in_post
                 service_client_id=client.id,
                 device_id=device.id,
                 idempotency_key=f"expiry-second-{uuid4().hex}",
-                now=NOW,
+                now=NOW + timedelta(seconds=15),
             )
             await session.commit()
 
@@ -556,9 +557,13 @@ async def test_expiry_skips_locked_operation_then_finishes_after_release_in_post
             )
             assert locked is not None
             async with factory() as expiration_session:
+                measured_at = NOW + timedelta(minutes=15, seconds=20)
+                assert await asyncio.wait_for(
+                    operation_expiry_backlog_age(expiration_session, now=measured_at), timeout=3,
+                ) == 20
                 assert await expire_operations(
                     expiration_session,
-                    now=NOW + timedelta(minutes=15),
+                    now=measured_at,
                     limit=10,
                 ) == 1
                 await expiration_session.commit()

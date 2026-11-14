@@ -388,6 +388,28 @@ async def test_expiry_atomically_terminalizes_operation_and_private_collection(
 
 
 @pytest.mark.asyncio
+async def test_expiry_backlog_uses_oldest_due_active_deadline(session: AsyncSession) -> None:
+    from endpoint_server.operations.service import operation_expiry_backlog_age
+
+    client, device = await _ownership(session)
+    for index, offset in enumerate((0, 30, 60, 180)):
+        operation, _ = await create_operation_outcome(
+            session, request=_request(), service_client_id=client.id, device_id=device.id,
+            idempotency_key=f"expiry-backlog-{index}", now=NOW + timedelta(seconds=offset),
+        )
+        if index == 0:
+            operation.status = "canceled"
+            operation.completed_at = NOW + timedelta(seconds=1)
+    await session.flush()
+
+    due = NOW + timedelta(minutes=16)
+    assert await operation_expiry_backlog_age(session, now=NOW) == 0
+    assert await operation_expiry_backlog_age(session, now=due) == 30
+    assert await expire_operations(session, now=due) == 2
+    assert await operation_expiry_backlog_age(session, now=due) == 0
+
+
+@pytest.mark.asyncio
 async def test_projection_excludes_private_operation_storage(
     session: AsyncSession,
 ) -> None:

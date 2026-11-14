@@ -87,6 +87,9 @@ class WorkerSession:
             raise RuntimeError("analytics database failure")
         return _WorkerResult._Scalars()
 
+    async def scalar(self, statement: object) -> None:
+        return None
+
     async def flush(self) -> None:
         return None
 
@@ -572,6 +575,27 @@ async def test_worker_budget_reports_stalled_job_and_allows_other_jobs(monkeypat
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await task
+
+
+@pytest.mark.asyncio
+async def test_worker_reports_data_backlog_independently_of_schedule_lag(caplog):
+    from endpoint_server import worker
+
+    jobs = worker.MaintenanceJobs(WorkerSessionProvider())
+
+    async def oldest_age(_session):
+        return 67.5
+
+    async def failing_job(_session):
+        raise RuntimeError("private details")
+
+    now = asyncio.get_running_loop().time()
+    await jobs.run("expire_operations", failing_job, due_at=now - 5, measure_backlog=oldest_age)
+    await jobs.run("expire_operations", failing_job, due_at=now)
+    assert "data_backlog_age_seconds=67.500" in caplog.records[-2].message
+    assert "data_backlog_age_seconds=unknown" in caplog.records[-1].message
+    assert "safe_error=job_failed" in caplog.records[-2].message
+    assert "private details" not in caplog.text
 
 
 @pytest.mark.asyncio
