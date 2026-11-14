@@ -59,7 +59,7 @@ Production-источник — `https://endpoint.sosnadmin.local/downloads/ubun
 Acquire::https::endpoint.sosnadmin.local::CaInfo "/etc/apt/keyrings/endpoint-ubuntu-ca.crt";
 ```
 
-Соберите дерево по команде ниже во временной директории. Для production подпишите файл `dists/noble/Release` ключом издателя на его рабочей станции и замените `dists/noble/InRelease`. Перед публикацией проверьте подпись через `gpgv` с указанным публичным ключом, контрольную сумму `Packages` из подписанного индекса и SHA-256 обоих DEB. Публикуйте дерево в `/srv/endpoint-platform-distribution/ubuntu` с владельцем `root`. После публикации подтвердите выбор кандидата и скачивание обеих версий на пилотном хосте.
+Соберите дерево по команде ниже во временной директории на рабочей станции издателя. Сборщик подписывает `dists/noble/InRelease` указанным ключом. Перед публикацией проверьте подпись через `gpgv` с публичным ключом издателя, контрольную сумму `Packages` из подписанного индекса и SHA-256 обоих DEB. Публикуйте дерево в `/srv/endpoint-platform-distribution/ubuntu` с владельцем `root`. После публикации подтвердите выбор кандидата и скачивание обеих версий на пилотном хосте.
 
 ```sh
 python tools/release/build_ubuntu_apt_repository.py \
@@ -67,3 +67,44 @@ python tools/release/build_ubuntu_apt_repository.py \
   --deb /release/endpoint-agent-ubuntu_3.2.192-1ubuntu1_amd64.deb \
   --signing-fingerprint "$ENDPOINT_APT_SIGNING_FINGERPRINT" --output /release/ubuntu-apt
 ```
+
+### Продление подписанного индекса
+
+За продление отвечает издатель Ubuntu APT с доступом к действующему ключу
+подписи. Издатель планирует перевыпуск на четвёртый день после подписи.
+Ежедневная проверка опубликованного индекса с пилотного узла должна уведомлять
+издателя при любом ненулевом коде выхода. Проверка начинает сигнализировать
+за три дня до истечения срока и также обнаруживает недоступность источника,
+ошибку подписи или дату выпуска в будущем.
+
+```sh
+set -eu
+index="$(mktemp)"
+trap 'rm -f -- "$index"' EXIT
+curl --fail --silent --show-error --max-time 30 \
+  --cacert /etc/apt/keyrings/endpoint-ubuntu-ca.crt \
+  --output "$index" \
+  https://endpoint.sosnadmin.local/downloads/ubuntu/dists/noble/InRelease
+python tools/release/build_ubuntu_apt_repository.py --check "$index" \
+  --keyring /etc/apt/keyrings/endpoint-ubuntu-apt.gpg \
+  --signing-fingerprint D132784F1C7F0D78BDA2842FDE5739F7FD0AFEBE
+```
+
+На рабочей станции издателя подготовьте отдельную копию текущего опубликованного
+дерева, включая исходный `InRelease`, и выполните команду в контексте действующего
+хранилища GnuPG. Согласуйте продление с выпуском пакетов, чтобы операции публикации
+не выполнялись одновременно.
+
+```sh
+python tools/release/build_ubuntu_apt_repository.py --renew /release/ubuntu-apt \
+  --keyring /release/endpoint-ubuntu-apt.gpg \
+  --signing-fingerprint D132784F1C7F0D78BDA2842FDE5739F7FD0AFEBE
+```
+
+Команда проверяет подпись, размеры и SHA-256 существующих индексов и пакетов,
+обновляет `Date` и `Valid-Until` и повторно проверяет новую подпись. Перед переносом
+сверьте, что подпись текущего опубликованного индекса совпадает с подписью,
+из которой вы выполнили продление. Опубликуйте `Release`, затем атомарно замените
+`InRelease` переименованием в том же каталоге. После публикации выполните
+проверку выше, `apt-get update` и `apt-cache policy endpoint-agent-ubuntu`
+с обычными настройками APT на пилотном узле.

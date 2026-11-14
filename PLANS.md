@@ -86,6 +86,11 @@ Both rendered templates passed the service-state matrix. Linux Core freeze
 embeds its clean Git revision, and DEB packaging checks the frozen executable
 against the requested source and version. Installed package acceptance and
 APT toolchain provenance remain open.
+STAB-17 source: metadata renewal verifies the pinned signer and all signed index
+and DEB hashes before changing the signed dates. The daily published-index
+check warns with three days remaining. Ubuntu 24.04 accepted a renewed test
+InRelease with ordinary APT and downloaded the identical fixture DEB. Production
+publisher ownership, scheduled alert delivery and live renewal remain open.
 Release evidence requires an exact-source CI receipt before publication.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
