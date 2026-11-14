@@ -130,7 +130,15 @@ reports overdue age from deleted records under the configured personnel policy.
 Periodic payload cleanup, context collection scheduling and snapshot retention
 advance from their scheduled deadlines. A batch finishing within the interval
 no longer skips the following tick.
-Deployed-worker verification remains open.
+The standard `python -m endpoint_server.worker` entry point on source
+`9ff07d0f7f72d053233c04a19bc75c392aeb70e9` completed 15 jobs during a
+two-minute isolated Windows process run with PostgreSQL 16.15 at migration
+0053. A locked expired security event produced `lock_timeout` in 3.022 s
+with zero commits. Power, analytics and Context jobs committed in the
+same tick. After unlock, the next minute's tick deleted the same event
+and reported 361.792 s of data backlog age. The hourly snapshot job is
+covered by the accelerated regression. Deployed Linux worker verification
+remains open.
 STAB-09 source: explicit Core transfer total/connect/idle
 timeouts with matching recovery-supervisor budget. Slow and stalled loopback
 streams verified. STAB-10 source: streaming ALT archive limits, pre-stop
