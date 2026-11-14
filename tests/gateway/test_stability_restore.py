@@ -47,7 +47,7 @@ import uvicorn
 from endpoint_server.config import Settings
 from endpoint_server.main import create_app
 
-root = Path.cwd().parent
+root = Path(os.environ["ENDPOINT_RESTORE_ROOT"])
 identity = root / "identity"
 loopback = (ipaddress.ip_network("127.0.0.0/8"),)
 app = create_app(Settings(
@@ -59,17 +59,19 @@ app = create_app(Settings(
     session_secret=(identity / "session-secret").read_bytes(),
     allowed_agent_cidrs=loopback, allowed_admin_cidrs=loopback, trusted_proxy_cidrs=loopback,
 ))
-uvicorn.run(app, host="127.0.0.1", port=0, ws="websockets", proxy_headers=False, workers=1,
+uvicorn.run(app, host="127.0.0.1", port=int(os.environ["ENDPOINT_RESTORE_API_PORT"]),
+            ws="websockets", proxy_headers=False, workers=1,
             log_level="info", timeout_graceful_shutdown=5)
 """
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
 @asynccontextmanager
-async def _restored_api(root, database_url):
-    env = {**os.environ, "ENDPOINT_RESTORE_DATABASE_URL": database_url, "PYTHONPATH": ""}
+async def _restored_api(root, database_url, *, application=None, port=0):
+    env = {**os.environ, "ENDPOINT_RESTORE_DATABASE_URL": database_url,
+           "ENDPOINT_RESTORE_API_PORT": str(port), "ENDPOINT_RESTORE_ROOT": str(root), "PYTHONPATH": ""}
     process = await asyncio.create_subprocess_exec(
-        sys.executable, "-u", "-c", _RESTORED_API, cwd=root / "application", env=env,
+        sys.executable, "-u", "-c", _RESTORED_API, cwd=application or root / "application", env=env,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
     )
@@ -83,7 +85,7 @@ async def _restored_api(root, database_url):
                     break
             else:
                 pytest.fail("Restored API exited during startup: " + "".join(startup))
-        yield f"http://127.0.0.1:{bound[1].decode()}"
+        yield f"http://127.0.0.1:{bound[1].decode()}", process
     finally:
         if process.returncode is None:
             if os.name == "nt":
@@ -238,7 +240,7 @@ async def test_restore_signed_release_and_resume(update_service_provider, update
                                 restored / "endpoint.dump")
         provider = AsyncSessionProvider(destination_url)
         try:
-            async with _restored_api(restored, destination_url) as base:
+            async with _restored_api(restored, destination_url) as (base, _):
                 await _verify_restored_service(provider, base, device.id, instance, device_token, frame,
                     issued.token, admin_name, artifact_route, operation_id,
                     release_files[f"artifacts/{artifact.name}"], after.id, metadata["schema"])

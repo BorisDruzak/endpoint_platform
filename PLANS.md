@@ -119,8 +119,11 @@ disconnection with the API still running, plus worker recovery and restart.
 [Local backup restore](docs/verification/2026-11-14-stab19-backup-restore.md)
 recovered a signed synthetic release, database, secrets and artifact into
 an empty database and a separate API process from the recovered source archive.
-Linux/TLS sustained qualification, process crash and PostgreSQL instance
-restart drills, and restore from a verified external production copy remain open.
+The local process-crash drill verified result replay after forced API exit
+before result submission and after commit, and after immediate PostgreSQL
+stop and WAL crash recovery with the API process still running. Linux/TLS
+sustained qualification and restore from a verified external production copy
+remain open.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
 
