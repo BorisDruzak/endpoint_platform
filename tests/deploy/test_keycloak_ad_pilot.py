@@ -1,11 +1,16 @@
 from pathlib import Path
 import subprocess
+import sys
+
+import pytest
 
 
 SCRIPT = Path("tools/keycloak/prepare_ad_pilot.ps1").resolve()
 
 
 def powershell(code):
+    if sys.platform != "win32":
+        pytest.skip("Requires Windows PowerShell 5.1")
     result = subprocess.run(
         ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", code],
         capture_output=True, text=True,

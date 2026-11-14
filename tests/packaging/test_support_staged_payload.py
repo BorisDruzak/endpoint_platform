@@ -3,6 +3,7 @@ import hashlib
 import json
 from dataclasses import replace
 from pathlib import Path
+import sys
 import xml.etree.ElementTree as ET
 
 import pytest
@@ -184,6 +185,7 @@ def test_support_cleanup_failure_has_a_distinct_bounded_diagnostic_code(inventor
     assert 'infrastructure' not in str(context)
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Requires Windows PowerShell 5.1")
 @pytest.mark.parametrize('intent,native,status,expected', [
     ('uninstall', 0, 'incomplete', 68), ('uninstall', 68, 'incomplete', 0),
     ('install', 0, 'incomplete', 0), ('uninstall', 0, 'complete', 0),
@@ -208,6 +210,7 @@ Get-SupportCleanupExitCode -Intent $Intent -NativeExit $Native -Finish $finish
     assert result.stdout.strip() == str(expected)
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Requires Windows PowerShell 5.1")
 @pytest.mark.parametrize('native,expected', [(68, 21), (0, 0), (67, 67), (3010, 3010)])
 def test_raw_native_exit_cannot_impersonate_reserved_cleanup68(tmp_path, native, expected):
     import subprocess

@@ -2,10 +2,14 @@
 from pathlib import Path
 import subprocess
 import json
+import sys
+
+import pytest
 
 ROOT=Path(__file__).resolve().parents[2]
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Requires Windows PowerShell 5.1")
 def test_existing_valid_support_signature_is_preserved_without_resigning(tmp_path):
     script=tmp_path/'signature.ps1'
     script.write_text(r'''param($Source)
