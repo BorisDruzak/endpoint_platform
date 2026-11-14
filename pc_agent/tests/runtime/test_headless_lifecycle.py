@@ -247,6 +247,37 @@ async def test_headless_runtime_exchanges_systemd_claim_before_gateway_start(
     assert events == ["enroll", "gateway"]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("required", "status", "exit_code"), [
+    (True, "enrolled", 0),
+    (True, "already_enrolled", 0),
+    (True, "handoff_pending", 75),
+    (False, "enrolled", 75),
+])
+async def test_deb_claim_handoff_never_starts_gateway(monkeypatch, tmp_path, required, status, exit_code):
+    from dataclasses import replace
+
+    settings = replace(_settings(tmp_path), package_managed_updates=True)
+    monkeypatch.setattr(runtime_main.sys, "platform", "linux")
+    monkeypatch.setenv("ENDPOINT_AGENT_ENROLLMENT_REQUIRED", "1" if required else "0")
+    monkeypatch.setenv("ENDPOINT_AGENT_ENROLLMENT_ONLY", "1")
+    monkeypatch.setattr(
+        runtime_main, "systemd_runtime_paths",
+        lambda: (Path("/run/config"), Path("/run/ca"), Path("/run/claim")),
+    )
+
+    async def enroll(**_kwargs):
+        assert required
+        return EnrollmentOutcome(status, "device-1")
+
+    async def forbidden_gateway(_settings):
+        pytest.fail("the DEB claim handoff must not open a Gateway session")
+
+    monkeypatch.setattr(runtime_main, "run_linux_enrollment_gate", enroll)
+    monkeypatch.setattr(runtime_main, "run_runtime", forbidden_gateway)
+    assert await runtime_main._run_runtime_after_first_boot_enrollment(settings) == exit_code
+
+
 def test_headless_runtime_rejects_unapproved_staging_origin_before_gateway_start(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

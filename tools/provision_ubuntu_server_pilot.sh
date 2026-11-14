@@ -153,6 +153,7 @@ EOF
         -p "LoadCredential=endpoint-enrollment-claim:$stage/claim" \
         --setenv=ENDPOINT_AGENT_DEPLOYMENT_ENVIRONMENT=production \
         --setenv=ENDPOINT_AGENT_ENROLLMENT_REQUIRED=1 \
+        --setenv=ENDPOINT_AGENT_ENROLLMENT_ONLY=1 \
         --setenv=ENDPOINT_AGENT_CONFIG="$credentials/endpoint-agent-config" \
         --setenv=ENDPOINT_AGENT_CA_FILE="$credentials/endpoint-agent-ca" \
         --setenv=ENDPOINT_AGENT_PROVISIONING_HANDOFF_FILE="$credentials/endpoint-enrollment-claim" \

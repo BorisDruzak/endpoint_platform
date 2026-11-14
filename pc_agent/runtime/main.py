@@ -43,6 +43,14 @@ def _configuration_exit_code() -> int:
 
 async def _run_runtime_after_first_boot_enrollment(settings: RuntimeSettings) -> int:
     """Exchange the fixed systemd claim before starting the Gateway runtime."""
+    enrollment_only = os.environ.get("ENDPOINT_AGENT_ENROLLMENT_ONLY") == "1"
+    if enrollment_only and (
+        sys.platform != "linux"
+        or not settings.package_managed_updates
+        or os.environ.get("ENDPOINT_AGENT_ENROLLMENT_REQUIRED") != "1"
+    ):
+        _log_enrollment_refusal("invalid_enrollment_only_mode")
+        return _configuration_exit_code()
     if os.environ.get("ENDPOINT_AGENT_ENROLLMENT_REQUIRED", "") != "1":
         return await run_runtime(settings)
     try:
@@ -69,6 +77,11 @@ async def _run_runtime_after_first_boot_enrollment(settings: RuntimeSettings) ->
     if outcome.status not in {"enrolled", "already_enrolled", "handoff_pending"}:
         _log_enrollment_refusal(outcome.status)
         return _configuration_exit_code() if outcome.status in {'credential_invalid','denied'} else 75
+    if enrollment_only:
+        if outcome.status == "handoff_pending":
+            _log_enrollment_refusal(outcome.status)
+            return 75
+        return 0
     return await run_runtime(settings)
 
 

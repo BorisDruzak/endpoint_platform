@@ -126,8 +126,12 @@ through locally signed APT. A forced stop during unpack preserved the fence
 across reboot, and exact reinstall restored a first-attempt heartbeat to the
 local TLS peer. A separate Ubuntu loopback Gateway and fresh PostgreSQL
 accepted the exact build through a completed enrollment and persisted all
-five context profiles and a fresh heartbeat after reboot. The first automatic baseline was still collecting
-when an explicit Console collection supplied the required snapshot.
+five context profiles and a fresh heartbeat after reboot. The first automatic
+baseline was granted to the temporary bootstrap service and its running
+journal entry stayed in the temporary SQLite database when that service
+stopped. The DEB provisioner now opts into an enrollment-only Core mode so the
+installed service opens the first WSS session. Exact rebuilt native acceptance
+of that handoff remains open.
 Production signing and publication and installed Proxmox verification remain open.
 STAB-17 source: metadata renewal verifies the pinned signer and all signed index
 and DEB hashes before changing the signed dates. The expiry check covers Ubuntu
