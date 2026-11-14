@@ -97,8 +97,12 @@ Forced VM power-off between unpack and configure recovered with dpkg configure
 and preserved identity. The real loopback Gateway then accepted the exact DEB
 through request, administrator approval and first-boot claim. PostgreSQL
 proved one device and registration, four accepted context profiles, and a
-fresh heartbeat in the new WSS session after VM reboot. Request verification
-and enrollment delivery acknowledgement remain open.
+fresh heartbeat in the new WSS session after VM reboot. A second run used the
+canonical verification endpoint to reach completed exactly once. A forced VM
+stop inside postinst preserved half-configured state, and rerunning dpkg
+configure restored the package and fresh Gateway heartbeat on the same device.
+The worker removed the expired retry envelope and wrote the periodic cleanup
+audit event. Direct enrollment delivery acknowledgement remains open.
 STAB-17 source: metadata renewal verifies the pinned signer and all signed index
 and DEB hashes before changing the signed dates. The expiry check covers Ubuntu
 noble and Debian bookworm and warns with three days remaining. Ordinary APT
