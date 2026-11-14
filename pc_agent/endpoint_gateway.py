@@ -34,7 +34,12 @@ from pc_agent.transport.http_pull import (
 )
 from pc_agent.transport.protocol import compatibility_agent_hello
 from pc_agent.update_adapter import EndpointRecommendation, EndpointUpdateAdapter
-from pc_agent.update_schedule import UPDATE_POLL_INTERVAL_SEC
+from pc_agent.update_schedule import (
+    CORE_ARTIFACT_CONNECT_SECONDS,
+    CORE_ARTIFACT_IDLE_SECONDS,
+    CORE_ARTIFACT_TOTAL_SECONDS,
+    UPDATE_POLL_INTERVAL_SEC,
+)
 from pc_agent.version import EXIT_UPDATE_PENDING
 from pc_agent.platform.windows.disk_readiness import download_required_bytes, require_disk_space
 
@@ -42,6 +47,11 @@ _ORIGIN = DEFAULT_ENDPOINT_ORIGIN
 _ALT_CURRENT_SELECTOR = Path("/opt/endpoint-agent/current.json")
 # Compatibility alias for existing Linux/migration consumers.
 GATEWAY_UPDATE_POLL_INTERVAL_SEC = UPDATE_POLL_INTERVAL_SEC
+_CORE_ARTIFACT_TIMEOUT = aiohttp.ClientTimeout(
+    total=CORE_ARTIFACT_TOTAL_SECONDS,
+    connect=CORE_ARTIFACT_CONNECT_SECONDS,
+    sock_read=CORE_ARTIFACT_IDLE_SECONDS,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +111,7 @@ async def _download_gateway_artifact(
             item.artifact_url,
             headers={"Authorization": f"Bearer {load_credential()}"},
             allow_redirects=False,
+            timeout=_CORE_ARTIFACT_TIMEOUT,
         ) as response:
             require_gateway_response(response)
             if response.status != 200:

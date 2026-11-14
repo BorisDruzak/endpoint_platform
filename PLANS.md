@@ -32,7 +32,9 @@ STAB-08 source: per-job execution deadlines and PostgreSQL lock/statement
 budgets, bounded rollback, redacted attempt/last-success/lag logging and
 conservative commit uncertainty. PostgreSQL row-lock regression verified.
 Backlog age reports scheduled worker lag. Data-queue age remains a separate
-operational measure. Next code task: STAB-09.
+operational measure. STAB-09 source: explicit Core transfer total/connect/idle
+timeouts with matching recovery-supervisor budget. Slow and stalled loopback
+streams verified. Next code task: STAB-10.
 Release evidence requires an exact-source CI receipt before publication.
 
 ## SSO + WorkTime staged implementation (2026-10-27)

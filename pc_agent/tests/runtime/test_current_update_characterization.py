@@ -153,6 +153,7 @@ async def test_gateway_download_accepts_only_endpoint_artifacts_with_matching_di
             {
                 "headers": {"Authorization": "Bearer device-token"},
                 "allow_redirects": False,
+                "timeout": endpoint_gateway._CORE_ARTIFACT_TIMEOUT,
             },
         )
     ]
@@ -195,6 +196,7 @@ async def test_gateway_artifact_download_disables_redirects(
             {
                 "headers": {"Authorization": "Bearer device-token"},
                 "allow_redirects": False,
+                "timeout": endpoint_gateway._CORE_ARTIFACT_TIMEOUT,
             },
         )
     ]
@@ -219,6 +221,7 @@ async def test_gateway_artifact_download_rejects_redirect_without_following_it(
             {
                 "headers": {"Authorization": "Bearer device-token"},
                 "allow_redirects": False,
+                "timeout": endpoint_gateway._CORE_ARTIFACT_TIMEOUT,
             },
         )
     ]
@@ -522,3 +525,79 @@ def test_alt_rollback_can_select_an_existing_immutable_release(
         "source_revision": "deadbeef",
         "version": "3.1.76",
     }
+
+
+@pytest.mark.asyncio
+async def test_artifact_request_uses_own_transfer_budget(tmp_path):
+    session = _ArtifactSession(b"verified ALT artifact")
+    await endpoint_gateway._download_gateway_artifact(
+        session, _recommendation(), tmp_path / "candidate.tar.gz",
+        credential_source=lambda: "test-bearer",
+    )
+    timeout = session.requests[0][1]["timeout"]
+    assert timeout.total > 120
+    assert timeout.connect <= 20
+    assert timeout.sock_read <= 20
+
+
+@pytest.mark.parametrize("stalled", [False, True])
+@pytest.mark.asyncio
+async def test_artifact_stream_uses_transfer_deadlines(tmp_path, monkeypatch, stalled):
+    from dataclasses import replace
+    from socket import AF_INET, SOCK_STREAM, socket
+
+    import aiohttp
+    from aiohttp import web
+
+    # Use a compact loopback fault test by default. Set the optional probe
+    # interval above 20 seconds to exercise the original control-plane limit.
+    duration = float(os.getenv("ENDPOINT_TEST_SLOW_ARTIFACT_SECONDS", "0.4"))
+    control = 20.0 if duration > 20 else duration / 2
+    if stalled:
+        monkeypatch.setattr(endpoint_gateway, "_CORE_ARTIFACT_TIMEOUT", aiohttp.ClientTimeout(
+            total=2.0, connect=1.0, sock_read=0.15,
+        ))
+    data = b"verified ALT artifact"
+
+    async def stream(request):
+        response = web.StreamResponse()
+        await response.prepare(request)
+        await response.write(data[:1])
+        if stalled:
+            await asyncio.sleep(0.4)
+        else:
+            for chunk in (data[1:8], data[8:]):
+                await asyncio.sleep(duration / 2)
+                await response.write(chunk)
+        return response
+
+    app = web.Application()
+    app.router.add_get("/artifact", stream)
+    runner = web.AppRunner(app)
+    with socket(AF_INET, SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+        await runner.setup()
+        await web.SockSite(runner, listener).start()
+        # Origin validation itself is separately covered with HTTPS fixtures.
+        monkeypatch.setattr(endpoint_gateway, "_endpoint_origin", lambda _: ("http", f"127.0.0.1:{port}"))
+        item = replace(_recommendation(), artifact_url=f"http://127.0.0.1:{port}/artifact")
+        destination = tmp_path / "candidate.tar.gz"
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=control)) as session:
+                download = endpoint_gateway._download_gateway_artifact(
+                    session, item, destination, credential_source=lambda: "test",
+                )
+                if stalled:
+                    with pytest.raises(aiohttp.SocketTimeoutError):
+                        await download
+                    assert not destination.exists()
+                else:
+                    loop = asyncio.get_running_loop()
+                    started = loop.time()
+                    assert await download == (_SHA256, len(data))
+                    assert loop.time() - started > control
+                    assert destination.read_bytes() == data
+                assert not list(tmp_path.glob(".*.tmp"))
+        finally:
+            await runner.cleanup()
