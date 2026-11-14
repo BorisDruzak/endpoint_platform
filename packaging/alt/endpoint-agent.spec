@@ -11,7 +11,11 @@
 
 Name: endpoint-agent
 Version: %{agent_version}
+%if_with native_setup
 Release: alt6
+%else
+Release: alt7
+%endif
 Summary: Endpoint Platform headless management agent for ALT Linux
 License: Proprietary
 Group: System/Servers
@@ -217,10 +221,8 @@ elif [ "$1" -gt 1 ]; then
     selected_version=$(
         /usr/lib/endpoint-agent/check-start-prerequisites --print-selected-version
     ) || exit 1
-    if [ "$selected_version" != '%{version}' ]; then
-        if [ -f "/usr/lib/endpoint-agent/package-releases/$selected_version" ]; then
-            install_current_selector || exit 1
-        fi
+    if [ -f "/usr/lib/endpoint-agent/package-releases/$selected_version" ]; then
+        install_current_selector || exit 1
     fi
 fi
 /usr/lib/endpoint-agent/check-start-prerequisites --allow-unconfigured || exit 1

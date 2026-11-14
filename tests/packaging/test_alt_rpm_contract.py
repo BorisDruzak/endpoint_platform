@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -87,6 +88,38 @@ def test_headless_rpm_includes_the_pinned_ota_verifier_inputs() -> None:
     assert f'stage_file 0644 "$script_dir/pilot/{key.name}"' in (
         _text(BUILD).split("native_setup=false", 1)[0]
     )
+
+
+@pytest.mark.parametrize(
+    ("selected_version", "previous_rpm_version", "refresh"),
+    [("3.2.205", "3.2.205", True), ("3.2.183", "3.2.183", True),
+     ("3.2.206", "3.2.205", False)],
+)
+def test_rpm_refreshes_the_selected_package_release(
+    tmp_path: Path, selected_version: str, previous_rpm_version: str, refresh: bool,
+) -> None:
+    """A same-version RPM transaction replaces the selected manifest's bytes."""
+    shell = shutil.which("bash")
+    if shell is None:
+        pytest.skip("bash is required for RPM scriptlets")
+    releases = tmp_path / "package-releases"
+    releases.mkdir()
+    (releases / previous_rpm_version).touch()
+    scriptlet = _text(SPEC).split('elif [ "$1" -gt 1 ]; then\n', 1)[1].split(
+        "\nfi\n", 1
+    )[0].replace(
+        "/usr/lib/endpoint-agent/check-start-prerequisites --print-selected-version",
+        'printf "%s\\n" "$SELECTED_VERSION"',
+    ).replace(
+        "/usr/lib/endpoint-agent/package-releases", "$PACKAGE_RELEASES"
+    ).replace("%{version}", "3.2.205")
+    result = subprocess.run(
+        [shell, "-ec", 'install_current_selector() { echo refreshed; }\n' + scriptlet],
+        env={**os.environ, "SELECTED_VERSION": selected_version,
+             "PACKAGE_RELEASES": releases.as_posix()},
+        check=True, capture_output=True, text=True,
+    )
+    assert result.stdout == ("refreshed\n" if refresh else "")
 
 
 def test_git_archive_emits_the_alt_spec_with_lf_line_endings() -> None:
