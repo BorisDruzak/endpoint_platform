@@ -257,6 +257,11 @@ The next [restore check](docs/verification/2026-11-15-server-release-restore-inv
 verified all 5,682 paths of `d3459936a251`, including its private venv.
 Both verified deployment archives now have SHA-256-checked workstation
 copies outside the server volume. The deployed trees remain in place.
+The [batch restore check](docs/verification/2026-11-15-server-release-restore-inventory.md#партия-копий-для-проверки-места)
+verified 19 additional private-venv trees and rechecked both earlier copies.
+The 21 trees occupy 2,374,709,248 bytes against an observed shortfall of
+2,365,140,992 bytes. They are still deployed. Storage and reference checks
+must be repeated before any retirement.
 The deployment runbook now checks the actual release volume before preparing
 or extracting a release. The check works without selectors and exits 2 below
 10 GiB. On production it reported 8,384,782,336 bytes available and exited 2.
