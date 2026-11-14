@@ -186,6 +186,10 @@ server. The two pilot release trees account for 6.4 MiB on disk versus a
 historical trees and exact recovery of their private virtual environments.
 The inventory of 82 larger trees is evidence for prioritization. Retirement
 and projected reclaim still require per-tree verification.
+The first full deployment backup, `b9976195cf68`, preserved its private venv
+and matched all 5,796 paths after isolated extraction. The protected archive
+occupies 30.1 MiB versus 111.5 MiB for the source. The 81.4 MiB difference
+is potential savings. The deployed tree remains in place.
 STAB-02 foundation: local SQLite records a command ID, device, payload digest,
 and start before execution, then commits completion and outbox together.
 Interrupted starts recover as unknown outcomes. Negotiated WSS sessions
