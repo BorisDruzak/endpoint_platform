@@ -296,13 +296,18 @@ async def _run_worktime_maintenance(
     """Keep explanation generation and personnel retention independently atomic."""
     if not enabled:
         return
-    from endpoint_server.worktime.service import generate_due_requests, retain_worktime
+    from endpoint_server.worktime.service import (
+        WorktimeMaintenanceBatch, generate_due_requests_with_backlog, retain_worktime_with_backlog,
+    )
+
+    def backlog(result: object) -> float | None:
+        return result.oldest_due_age_seconds if isinstance(result, WorktimeMaintenanceBatch) else None
 
     jobs = jobs or MaintenanceJobs(provider)
     if due_at is None:
         due_at = asyncio.get_running_loop().time()
-    await jobs.run("generate_due_requests", generate_due_requests, due_at=due_at)
-    await jobs.run("retain_worktime", retain_worktime, due_at=due_at)
+    await jobs.run("generate_due_requests", generate_due_requests_with_backlog, due_at=due_at, committed_backlog=backlog)
+    await jobs.run("retain_worktime", retain_worktime_with_backlog, due_at=due_at, committed_backlog=backlog)
 
 
 if __name__ == "__main__":

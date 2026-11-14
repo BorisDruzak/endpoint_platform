@@ -124,7 +124,10 @@ Activity retention measures the oldest deadline among deleted detail, daily
 rollups and cursors, using the current calendar and timestamp cutoffs.
 Setup fleet scheduling measures the longest wait among device evaluations
 committed during a worker tick. Lock contention without a sample is unknown.
-Other data-queue ages remain open.
+Worktime request generation measures the time since the oldest prior scan in
+the committed batch. A first scan has no earlier cursor. Worktime retention
+reports overdue age from deleted records under the configured personnel policy.
+Deployed-worker verification remains open.
 STAB-09 source: explicit Core transfer total/connect/idle
 timeouts with matching recovery-supervisor budget. Slow and stalled loopback
 streams verified. STAB-10 source: streaming ALT archive limits, pre-stop

@@ -1,4 +1,5 @@
 """Transactional personnel operations. Callers own commit/rollback and authorization."""
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from calendar import monthrange
 from bisect import bisect_left
@@ -331,6 +332,17 @@ async def generate_requests(session, person_id, day, now=None):
 
 
 async def generate_due_requests(session, *, now=None, batch_size=64):
+    batch = await generate_due_requests_with_backlog(session, now=now, batch_size=batch_size)
+    return batch.processed
+
+
+@dataclass(frozen=True, slots=True)
+class WorktimeMaintenanceBatch:
+    processed: int
+    oldest_due_age_seconds: float | None
+
+
+async def generate_due_requests_with_backlog(session, *, now=None, batch_size=64) -> WorktimeMaintenanceBatch:
     """Bounded fair maintenance job; caller commits independently of Activity cleanup."""
     from endpoint_server.db.models.identity import ConfirmedIdentity
     now = utc(now or datetime.now(UTC))
@@ -341,16 +353,30 @@ async def generate_due_requests(session, *, now=None, batch_size=64):
         ActivityBinding.valid_from<now, ActivityBinding.valid_until>now-timedelta(days=2))))
         .order_by(WorkState.notification_checked_at.asc().nullsfirst(),WorkState.person_id).limit(batch_size))).all())
     count = 0
+    oldest_check = None
+    has_first_scan = False
     # Deterministic lock order avoids deadlocks between concurrent maintenance batches.
     for person_id in sorted(candidates):
         state = await lock_person(session,person_id)
+        if state.notification_checked_at is None:
+            has_first_scan = True
+        else:
+            checked = utc(state.notification_checked_at)
+            oldest_check = checked if oldest_check is None else min(oldest_check, checked)
         count += len(await generate_requests(session,person_id,day,now))
         state.notification_checked_at = now
     await session.flush()
-    return count
+    if has_first_scan:
+        return WorktimeMaintenanceBatch(count, None)
+    return WorktimeMaintenanceBatch(count, max(0.0, (now - (oldest_check or now)).total_seconds()))
 
 
 async def retain_worktime(session, *, now=None, batch_size=100):
+    batch = await retain_worktime_with_backlog(session, now=now, batch_size=batch_size)
+    return batch.processed
+
+
+async def retain_worktime_with_backlog(session, *, now=None, batch_size=100) -> WorktimeMaintenanceBatch:
     """Independent bounded personnel cleanup, disabled until policy explicitly sets days.
 
     Keep boundary event/schedule predecessors and policy/audit references. Activity
@@ -360,11 +386,12 @@ async def retain_worktime(session, *, now=None, batch_size=100):
     now = utc(now or datetime.now(UTC))
     policy = await session.scalar(select(RetentionPolicy).order_by(RetentionPolicy.created_at.desc(),RetentionPolicy.id.desc()).limit(1))
     if policy is None or policy.retention_days is None:
-        return 0
+        return WorktimeMaintenanceBatch(0, 0.0)
     cutoff = now-timedelta(days=policy.retention_days)
     people = list((await session.scalars(select(WorkState.person_id)
         .order_by(WorkState.retention_checked_at.asc().nullsfirst(),WorkState.person_id).limit(16))).all())
     deleted = 0
+    oldest = cutoff
     for person_id in sorted(people):
         if deleted >= batch_size:
             break
@@ -372,42 +399,62 @@ async def retain_worktime(session, *, now=None, batch_size=100):
         state = await session.scalar(select(WorkState).where(WorkState.person_id==person_id).with_for_update())
         before = deleted
 
-        async def purge(model, predicate):
-            nonlocal deleted
+        async def purge(model, predicate, *clocks):
+            nonlocal deleted, oldest
             remaining = batch_size-deleted
             if remaining <= 0:
                 return
             ids = list((await session.scalars(select(model.id).where(model.person_id==person_id,predicate)
                 .order_by(model.created_at,model.id).limit(remaining))).all())
             if ids:
-                await session.execute(delete(model).where(model.id.in_(ids)))
-                deleted += len(ids)
+                rows = (await session.execute(
+                    delete(model).where(model.id.in_(ids)).returning(*clocks)
+                )).all()
+                deleted += len(rows)
+                for row in rows:
+                    # Date-based predicates first permit deletion at the following UTC midnight.
+                    earliest = max(utc(value) if isinstance(value, datetime)
+                                   else day_bounds(value + timedelta(days=1), 'UTC')[0] for value in row)
+                    oldest = min(oldest, earliest)
 
-        await purge(Explanation,(Explanation.ended_at<cutoff)&(Explanation.created_at<cutoff))
+        await purge(Explanation,(Explanation.ended_at<cutoff)&(Explanation.created_at<cutoff),
+                    Explanation.ended_at, Explanation.created_at)
         # Requests with a retained, recently submitted explanation remain intact.
         retained_explanation = select(Explanation.id).where(Explanation.request_id==ExplanationRequest.id).correlate(ExplanationRequest).exists()
-        await purge(ExplanationRequest,(ExplanationRequest.ended_at<cutoff)&(ExplanationRequest.created_at<cutoff)&~retained_explanation)
+        await purge(ExplanationRequest,(ExplanationRequest.ended_at<cutoff)&(ExplanationRequest.created_at<cutoff)&~retained_explanation,
+                    ExplanationRequest.ended_at, ExplanationRequest.created_at)
 
         recent_decision = select(Approval.id).where(Approval.correction_id==Correction.id,Approval.created_at>=cutoff).correlate(Correction).exists()
         correction_ids = list((await session.scalars(select(Correction.id).where(Correction.person_id==person_id,
             Correction.ended_at<cutoff,Correction.created_at<cutoff,~recent_decision).limit(max(0,batch_size-deleted)))).all())
         if correction_ids:
-            await session.execute(delete(Approval).where(Approval.correction_id.in_(correction_ids)))
-            await session.execute(delete(Correction).where(Correction.id.in_(correction_ids)))
-            deleted += len(correction_ids)
+            approvals = dict((await session.execute(
+                delete(Approval).where(Approval.correction_id.in_(correction_ids))
+                .returning(Approval.correction_id, Approval.created_at)
+            )).tuples().all())
+            corrections = (await session.execute(
+                delete(Correction).where(Correction.id.in_(correction_ids))
+                .returning(Correction.id, Correction.ended_at, Correction.created_at)
+            )).all()
+            deleted += len(corrections)
+            for identifier, ended, created in corrections:
+                earliest = max(utc(ended), utc(created), utc(approvals.get(identifier, created)))
+                oldest = min(oldest, earliest)
 
         predecessor = await session.scalar(select(WorkEvent.id).where(WorkEvent.person_id==person_id,WorkEvent.occurred_at<cutoff)
             .order_by(WorkEvent.occurred_at.desc()).limit(1))
-        await purge(WorkEvent,(WorkEvent.occurred_at<cutoff)&(WorkEvent.id!=predecessor))
+        await purge(WorkEvent,(WorkEvent.occurred_at<cutoff)&(WorkEvent.id!=predecessor), WorkEvent.occurred_at)
         schedule = await schedule_for(session,person_id,cutoff.astimezone(ZoneInfo(TIMEZONE)).date())
-        await purge(Schedule,(Schedule.effective_from<cutoff.date())&(Schedule.created_at<cutoff)&(Schedule.id!=schedule.id if schedule else True))
-        await purge(ActivityBinding,(ActivityBinding.valid_until<cutoff)&(ActivityBinding.created_at<cutoff))
+        await purge(Schedule,(Schedule.effective_from<cutoff.date())&(Schedule.created_at<cutoff)&(Schedule.id!=schedule.id if schedule else True),
+                    Schedule.effective_from, Schedule.created_at)
+        await purge(ActivityBinding,(ActivityBinding.valid_until<cutoff)&(ActivityBinding.created_at<cutoff),
+                    ActivityBinding.valid_until, ActivityBinding.created_at)
         if deleted > before:
             audit(session,person_id,policy.actor_id,'personnel_retention',policy.id,now)
             state.records_expired_before = max(cutoff,utc(state.records_expired_before)) if state.records_expired_before else cutoff
         state.retention_checked_at = now
     await session.flush()
-    return deleted
+    return WorktimeMaintenanceBatch(deleted, (cutoff - oldest).total_seconds())
 
 
 def timesheet_metadata(row):

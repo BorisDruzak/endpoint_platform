@@ -8,8 +8,8 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from endpoint_server.db.models import ConfirmedIdentity
-from endpoint_server.worktime.models import Timesheet, TimesheetDay, WorkEvent, WorkState
-from endpoint_server.worktime.service import finalize_timesheet, transition
+from endpoint_server.worktime.models import Approval, RetentionPolicy, Timesheet, TimesheetDay, WorkEvent, WorkState
+from endpoint_server.worktime.service import finalize_timesheet, request_correction, retain_worktime_with_backlog, transition
 from tests.server.test_admin_auth import auth_database_url
 
 pytestmark = pytest.mark.usefixtures('preserve_migration_loggers')
@@ -48,6 +48,26 @@ def test_concurrent_devices_and_retries_serialize_on_confirmed_person(auth_datab
                 assert len(events) == 1 and state.status == 'WORKING'
                 await transition(db,target,target,'end',uuid4(),now+timedelta(hours=8))
                 await db.commit()
+            async with factory() as db:
+                correction = await request_correction(
+                    db, target, target, now, now + timedelta(hours=1),
+                    'BREAK', 'Isolated retention fixture', uuid4(), now + timedelta(days=1),
+                )
+                db.add(Approval(
+                    correction_id=correction.id, actor_id=uuid4(), decision='approved',
+                    comment='Historical test approval', idempotency_key=uuid4(),
+                    fingerprint='a' * 64, created_at=now + timedelta(days=2),
+                ))
+                db.add(RetentionPolicy(
+                    actor_id=target, retention_days=30, rationale='Isolated fixture', created_at=now,
+                ))
+                await db.commit()
+            async with factory() as db:
+                batch = await retain_worktime_with_backlog(db, now=now + timedelta(days=100), batch_size=1)
+                assert (batch.processed, batch.oldest_due_age_seconds) == (1, timedelta(days=68).total_seconds())
+                await db.commit()
+                events = (await db.scalars(select(WorkEvent).where(WorkEvent.person_id == target))).all()
+                assert len(events) == 2
         finally:
             await engine.dispose()
     asyncio.run(exercise())

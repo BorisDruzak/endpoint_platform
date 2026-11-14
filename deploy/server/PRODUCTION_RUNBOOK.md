@@ -603,6 +603,11 @@ For `schedule_fleet`, age is the longest wait among evaluations committed in
 the tick. A first evaluation starts at the later of policy revision time
 and device creation. A repeat starts at the prior evaluation in that
 revision. A skipped tick due to lock contention has no sample.
+For `generate_due_requests`, age is measured from the oldest prior notification
+scan among processed people. A batch containing a first scan reports unknown.
+For `retain_worktime`, age measures how far the deleted records were past the
+applicable date and timestamp cutoffs, including any linked approval timestamp.
+Disabled or empty personnel retention reports zero.
 WSS health is a separate operational signal.
 
 Job execution budgets are 15 to 30 seconds, including all transactions in a

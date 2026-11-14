@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from endpoint_server.db.base import Base
 from endpoint_server.db.models import ConfirmedIdentity, Device
 from endpoint_server.activity.analytics_models import ActivityInterval
+from endpoint_server.worktime import service
 from endpoint_server.worktime.models import WorkState, WorkEvent, Explanation, Correction, Approval, ActivityBinding, Schedule, ExplanationRequest
 from endpoint_server.worktime.service import transition, explain, request_correction, decide_correction, day_report, generate_requests, pending_requests, activity_segments, fingerprint
 
@@ -111,6 +112,20 @@ async def test_two_devices_deduplicated_and_request_is_durable_idempotent(db):
     await explain(db,target,target,start,start+timedelta(minutes=20),'meeting','',uuid4(),None,now)
     assert await pending_requests(db,target) == []
     assert await generate_requests(db,target,start.date(),now) == []
+
+
+async def test_generation_reports_wait_since_last_completed_scan(db):
+    target = await person(db)
+    start, _ = await technical(db, target, two_devices=True)
+    now = start + timedelta(hours=1)
+    first = await service.generate_due_requests_with_backlog(db, now=now)
+    assert (first.processed, first.oldest_due_age_seconds) == (1, None)
+    assert len(await pending_requests(db, target)) == 1
+    await db.commit()
+    repeat = await service.generate_due_requests_with_backlog(db, now=now + timedelta(seconds=47))
+    assert (repeat.processed, repeat.oldest_due_age_seconds) == (0, 47)
+    empty = await service.generate_due_requests_with_backlog(db, now=now + timedelta(days=4))
+    assert (empty.processed, empty.oldest_due_age_seconds) == (0, 0)
 
 
 async def test_multiple_explanations_cover_request_union_without_repeated_notification(db):
@@ -240,7 +255,8 @@ async def test_personnel_retention_requires_separate_explicit_policy(db):
     assert len((await db.scalars(select(Explanation))).all()) == 1
     db.add(RetentionPolicy(actor_id=target,retention_days=30,inactivity_threshold_seconds=1200,rationale='Approved pilot policy',created_at=start+timedelta(days=1)))
     await db.flush()
-    assert await retain_worktime(db,now=future) >= 1
+    batch = await service.retain_worktime_with_backlog(db, now=future)
+    assert (batch.processed, batch.oldest_due_age_seconds) == (2, timedelta(days=70).total_seconds())
     assert (await db.scalars(select(Explanation))).all() == []
     # The carry-forward event preserves state at the retention boundary.
     events = (await db.scalars(select(WorkEvent))).all()
