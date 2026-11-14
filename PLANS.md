@@ -24,8 +24,14 @@ a fresh Console policy and persisted cancellation of a second queued
 command. The canceled command never ran after resuming the first worker.
 On isolated Windows 10 VM143, a lab harness running as LocalService launched
 the frozen Core worker, verified a typed result, bounded a suspended worker
-to 2 seconds, canceled a second worker and ran a succeeding command. Installed
-Windows service and Gateway qualification remain open.
+to 2 seconds, canceled a second worker and ran a succeeding command.
+On installed Windows 3.2.207, Gateway accepted heartbeat during a
+suspended health worker and received one failed result after its
+45-second budget. Subsequent commands completed in the same WSS
+session. SCM stopped the service and a second suspended worker in
+798 ms. After restart, Gateway persisted one failure for the interrupted
+command and the exact ACK drained the local outbox. Windows policy and
+queued cancel during a stall remain open.
 STAB-03 source: bounded Windows Core cancellation,
 suspended launch into an owned Job, confirmed tree teardown and updater
 stop proof. On isolated VM143, SCM stopped the frozen launcher under
