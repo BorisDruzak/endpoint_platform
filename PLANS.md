@@ -33,8 +33,10 @@ session. SCM stopped the service and a second suspended worker in
 command and the exact ACK drained the local outbox. During another
 Windows health worker stall, Gateway sent a test command and cancel.
 The agent persisted canceled with no result before the worker exited,
-and retained that state after the worker timed out. Windows policy
-delivery during a stall remains open.
+and retained that state after the worker timed out. In a separate
+Windows run, a Console-assigned policy was applied and acknowledged
+on the same WSS session while the worker remained suspended. The
+original collection succeeded after resuming the worker.
 STAB-03 source: bounded Windows Core cancellation,
 suspended launch into an owned Job, confirmed tree teardown and updater
 stop proof. On isolated VM143, SCM stopped the frozen launcher under
