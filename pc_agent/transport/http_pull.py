@@ -216,8 +216,8 @@ class ClassifiedGatewayTransport:
     async def send_ack(self, ack: AgentCommandAckV1) -> None:
         await self._call(lambda: self._transport.send_ack(ack))
 
-    async def send_result(self, result: AgentResultV1) -> None:
-        await self._call(lambda: self._transport.send_result(result))
+    async def send_result(self, result: AgentResultV1) -> int | None:
+        return await self._call(lambda: self._transport.send_result(result))
 
     async def send_heartbeat(self, heartbeat: AgentHeartbeatV1) -> None:
         await self._call(lambda: self._transport.send_heartbeat(heartbeat))

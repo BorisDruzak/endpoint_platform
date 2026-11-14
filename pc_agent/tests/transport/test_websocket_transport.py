@@ -199,6 +199,33 @@ class _HandshakeSession:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("journal_supported", [False, True])
+async def test_command_journal_hello_requires_upgrade_echo(monkeypatch, tmp_path, journal_supported):
+    from endpoint_contracts.gateway_ws import COMMAND_JOURNAL_FEATURE, COMMAND_JOURNAL_HEADER
+    from pc_agent.transport import websocket
+
+    body = _gateway_hello_body()
+    if journal_supported:
+        body["payload"]["protocol_features"] = [COMMAND_JOURNAL_FEATURE]
+    socket = _HandshakeSocket(body)
+    socket._response.headers = {COMMAND_JOURNAL_HEADER: "1"} if journal_supported else {}
+    session = _HandshakeSession(socket)
+    monkeypatch.setattr(websocket.ssl, "create_default_context", lambda **_: object())
+    monkeypatch.setattr(websocket.aiohttp, "TCPConnector", lambda **_: object())
+    monkeypatch.setattr(websocket.aiohttp, "ClientSession", lambda **_: session)
+    transport = websocket.WebSocketGatewayTransport(
+        ca_file=tmp_path / "ca.pem", credential=_TOKEN, endpoint_origin=_ORIGIN,
+    )
+    await transport.connect(_agent_hello().model_copy(update={
+        "protocol_features": [COMMAND_JOURNAL_FEATURE],
+    }))
+    assert session.calls[0]["headers"][COMMAND_JOURNAL_HEADER] == "1"
+    expected = [COMMAND_JOURNAL_FEATURE] if journal_supported else []
+    assert socket.sent[0]["payload"].get("protocol_features", []) == expected
+    assert transport.protocol_features == frozenset(expected)
+
+
+@pytest.mark.asyncio
 async def test_connect_sends_exact_agent_hello_and_accepts_exact_gateway_hello(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

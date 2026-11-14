@@ -22,6 +22,8 @@ from endpoint_contracts.power_events import POWER_EVENTS_FEATURE, PowerEventBatc
 from endpoint_contracts.sensor_health import PolicySensorHealthReportV1
 from endpoint_contracts.telemetry_results import TELEMETRY_RESULTS_FEATURE
 from endpoint_contracts.gateway_ws import (
+    COMMAND_JOURNAL_FEATURE,
+    COMMAND_JOURNAL_HEADER,
     ActivityObservationEnvelopeV1,
     BrowserStatusReportEnvelopeV1,
     PolicySensorHealthReportEnvelopeV1,
@@ -204,9 +206,12 @@ class WebSocketGatewayTransport:
             trace_configs=[trace],
         )
         try:
+            headers = {"Authorization": f"Bearer {self._credential}"}
+            if COMMAND_JOURNAL_FEATURE in hello.protocol_features:
+                headers[COMMAND_JOURNAL_HEADER] = "1"
             self._socket = await self._session.ws_connect(
                 websocket_url,
-                headers={"Authorization": f"Bearer {self._credential}"},
+                headers=headers,
                 ssl=context,
                 max_msg_size=INITIAL_MAXIMUM_MESSAGE_BYTES,
             )
@@ -219,6 +224,12 @@ class WebSocketGatewayTransport:
                 raise GatewayTerminalError(
                     "Gateway connection did not use the exact Endpoint URL"
                 )
+            if (COMMAND_JOURNAL_FEATURE in hello.protocol_features
+                and getattr(response, "headers", {}).get(COMMAND_JOURNAL_HEADER) != "1"):
+                # Older servers validate hello against a closed feature list.
+                hello = hello.model_copy(update={"protocol_features": [
+                    feature for feature in hello.protocol_features if feature != COMMAND_JOURNAL_FEATURE
+                ]})
             envelope = AgentHelloEnvelopeV1(
                 schema_version="gateway_ws_envelope_v1",
                 sequence=0,
@@ -274,8 +285,8 @@ class WebSocketGatewayTransport:
             payload=ack,
         )
 
-    async def send_result(self, result: AgentResultV1) -> None:
-        await self._send(
+    async def send_result(self, result: AgentResultV1) -> int:
+        return await self._send(
             CommandResultEnvelopeV1,
             kind="command_result",
             payload=result,
@@ -478,13 +489,13 @@ class MigrationFallbackGatewayTransport:
             await self._switch_to_fallback(error, failed=active)
             await self._active.send_ack(ack)
 
-    async def send_result(self, result: AgentResultV1) -> None:
+    async def send_result(self, result: AgentResultV1) -> int | None:
         active = self._active
         try:
-            await active.send_result(result)
+            return await active.send_result(result)
         except GatewayTransportUnavailable as error:
             await self._switch_to_fallback(error, failed=active)
-            await self._active.send_result(result)
+            return await self._active.send_result(result)
 
     async def send_heartbeat(self, heartbeat: AgentHeartbeatV1) -> None:
         active = self._active

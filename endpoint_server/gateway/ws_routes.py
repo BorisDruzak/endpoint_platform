@@ -16,6 +16,8 @@ from starlette.websockets import WebSocketDisconnect
 
 from endpoint_contracts import AgentHelloV1, GatewayErrorV1, GatewayHelloV1
 from endpoint_contracts.gateway_ws import (
+    COMMAND_JOURNAL_FEATURE,
+    COMMAND_JOURNAL_HEADER,
     ActivityObservationEnvelopeV1,
     BrowserStatusReportEnvelopeV1,
     PolicySensorHealthReportEnvelopeV1,
@@ -188,7 +190,10 @@ async def connect_agent(websocket: WebSocket) -> None:
         await websocket.close(code=rejection.close_code)
         return
 
-    await websocket.accept()
+    if websocket.headers.get(COMMAND_JOURNAL_HEADER) == "1":
+        await websocket.accept(headers=[(COMMAND_JOURNAL_HEADER.encode("ascii"), b"1")])
+    else:
+        await websocket.accept()
     presence: GatewayPresence | None = None
     connection: GatewayConnection | None = None
     published = False
@@ -293,7 +298,7 @@ async def connect_agent(websocket: WebSocket) -> None:
                     protocol_features=[
                         feature for feature in (
                             TELEMETRY_RESULTS_FEATURE, POWER_EVENTS_FEATURE,
-                            POLICY_READINESS_FEATURE,
+                            POLICY_READINESS_FEATURE, COMMAND_JOURNAL_FEATURE,
                         ) if feature in connection.protocol_features
                     ],
                     policy_readiness=policy_readiness,
@@ -355,6 +360,7 @@ async def connect_agent(websocket: WebSocket) -> None:
                     session_id=presence.session_id,
                     result_sequence=envelope.sequence,
                     result=envelope.payload,
+                    durable_replay=COMMAND_JOURNAL_FEATURE in connection.protocol_features,
                 )
                 await connection.send(acknowledgement)
             elif isinstance(envelope, EndpointPolicyAckEnvelopeV1):

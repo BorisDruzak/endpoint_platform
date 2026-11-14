@@ -1752,6 +1752,16 @@ async def test_result_received_after_server_deadline_cannot_complete_operation(
             ),
         )
 
+    late = await CommandService(session_provider).record_result(
+        device_id=device.id,
+        device_instance_id=presence.device_instance_id,
+        session_id=presence.session_id,
+        result_sequence=2,
+        result=_diagnostic_result(command_id=envelope.payload.command_id, device_id=device.id),
+        durable_replay=True,
+    )
+    assert late.payload.result_sequence == 2
+
     async with session_provider() as session:
         persisted = await session.get(EndpointOperation, operation.id)
         command = await session.get(Command, envelope.payload.command_id)
@@ -1912,8 +1922,10 @@ async def test_mismatched_diagnostic_reason_rolls_back_without_result_ack(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("first_result_after_reconnect", [False, True])
 async def test_reconnect_duplicate_is_idempotent_but_conflicting_result_rejects(
     session_provider: async_sessionmaker[AsyncSession],
+    first_result_after_reconnect: bool,
 ) -> None:
     """Reconnect replay may recover an ACK but must never replace terminal content."""
     device = await seed_device(session_provider)
@@ -1934,13 +1946,14 @@ async def test_reconnect_duplicate_is_idempotent_but_conflicting_result_rejects(
         command_id=first_delivery.payload.command_id,
         device_id=device.id,
     )
-    await service.record_result(
-        device_id=device.id,
-        device_instance_id=first.device_instance_id,
-        session_id=first.session_id,
-        result_sequence=9,
-        result=result,
-    )
+    if not first_result_after_reconnect:
+        await service.record_result(
+            device_id=device.id,
+            device_instance_id=first.device_instance_id,
+            session_id=first.session_id,
+            result_sequence=9,
+            result=result,
+        )
     reconnected = await _open_session(
         session_provider,
         device_id=device.id,
@@ -1953,6 +1966,7 @@ async def test_reconnect_duplicate_is_idempotent_but_conflicting_result_rejects(
         session_id=reconnected.session_id,
         result_sequence=1,
         result=result,
+        durable_replay=first_result_after_reconnect,
     )
     assert duplicate_ack.payload.result_sequence == 1
     conflicting = result.model_copy(update={"message": "conflicting terminal replay"})
@@ -1963,6 +1977,7 @@ async def test_reconnect_duplicate_is_idempotent_but_conflicting_result_rejects(
             session_id=reconnected.session_id,
             result_sequence=2,
             result=conflicting,
+            durable_replay=first_result_after_reconnect,
         )
     different_instance = await _open_session(
         session_provider,
@@ -1976,6 +1991,7 @@ async def test_reconnect_duplicate_is_idempotent_but_conflicting_result_rejects(
             session_id=different_instance.session_id,
             result_sequence=1,
             result=result,
+            durable_replay=first_result_after_reconnect,
         )
 
     async with session_provider() as session:

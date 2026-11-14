@@ -468,6 +468,7 @@ async def _record_module_step_result(
     result_sequence: int,
     result: AgentResultV1,
     payload_digest: str,
+    same_instance_delivery: bool = False,
 ) -> None:
     """Commit one child result, advancing only a still-successful parent chain."""
     expected_step_count = await _require_authoritative_module_step_set(
@@ -482,7 +483,7 @@ async def _record_module_step_result(
     if stored is not None:
         if (
             delivery is None
-            or delivery.device_session_id != session_id
+            or (delivery.device_session_id != session_id and not same_instance_delivery)
             or stored.command_id != command.id
             or stored.delivery_id != delivery.id
             or stored.result_payload_digest != payload_digest
@@ -500,7 +501,7 @@ async def _record_module_step_result(
         return
     if (
         delivery is None
-        or delivery.device_session_id != session_id
+        or (delivery.device_session_id != session_id and not same_instance_delivery)
         or command.status not in {"delivered", "acknowledged", "running"}
         or step.status not in {"delivered", "acknowledged", "running"}
         or operation.status not in {"delivered", "acknowledged", "running"}
@@ -1040,6 +1041,7 @@ class CommandService:
         session_id: UUID,
         result_sequence: int,
         result: AgentResultV1,
+        durable_replay: bool = False,
     ) -> ResultAckEnvelopeV1:
         if result_sequence < 0:
             raise CommandStateRejected("result sequence must be non-negative")
@@ -1081,6 +1083,32 @@ class CommandService:
                     .where(CommandDelivery.command_id == command.id)
                     .with_for_update()
                 )
+                same_instance_delivery = False
+                if durable_replay:
+                    if delivery is not None and delivery.device_session_id is not None:
+                        owner = await session.scalar(
+                            select(DeviceSession.device_instance_id).where(
+                                DeviceSession.id == delivery.device_session_id,
+                                DeviceSession.device_id == device_id,
+                            )
+                        )
+                        same_instance_delivery = owner == device_instance_id
+                    if not same_instance_delivery:
+                        raise CommandStateRejected("result delivery belongs to another instance")
+                    deadline = _as_utc(command.expires_at)
+                    if command.status in {"expired", "canceled"} or (
+                        deadline is not None and datetime.now(UTC) >= deadline
+                        and command.status not in _TERMINAL_STATUSES
+                    ):
+                        # Receipt lets the journal settle a late delivery. It
+                        # does not publish a result or change server expiry.
+                        await session.rollback()
+                        return ResultAckEnvelopeV1(
+                            schema_version="gateway_ws_envelope_v1", kind="result_ack",
+                            sequence=result_sequence,
+                            payload=ResultAckV1(schema_version="result_ack_v1",
+                                command_id=result.command_id, result_sequence=result_sequence),
+                        )
                 module_relation = await resolve_module_step_relation(session, command)
                 if module_relation is not None:
                     step, module_operation = module_relation
@@ -1096,6 +1124,7 @@ class CommandService:
                         result_sequence=result_sequence,
                         result=result,
                         payload_digest=payload_digest,
+                        same_instance_delivery=same_instance_delivery,
                     )
                     await session.commit()
                     return ResultAckEnvelopeV1(
@@ -1125,7 +1154,7 @@ class CommandService:
                     if operation is not None:
                         if (
                             delivery is None
-                            or delivery.device_session_id != session_id
+                            or (delivery.device_session_id != session_id and not same_instance_delivery)
                             or command.status
                             not in {"delivered", "acknowledged", "running"}
                             or operation.status
@@ -1274,8 +1303,11 @@ class CommandService:
                             raise CommandStateRejected(
                                 "operation failure replay is unavailable"
                             )
-                    elif stored.result_sequence is None:
-                        stored.result_sequence = result_sequence
+                    else:
+                        if durable_replay and stored.result_payload_digest != payload_digest:
+                            raise CommandStateRejected("result replay conflicts with stored result")
+                        if stored.result_sequence is None:
+                            stored.result_sequence = result_sequence
 
                 instance.last_result_sequence = max(
                     instance.last_result_sequence,

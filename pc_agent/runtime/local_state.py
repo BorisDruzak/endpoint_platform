@@ -13,7 +13,8 @@ import aiosqlite
 
 from endpoint_contracts.commands import AgentCommandV1, AgentResultV1
 
-LOCAL_STATE_SCHEMA_VERSION = 2
+# The inbox is additive. Keep the marker readable by the rollback Core.
+LOCAL_STATE_SCHEMA_VERSION = 1
 _MAX_COMMAND_RECORDS = 4096
 _COMPLETED_RETENTION = timedelta(days=1)
 
@@ -46,7 +47,7 @@ async def migrate_local_state(path: Path) -> None:
                     "INSERT INTO endpoint_runtime_schema(singleton, schema_version) VALUES (1, ?)",
                     (LOCAL_STATE_SCHEMA_VERSION,),
                 )
-            elif row[0] not in (1, LOCAL_STATE_SCHEMA_VERSION):
+            elif row[0] != LOCAL_STATE_SCHEMA_VERSION:
                 raise LocalStateError("unsupported Endpoint runtime local-state schema")
 
             await connection.execute(
@@ -79,11 +80,6 @@ async def migrate_local_state(path: Path) -> None:
                 )
                 """
             )
-            if row is not None and row[0] == 1:
-                await connection.execute(
-                    "UPDATE endpoint_runtime_schema SET schema_version = ? WHERE singleton = 1",
-                    (LOCAL_STATE_SCHEMA_VERSION,),
-                )
             await connection.commit()
         except BaseException:
             await connection.rollback()
@@ -162,19 +158,24 @@ class CommandJournal:
             return
         async with connection.execute(
             """
-            DELETE FROM endpoint_command_inbox WHERE command_id IN (
-                SELECT i.command_id FROM endpoint_command_inbox AS i
+            SELECT i.command_id FROM endpoint_command_inbox AS i
                 WHERE i.state IN ('completed', 'canceled') AND i.deadline_at < ?
                   AND NOT EXISTS (
                       SELECT 1 FROM endpoint_pending_results AS p WHERE p.command_id = i.command_id
                   )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM endpoint_seen_commands AS s WHERE s.command_id = i.command_id
+                  )
                 ORDER BY i.deadline_at LIMIT 128
-            )
             """,
             (_utc(now - _COMPLETED_RETENTION),),
         ) as cursor:
-            if not cursor.rowcount:
-                raise LocalStateError("command journal capacity reached")
+            expired = await cursor.fetchall()
+        if not expired:
+            raise LocalStateError("command journal capacity reached")
+        await connection.executemany(
+            "DELETE FROM endpoint_command_inbox WHERE command_id = ?", expired,
+        )
 
     async def complete(self, command: AgentCommandV1, result: AgentResultV1) -> None:
         if (command.command_id, command.device_id) != (result.command_id, result.device_id):
@@ -216,6 +217,19 @@ class CommandJournal:
             ) as cursor:
                 return [AgentResultV1.model_validate_json(row[0]) async for row in cursor]
 
+    async def pending_result(self, device_id: UUID, command_id: UUID) -> AgentResultV1 | None:
+        async with aiosqlite.connect(self.path, timeout=1) as connection:
+            async with connection.execute(
+                """
+                SELECT p.result_json FROM endpoint_pending_results AS p
+                JOIN endpoint_command_inbox AS i ON i.command_id = p.command_id
+                WHERE i.device_id = ? AND i.command_id = ?
+                """,
+                (str(device_id), str(command_id)),
+            ) as cursor:
+                row = await cursor.fetchone()
+                return None if row is None else AgentResultV1.model_validate_json(row[0])
+
     async def acknowledge(self, result: AgentResultV1) -> bool:
         async with self._write() as connection:
             async with connection.execute(
@@ -242,6 +256,11 @@ async def _store_result(connection, result: AgentResultV1) -> None:
         "INSERT INTO endpoint_pending_results (command_id, result_json, created_at) VALUES (?, ?, ?)",
         (command_id, result.model_dump_json(), _utc(result.completed_at)),
     )
+    if result.message == "AGENT_COMMAND_OUTCOME_UNKNOWN":
+        await connection.execute(
+            "INSERT INTO endpoint_seen_commands VALUES (?, ?, ?)",
+            (command_id, result.model_dump_json(), _utc(result.completed_at)),
+        )
     await connection.execute(
         "UPDATE endpoint_command_inbox SET state = 'completed' WHERE command_id = ?", (command_id,)
     )

@@ -68,8 +68,14 @@ receipt. Historical Core caches, deployment releases and retirement of catalog
 artifacts remain open.
 STAB-02 foundation: local SQLite records a command ID, device, payload digest,
 and start before execution, then commits completion and outbox together.
-Interrupted starts recover as unknown outcomes. Runtime wiring, exact WSS ACK
-tracking, server replay handling and reconnect verification are still pending.
+Interrupted starts recover as unknown outcomes. Negotiated WSS sessions
+bind the result ACK to the sent command and sequence. The Gateway accepts
+same-instance reconnect results under the original deadline and acknowledges
+late results for cleanup without applying them. An upgrade header gates the
+new hello feature for legacy Gateway parsers. Cancel fences queued work;
+started work retains its observed or uncertain outcome. Installed
+cross-version canary and server-originated cancellation remain open.
+The additive SQLite table keeps the existing schema marker for Core rollback.
 Release evidence requires an exact-source CI receipt before publication.
 
 ## SSO + WorkTime staged implementation (2026-10-27)

@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlsplit
 
 import aiohttp
-from endpoint_contracts.gateway_ws import EndpointPolicyAckV1, EndpointPolicyDeliveryV1
+from endpoint_contracts.gateway_ws import COMMAND_JOURNAL_FEATURE, EndpointPolicyAckV1, EndpointPolicyDeliveryV1
 
 if TYPE_CHECKING:
     from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateResult
@@ -164,6 +164,8 @@ async def run_runtime(settings: RuntimeSettings) -> int:
 def _default_dependencies(
     settings: RuntimeSettings | None = None,
 ) -> RuntimeDependencies:
+    from .local_state import CommandJournal
+
     staged_writer = None
     if os.name == 'nt' and settings is not None and settings.transport_mode == 'gateway_wss':
         from pc_agent.platform.windows.staged_trial_proof import StagedTrialProofWriter
@@ -644,6 +646,11 @@ def _default_dependencies(
         ),
         create_connected_tasks=create_connected_tasks,
         create_service_tasks=create_service_tasks,
+        command_journal=(
+            CommandJournal(settings.data_root / "storage.db")
+            if settings is not None and settings.transport_mode == "gateway_wss"
+            and not settings.migration_http_pull_fallback else None
+        ),
         recover_protocol_errors=(os.name == "nt" and settings is not None
             and settings.transport_mode == "gateway_wss"
             and not settings.migration_http_pull_fallback),
@@ -791,6 +798,8 @@ def _load_hello(settings: object) -> AgentHelloV1:
         )
         if platform == "windows_amd64" and not settings.migration_http_pull_fallback:
             features.append("endpoint.recovery-update.v2")
+        if not settings.migration_http_pull_fallback:
+            features.append(COMMAND_JOURNAL_FEATURE)
         features.append("endpoint.telemetry-results.v1")
         features.append("endpoint.power-events.v1")
         features.append("endpoint.policy-readiness.v1")
