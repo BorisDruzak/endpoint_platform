@@ -186,6 +186,11 @@ expected in-progress result. The installed 1.0.12 task ran as SYSTEM,
 sent hello and received no assignment from the isolated Gateway after
 temporarily setting aside the settled pointer for the old lab identity.
 The pointer was restored byte-for-byte.
+The [VM143 timeout receipt](docs/verification/2026-11-14-agent-release-qualification-matrix.md#очистка-дерева-read-only-preflight-stab-12)
+records the signed 1.0.12 functions running as SYSTEM under Windows PowerShell
+5.1. The stock 180-second deadline reaped the synthetic process tree in
+180.043 seconds. Six short failure cases reaped their trees, and the next
+healthy preflight succeeded with the Agent service PID intact.
 STAB-13 first change: accepted Windows Core selection retires the exact
 operation ZIP after its durable acceptance record, with path, ACL, identity,
 size and digest checks. The Setup observer retires the verified download for
