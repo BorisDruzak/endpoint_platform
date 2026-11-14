@@ -130,8 +130,11 @@ five context profiles and a fresh heartbeat after reboot. The first automatic
 baseline was granted to the temporary bootstrap service and its running
 journal entry stayed in the temporary SQLite database when that service
 stopped. The DEB provisioner now opts into an enrollment-only Core mode so the
-installed service opens the first WSS session. Exact rebuilt native acceptance
-of that handoff remains open.
+installed service opens the first WSS session. On Ubuntu VM138, the exact
+rebuilt Core exited from bootstrap with zero Gateway sessions or context
+collections. The installed service completed the automatic baseline on
+the first session, and enrollment verification reached completed without
+an administrator collection.
 Production signing and publication and installed Proxmox verification remain open.
 STAB-17 source: metadata renewal verifies the pinned signer and all signed index
 and DEB hashes before changing the signed dates. The expiry check covers Ubuntu
