@@ -26,8 +26,12 @@ The isolated ALT 11.4 VM142 installed a lab-signed headless 3.2.205 RPM
 built from the exact committed source. Its installed path unit rejected
 an unauthorized pending update with the same Core PID and selector.
 Offline remove/reinstall and reboot preserved the selector and fixture
-identity, CA and config. Authorized OTA fault injection and real Gateway
-reconnect on the installed RPM remain open.
+identity, CA and config. A fresh loopback Gateway accepted the exact
+lab-signed RPM through source-bound manual approval and first-boot claim
+exchange in the installed service. It completed all five context profiles and
+verified the request once. After claim removal and reboot, the same device
+sent a heartbeat in a new WSS session with identical retained files.
+Authorized OTA fault injection remains open.
 STAB-05 source: durable operation journal before the watched pending rename;
 fault injection before/after publication preserved outcome reporting. Native
 watcher timing and full power-loss qualification remain open. STAB-06:
