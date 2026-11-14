@@ -94,6 +94,9 @@ check warns with three days remaining. Ubuntu 24.04 accepted a renewed test
 InRelease with ordinary APT and downloaded the identical fixture DEB. Production
 publisher ownership, scheduled alert delivery and live renewal remain open.
 Release evidence requires an exact-source CI receipt before publication.
+STAB-15: the [release qualification matrix](docs/verification/2026-11-14-agent-release-qualification-matrix.md)
+records historical evidence and the test cases required for each exact new
+OS, source and artifact combination. New installed canary evidence is pending.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
 
