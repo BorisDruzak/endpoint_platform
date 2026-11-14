@@ -55,6 +55,12 @@ private retained bytes and a pending-request recheck before selector commit.
 ALT VM107 verified OpenPGP acceptance with an ephemeral test key and rejected
 missing, changed and mismatched authorizations. The signed RPM launcher and
 authorization from the real publisher still require release qualification.
+An installed ALT headless RPM now carries the pinned publisher public key and
+requires GnuPG. The lab-signed alt6 exposed a stale revision in the selector
+on same-agent-version upgrade. On VM142, alt7 refreshed that selector, passed
+the release manifest check, preserved enrollment state and reconnected to
+the loopback Gateway. Its installed watcher rejected a foreign-signed
+authorization before stopping Core.
 STAB-12 source: the Windows Setup observer starts read-only preflight in an
 owned process job, bounds stdout during capture and stops on stderr. Windows
 PowerShell 5.1 verified repeated timeouts, output overflow and child cleanup
