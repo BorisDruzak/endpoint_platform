@@ -7,6 +7,7 @@ import json
 import platform
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -168,6 +169,15 @@ def build(
             script = metadata / name
             script.write_bytes(profile.render(packaging / name))
             script.chmod(0o755)
+        # The private scratch root stays private. Installed files must be
+        # traversable and readable by the unprivileged systemd service.
+        tree.chmod(0o755)
+        for path in tree.rglob("*"):
+            mode = path.lstat().st_mode
+            if stat.S_ISDIR(mode):
+                path.chmod(0o755)
+            elif stat.S_ISREG(mode):
+                path.chmod(0o755 if mode & 0o111 else 0o644)
         candidate = scratch / artifact.name
         subprocess.run(
             ["dpkg-deb", "--root-owner-group", "--build", tree, candidate], check=True,

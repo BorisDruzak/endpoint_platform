@@ -1,6 +1,8 @@
 import json
+import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 from types import SimpleNamespace
 
@@ -220,3 +222,45 @@ def test_build_debian12_uses_independent_package_and_state(tmp_path, monkeypatch
         core, tmp_path / "output", version="3.2.193", source_revision="c" * 40, target="debian12",
     )
     assert artifact.name == "endpoint-agent-debian_3.2.193-1deb12u1_amd64.deb"
+
+
+@pytest.mark.skipif(os.name != "posix" or not shutil.which("dpkg-deb"), reason="requires native dpkg")
+def test_real_deb_is_readable_by_service_when_built_with_private_umask(tmp_path, monkeypatch):
+    _ubuntu_host(monkeypatch)
+    revision = "a" * 40
+    core = tmp_path / "core"
+    executable = core / "endpoint-agent"
+    identity = {
+        "schema_version": "endpoint_linux_core_build_v2",
+        "version": "3.2.191",
+        "source_revision": revision,
+        "python_version": "3.12.3",
+        "pyinstaller_version": "6.19.0",
+    }
+    old_umask = os.umask(0o077)
+    try:
+        (core / "_internal").mkdir(parents=True)
+        (core / "_internal/build.json").write_text(json.dumps(identity))
+        executable.write_text(
+            "#!/bin/sh\n"
+            'if [ "$1" = --print-version ]; then echo 3.2.191; else\n'
+            '    cat "$(dirname "$0")/_internal/build.json"\n'
+            "fi\n",
+        )
+        executable.chmod(0o700)
+        (core / "_internal/build-link.json").symlink_to("build.json")
+        artifact = ubuntu.build(
+            core, tmp_path / "packages", version="3.2.191", source_revision=revision,
+        )
+    finally:
+        os.umask(old_umask)
+
+    extracted = tmp_path / "extracted"
+    subprocess.run(["dpkg-deb", "--extract", artifact, extracted], check=True, timeout=15)
+    runtime = extracted / "usr/lib/endpoint-agent-ubuntu"
+    for directory in (extracted / "usr", runtime, runtime / "_internal"):
+        assert stat.S_IMODE(directory.stat().st_mode) == 0o755
+    for file in (runtime / "current.json", runtime / "_internal/build.json"):
+        assert stat.S_IMODE(file.stat().st_mode) == 0o644
+    assert stat.S_IMODE((runtime / "endpoint-agent").stat().st_mode) == 0o755
+    assert (runtime / "_internal/build-link.json").readlink() == Path("build.json")
