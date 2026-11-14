@@ -554,13 +554,15 @@ async def test_worker_runs_payload_cleanup_on_minute_cadence_independently_of_sn
             completed.set()
         return 0
 
-    for name in (
-        "cleanup_raw_context_payloads", "cleanup_context_collections",
-        "cleanup_operation_results", "cleanup_module_step_results",
-        "retain_security_events",
+    for name, implementation in (
+        ("cleanup_raw_context_payloads", "cleanup_raw_context_payloads_with_backlog"),
+        ("cleanup_context_collections", "cleanup_context_collections_with_backlog"),
+        ("cleanup_operation_results", "cleanup_operation_results"),
+        ("cleanup_module_step_results", "cleanup_module_step_results_with_backlog"),
+        ("retain_security_events", "retain_security_events"),
     ):
         monkeypatch.setattr(
-            "endpoint_server.worker." + (name + "_with_backlog" if name == "cleanup_module_step_results" else name),
+            "endpoint_server.worker." + implementation,
             lambda session, job=name: record(job, session),
         )
     task = asyncio.create_task(run_worker(

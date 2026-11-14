@@ -15,7 +15,10 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
 from endpoint_server.config import Settings
-from endpoint_server.context.retention import cleanup_context_collections, cleanup_raw_context_payloads, retain_context_snapshots
+from endpoint_server.context.retention import (
+    ContextCleanupBatch, cleanup_context_collections_with_backlog,
+    cleanup_raw_context_payloads_with_backlog, retain_context_snapshots,
+)
 from endpoint_server.context.scheduler import ContextScheduleBatch, schedule_due_collections_with_backlog
 from endpoint_server.db.session import SessionProvider, create_session_provider
 from endpoint_server.enrollment.delivery import cleanup_expired_retry_envelopes, enrollment_retry_backlog_age
@@ -100,6 +103,12 @@ async def _run_transactional_job(
 
 class MaintenanceFailure(Exception):
     """Only fixed codes from the worker wrapper may enter diagnostics."""
+
+
+def _committed_batch_backlog_age(result: object) -> float | None:
+    if isinstance(result, (ContextCleanupBatch, ContextScheduleBatch, StepCleanupBatch)):
+        return result.oldest_due_age_seconds
+    return None
 
 
 async def _report_artifact_disk_pressure(root: Path) -> None:
@@ -223,19 +232,17 @@ async def run_worker(
             await _run_worktime_maintenance(provider, enabled=settings.worktime_enabled, jobs=jobs, due_at=tick)
             if loop.time() >= next_payload:
                 for name, job in (
-                    ("cleanup_raw_context_payloads", cleanup_raw_context_payloads),
-                    ("cleanup_context_collections", cleanup_context_collections),
+                    ("cleanup_raw_context_payloads", cleanup_raw_context_payloads_with_backlog),
+                    ("cleanup_context_collections", cleanup_context_collections_with_backlog),
                 ):
-                    await jobs.run(name, job, due_at=next_payload)
+                    await jobs.run(name, job, due_at=next_payload, committed_backlog=_committed_batch_backlog_age)
                 await jobs.run(
                     "cleanup_operation_results", cleanup_operation_results, due_at=next_payload,
                     measure_backlog=operation_result_cleanup_backlog_age,
                 )
                 await jobs.run(
                     "cleanup_module_step_results", cleanup_module_step_results_with_backlog, due_at=next_payload,
-                    committed_backlog=lambda result: (
-                        result.oldest_due_age_seconds if isinstance(result, StepCleanupBatch) else None
-                    ),
+                    committed_backlog=_committed_batch_backlog_age,
                 )
                 for name, job in (
                     ("retain_security_events", retain_security_events),
@@ -247,9 +254,7 @@ async def run_worker(
             if loop.time() >= next_schedule:
                 await jobs.run(
                     "schedule_due_collections", schedule_due_collections_with_backlog, due_at=next_schedule,
-                    committed_backlog=lambda result: (
-                        result.oldest_due_age_seconds if isinstance(result, ContextScheduleBatch) else None
-                    ),
+                    committed_backlog=_committed_batch_backlog_age,
                 )
                 next_schedule = loop.time() + context_schedule_interval_seconds
             if loop.time() >= next_retention:

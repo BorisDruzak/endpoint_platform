@@ -87,12 +87,42 @@ async def test_raw_cleanup_scrubs_both_copies_without_current_projection(session
     session.add(ContextCurrent(id=uuid4(), device_id=device.id, profile="baseline_v1",
         snapshot_id=old.id, updated_at=NOW))
     await session.flush()
-    assert await cleanup_raw_context_payloads(session, now=NOW + timedelta(hours=2)) == (1, 1)
+    # The oldest snapshot may remain eligible after its transport copy was
+    # already scrubbed. Use receive time rather than the older collection time.
+    snapshot_only = await _snapshot(session, device_id=device.id, collected_at=NOW - timedelta(days=2))
+    snapshot_collection = await session.get(ContextCollection, snapshot_only.collection_id)
+    snapshot_collection.result_received_at = NOW - timedelta(minutes=30)
+    await session.flush()
+    result = await retention.cleanup_raw_context_payloads_with_backlog(session, now=NOW + timedelta(hours=2))
+    assert (result.collections, result.snapshots, result.oldest_due_age_seconds) == (1, 2, 5400)
     await session.flush()
     assert collection.raw_result_payload is None
     assert old.raw_payload is None
     assert old.normalized_projection == {"profile": "baseline_v1"}
     assert await cleanup_raw_context_payloads(session, now=NOW + timedelta(hours=2)) == (0, 0)
+
+
+@pytest.mark.asyncio
+async def test_collection_cleanup_age_excludes_rows_with_a_snapshot(session: AsyncSession) -> None:
+    device = Device(device_identifier="collection-retention")
+    session.add(device)
+    await session.flush()
+    protected = await _snapshot(session, device_id=device.id, collected_at=NOW - timedelta(days=3))
+    linked = await session.get(ContextCollection, protected.collection_id)
+    linked.requested_by = "scheduler"
+    eligible = ContextCollection(
+        device_id=device.id, profile="health_v1", requested_by="scheduler",
+        idempotency_key="old-health", status="expired",
+        requested_at=NOW - timedelta(hours=25), failed_at=NOW - timedelta(hours=24),
+    )
+    session.add(eligible)
+    await session.flush()
+    result = await retention.cleanup_context_collections_with_backlog(session, now=NOW)
+    assert (result.collections, result.oldest_due_age_seconds) == (1, 3600)
+    assert await session.get(ContextCollection, linked.id) is not None
+    assert await session.get(ContextCollection, eligible.id) is None
+    empty = await retention.cleanup_context_collections_with_backlog(session, now=NOW)
+    assert (empty.collections, empty.oldest_due_age_seconds) == (0, 0)
 
 
 @pytest.mark.asyncio

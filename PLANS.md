@@ -113,6 +113,9 @@ including expired envelopes still locked by another transaction.
 Operation evidence cleanup reports the oldest expired unpinned payload.
 Module step cleanup reports the oldest overdue copy in its committed batch
 using its existing bounded read.
+Context payload and collection cleanup report the oldest deadline exceeded
+in each committed batch, using the existing reads and preserving the current
+retention predicates.
 Other data-queue ages remain open.
 STAB-09 source: explicit Core transfer total/connect/idle
 timeouts with matching recovery-supervisor budget. Slow and stalled loopback
