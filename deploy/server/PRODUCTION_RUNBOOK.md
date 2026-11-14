@@ -360,14 +360,18 @@ sudo /usr/bin/python3.12 -B -m tools.release.inventory_deployments
 ```
 
 Pass each exact deployed directory name with `--pin` to mark a deployment or
-audit hold, including the suffix if the directory has one. The inventory checks the
-`current` symlink and `/etc/endpoint-platform/previous-release`, and reports
-free space on the release volume, apparent regular-file bytes per release and
-unmeasured entries such as symlinks. Use it before upgrade to review the
-10 GiB free-space requirement. An empty `protected_by` list only means that
-the selectors and supplied pins do not name that directory. Check pending
-deployments, running processes, and restore and audit records before any
-separately authorized retirement.
+audit hold, including the suffix if the directory has one. The report checks
+`current`, `/etc/endpoint-platform/previous-release` and
+`/etc/endpoint-platform/release-commit`. It also attributes live working
+directories, executables, open files and mapped libraries to release
+directories using Linux `/proc`. Inspect `process_scan_incomplete_pids` for
+inaccessible process data. Use the free space figure before upgrade to review
+the 10 GiB requirement.
+
+An empty `protected_by` list indicates that this scan found no matching
+reference. Before any separately authorized retirement, check pending
+deployments, restore and audit records and references that a running process
+may reopen later. Repeat the inventory immediately before any move.
 
 The worker logs free bytes on the artifact volume at startup and every 15
 minutes. From the release checkout and its server environment, run

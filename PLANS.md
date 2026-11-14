@@ -162,6 +162,13 @@ preserves unclassified entries for operator review. Read-only production
 inventory resolved current and rollback, measured 104 release directories and
 reported nine unclassified entries and 8,418,435,072 bytes free on the release
 volume. No retirement was performed.
+The next production observation found five directories with direct references.
+The release-commit marker names `5c3eb383e776`. Support Exporter runs from
+`ed643cddf0f5`, and API, worker and Exporter map dependencies from
+`ce46fd47a3a9`. The inventory now surfaces these live references in addition
+to current and rollback. It reported no inaccessible PIDs in that pass.
+Remaining directories still need review of deployment, restore and audit
+records before any retirement.
 STAB-02 foundation: local SQLite records a command ID, device, payload digest,
 and start before execution, then commits completion and outbox together.
 Interrupted starts recover as unknown outcomes. Negotiated WSS sessions

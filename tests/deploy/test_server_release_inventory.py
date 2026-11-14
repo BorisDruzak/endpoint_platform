@@ -94,3 +94,43 @@ def test_inventory_rejects_changed_rollback_marker(deployment, monkeypatch):
     monkeypatch.setattr(inventory_deployments, "_measure", change_marker)
     with pytest.raises(ValueError, match="deployment pointers changed"):
         inventory_deployments.read_inventory(releases, current, previous)
+
+
+def test_inventory_protects_staged_commit_variants_and_running_processes(deployment):
+    releases, current, previous = deployment
+    variant = OTHER + "-candidate"
+    (releases / variant).mkdir()
+    staged = releases.parent / "release-commit"
+    staged.write_bytes(b"001122334455\n")
+    proc = releases.parent / "proc"
+    process = proc / "73"
+    (process / "fd").mkdir(parents=True)
+    (process / "cwd").symlink_to(releases / CURRENT, target_is_directory=True)
+    (process / "exe").symlink_to(releases / CURRENT / "nested/content")
+    (process / "maps").write_text(f"0-1 r--p 00000000 00:00 1 {releases / variant / 'lib.so'}\n")
+    (process / "fd/3").symlink_to(releases / PREVIOUS / "nested/content")
+    report = inventory_deployments.read_inventory(releases, current, previous, staged=staged, proc=proc)
+    assert report["process_scan_incomplete_pids"] == []
+    entries = {row["name"]: row for row in report["releases"]}
+    assert entries[CURRENT]["protected_by"] == ["current", "process"]
+    assert entries[PREVIOUS]["protected_by"] == ["previous", "process"]
+    assert entries[OTHER]["protected_by"] == ["staged"]
+    assert entries[variant]["protected_by"] == ["staged", "process"]
+    assert entries[variant]["process_ids"] == [73]
+
+
+def test_inventory_reports_inaccessible_process_evidence(deployment, monkeypatch):
+    releases, current, previous = deployment
+    proc = releases.parent / "proc"
+    process = proc / "73"
+    process.mkdir(parents=True)
+    original = Path.readlink
+
+    def readlink(path):
+        if path == process / "cwd":
+            raise PermissionError(path)
+        return original(path)
+
+    monkeypatch.setattr(Path, "readlink", readlink)
+    report = inventory_deployments.read_inventory(releases, current, previous, proc=proc)
+    assert report["process_scan_incomplete_pids"] == [73]

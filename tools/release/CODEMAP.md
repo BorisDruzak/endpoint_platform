@@ -11,8 +11,8 @@
   native-tar header, byte-preservation/reproducibility and unsafe-input regressions.
 - `deploy/server/PRODUCTION_RUNBOOK.md`: immutable archive identity, protected
   root extraction and complete physical/mode/digest closure before venv/imports.
-- `inventory_deployments.py`: read-only release-volume and directory inventory
-  with current, rollback and explicitly pinned release names.
+- `inventory_deployments.py`: read-only release-volume inventory with current,
+  rollback, staged commit, explicit pins and observed Linux process references.
 - `inventory_storage.py`: read-only artifact-volume inventory against the four
   release catalog owners. Both inventory modules ship in the server archive.
 
