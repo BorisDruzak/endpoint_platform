@@ -109,6 +109,11 @@ audited, replayable action. The health profile now carries the Windows updater
 service state and separate ALT service and path states. Console dates them from
 the agent's health sample. Installed native acceptance and live resolution
 of the five historical intents remain open.
+STAB-19: [local Gateway capacity rehearsal](docs/verification/2026-11-14-stab19-gateway-capacity.md)
+measured connection, replacement, command and health telemetry bursts on a
+single Uvicorn process with PostgreSQL 16. The 192-device wave drained in
+10.398 seconds on replacement, with p95 result ACK 3.257 seconds. Linux/TLS
+sustained qualification, outage drills and complete backup restore remain open.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
 
