@@ -329,14 +329,14 @@ def isolated_maintenance_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fleet_noop(provider):
         del provider
 
-    async def isolated_transaction(provider, job):
-        if job is preparation_noop:
+    async def isolated_transaction(provider, job, **kwargs):
+        if job in (preparation_noop, fleet_noop):
             return None
-        return await transactional_job(provider, job)
+        return await transactional_job(provider, job, **kwargs)
 
     transactional_job = worker._run_transactional_job
     monkeypatch.setattr(worker, "advance_preparations", preparation_noop)
-    monkeypatch.setattr(worker, "schedule_fleet", fleet_noop)
+    monkeypatch.setattr(worker, "schedule_one", fleet_noop)
     monkeypatch.setattr(worker, "_run_transactional_job", isolated_transaction)
 
 
@@ -507,3 +507,132 @@ async def test_worker_runs_payload_cleanup_on_minute_cadence_independently_of_sn
         "cleanup_operation_results", "cleanup_module_step_results",
         "retain_security_events",
     ]
+
+
+@pytest.mark.asyncio
+async def test_worker_budget_reports_stalled_job_and_allows_other_jobs(monkeypatch, caplog):
+    from endpoint_server import worker
+
+    provider = WorkerSessionProvider()
+    started = asyncio.Event()
+    sibling = asyncio.Event()
+
+    async def stalled(*args, **kwargs):
+        started.set()
+        await asyncio.Future()
+
+    async def expire(_session):
+        sibling.set()
+
+    async def noop(_session, **kwargs):
+        return 0
+
+    monkeypatch.setattr(worker, "_DEFAULT_JOB_BUDGET_SECONDS", 0.15, raising=False)
+    monkeypatch.setattr(worker, "cleanup_expired_retry_envelopes", stalled)
+    monkeypatch.setattr(worker, "expire_operations", expire)
+    monkeypatch.setattr(worker, "advance_preparations", noop)
+    monkeypatch.setattr(worker, "schedule_one", noop, raising=False)
+    monkeypatch.setattr(worker, "rebuild_daily", noop)
+    with caplog.at_level("INFO", logger=worker.__name__):
+        task = asyncio.create_task(run_worker(_settings(), provider))
+        try:
+            async with asyncio.timeout(1):
+                await started.wait()
+                await sibling.wait()
+                while "safe_error=job_timeout" not in caplog.text:
+                    await asyncio.sleep(0.01)
+            assert "job=cleanup_expired_retry_envelopes" in caplog.text
+            assert "backlog_age_seconds=" in caplog.text
+            assert "last_success=" in caplog.text
+        finally:
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+
+@pytest.mark.asyncio
+async def test_worker_postgresql_reports_lock_timeout_and_rolls_back_without_blocking_sibling(caplog):
+    from uuid import uuid4
+
+    from sqlalchemy import text
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from endpoint_server import worker
+
+    url = os.environ.get("ENDPOINT_TEST_POSTGRES_URL")
+    if not url:
+        pytest.skip("set ENDPOINT_TEST_POSTGRES_URL to a disposable loopback PostgreSQL server")
+    parsed = make_url(url)
+    if parsed.host not in {"127.0.0.1", "localhost", "::1"} or parsed.query:
+        pytest.fail("worker lock test requires a disposable loopback PostgreSQL server")
+
+    engine = create_async_engine(parsed.set(drivername="postgresql+asyncpg"))
+    table = f"worker_lock_{uuid4().hex}"
+    provider = async_sessionmaker(engine)
+    sibling_finished = asyncio.Event()
+    try:
+        async with engine.begin() as db:
+            await db.execute(text(f"CREATE TABLE {table} (id integer PRIMARY KEY, value integer)"))
+            await db.execute(text(f"INSERT INTO {table} VALUES (1, 0), (2, 0)"))
+
+        async def blocked(session):
+            await session.execute(text(f"UPDATE {table} SET value=10 WHERE id=2"))
+            await session.execute(text(f"UPDATE {table} SET value=10 WHERE id=1"))
+
+        async def sibling(session):
+            assert await session.scalar(text(f"SELECT value FROM {table} WHERE id=2")) == 0
+            sibling_finished.set()
+
+        jobs = worker.MaintenanceJobs(provider)
+        async with engine.begin() as holder:
+            await holder.execute(text(f"SELECT id FROM {table} WHERE id=1 FOR UPDATE"))
+            due = asyncio.get_running_loop().time()
+            async with asyncio.timeout(8):
+                await jobs.run("advance_preparations", blocked, due_at=due)
+                await jobs.run("expire_operations", sibling, due_at=due)
+
+        assert sibling_finished.is_set()
+        assert "safe_error=lock_timeout" in caplog.text
+        assert "advance_preparations" not in jobs.last_success
+
+        async with engine.connect() as db:
+            assert await db.scalar(text(f"SELECT sum(value) FROM {table}")) == 0
+    finally:
+        try:
+            async with engine.begin() as db:
+                await db.execute(text(f"DROP TABLE IF EXISTS {table}"))
+        finally:
+            await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_worker_does_not_log_driver_details_or_retry_ambiguous_commit(caplog):
+    from endpoint_server import worker
+
+    commits = 0
+    rollbacks = 0
+
+    class Session:
+        async def commit(self):
+            nonlocal commits
+            commits += 1
+            raise OSError("password=fixture-secret")
+
+        async def rollback(self):
+            nonlocal rollbacks
+            rollbacks += 1
+
+    @asynccontextmanager
+    async def provider():
+        yield Session()
+
+    async def job(_session):
+        return True
+
+    jobs = worker.MaintenanceJobs(provider)
+    await jobs.run("schedule_fleet", job, due_at=asyncio.get_running_loop().time(), batches=16)
+    assert commits == rollbacks == 1
+    assert "safe_error=commit_outcome_unknown" in caplog.text
+    assert "fixture-secret" not in caplog.text
+    assert jobs.last_success == {}

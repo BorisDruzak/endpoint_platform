@@ -504,3 +504,20 @@ Enable `ENDPOINT_WORKTIME_HELPDESK_ENABLED=true` and Helpdesk
 health/TLS and credential-protected provider checks. Back up exact environment
 bytes privately, change only these flags, then use separate systemd services.
 Leave the staging services running as requested. Production is outside scope.
+
+
+## Worker maintenance diagnostics
+
+Use `journalctl -u endpoint-platform-worker.service -g worker_job` to check
+each job. Successful and failed attempts include UTC attempt and last-success
+timestamps, duration, committed batch count and a fixed error code. Backlog
+age is elapsed time from the oldest scheduled attempt still awaiting success.
+It measures worker schedule lag. Data queue age and WSS health are separate
+operational signals.
+
+Job execution budgets are 15 to 30 seconds, including all transactions in a
+single job's batch loop. PostgreSQL transaction-local lock and statement
+timeouts bound database waits. Rollback has a three-second grace.
+`commit_outcome_unknown` means the worker stopped that batch sequence without
+retrying the same transaction. The next scheduled attempt reads the current
+database state. `/healthz` retains its API and database availability contract.

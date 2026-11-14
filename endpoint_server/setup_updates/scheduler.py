@@ -2,6 +2,7 @@
 from uuid import UUID, uuid4
 
 from sqlalchemy import and_, select, text
+from sqlalchemy.exc import DBAPIError
 
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.db.models import Device
@@ -122,6 +123,9 @@ async def schedule_one(session, *, now=None):
                 actor=policy.updated_by, request_id=f'fleet_{decision.id.hex}', now=now)
             decision.job_id, decision.status, decision.safe_code = job.id, job.status, 'chain_requested'
             await session.flush()
+    except DBAPIError:
+        # Transaction/lock failures are transient and belong in worker diagnostics.
+        raise
     except Exception:
         # A controller/source rejection must not silently retry every minute.
         decision = await session.scalar(select(SetupFleetDecision).where(SetupFleetDecision.id == decision_id)

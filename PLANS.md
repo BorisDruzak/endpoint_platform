@@ -28,7 +28,11 @@ watcher timing and full power-loss qualification remain open. STAB-06:
 serialized WSS ownership publication per device. Both reconnect permutations
 and heartbeat lock ordering verified on PostgreSQL 16. STAB-07: bounded
 notice/close with observable cleanup stages and concurrent server shutdown.
-Next code task: STAB-08.
+STAB-08 source: per-job execution deadlines and PostgreSQL lock/statement
+budgets, bounded rollback, redacted attempt/last-success/lag logging and
+conservative commit uncertainty. PostgreSQL row-lock regression verified.
+Backlog age reports scheduled worker lag. Data-queue age remains a separate
+operational measure. Next code task: STAB-09.
 Release evidence requires an exact-source CI receipt before publication.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
