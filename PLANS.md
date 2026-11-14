@@ -22,7 +22,10 @@ command's unknown outcome once and cleared its durable outbox on ACK.
 While a frozen ALT health worker was paused, the same WSS session applied
 a fresh Console policy and persisted cancellation of a second queued
 command. The canceled command never ran after resuming the first worker.
-The Windows frozen Core and other native failure cases remain open.
+On isolated Windows 10 VM143, a lab harness running as LocalService launched
+the frozen Core worker, verified a typed result, bounded a suspended worker
+to 2 seconds, canceled a second worker and ran a succeeding command. Installed
+Windows service and Gateway qualification remain open.
 STAB-03 source: bounded Windows Core cancellation,
 suspended launch into an owned Job, confirmed tree teardown and updater
 stop proof. Source fault injection passed on Windows. Installed SCM and
