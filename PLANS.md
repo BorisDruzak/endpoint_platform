@@ -155,7 +155,13 @@ attempt ZIP left between ZIP promotion and pending publication. Recovery
 validates the digest and preserves changed bytes or active handoffs. Historical
 Core caches, scratch files from writers without the lock and archives tied to
 quarantined handoff records remain open, along with server deployment releases
-and retirement of catalog artifacts.
+and retirement of catalog artifacts. The server archive ships both storage
+inventory commands. The deployment report measures release directories and
+free volume space, classifies the current/rollback/explicit pins, and
+preserves unclassified entries for operator review. Read-only production
+inventory resolved current and rollback, measured 104 release directories and
+reported nine unclassified entries and 8,418,435,072 bytes free on the release
+volume. No retirement was performed.
 STAB-02 foundation: local SQLite records a command ID, device, payload digest,
 and start before execution, then commits completion and outbox together.
 Interrupted starts recover as unknown outcomes. Negotiated WSS sessions

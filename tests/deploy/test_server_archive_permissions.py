@@ -31,6 +31,7 @@ def test_actual_windows_producer_has_safe_headers_and_identical_payload(tmp_path
              'browser_sensor/manifest.json', 'alembic.ini', 'requirements-server.txt',
              'tools/__init__.py', 'tools/register_windows_setup_release.py',
              'tools/register_browser_sensor_release.py', 'tools/release/linux_native_verifier.py',
+             'tools/release/inventory_storage.py', 'tools/release/inventory_deployments.py',
              'webapp/dist/index.html',
              'webapp/dist/assets/app.js']
     expected = {}

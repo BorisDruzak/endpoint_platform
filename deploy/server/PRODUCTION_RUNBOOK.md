@@ -350,7 +350,24 @@ session protection, and strict hostname/CA HTTPS from the workstation after
 the health check. Enable module execution feature flags only after a compatible
 test Agent, target policy, and actual lab operation have been verified.
 
-### Artifact storage review
+### Release and artifact storage review
+
+From the installed release, run the read-only deployment inventory:
+
+```bash
+cd /opt/endpoint-platform/current
+sudo /usr/bin/python3.12 -B -m tools.release.inventory_deployments
+```
+
+Pass each exact deployed directory name with `--pin` to mark a deployment or
+audit hold, including the suffix if the directory has one. The inventory checks the
+`current` symlink and `/etc/endpoint-platform/previous-release`, and reports
+free space on the release volume, apparent regular-file bytes per release and
+unmeasured entries such as symlinks. Use it before upgrade to review the
+10 GiB free-space requirement. An empty `protected_by` list only means that
+the selectors and supplied pins do not name that directory. Check pending
+deployments, running processes, and restore and audit records before any
+separately authorized retirement.
 
 The worker logs free bytes on the artifact volume at startup and every 15
 minutes. From the release checkout and its server environment, run

@@ -1,0 +1,96 @@
+"""Inventory keeps deployment rollback and review decisions explicit."""
+
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+import pytest
+
+from tools.release import inventory_deployments
+
+
+CURRENT = "endpoint-platform-aabbccddeeff-setup205-observer"
+PREVIOUS = "endpoint-platform-112233445566"
+OTHER = "endpoint-platform-001122334455"
+
+
+@pytest.fixture
+def deployment(tmp_path):
+    releases = tmp_path / "releases"
+    for name in (CURRENT, PREVIOUS, OTHER):
+        (releases / name / "nested").mkdir(parents=True)
+        (releases / name / "nested" / "content").write_bytes(b"payload")
+    (tmp_path / "current").symlink_to(Path("releases") / CURRENT, target_is_directory=True)
+    previous = tmp_path / "previous-release"
+    previous.write_text(str(releases / PREVIOUS) + "\n", encoding="utf-8", newline="\n")
+    return releases, tmp_path / "current", previous
+
+
+def test_inventory_protects_current_previous_and_pins(deployment):
+    releases, current, previous = deployment
+    (releases / "upload.tmp").write_bytes(b"upload")
+    (releases / OTHER / "outside").symlink_to(previous)
+    report = inventory_deployments.read_inventory(releases, current, previous, pins=[OTHER])
+    assert report["unclassified_entries"] == ["upload.tmp"]
+    entries = {row["name"]: row for row in report["releases"]}
+    assert entries[CURRENT]["protected_by"] == ["current"]
+    assert entries[PREVIOUS]["protected_by"] == ["previous"]
+    assert entries[OTHER]["protected_by"] == ["pin"]
+    assert entries[OTHER]["regular_file_bytes"] == 7
+    assert entries[OTHER]["unmeasured_entries"] == 1
+    assert 0 <= report["volume_free_bytes"] <= report["volume_total_bytes"]
+    assert (releases / OTHER / "outside").is_symlink()
+
+
+def test_inventory_rejects_pointer_through_release_alias(deployment):
+    releases, current, previous = deployment
+    alias = releases / "endpoint-platform-ffffffffffff"
+    alias.symlink_to(releases / PREVIOUS, target_is_directory=True)
+    previous.write_text(str(alias))
+    with pytest.raises(ValueError, match="physical release directory"):
+        inventory_deployments.read_inventory(releases, current, previous)
+
+
+def test_initial_install_has_no_rollback_marker(deployment):
+    releases, current, previous = deployment
+    previous.unlink()
+    report = inventory_deployments.read_inventory(releases, current, previous)
+    assert report["previous"] is None
+    assert {row["name"]: row["protected_by"] for row in report["releases"]} == {
+        CURRENT: ["current"], PREVIOUS: [], OTHER: [],
+    }
+
+
+def test_inventory_fails_when_entry_budget_is_exhausted(deployment, monkeypatch):
+    monkeypatch.setattr(inventory_deployments, "_MAX_ENTRIES", 2)
+    with pytest.raises(ValueError, match="inventory limit"):
+        inventory_deployments.read_inventory(*deployment)
+
+
+def test_inventory_cli_emits_a_read_only_report(deployment):
+    releases, current, previous = deployment
+    command = [
+        sys.executable, "-m", "tools.release.inventory_deployments",
+        "--releases-root", str(releases), "--current", str(current),
+        "--previous-release", str(previous), "--pin", OTHER,
+    ]
+    result = subprocess.run(command, check=True, capture_output=True, text=True, timeout=15)
+    report = json.loads(result.stdout)
+    assert report["current"] == CURRENT
+    assert report["previous"] == PREVIOUS
+    assert current.is_symlink()
+    assert (releases / OTHER / "nested" / "content").read_bytes() == b"payload"
+
+
+def test_inventory_rejects_changed_rollback_marker(deployment, monkeypatch):
+    releases, current, previous = deployment
+    scan = inventory_deployments._measure
+
+    def change_marker(*args):
+        previous.write_text(str(releases / OTHER))
+        return scan(*args)
+
+    monkeypatch.setattr(inventory_deployments, "_measure", change_marker)
+    with pytest.raises(ValueError, match="deployment pointers changed"):
+        inventory_deployments.read_inventory(releases, current, previous)

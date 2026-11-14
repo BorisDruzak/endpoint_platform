@@ -11,6 +11,10 @@
   native-tar header, byte-preservation/reproducibility and unsafe-input regressions.
 - `deploy/server/PRODUCTION_RUNBOOK.md`: immutable archive identity, protected
   root extraction and complete physical/mode/digest closure before venv/imports.
+- `inventory_deployments.py`: read-only release-volume and directory inventory
+  with current, rollback and explicitly pinned release names.
+- `inventory_storage.py`: read-only artifact-volume inventory against the four
+  release catalog owners. Both inventory modules ship in the server archive.
 
 No Agent release archive, native package, selector or live server is a target of
 the server archive normalizer. Historical qualified bytes remain immutable.
