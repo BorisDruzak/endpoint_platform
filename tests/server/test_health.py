@@ -480,7 +480,7 @@ async def test_worker_isolates_context_scheduler_failure(
         retained.set()
         return 0
 
-    monkeypatch.setattr("endpoint_server.worker.schedule_due_collections", failing_scheduler)
+    monkeypatch.setattr("endpoint_server.worker.schedule_due_collections_with_backlog", failing_scheduler)
     monkeypatch.setattr("endpoint_server.worker.retain_context_snapshots", successful_retention)
     task = asyncio.create_task(
         run_worker(
@@ -499,6 +499,45 @@ async def test_worker_isolates_context_scheduler_failure(
 
     assert provider.session.rollback_calls >= 1
     assert provider.session.commit_calls >= 2
+
+
+@pytest.mark.asyncio
+async def test_worker_reports_context_lateness_only_after_commit(monkeypatch, caplog):
+    from endpoint_server import worker
+
+    provider = WorkerSessionProvider()
+    sampled = asyncio.Event()
+    calls = 0
+
+    async def schedule(_session):
+        nonlocal calls
+        calls += 1
+        return worker.ContextScheduleBatch(1, 240.0)
+
+    async def commit():
+        if calls == 1 and not sampled.is_set():
+            sampled.set()
+            raise RuntimeError("private details")
+
+    monkeypatch.setattr(worker, "schedule_due_collections_with_backlog", schedule)
+    monkeypatch.setattr(provider.session, "commit", commit)
+    with caplog.at_level("INFO", logger=worker.__name__):
+        task = asyncio.create_task(run_worker(
+            _settings(), provider, cleanup_interval_seconds=0.01, context_schedule_interval_seconds=0.01,
+        ))
+        try:
+            async with asyncio.timeout(2):
+                while calls < 2:
+                    await asyncio.sleep(0.01)
+        finally:
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+    records = [record.message for record in caplog.records if "job=schedule_due_collections " in record.message]
+    assert "data_backlog_age_seconds=unknown" in records[0]
+    assert "safe_error=commit_outcome_unknown" in records[0]
+    assert "data_backlog_age_seconds=240.000" in records[1]
+    assert "private details" not in caplog.text
 
 
 @pytest.mark.asyncio

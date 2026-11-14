@@ -16,7 +16,7 @@ from sqlalchemy.exc import DBAPIError
 
 from endpoint_server.config import Settings
 from endpoint_server.context.retention import cleanup_context_collections, cleanup_raw_context_payloads, retain_context_snapshots
-from endpoint_server.context.scheduler import schedule_due_collections
+from endpoint_server.context.scheduler import ContextScheduleBatch, schedule_due_collections_with_backlog
 from endpoint_server.db.session import SessionProvider, create_session_provider
 from endpoint_server.enrollment.delivery import cleanup_expired_retry_envelopes
 from endpoint_server.operations.service import expire_operations, operation_expiry_backlog_age
@@ -122,6 +122,7 @@ class MaintenanceJobs:
         self, name: str, job: Callable[[Any], Awaitable[object]], *,
         due_at: float, batches: int = 1, continue_if: Callable[[object], bool] = bool,
         measure_backlog: Callable[[Any], Awaitable[float | None]] | None = None,
+        committed_backlog: Callable[[object], float | None] | None = None,
     ) -> None:
         loop = asyncio.get_running_loop()
         started = loop.time()
@@ -149,6 +150,8 @@ class MaintenanceJobs:
                     raise MaintenanceFailure("job_timeout")
                 result = await _run_transactional_job(self.provider, task, budget=remaining)
                 completed += 1
+                if committed_backlog is not None and completed == 1:
+                    backlog_age = committed_backlog(result)
                 if not continue_if(result):
                     break
             self.last_success[name] = datetime.now(UTC)
@@ -228,7 +231,12 @@ async def run_worker(
                     await jobs.run(name, job, due_at=next_payload)
                 next_payload = loop.time() + cleanup_interval_seconds
             if loop.time() >= next_schedule:
-                await jobs.run("schedule_due_collections", schedule_due_collections, due_at=next_schedule)
+                await jobs.run(
+                    "schedule_due_collections", schedule_due_collections_with_backlog, due_at=next_schedule,
+                    committed_backlog=lambda result: (
+                        result.oldest_due_age_seconds if isinstance(result, ContextScheduleBatch) else None
+                    ),
+                )
                 next_schedule = loop.time() + context_schedule_interval_seconds
             if loop.time() >= next_retention:
                 await jobs.run("retain_context_snapshots", retain_context_snapshots, due_at=next_retention)

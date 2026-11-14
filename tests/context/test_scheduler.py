@@ -99,3 +99,28 @@ async def test_scheduler_never_enqueues_manual_only_diagnostics(session: AsyncSe
         "inventory_v1",
         "session_v1",
     }
+
+
+@pytest.mark.asyncio
+async def test_scheduler_measures_lateness_for_work_it_actually_enqueues(session):
+    from endpoint_server.context.scheduler import schedule_due_collections_with_backlog
+
+    device = Device(device_identifier="scheduler-age", created_at=NOW - timedelta(minutes=2))
+    retired = Device(device_identifier="retired-age", created_at=NOW - timedelta(days=3), retired_at=NOW)
+    session.add_all([device, retired])
+    await session.flush()
+    await _completed_collection(
+        session, device_id=device.id, profile="network_v1", completed_at=NOW - timedelta(minutes=2),
+    )
+    session.add(ContextCollection(
+        device_id=device.id, profile="baseline_v1", requested_by="operator",
+        idempotency_key="active-baseline", status="requested", requested_at=NOW - timedelta(days=2),
+    ))
+    await session.flush()
+    await _completed_collection(
+        session, device_id=device.id, profile="health_v1", completed_at=NOW - timedelta(minutes=9),
+    )
+    observed = await schedule_due_collections_with_backlog(session, now=NOW)
+    assert (observed.created, observed.oldest_due_age_seconds) == (3, 240)
+    repeated = await schedule_due_collections_with_backlog(session, now=NOW)
+    assert (repeated.created, repeated.oldest_due_age_seconds) == (0, 0)

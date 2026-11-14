@@ -575,6 +575,10 @@ supported daily rollup first transitions to dirty. Migration
 Apply it before starting the updated API and worker.
 The rollup metric reports `unknown` until such rows are published or removed
 by retention. Jobs without a data-queue measurement also report `unknown`.
+For `schedule_due_collections`, the log shows the greatest delay among
+collections newly queued by the committed tick. The first collection is due
+at device registration. Subsequent collections are due one profile interval
+after the previous request. Zero can mean the tick queued nothing.
 WSS health is a separate operational signal.
 
 Job execution budgets are 15 to 30 seconds, including all transactions in a

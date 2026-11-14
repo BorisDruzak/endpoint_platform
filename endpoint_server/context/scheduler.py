@@ -22,6 +22,12 @@ class ContextScheduleRule:
     interval: timedelta
 
 
+@dataclass(frozen=True, slots=True)
+class ContextScheduleBatch:
+    created: int
+    oldest_due_age_seconds: float
+
+
 SCHEDULE_RULES: tuple[ContextScheduleRule, ...] = (
     ContextScheduleRule("baseline_v1", timedelta(hours=24)),
     ContextScheduleRule("health_v1", timedelta(minutes=5)),
@@ -86,6 +92,15 @@ async def schedule_due_collections(
     *,
     now: datetime | None = None,
 ) -> int:
+    """Return the count of newly scheduled collections."""
+    return (await schedule_due_collections_with_backlog(session, now=now)).created
+
+
+async def schedule_due_collections_with_backlog(
+    session: AsyncSession,
+    *,
+    now: datetime | None = None,
+) -> ContextScheduleBatch:
     """Create at most one active fixed-profile request for every active device.
 
     A device/profile advisory lock protects the no-row case that a normal row
@@ -97,6 +112,7 @@ async def schedule_due_collections(
         select(Device).where(Device.retired_at.is_(None)).order_by(Device.id)
     )).all()
     created = 0
+    oldest_due_age = 0.0
     for device in devices:
         from endpoint_server.installation_lifecycle.service import removed
         await session.scalar(select(Device).where(Device.id == device.id).with_for_update())
@@ -129,7 +145,11 @@ async def schedule_due_collections(
                 .limit(1)
                 .with_for_update(skip_locked=True)
             )
-            if latest is not None and scheduled_at - _utc(latest.requested_at) < rule.interval:
+            overdue = (
+                scheduled_at - _utc(latest.requested_at) - rule.interval
+                if latest is not None else scheduled_at - _utc(device.created_at)
+            )
+            if latest is not None and overdue < timedelta(0):
                 continue
             bucket = int(scheduled_at.timestamp() // rule.interval.total_seconds())
             collection, inserted = await request_collection_outcome(
@@ -143,8 +163,9 @@ async def schedule_due_collections(
             if inserted:
                 collection.expires_at = scheduled_at + rule.interval
                 created += 1
+                oldest_due_age = max(oldest_due_age, overdue.total_seconds())
     await session.flush()
-    return created
+    return ContextScheduleBatch(created, oldest_due_age)
 
 
 __all__ = ["ContextScheduleRule", "SCHEDULE_RULES", "schedule_due_collections"]

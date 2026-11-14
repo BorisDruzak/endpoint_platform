@@ -106,6 +106,8 @@ preparation reports the age of the oldest active chain across stage changes.
 Activity rollups record the first dirty transition in additive migration
 0053 and report unknown while a dirty row has no enqueue timestamp.
 Migration and concurrent rollup tests passed on disposable PostgreSQL 16.15.
+Context scheduling reports the greatest delay among newly queued collections
+after commit, using the existing eligibility pass and no additional queries.
 Other data-queue ages remain open.
 STAB-09 source: explicit Core transfer total/connect/idle
 timeouts with matching recovery-supervisor budget. Slow and stalled loopback
