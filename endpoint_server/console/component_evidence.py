@@ -1,6 +1,7 @@
 """Read independently dated agent component observations for one device."""
 
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -9,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from endpoint_contracts.updates import SemanticVersionV1
+from endpoint_contracts.context import HealthSectionsV1
 from endpoint_server.console.fleet import PRESENCE_TTL
 from endpoint_server.context.models import ContextCurrent
 from endpoint_server.db.models import Device, DeviceInstance, DeviceSession
@@ -20,6 +22,8 @@ from endpoint_server.support_access.models import SupportAccess
 _VERSION = TypeAdapter(SemanticVersionV1)
 _OBSERVER_UI_TTL = timedelta(seconds=150)
 _SENSOR_TTL = timedelta(seconds=150)
+# The health profile is scheduled every five minutes.
+_UPDATER_TTL = timedelta(minutes=10)
 
 
 class ComponentObservation(BaseModel):
@@ -35,6 +39,14 @@ class ObserverObservation(ComponentVersion):
     reported_ready: bool
 
 
+UpdaterStatus = Literal["active", "inactive", "failed", "unknown"]
+
+
+class UpdaterObservation(ComponentObservation):
+    status: UpdaterStatus
+    watcher_status: UpdaterStatus | None = None
+
+
 class SupportEvidence(BaseModel):
     component: ComponentVersion | None = None
     access_verified_at: datetime | None = None
@@ -43,7 +55,7 @@ class SupportEvidence(BaseModel):
 class DeviceComponentEvidence(BaseModel):
     core: ComponentVersion | None = None
     foundation: ComponentVersion | None = None
-    updater: ComponentVersion | None = None
+    updater: UpdaterObservation | None = None
     observer: ObserverObservation | None = None
     user_sensor: ComponentObservation | None = None
     support: SupportEvidence
@@ -58,6 +70,26 @@ def _version(value: str | None) -> str | None:
         return _VERSION.validate_python(value)
     except ValidationError:
         return None
+
+
+def updater_evidence(
+    sections: HealthSectionsV1, collected_at: datetime, now: datetime,
+) -> UpdaterObservation | None:
+    names = {"EndpointAgentUpdater", "endpoint-agent-update.service", "endpoint-agent-update.path"}
+    facts: dict[str, UpdaterStatus] = {}
+    for item in sections.services:
+        if item.name in names:
+            if item.name in facts:
+                return None
+            facts[item.name] = item.status
+    if not facts or ("EndpointAgentUpdater" in facts and len(facts) != 1):
+        return None
+    observed = _utc(collected_at)
+    return UpdaterObservation(
+        observed_at=observed, fresh=now - _UPDATER_TTL <= observed <= now,
+        status=facts.get("EndpointAgentUpdater", facts.get("endpoint-agent-update.service", "unknown")),
+        watcher_status=facts.get("endpoint-agent-update.path"),
+    )
 
 
 async def device_component_evidence(

@@ -35,6 +35,8 @@ IP_DEFAULT_ROUTE_COMMAND = ("ip", "-json", "route", "show", "default")
 IP_ADDRESS_COMMAND = ("ip", "-json", "address", "show")
 SSHD_STATUS_COMMAND = ("systemctl", "is-active", "sshd")
 NETWORK_MANAGER_STATUS_COMMAND = ("systemctl", "is-active", "NetworkManager")
+UPDATE_SERVICE_STATUS_COMMAND = ("systemctl", "show", "--property=LoadState,ActiveState", "--", "endpoint-agent-update.service")
+UPDATE_PATH_STATUS_COMMAND = ("systemctl", "show", "--property=LoadState,ActiveState", "--", "endpoint-agent-update.path")
 PROCESS_COMMAND = ("ps", "-eo", "comm=,stat=")
 JOURNAL_COMMAND = (
     "journalctl", "--system", "--lines=32", "--no-pager", "--output=json",
@@ -69,6 +71,8 @@ _ALLOWED_COMMANDS = frozenset(
         IP_ADDRESS_COMMAND,
         SSHD_STATUS_COMMAND,
         NETWORK_MANAGER_STATUS_COMMAND,
+        UPDATE_SERVICE_STATUS_COMMAND,
+        UPDATE_PATH_STATUS_COMMAND,
         PROCESS_COMMAND,
         JOURNAL_COMMAND,
         WINDOWS_TASKLIST_COMMAND,
@@ -97,6 +101,13 @@ class SystemProbe:
     @property
     def platform_name(self) -> str:
         return "windows" if os.name == "nt" else "linux"
+
+    def windows_updater_status(self) -> str:
+        try:
+            state = psutil.win_service_get("EndpointAgentUpdater").status()
+        except (OSError, psutil.Error):
+            return "unknown"
+        return {"running": "active", "stopped": "inactive"}.get(state, "unknown")
 
     def server_service_state(self, name: str) -> str:
         if os.name == "nt":

@@ -27,10 +27,11 @@ type DashboardData = {
 }
 type Snapshot = { id: string; profile: string; collected_at: string; last_observed_at: string | null; fresh: boolean; semantic_hash: string | null; warnings: string[]; sections: Record<string, unknown> }
 type ComponentObservation = { observed_at: string; fresh: boolean; version?: string | null }
+type UpdaterStatus = 'active' | 'inactive' | 'failed' | 'unknown'
 type ComponentEvidence = {
   core: ComponentObservation | null
   foundation: ComponentObservation | null
-  updater: ComponentObservation | null
+  updater: (ComponentObservation & { status: UpdaterStatus; watcher_status: UpdaterStatus | null }) | null
   observer: (ComponentObservation & { reported_ready: boolean }) | null
   user_sensor: ComponentObservation | null
   support: { component: ComponentObservation | null; access_verified_at: string | null }
@@ -49,12 +50,17 @@ function ComponentEvidencePanel({ evidence }: { evidence: ComponentEvidence }) {
     : 'Нет данных'
   const observer = evidence.observer
   const support = evidence.support
+  const updater = evidence.updater
+  const updaterStates: Record<UpdaterStatus, string> = {
+    active: 'Активен', inactive: 'Не запущен', failed: 'Ошибка', unknown: 'Состояние неизвестно',
+  }
   return <section className="panel" aria-labelledby="agent-components-heading">
     <h2 id="agent-components-heading">Компоненты агента</h2>
     <dl className="simple-facts">
       <dt>Core · Gateway WSS</dt><dd>{observation(evidence.core)}</dd>
       <dt>Foundation · отчёт Observer</dt><dd>{observation(evidence.foundation)}</dd>
-      <dt>Updater</dt><dd>{observation(evidence.updater)}</dd>
+      <dt>Updater</dt><dd>{updater ? `${updaterStates[updater.status]} · ${observation(updater)}` : 'Нет данных'}</dd>
+      {updater?.watcher_status && <><dt>Updater · наблюдатель systemd</dt><dd>{updaterStates[updater.watcher_status]}</dd></>}
       <dt>Setup Observer</dt><dd>{observation(observer)}{observer && (observer.reported_ready ? ' · Последний отчёт: готов' : ' · Последний отчёт: не готов')}</dd>
       <dt>UserSensor</dt><dd>{observation(evidence.user_sensor)}</dd>
       <dt>Support · отчёт компонента</dt><dd>{observation(support.component)}</dd>

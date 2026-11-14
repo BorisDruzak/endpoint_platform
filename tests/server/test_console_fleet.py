@@ -178,6 +178,19 @@ async def test_console_device_api_uses_session_and_safe_projection() -> None:
             },
         },
     ) for index, size in enumerate((8 * 1024 ** 3, 16 * 1024 ** 3))]
+    updater_sample_at = now - timedelta(minutes=12)
+    updater_snapshot = ContextSnapshot(
+        id=uuid4(), collection_id=uuid4(), device_id=device.id, profile="health_v1",
+        collected_at=updater_sample_at, raw_payload={},
+        normalized_projection={
+            "schema_version": "device_context_v1", "profile": "health_v1",
+            "collected_at": updater_sample_at.isoformat(), "warnings": [],
+            "sections": {
+                "resources": {"uptime_seconds": 60, "load_1m": 0, "free_bytes": 1024},
+                "services": [{"name": "EndpointAgentUpdater", "status": "inactive"}],
+            },
+        },
+    )
     older_inventory = [ContextSnapshot(
         id=uuid4(), collection_id=uuid4(), device_id=device.id, profile="inventory_v1",
         collected_at=now - timedelta(days=8 + index), raw_payload={"secret": "older-private"},
@@ -264,6 +277,10 @@ async def test_console_device_api_uses_session_and_safe_projection() -> None:
         ))
         response = await client.get(f"/api/admin/console/devices/{device.id}?include_components=true")
         async with sessions.begin() as session:
+            session.add(updater_snapshot)
+            await session.flush()
+            session.add(ContextCurrent(device_id=device.id, profile="health_v1", snapshot_id=updater_snapshot.id,
+                                      updated_at=now, last_observed_at=now))
             await session.execute(update(PolicySensorHealthCurrent).values(user_sensor_last_seen_at=now))
             activity = ContextSnapshot(id=uuid4(), collection_id=uuid4(), device_id=device.id,
                                        profile="activity_v1", collected_at=now,
@@ -304,6 +321,8 @@ async def test_console_device_api_uses_session_and_safe_projection() -> None:
     assert offline.json()["device"]["component_evidence"] is None
     assert observed_components.status_code == 200
     renewed = observed_components.json()["device"]["component_evidence"]
+    assert renewed["updater"]["status"] == "inactive" and renewed["updater"]["fresh"] is False
+    assert datetime.fromisoformat(renewed["updater"]["observed_at"]) == updater_sample_at
     assert renewed["user_sensor"]["fresh"] is True
     assert datetime.fromisoformat(renewed["support"]["access_verified_at"]) == now - timedelta(hours=1)
     assert offline.json()["capabilities"] == []

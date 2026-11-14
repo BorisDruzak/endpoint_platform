@@ -105,7 +105,9 @@ device overview dates WSS Core, observer-reported Foundation, Setup Observer,
 corroborated UserSensor and Support telemetry separately. It distinguishes
 Support telemetry from the operator's SSH attestation. Paused bulk Core
 rollouts with entirely unrequested assignments can be cancelled through an
-audited, replayable action. Independent updater telemetry and live resolution
+audited, replayable action. The health profile now carries the Windows updater
+service state and separate ALT service and path states. Console dates them from
+the agent's health sample. Installed native acceptance and live resolution
 of the five historical intents remain open.
 
 ## SSO + WorkTime staged implementation (2026-10-27)

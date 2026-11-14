@@ -29,7 +29,7 @@ from endpoint_server.auth.csrf import csrf_token_for_session
 from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.console.fleet import CONTEXT_TTL, dashboard_fleet, device_presence, list_fleet
-from endpoint_server.console.component_evidence import DeviceComponentEvidence, device_component_evidence
+from endpoint_server.console.component_evidence import DeviceComponentEvidence, device_component_evidence, updater_evidence
 from endpoint_server.power.projection import PowerSummary, power_summary, enrich_power_summaries
 from endpoint_server.context.diff import compare_snapshots
 from endpoint_server.context.models import ContextCollection, ContextCurrent, ContextSnapshot, DeviceEvent
@@ -543,7 +543,13 @@ async def console_device_detail(
             snapshot["fresh"] = isinstance(collected, datetime) and now - CONTEXT_TTL <= collected <= now
         presence = await device_presence(session, device_id)
         if include_components:
-            presence["component_evidence"] = await device_component_evidence(session, device_id, now)
+            evidence = await device_component_evidence(session, device_id, now)
+            health_snapshot = next((item for item in snapshots if item["profile"] == "health_v1"), None)
+            if health_snapshot is not None:
+                evidence.updater = updater_evidence(
+                    HealthSectionsV1.model_validate(health_snapshot["sections"]), health_snapshot["collected_at"], now,
+                )
+            presence["component_evidence"] = evidence
         from endpoint_server.installation_lifecycle.service import projection_data, connection_conflicts_with_removal
         installation = await projection_data(session, device_id)
         presence["installation_state"] = installation["state"]

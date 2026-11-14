@@ -167,7 +167,8 @@ describe('Русский интерфейс Console', () => {
         device: { id: 'device-1', display_name: 'Рабочая станция', device_identifier: 'PC-01', online: true, last_seen_at: null, agent_version: '3.2.63', hostname: 'PC-01', os_name: 'Windows 11', os_version: '11', current_user: 'operator', component_evidence: {
           core: { version: '3.2.63', observed_at, fresh: true },
           foundation: { version: '3.2.62', observed_at, fresh: false },
-          updater: null, observer: { version: '1.0.11', observed_at, fresh: false, reported_ready: true },
+          updater: { status: 'inactive', watcher_status: 'active', observed_at, fresh: true },
+          observer: { version: '1.0.11', observed_at, fresh: false, reported_ready: true },
           user_sensor: { observed_at, fresh: false },
           support: { component: { version: '1.1.7', observed_at, fresh: true }, access_verified_at: null },
         } },
@@ -194,6 +195,9 @@ describe('Русский интерфейс Console', () => {
     const components = within(screen.getByRole('region', { name: 'Компоненты агента' }))
     expect(components.getByText(/3\.2\.62.*Устарело/)).toBeTruthy()
     expect(components.getByText('Updater')).toBeTruthy()
+    expect(components.getByText(/Не запущен.*Актуально/)).toBeTruthy()
+    expect(components.getByText('Updater · наблюдатель systemd')).toBeTruthy()
+    expect(components.getByText('Активен')).toBeTruthy()
     expect(components.getByText(/1\.0\.11.*Последний отчёт: готов/)).toBeTruthy()
     expect(components.getByText('UserSensor')).toBeTruthy()
     expect(components.getByText('Подтверждение SSH отсутствует')).toBeTruthy()

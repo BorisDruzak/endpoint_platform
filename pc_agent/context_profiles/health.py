@@ -6,7 +6,10 @@ from datetime import datetime, timezone
 
 from endpoint_contracts.context import DeviceContextHealthV1, HealthSectionsV1
 
-from .probe import NETWORK_MANAGER_STATUS_COMMAND, SSHD_STATUS_COMMAND
+from .probe import (
+    NETWORK_MANAGER_STATUS_COMMAND, SSHD_STATUS_COMMAND, UPDATE_PATH_STATUS_COMMAND,
+    UPDATE_SERVICE_STATUS_COMMAND,
+)
 from .server_health import collect_server_health
 
 
@@ -35,6 +38,10 @@ def _collect_base_health(probe: object, *, collected_at: datetime | None) -> Dev
             "name": "NetworkManager",
             "status": _service_status(probe, NETWORK_MANAGER_STATUS_COMMAND, warnings),
         },
+        {"name": UPDATE_SERVICE_STATUS_COMMAND[-1],
+         "status": _service_status(probe, UPDATE_SERVICE_STATUS_COMMAND, warnings, systemd_show=True)},
+        {"name": UPDATE_PATH_STATUS_COMMAND[-1],
+         "status": _service_status(probe, UPDATE_PATH_STATUS_COMMAND, warnings, systemd_show=True)},
     ]
     return DeviceContextHealthV1(
         schema_version="device_context_v1",
@@ -56,13 +63,14 @@ def _collect_windows_health(probe: object, *, collected_at: datetime | None) -> 
     from pc_agent.platform.windows.identity import collect_health as collect_windows_health
 
     health = collect_windows_health(probe)
+    updater_status = getattr(probe, "windows_updater_status", lambda: "unknown")()
     return DeviceContextHealthV1(
         schema_version="device_context_v1",
         profile="health_v1",
         collected_at=collected_at or datetime.now(timezone.utc),
         sections={
             "resources": {"uptime_seconds": health["uptime_seconds"], "load_1m": 0.0, "free_bytes": health["free_bytes"]},
-            "services": [],
+            "services": [{"name": "EndpointAgentUpdater", "status": updater_status}],
         },
         warnings=[],
     )
@@ -100,7 +108,9 @@ def _available_bytes(value: str, warnings: list[str]) -> int:
     return 0
 
 
-def _service_status(probe: object, command: tuple[str, ...], warnings: list[str]) -> str:
+def _service_status(
+    probe: object, command: tuple[str, ...], warnings: list[str], *, systemd_show: bool = False,
+) -> str:
     try:
         status = str(probe.run(command, 2.0, 256)).strip().lower()
     except TimeoutError:
@@ -109,4 +119,7 @@ def _service_status(probe: object, command: tuple[str, ...], warnings: list[str]
     except (OSError, ValueError):
         warnings.append("command_failed")
         return "unknown"
+    if systemd_show:
+        facts = dict(line.split("=", 1) for line in status.splitlines() if "=" in line)
+        status = facts.get("activestate", "") if facts.get("loadstate") == "loaded" else ""
     return status if status in {"active", "inactive", "failed"} else "unknown"
