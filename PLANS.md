@@ -368,8 +368,11 @@ Windows Server 2012 R2 recovered from a power cut during removal of Setup 3.2.21
 and accepted Setup 3.2.222 with the original device identity and fresh UserSensor.
 Setup 3.2.223 delivered both original installation events automatically on
 reconnect after offline rollback and reboot, before an interactive sign-in.
-Automatic delivery and Support rebind after a separate offline remove/reinstall
-and the remaining platform combinations are open.
+On Windows Server 2012 R2, Setup 3.2.225 delivered the original events and
+automatically reinstalled and rebound Support after a separate offline remove
+and reinstall from 3.2.222. Pinned independent SSH passed with Core and updater
+stopped and Setup Observer disabled. The remaining platform and source
+combinations are open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
