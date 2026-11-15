@@ -473,7 +473,15 @@ with four matching identity files. The recovery omitted the installed fact.
 The source fix queues one fact under the original transaction and starts
 delivery after authenticated standalone recovery. Both evidence snapshots
 are retained with VM146 stopped and isolated and its credential revoked.
-Signed lifecycle acceptance and production qualification remain open.
+Signed 3.2.229 includes the lifecycle fix and passed 373 source tests.
+The isolated VM147 native power cut retained its original reconciling fence
+with the expected MSI ProductCode absent and seven zero-filled payload files.
+Both retained MSI copies match the signed artifact. Exact Setup returned 20
+(PROVENANCE_CONFLICT) before enrollment and preserved the original transaction.
+The isolated campaign was revoked and the lab Gateway restored. VM147 stays
+stopped and isolated with the power-cut and held snapshots. Storage durability,
+signed lifecycle acceptance after successful recovery and production
+qualification remain open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
