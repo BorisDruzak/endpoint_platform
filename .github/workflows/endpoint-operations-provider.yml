@@ -111,10 +111,10 @@ jobs:
           PY
           python -m pip freeze > artifacts/dependencies.txt
 
-      - name: Run complete server and agent runtime suites
+      - name: Run server and Linux agent runtime suites
         run: >-
           timeout --signal=INT --kill-after=30s 20m
-          python -m pytest tests pc_agent/tests -q -o faulthandler_timeout=120
+          python -m pytest tests pc_agent/tests -q -o faulthandler_timeout=120 --ignore=pc_agent/tests/windows
           --junitxml=artifacts/endpoint-operations-provider.xml
 
       - name: Check generated contract artifacts
@@ -139,7 +139,7 @@ jobs:
 
   windows-release-gate:
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -173,9 +173,10 @@ jobs:
           python -m pip freeze | Set-Content -Encoding utf8NoBOM artifacts/dependencies.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Run Windows PowerShell and updater compatibility checks
+      - name: Run Windows agent, PowerShell and updater compatibility suites
         run: >-
           python -m pytest -q
+          pc_agent/tests/windows
           tests/deploy/test_keycloak_ad_pilot.py
           tests/packaging/test_setup_preflight_process.py
           tests/packaging/test_support_access_signing.py
