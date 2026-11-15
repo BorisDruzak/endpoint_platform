@@ -409,7 +409,16 @@ and Core returned to WSS. Ordinary console sign-in as a temporary
 standard user started the installed UserSensor and Tray. Gateway
 acknowledged the device-scoped Activity policy, accepted content-free
 ACTIVE observations and showed a fresh UserSensor on the original device.
-Rollback and forced interruption remain open for this Windows 10 profile.
+On the isolated Windows 10 VM145 clone, signed Setup 3.2.226
+rolled back offline to 3.2.192. The original MSI registration, byte-exact
+Core selector and four identity files were restored. The same lab device
+returned to WSS after reconnect. Setup reported 21/MSI_EVIDENCE_FAILED
+after the verified native rollback. The owner trace isolates the failing
+phase to `restore-staged-companions`. The retained recovery task had result
+60, and two native lifecycle events stayed pending without a delivery task.
+The [rollback receipt](docs/verification/2026-11-14-agent-release-qualification-matrix.md#офлайн-откат-setup-3226--32192-на-windows-10)
+records the stopped diagnostic snapshot. Setup exit 67, automatic event
+delivery and forced interruption remain open for this Windows 10 pair.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
