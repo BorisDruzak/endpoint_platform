@@ -391,9 +391,15 @@ received WSS from the same device after reboot and completed five new
 context collections. The same signed 3.2.226 media restored a missing
 Core service registration while offline on VM143. The native event
 survived an offline reboot. Gateway acknowledged it once after reconnect,
-and the retry task retired without another MSI operation. Offline
-reinstall, rollback, forced interruption, interactive UserSensor and
-independent Support remain open for this Windows 10 profile.
+and the retry task retired without another MSI operation. A separate
+offline remove/reinstall of 3.2.226 preserved the original events through
+reboot, delivered them in order and registered Support 1.1.9 for the
+first time with access disabled. In a second cycle, default-disabled
+Support without a recorded authority decision did not get a rebind
+ticket. The lifecycle events were acknowledged and the Support retry
+stayed pending. A positive rebind with the required prior authority,
+independent Support, rollback, forced interruption and interactive
+UserSensor remain open for this Windows 10 profile.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
