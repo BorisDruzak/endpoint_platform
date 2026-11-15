@@ -132,7 +132,7 @@ def _grant(paths, record, restoration):
 
 def _no_other_operations(paths, target, package):
     from .update_transaction import active_update_state
-    from .compound_upgrade_plan import has_active_upgrade
+    from .compound_upgrade_plan import has_active_upgrade, superseded_starting_child
     hold = continuation.pending_continuation(paths)
     if hold is not None and hold != {'transaction_id': target, 'package': package}:
         _fail()
@@ -142,12 +142,15 @@ def _no_other_operations(paths, target, package):
     children = fence.state_root(paths) / 'children'
     if children.exists():
         fence.assert_state_security(children)
-        # A surviving child native fence is unresolved, irrespective of PID/age.
+        # Only the completed recovery of an exact, unentered original child
+        # can supersede its retained fence.
         entries = 0
         for index, (folder, directories, files) in enumerate(os.walk(children, followlinks=False)):
             entries += len(directories) + len(files)
             fence.reject_reparse_ancestors(Path(folder))
-            if index >= 512 or entries > 4096 or 'transaction.json' in files:
+            if index >= 512 or entries > 4096:
+                _fail()
+            if 'transaction.json' in files and not superseded_starting_child(paths, Path(folder)/'transaction.json'):
                 _fail()
             for name in directories:
                 fence.reject_reparse_ancestors(Path(folder) / name)

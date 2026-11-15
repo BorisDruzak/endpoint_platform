@@ -7,6 +7,8 @@ No credential content, credential digest or arbitrary path is accepted here.
 """
 from copy import deepcopy
 from hashlib import sha256
+from itertools import islice
+import os
 import re
 import stat
 import uuid
@@ -301,15 +303,19 @@ def read_plan(paths, capability):
     root = _root(paths, capability)
     installer_fence.assert_state_security(root, secret=True)
     record = _read(root/'plan.json', secret=True)
+    _validate_stored_plan(paths, capability, record)
+    if _read(installer_fence.state_root(paths)/'upgrade.json', maximum=4096) != _barrier(record):
+        _failed()
+    return record
+
+
+def _validate_stored_plan(paths, capability, record):
     validate_bound_plan(record, capability)
     if 'prepared_old' in record:read_prepared_source(paths,capability)
     if 'recovery' in record:
         original,raw,original_cap=read_recovery_original(paths,capability)
         prepared=make_recovery_plan(capability,original,raw,original_cap)
         if any(record[key]!=prepared[key] for key in _FIELDS-{'phase','sequence'}):_failed()
-    if _read(installer_fence.state_root(paths)/'upgrade.json', maximum=4096) != _barrier(record):
-        _failed()
-    return record
 
 
 def read_recovery_original(paths,capability):
@@ -549,6 +555,62 @@ def committed_marker(paths,*,barrier=None):
     expected={**{key:item for key,item in ready.items() if key!='phase'},'ready_sha256':sha256(raw).hexdigest()}
     if _read(path,maximum=4096)!=expected:_failed()
     return expected
+
+
+def superseded_starting_child(paths, leaf):
+    """Prove an unentered original child was replaced by a committed native recovery."""
+    root = installer_fence.state_root(paths)
+    relative = leaf.relative_to(root/'children').parts
+    if len(relative) != 2 or relative[1] != 'transaction.json':
+        return False
+    transaction = relative[0]
+    try:
+        _uuid(transaction)
+        child = installer_fence.validate_fence(_read(leaf, maximum=installer_fence.MAX_FENCE_BYTES))
+        if (child['transaction_id'] != transaction or child['operation'] != 'install'
+                or child['phase'] != 'msi-starting' or child['sequence'] != 1 or child['startup_restored']):
+            return False
+        attempts = root/'transactions'/transaction/'attempts'
+        installer_fence.assert_state_security(attempts)
+        with os.scandir(attempts) as entries:
+            candidates = list(islice(entries, 513))
+        if len(candidates) > 512:
+            return False
+        return any(entry.is_dir(follow_symlinks=False)
+                   and _committed_child_replacement(paths, child, entry.name) for entry in candidates)
+    except (OSError, ValueError):
+        return False
+
+
+def _committed_child_replacement(paths, child, attempt):
+    from .installer_transaction_bridge import _read_capability, completion_root
+
+    root = installer_fence.state_root(paths)
+    try:
+        _uuid(attempt)
+        directory = root/'upgrades'/attempt
+        installer_fence.assert_state_security(directory, secret=True)
+        record = _read(directory/'plan.json', secret=True)
+        if (record['schema_version'] != 2 or record['upgrade_id'] != attempt or record['phase'] != 'ready'
+                or record['new']['transaction_id'] != child['transaction_id']):
+            return False
+        cap = _read_capability(paths, record['new']['session_id'])
+        if cap['operation'] != 'install' or not cap['recovery']:
+            return False
+        _validate_stored_plan(paths, cap, record)
+        marker = committed_marker(paths, barrier=_barrier(record))
+        if (marker is None or marker['successor_product_code'] != cap['package']['product_code']
+                or marker['source_revision'] != cap['package']['source_revision']):
+            return False
+        receipt = _read(completion_root(paths, cap)/'completed.json', maximum=installer_fence.MAX_FENCE_BYTES)
+        _validate_completed(receipt, cap['package'], child['transaction_id'], 'install')
+        return (receipt['service_states'] == cap['service_states']
+                and receipt['service_startup'] == record['service_startup']
+                and all(receipt[key] == record[key] for key in ('selected', 'previous'))
+                and all(receipt[key] == child[key] for key in
+                        ('package', 'selected', 'previous', 'service_states', 'service_startup')))
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
 
 
 def record_standalone_completion(paths,capability,completed):
