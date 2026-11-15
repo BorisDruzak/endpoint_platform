@@ -273,13 +273,17 @@ class NativeLifecycleOutbox:
 
 
 def native_action(capability):
-    # A recovery/finalization or replacement child cannot claim ordinary removal.
-    if capability.get('recovery') or capability.get('uninstall_finalization') or any(
+    if capability.get('uninstall_finalization') or any(
             name in capability for name in ('staged_rollback','recovery_parent')):
         return None
-    if 'compound' in capability and capability['operation'] != 'install':
+    operation = capability['operation']
+    # A standalone install reaches this point only after known native success.
+    # Compound recovery uses the original owner capability supplied by finish.
+    if capability.get('recovery') and (operation != 'install' or 'compound' in capability):
         return None
-    return {'install':'installed','uninstall':'removed'}.get(capability['operation'])
+    if 'compound' in capability and operation != 'install':
+        return None
+    return {'install':'installed','uninstall':'removed'}.get(operation)
 
 
 def packaged_extension_id():

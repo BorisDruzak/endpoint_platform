@@ -3533,7 +3533,7 @@ try {
     }
     $installationCompleted = $true
     if ($nativeExit -eq 0 -and $intent -cin @('install','uninstall') -and
-        -not $bridge.Capability.recovery -and -not $bridge.Capability.uninstall_finalization) {
+        (-not $bridge.Capability.recovery -or $intent -ceq 'install') -and -not $bridge.Capability.uninstall_finalization) {
         $installationNotification=@{HelperPath=$helperPath;HelperHash=$helperHash;LaunchDirectory=$bridge.LaunchDirectory}
     }
     if ($nativeExit -in @(67,3010,1641)) { exit (Get-NativeWrapperExitCode -NativeExit $nativeExit) }

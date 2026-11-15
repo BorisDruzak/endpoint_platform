@@ -137,6 +137,50 @@ def test_committed_upgrade_new_child_emits_installed_only():
     assert m.native_action({'operation':'install','compound':{'upgrade_id':TX1}})=='installed'
 
 
+@pytest.mark.parametrize('device_id', (None, DEVICE), ids=('fresh', 'enrolled'))
+def test_recovered_native_install_retains_one_fact_from_the_original_transaction(
+    outbox, monkeypatch, tmp_path, device_id,
+):
+    lifecycle = module()
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+
+    paths = WindowsUpdatePaths(tmp_path / 'Agent', tmp_path / 'data/updates/pending.json')
+    monkeypatch.setattr(lifecycle, 'outbox_for', lambda _: outbox)
+    monkeypatch.setattr(lifecycle, '_identity', lambda _: device_id)
+    expected = SimpleNamespace(
+        package=SimpleNamespace(
+            version=NATIVE['version'],
+            product_code=NATIVE['product_code'],
+            sha256=NATIVE['msi_sha256'],
+        ),
+        identity=SimpleNamespace(source_revision=NATIVE['source_revision']),
+    )
+    owner = {'operation': 'install', 'transaction_id': TX1, 'recovery': True}
+
+    with lifecycle.durable_state.installer_mutation_checkpoints(lambda: None):
+        lifecycle.record_native_finish(paths, owner, expected)
+        lifecycle.record_native_finish(paths, owner, expected)
+
+    _, journal = outbox._load()
+    [fact] = journal['facts']
+    assert fact['transaction_id'] == TX1
+    assert fact['native'] == NATIVE
+    assert fact['device_id'] == device_id
+    if device_id is None:
+        outbox.bind_installation(TX1, DEVICE)
+    [pending] = outbox.pending(DEVICE)
+    assert pending['action'] == 'installed'
+    assert pending['sequence'] == 1
+    assert outbox.deliver(DEVICE, ack) == 'delivered'
+    assert outbox.deliver(DEVICE, lambda _: pytest.fail('duplicate after acknowledgement')) == 'delivered'
+
+
+@pytest.mark.parametrize('markers', ({'staged_rollback': {}}, {'recovery_parent': {}}, {'compound': {}}))
+def test_recovery_child_cannot_record_a_standalone_install(markers):
+    m = module()
+    assert m.native_action({'operation': 'install', 'recovery': True, **markers}) is None
+
+
 @pytest.mark.parametrize('change', [{'operation':'retire-initial-runtime'},
     {'uninstall_finalization':True}, {'compound':{}}, {'staged_rollback':{}},
     {'recovery_parent':{}}, {'recovery':True}])
