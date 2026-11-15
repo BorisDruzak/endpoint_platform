@@ -429,9 +429,15 @@ The nine targeted Windows test modules passed (363 tests). Signed Setup
 3.2.192 source with exit 67. The MSI registration, selector and four
 identity files were restored; Gateway accepted WSS and both exact native
 events in order after reconnect. The delivery task retired without
-another MSI operation. Both the 226 failure and 227 acceptance snapshots
-are available. Verify forced interruption and native recovery from the
-same source in a separate run.
+another MSI operation. On a separate VM145 run, a hard stop interrupted
+the native removal transaction for the same 3.2.192 source. The original
+MSI fence survived; the startup recovery task created a replace-foundation
+plan and reached accepted on 3.2.227 with exit 0. Gateway acknowledged
+one install event, all four identity files matched, and chkdsk returned 0.
+A clean reboot confirmed fresh same-device WSS and the same event ID.
+The power-cut and accepted snapshots are available alongside the 226
+failure and 227 rollback. The other matrix scenarios and production
+qualification remain open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
