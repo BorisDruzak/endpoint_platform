@@ -367,7 +367,10 @@ published DEBs. The scheduled pilot check exited 0. Ordinary APT accepted
 both live suites over HTTPS and identified the expected candidates. Copies of
 those exact repositories were renewed under an isolated rehearsal signer.
 APT accepted both renewed copies and downloaded the candidates with their
-original hashes. The temporary copies and key were removed.
+original hashes. The temporary copies and key were removed. The publisher
+CLI now supports scheduled verification and renewal at three days or less.
+With GnuPG and APT 2.8.4, both copied channels skipped fresh metadata, signed
+when due and skipped an immediate retry. Package and index hashes matched.
 Release evidence requires an exact-source CI receipt before publication.
 STAB-15: the [release qualification matrix](docs/verification/2026-11-14-agent-release-qualification-matrix.md)
 records installed canary evidence by OS, exact source and signed artifact.

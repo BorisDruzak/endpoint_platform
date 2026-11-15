@@ -113,8 +113,9 @@ def _verify_indexes(root: Path, suite: Path, metadata: str) -> None:
 
 def renew(
     root: Path, keyring: Path, fingerprint: str, *, now: datetime | None = None, codename: str = SUITE,
-) -> datetime:
-    """Renew the verified Release metadata on the publisher's staging tree."""
+    only_if_due: bool = False,
+) -> datetime | None:
+    """Return the new expiry, or None if verified metadata is still fresh."""
     now = (now or datetime.now(UTC)).astimezone(UTC).replace(microsecond=0)
     if codename not in REPOSITORIES:
         raise ValueError("unsupported APT codename")
@@ -122,9 +123,14 @@ def renew(
     current = suite / "InRelease"
     metadata = _verified_release(current, keyring, fingerprint)
     date, expires = _release_dates(metadata, codename)
-    if now <= date or now + VALIDITY <= expires:
+    if only_if_due and date > now:
+        raise ValueError("APT metadata is dated in the future")
+    should_renew = not only_if_due or expires <= now + RENEWAL_WARNING
+    if should_renew and (now <= date or now + VALIDITY <= expires):
         raise ValueError("renewal must advance the signed repository dates")
     _verify_indexes(root, suite, metadata)
+    if not should_renew:
+        return None
     valid_until = now + VALIDITY
     metadata = re.sub(r"^Date: .+$", f"Date: {format_datetime(now, usegmt=True)}", metadata, flags=re.MULTILINE)
     metadata = re.sub(r"^Valid-Until: .+$",
@@ -196,6 +202,8 @@ def main() -> None:
     actions = parser.add_mutually_exclusive_group(required=True)
     actions.add_argument("--deb", type=Path, action="append")
     actions.add_argument("--renew", type=Path, metavar="REPOSITORY")
+    actions.add_argument("--renew-if-due", type=Path, metavar="REPOSITORY",
+                         help="verify the staging tree and sign when at most three days remain")
     actions.add_argument("--check", type=Path, metavar="INRELEASE")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--keyring", type=Path)
@@ -208,10 +216,15 @@ def main() -> None:
         build(args.deb, args.output, args.signing_fingerprint, codename=args.codename)
         return
     if args.keyring is None:
-        parser.error("--renew and --check require --keyring")
-    if args.renew is not None:
-        expiry = renew(args.renew, args.keyring, args.signing_fingerprint, codename=args.codename)
-        print(f"Renewed Valid-Until {expiry.isoformat()}")
+        parser.error("--renew, --renew-if-due and --check require --keyring")
+    repository = args.renew or args.renew_if_due
+    if repository is not None:
+        expiry = renew(repository, args.keyring, args.signing_fingerprint, codename=args.codename,
+                       only_if_due=args.renew_if_due is not None)
+        if expiry is None:
+            print("Verified repository: renewal not due")
+        else:
+            print(f"Renewed Valid-Until {expiry.isoformat()}")
         return
     metadata = _verified_release(args.check, args.keyring, args.signing_fingerprint)
     date, expiry = _release_dates(metadata, args.codename)
