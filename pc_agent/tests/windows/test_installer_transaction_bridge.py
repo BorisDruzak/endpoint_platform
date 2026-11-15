@@ -53,6 +53,105 @@ if ($script:registrations -ne 2) { throw 'Unexpected registration for a non-repa
     assert result.returncode == 0, result.stderr
 
 
+@pytest.mark.skipif(os.name != 'nt', reason='Windows PowerShell staged cleanup')
+@pytest.mark.parametrize('route', ['direct', 'scheduled', 'accepted'])
+def test_staged_cleanup_uses_live_owner_session_after_trial(tmp_path, route):
+    source = Path(__file__).resolve().parents[3] / 'packaging/windows/Install-EndpointAgentCanary.ps1'
+    script = tmp_path / 'staged-terminal-cleanup.ps1'
+    script.write_text(r"""param($Source, $Route)
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [Management.Automation.Language.Parser]::ParseFile($Source, [ref]$tokens, [ref]$errors)
+if ($errors.Count) { throw 'Installer script does not parse' }
+foreach ($name in 'Complete-StagedTerminalCleanup','Invoke-StagedRecovery') {
+    $function = $ast.Find({
+        param($node)
+        $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name
+    }, $true)
+    Invoke-Expression $function.Extent.Text
+}
+$direct = $ast.Find({
+    param($node)
+    $node -is [Management.Automation.Language.IfStatementAst] -and
+        $node.Clauses[0].Item1.Extent.Text -ceq '$stagedOnline -and $nativeExit -in @(0,67)'
+}, $true)
+$manifest = @{package_sha256=('a'*64)}
+$helperPath = 'helper'
+$helperHash = 'b'*64
+$installerStateRoot = 'state'
+$operation = '0e9b9acb-c298-4ae6-a8a0-2e3fb1f36942'
+$previousServiceStates = @{EndpointAgent='Running'; EndpointAgentUpdater='Stopped'; EndpointBrowserPolicy='Running'}
+$trialBridge = @{Owner='trial-owner'; TransactionId=$operation; HelperPath=$helperPath; HelperHash=$helperHash;
+    Capability=@{package=$manifest}; Policy=@{Alive=$true}}
+$trialBridge.Policy | Add-Member ScriptMethod MarkQuiescent {}
+$trialBridge.Policy | Add-Member ScriptMethod AuthorizeStagedRecovery {}
+$script:fresh = $null
+$script:disposed = 0
+$script:retry = 0
+$script:restored = 0
+Add-Type 'namespace EndpointInstallerBridge { public static class NativeTransaction { public static object EstablishSettlement(object owner) { return owner; } } }'
+function New-InstallerBridge($Manifest, $HelperPath, $HelperHash, $StateRoot, $ServiceStates, $Intent, $TransactionId) {
+    if ($TransactionId -cne $operation -or $Intent -cne 'install' -or
+        $Manifest.package_sha256 -cne ('a'*64) -or $HelperPath -cne 'helper' -or $HelperHash -cne ('b'*64) -or
+        $StateRoot -cne 'state' -or $ServiceStates.EndpointAgent -cne 'Running') { throw 'wrong rollback binding' }
+    if ($script:fresh) { throw 'multiple cleanup sessions' }
+    $policy = @{Alive=$true}
+    $policy | Add-Member ScriptMethod OwnerLost { $this.Alive = $false }
+    $handle = [pscustomobject]@{}
+    $handle | Add-Member ScriptMethod Dispose { $script:disposed++ }
+    $script:fresh = @{TransactionId=$TransactionId; Policy=$policy; Channel=$handle; Owner=$handle; Peers=@($handle)}
+    return $script:fresh
+}
+function Start-ManagedEndpointAgent {}
+function Start-VerifiedBrowserPolicy {}
+function Invoke-InstallerHelper($Bridge, $Phase) {
+    if ($Phase -ceq 'inspect-staged-recovery') {
+        return @{operation_id=$operation; service_states=$previousServiceStates; old_release='old-release'}
+    }
+    if ($Phase -ceq 'recover-staged-owner') { return @{operation_id=$operation; action='trial-required'} }
+    if ($Phase -cne 'restore-staged-companions') { throw "unexpected phase $Phase" }
+    if (!$Bridge.Policy.Alive) { throw 'revoked trial session reused' }
+    $script:restored++
+    return @{users='not-required'; services=@{EndpointAgent='running'; EndpointBrowserPolicy='running'}}
+}
+function Remove-StagedRecoveryTask($Bridge, $StateRoot) {
+    if (!$Bridge.Policy.Alive -or $Bridge.TransactionId -cne $operation -or $StateRoot -cne 'state') {
+        throw 'invalid cleanup session'
+    }
+    $script:retry++
+}
+function ConvertTo-StagedServiceStates($Value) { return $Value }
+function Get-ManagedAgentServiceStates { return @{} }
+function Stop-ManagedAgentServices($PreviousStates, $StoppedBySetup) {}
+function Invoke-StagedHealthTrial($Bridge, $InstallRoot) {
+    $Bridge.Policy.Alive = $false
+    return 'rollback'
+}
+function Invoke-StagedFoundationRollback { return 'rolled-back' }
+if ($Route -ceq 'scheduled') {
+    $nativeExit = Invoke-StagedRecovery $trialBridge $manifest $helperPath $helperHash $installerStateRoot 'cache' $operation 'root' 'media'
+    if ($nativeExit -ne 67) { throw 'wrong recovery exit' }
+} else {
+    $stagedOnline = $true
+    $nativeExit = if ($Route -ceq 'accepted') { 0 } else { 67 }
+    $trialBridge.Policy.Alive = $nativeExit -eq 0
+    Invoke-Expression $direct.Extent.Text
+}
+if ($script:restored -ne 1 -or $script:retry -ne 1) { throw 'staged cleanup was incomplete' }
+if ($Route -ceq 'accepted') {
+    if ($script:fresh -or $script:disposed -ne 0) { throw 'accepted path changed owner session' }
+} elseif (!$script:fresh -or $script:fresh.Policy.Alive -or $script:disposed -ne 3) {
+    throw 'rollback cleanup did not retire the new session'
+}
+""", encoding='utf-8')
+    result = subprocess.run(
+        ['powershell.exe', '-NoProfile', '-NonInteractive', '-File', str(script), str(source), route],
+        capture_output=True, text=True, timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 @pytest.mark.parametrize('phase,native,minutes,allowed',[
     ('prepare',False,31,True),('prepare',False,120,True),
     ('prepare',False,121,True),('prepare',False,239,True),

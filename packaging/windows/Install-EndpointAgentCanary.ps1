@@ -2040,8 +2040,18 @@ function Complete-NativeContinuation {
 }
 
 function Complete-StagedTerminalCleanup {
-    param($Bridge,$ServiceStates,[string]$StateRoot,[switch]$RequireServices)
+    param($Bridge,$ServiceStates,[string]$StateRoot,[switch]$RequireServices,[switch]$AfterRollback)
+    $cleanupBridge=$null
     try {
+        if ($AfterRollback) {
+            # The health trial can revoke its pipe at the deadline. Rollback
+            # verifies settlement on another bridge, so open a fresh session
+            # for the same transaction to restore companions and schedule delivery.
+            $cleanupBridge=New-InstallerBridge -Manifest $Bridge.Capability.package `
+                -HelperPath $Bridge.HelperPath -HelperHash $Bridge.HelperHash -StateRoot $StateRoot `
+                -ServiceStates $ServiceStates -Intent 'install' -TransactionId $Bridge.TransactionId
+            $Bridge=$cleanupBridge
+        }
         if($ServiceStates['EndpointBrowserPolicy'] -ceq 'Running'){Start-VerifiedBrowserPolicy}
         if($ServiceStates['EndpointAgent'] -ceq 'Running'){Start-ManagedEndpointAgent}
         $restored=Invoke-InstallerHelper -Bridge $Bridge -Phase 'restore-staged-companions'
@@ -2055,6 +2065,13 @@ function Complete-StagedTerminalCleanup {
         # Accepted health is durable; ordinary cleanup cannot undo it. A
         # recovery caller must retain its task and report unavailable services.
         if($RequireServices){throw 'RECOVERY_REQUIRED'}
+    } finally {
+        if ($null -ne $cleanupBridge) {
+            $cleanupBridge.Policy.OwnerLost()
+            $cleanupBridge.Channel.Dispose()
+            foreach ($peer in $cleanupBridge.Peers) { $peer.Dispose() }
+            $cleanupBridge.Owner.Dispose()
+        }
     }
 }
 
@@ -2105,7 +2122,7 @@ function Invoke-StagedRecovery {
     if($adopted.action -ceq 'rollback-required' -or (Invoke-StagedHealthTrial -Bridge $Bridge -InstallRoot $InstallRoot) -cne 'accepted'){
         $result=Invoke-StagedFoundationRollback -Manifest $Manifest -HelperPath $HelperPath -HelperHash $HelperHash -StateRoot $StateRoot -CacheRoot $CacheRoot -ServiceStates $serviceStates -Selection ([pscustomobject]@{foundation_release=$observed.old_release}) -CandidateMedia $CandidateMedia -OperationId $OperationId -InstallRoot $InstallRoot
         if($result -cne 'rolled-back' -and $result -cne 'accepted'){throw 'RECOVERY_REQUIRED'}
-        Complete-StagedTerminalCleanup $Bridge $serviceStates $StateRoot -RequireServices
+        Complete-StagedTerminalCleanup $Bridge $serviceStates $StateRoot -RequireServices -AfterRollback:($result -ceq 'rolled-back')
         return $(if($result -ceq 'rolled-back'){67}else{0})
     }
     Complete-StagedTerminalCleanup $Bridge $serviceStates $StateRoot -RequireServices
@@ -3500,7 +3517,9 @@ try {
         Complete-NativeContinuation $continuationBridge
         Start-VerifiedBrowserPolicy;Start-ManagedEndpointAgent
     }
-    if($stagedOnline -and $nativeExit -in @(0,67)){Complete-StagedTerminalCleanup $trialBridge $previousServiceStates $installerStateRoot -RequireServices}
+    if($stagedOnline -and $nativeExit -in @(0,67)){
+        Complete-StagedTerminalCleanup $trialBridge $previousServiceStates $installerStateRoot -RequireServices -AfterRollback:($nativeExit -eq 67)
+    }
     $installationCompleted = $true
     if ($nativeExit -eq 0 -and $intent -cin @('install','uninstall') -and
         -not $bridge.Capability.recovery -and -not $bridge.Capability.uninstall_finalization) {

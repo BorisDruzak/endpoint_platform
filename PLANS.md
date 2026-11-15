@@ -417,8 +417,15 @@ after the verified native rollback. The owner trace isolates the failing
 phase to `restore-staged-companions`. The retained recovery task had result
 60, and two native lifecycle events stayed pending without a delivery task.
 The [rollback receipt](docs/verification/2026-11-14-agent-release-qualification-matrix.md#офлайн-откат-setup-3226--32192-на-windows-10)
-records the stopped diagnostic snapshot. Setup exit 67, automatic event
-delivery and forced interruption remain open for this Windows 10 pair.
+records the stopped diagnostic snapshot. The helper's Windows event showed
+error 109 during the initial owner request. At the trial deadline the owner
+pump revokes its session. Rollback settles on a separate owner session, and
+companion restoration was still using the revoked trial session. The Setup
+wrapper now opens a fresh cleanup session for the same transaction after a
+verified rollback. Direct and scheduled rollback regressions first failed
+against the original wrapper, then passed along with the accepted path.
+The nine targeted Windows test modules passed (363 tests). Verify code 67,
+automatic event delivery and forced interruption with new signed media.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
