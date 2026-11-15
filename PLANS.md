@@ -550,8 +550,15 @@ hashes stayed unchanged. The temporary clone and disk were removed.
 For VM147, read-only extraction from exact signed Setup 3.2.229 media
 recovered the expected bytes for all seven zero-filled files. Six match the
 installed-runtime manifest and the seventh matches the MSI marker and Core
-component identity. Recovery of the files and native registration has yet
-to be tested on a clone of the held state.
+component identity. A disposable offline clone of the held state was
+repaired with only those seven exact file contents. The 121-file inventory
+matched and the file ACLs, protected fence, plan and selector did not change.
+The exact Setup 3.2.229 then recovered its original native transaction,
+verified after reboot at sequence 10 with registered ProductState 5 and
+an exact, readable LocalPackage. It left one installed event awaiting
+enrollment after the offline wrapper returned 41. The clone was removed.
+Online delivery of that original event after operator-assisted recovery,
+unattended recovery for this damage profile and VM149 recache remain open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
