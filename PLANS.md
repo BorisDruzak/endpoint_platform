@@ -524,7 +524,11 @@ new fact. The source fix resumes enrollment from matching signed MSI, protected
 completion and current ownership proof and binds the original fact under the
 provisioner lock. VM151 was reverted to the offline snapshot after the campaign
 and credential were revoked and the original Gateway was restored. Signed
-3.2.233 still needs the same power-cut, offline completion and online ACK run.
+3.2.233 exposed a missing installer-state parent on a truly clean VM and
+stopped before MSI. The regression now covers first install without creating
+state and retains proof checks when it exists. Temporary VM152 and the isolated
+catalog were removed. Setup 3.2.234 still needs the same power-cut, offline
+completion and original online ACK run.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
