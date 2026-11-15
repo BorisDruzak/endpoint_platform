@@ -420,8 +420,13 @@ def test_immutable_pin_validation_failure_releases_every_handle(media, monkeypat
         other.unlink()
 
 
-@pytest.mark.parametrize('phase,include_cache', [('prepare', True), ('compound-finalize', True), ('msi-enter', False)])
-def test_immutable_media_roots_are_fixed_package_inputs_and_owned_native_cache(tmp_path, monkeypatch, phase, include_cache):
+@pytest.mark.parametrize('phase,include_cache,include_archived', [
+    ('prepare', True, True), ('compound-finalize', True, True),
+    ('reconcile', False, True), ('msi-enter', False, False),
+])
+def test_immutable_media_roots_are_fixed_package_inputs_and_owned_native_cache(
+    tmp_path, monkeypatch, phase, include_cache, include_archived,
+):
     import win32api
     from types import SimpleNamespace
     paths = SimpleNamespace(install_root=tmp_path/'Endpoint/Agent')
@@ -433,7 +438,7 @@ def test_immutable_media_roots_are_fixed_package_inputs_and_owned_native_cache(t
     assert (tmp_path/'Windows/Installer' in roots) is include_cache
     archived = (tmp_path/'Endpoint/installer-state/packages'/('a'*64),
                 tmp_path/'Endpoint/installer-state/packages'/('b'*64))
-    assert all((root in roots) is include_cache for root in archived)
+    assert all((root in roots) is include_archived for root in archived)
     cap['package']['package_sha256'] = '../foreign'
     with pytest.raises(ValueError):
         msi.immutable_installer_media_roots(paths, cap, phase)

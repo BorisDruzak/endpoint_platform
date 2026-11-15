@@ -157,7 +157,10 @@ def test_registered_cache_flush_uses_verified_file_identity(tmp_path, monkeypatc
             msi.persist_registered_cache(original, package, native=native)
         assert not flushed
     else:
-        with msi.package_read_scope(), durable_state.installer_mutation_checkpoints(lambda: None):
+        paths = SimpleNamespace(install_root=tmp_path / 'Endpoint Platform' / 'Agent')
+        capability = {'package': {'package_sha256': package.sha256}}
+        roots = msi.immutable_installer_media_roots(paths, capability, 'reconcile')
+        with msi.package_read_scope(immutable_media_roots=roots), durable_state.installer_mutation_checkpoints(lambda: None):
             msi.persist_registered_cache(original, package, native=native)
         assert len(flushed) == 2
         assert cache.read_bytes() == b'Windows Installer database'
