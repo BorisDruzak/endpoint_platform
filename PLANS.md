@@ -453,11 +453,15 @@ UUID-pinned independent Support 1.1.9 SSH with Core and updater stopped
 and Setup Observer disabled. Console accepted operator attestation.
 The lease and broker port were closed, test credentials removed and
 baseline service states restored. Clean Windows 10 build 19045 Setup 3.2.227
-on VM146 returned 21 (MSI_EVIDENCE_FAILED) and retained the msi-starting
-fence despite successful Windows Installer events. Gateway received no
-enrollment request. The temporary campaign was revoked and the original lab
-Gateway restored. VM146 remains stopped and isolated with its diagnostic
-snapshot. Clean install and production qualification remain open.
+on VM146 lacked the Authenticode publisher root. Its late trust check returned
+21 and left the msi-starting fence. The source fix checks trust before writing
+the cache or fence. The updated wrapper returned 64 on clean VM147 without
+creating either. Trusted, unchanged signed 3.2.227 then installed with exit 0
+and one completed AUTO enrollment on VM147. Reboot preserved its identity and
+fresh WSS on the same card. The temporary campaign and credential were revoked,
+the lab Gateway restored and VM147 removed. VM146 retains the original fence.
+Verification of a newly signed Setup with the fix and production qualification
+remain open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
