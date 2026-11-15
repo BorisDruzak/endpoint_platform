@@ -436,8 +436,12 @@ plan and reached accepted on 3.2.227 with exit 0. Gateway acknowledged
 one install event, all four identity files matched, and chkdsk returned 0.
 A clean reboot confirmed fresh same-device WSS and the same event ID.
 The power-cut and accepted snapshots are available alongside the 226
-failure and 227 rollback. The other matrix scenarios and production
-qualification remain open.
+failure and 227 rollback. A separate offline same-version 3.2.227 repair
+restored the missing Core service with exit 10 and preserved its MSI
+registration and four identity files. The native repair event survived an
+offline reboot, reached Gateway once on reconnect and retired the retry
+task without another MSI operation. The remaining scenarios for the exact
+candidate and production qualification remain open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
