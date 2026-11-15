@@ -440,8 +440,13 @@ failure and 227 rollback. A separate offline same-version 3.2.227 repair
 restored the missing Core service with exit 10 and preserved its MSI
 registration and four identity files. The native repair event survived an
 offline reboot, reached Gateway once on reconnect and retired the retry
-task without another MSI operation. The remaining scenarios for the exact
-candidate and production qualification remain open.
+task without another MSI operation. A separate offline uninstall and
+reinstall of the same signed 3.2.227 on VM145 returned 0 and 10. The exact
+removed and installed events survived an offline reboot and Gateway
+acknowledged them in order. Support 1.1.9 registered for the first time
+with access disabled and the four identity files matched. Clean install
+on a fresh Windows 10 image, interactive UserSensor, independent Support
+and production qualification remain open for the candidate.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
