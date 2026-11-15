@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select, text
+from sqlalchemy import MetaData, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -530,10 +530,16 @@ async def reconnect_provider(request, session_provider):
 
     for table in _GATEWAY_TABLES:
         add_table(table)
+    # Creating cyclic PostgreSQL foreign keys via ALTER mutates their constraint objects.
+    # Keep the shared model metadata intact for the SQLite fixtures in this process.
+    metadata = MetaData(naming_convention=DeviceSession.metadata.naming_convention)
+    for table in sorted(tables, key=lambda table: table.key):
+        table.to_metadata(metadata)
+
     try:
         async with engine.begin() as db:
             await db.execute(text(f'CREATE SCHEMA "{schema}"'))
-            await db.run_sync(lambda sync: DeviceSession.metadata.create_all(sync, tables=tables))
+            await db.run_sync(metadata.create_all)
         yield async_sessionmaker(engine, expire_on_commit=False)
     finally:
         try:
