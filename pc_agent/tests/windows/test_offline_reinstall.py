@@ -139,3 +139,12 @@ def test_setup_arms_retry_when_support_fails_after_ack(monkeypatch, tmp_path):
     setup_entry._install_support_after_native(tmp_path)
 
     assert calls == [('activate', tmp_path), ('schedule', tmp_path)]
+
+
+def test_missing_task_from_windows_scheduler_allows_initial_registration(tmp_path):
+    from pc_agent.platform.windows import offline_reinstall
+
+    pytest.importorskip('win32com.client')
+    event_id = str(uuid4())
+    folder = offline_reinstall._folder()
+    assert offline_reinstall._get_task(folder, event_id, tmp_path / 'EndpointAgentSetup.exe') is None

@@ -10,6 +10,7 @@ from .installation_lifecycle import _identity, outbox_for
 from .installation_notification import bounded_delivery
 from .installation_provenance import verified_foundation_release
 from .msi_inventory import _file_sha256
+from .scheduled_task import find_task
 from .update_paths import WindowsUpdatePaths
 from .update_transaction import update_transaction
 
@@ -72,12 +73,8 @@ def _folder():
 
 
 def _get_task(folder, event_id, executable):
-    from pywintypes import com_error
-    try:
-        task = folder.GetTask(_TASK_PREFIX + event_id)
-    except com_error as error:
-        if (error.hresult & 0xffffffff) != 0x80070002:
-            raise
+    task = find_task(folder, _TASK_PREFIX + event_id)
+    if task is None:
         return None
     actions = task.Definition.Actions
     if actions.Count != 1:

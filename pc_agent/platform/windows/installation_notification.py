@@ -185,18 +185,16 @@ def bounded_delivery(*, retry_task=False):
 
 def _retire_retry_task():
     """Called while the installer mutex still protects the drained queue."""
-    from pywintypes import com_error
     from win32com.client import Dispatch
+    from .scheduled_task import find_task
 
     scheduler = Dispatch('Schedule.Service')
     scheduler.Connect()
     folder = scheduler.GetFolder('\\')
-    try:
-        actions = folder.GetTask(_RETRY_TASK).Definition.Actions
-    except com_error as error:
-        if (error.hresult & 0xffffffff) != 0x80070002:
-            raise
+    task = find_task(folder, _RETRY_TASK)
+    if task is None:
         return
+    actions = task.Definition.Actions
     if actions.Count != 1:
         raise ValueError('INSTALLATION_RETRY_TASK_CONFLICT')
     action = actions.Item(1)
