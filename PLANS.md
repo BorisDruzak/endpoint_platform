@@ -614,11 +614,18 @@ same Foundation file was pinned against writes. Source fix
 file identity and change time after closing that file's read pin.
 Real Windows regressions cover successful flushing and rejection of a
 replaced file, and related checks passed (267 runtime and 175 Setup /
-packaging tests). VM152 is stopped without a network adapter with the
-failure snapshot. The scratch Gateway and database were retired after
-restoring the baseline lab services. The following lab candidate is
-3.2.235 at source `df910cc6c704f2cc0544af88170837bfc2fc9d7d`. A signed build
-and clean 218-source repeat are still required for upgrade qualification.
+packaging tests). The signed 3.2.235 repeat used a full clone on VM153
+with networking configured before boot. Core 3.2.218 started
+automatically and connected on the original card. The upgrade stopped
+in compound finalization with exit 21 after registering the target MSI.
+The diagnostic reached the Windows Installer LocalPackage cache flush
+and recorded Win32 32 there. The four identity files matched and the
+Gateway retained the original sequence-5 event with no target WSS.
+VM153 is stopped without a network adapter and retains the latest failure.
+The original lab Gateway and worker are running and the scratch database
+was removed. VM146 and VM152 were removed with their disks and snapshots
+after verifying retention of the test reports. VM154 remains the source
+for the next 3.2.218 repeat.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
