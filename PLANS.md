@@ -641,6 +641,16 @@ snapshot and matching lab DB are retained for same-version repair and
 rollback. The superseded 235 failure VM153 and its temporary media were
 removed after checking its report hash. UserSensor, independent Support
 and the other matrix gates for 3.2.236 remain open.
+The same signed 3.2.236 Setup repaired the missing EndpointAgent SCM
+entry on an offline full VM153 clone of the accepted VM152 snapshot.
+Setup returned 10 with Core running and Auto, preserved the installed
+MSI and four identity files, and queued one installed event at sequence
+7. The SYSTEM delivery task returned 75 after the offline reboot. The
+original event received one matching ACK automatically after link
+restore, the task retired, and the same device card received fresh WSS
+with no new MSI event after link restore. VM153 and the repair database
+were removed after verifying the receipt. The original lab services and
+VM152/sequence-6 database are ready for the rollback test.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
