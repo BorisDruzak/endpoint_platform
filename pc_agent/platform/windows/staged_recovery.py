@@ -80,6 +80,56 @@ def _assert_owner_dead(owner):
         kernel.CloseHandle(handle)
 
 
+def read_recoverable_stage(paths, operation_id):
+    """Open a protected copy only for the scheduled operation's malformed primary."""
+    state._uuid(operation_id)
+    try:
+        return state.read_staged_update(paths), None
+    except state.UnreadableStagedPayload as damaged:
+        record = state._read_record_path(state._recovery_path(paths))
+        if record is None or record.binding.operation_id != operation_id:
+            _fail()
+        return record, damaged.raw
+
+
+def _require_system_recovery():
+    import win32api
+    import win32security
+
+    token = win32security.OpenProcessToken(win32api.GetCurrentProcess(), win32security.TOKEN_QUERY)
+    try:
+        sid = win32security.GetTokenInformation(token, win32security.TokenUser)[0]
+        if win32security.ConvertSidToStringSid(sid) != 'S-1-5-18':
+            _fail()
+    finally:
+        token.Close()
+
+
+def restore_damaged_stage(paths, expected, damaged):
+    """Restore the journal after admission, before the native owner is launched."""
+    from .update_transaction import _windows_transaction
+
+    _require_system_recovery()
+    operation_id = expected.binding.operation_id
+    with _windows_transaction(timeout_ms=0):
+        record, current_damage = read_recoverable_stage(paths, operation_id)
+        if record != expected or current_damage != damaged:
+            _fail()
+        _assert_owner_dead(record.owner)
+        _validate_recovery_inputs(paths, record)
+        root = _root(paths, operation_id)
+        archive = root / ('damaged-stage-' + hashlib.sha256(damaged).hexdigest() + '.bin')
+        with durable_state.installer_mutation_checkpoints(lambda: _assert_owner_dead(record.owner)):
+            if archive.exists():
+                fence.assert_state_security(archive, secret=True)
+                if provenance._read(archive, state._MAX_BYTES) != damaged:
+                    _fail()
+            else:
+                durable_state.write_bytes_atomic(archive, damaged, trusted_root=root, max_bytes=state._MAX_BYTES,
+                    protect=lambda leaf: fence.protect_state(leaf, secret=True))
+            state._write_record_path(state._path(paths), state._record_value(record))
+
+
 def owner_authorized(paths, record, owner):
     if owner == record.owner:
         return True

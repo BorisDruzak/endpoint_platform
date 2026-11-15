@@ -16,7 +16,7 @@ import re
 import stat
 from uuid import UUID
 
-from endpoint_contracts.runtime_payload import read_json, version_tuple
+from endpoint_contracts.runtime_payload import PayloadConflict, read_json, version_tuple
 from . import durable_state, installer_fence
 from .update_paths import WindowsUpdatePaths
 
@@ -173,6 +173,18 @@ def _path(paths):
     return installer_fence.state_root(paths) / "staged-update.json"
 
 
+def _recovery_path(paths):
+    return _path(paths).with_name("staged-update-recovery.json")
+
+
+class UnreadableStagedPayload(ValueError):
+    """Malformed bytes from a successfully opened and verified journal."""
+
+    def __init__(self, raw):
+        super().__init__("UPDATE_STATE_INVALID")
+        self.raw = raw
+
+
 def _decode_record(value):
     if not isinstance(value, dict) or set(value) != {
             "schema_version", "binding", "binding_sha256", "phase", "sequence",
@@ -212,23 +224,37 @@ def _read_record_path(path):
             opened = os.fstat(source.fileno())
             if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
                 _invalid()
-            value = read_json(source.read(_MAX_BYTES + 1), _MAX_BYTES)
+            raw = source.read(_MAX_BYTES + 1)
         after = path.lstat()
         if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (
                 after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns):
             _invalid()
+        if len(raw) != before.st_size:
+            _invalid()
+        try:
+            value = read_json(raw, _MAX_BYTES)
+        except PayloadConflict as error:
+            raise UnreadableStagedPayload(raw) from error
         return _decode_record(value)
+    except UnreadableStagedPayload:
+        raise
     except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
         raise ValueError("UPDATE_STATE_INVALID") from error
 
 
+def _write_record_path(path, value):
+    durable_state.installer_mutation_checkpoint(required=True)
+    installer_fence.assert_state_security(path.parent)
+    durable_state.write_json_atomic(path, value, trusted_root=path.parent, max_bytes=_MAX_BYTES,
+                                    protect=installer_fence.protect_state)
+
+
 def _write(paths, record):
     value = _record_value(record)
-    durable_state.installer_mutation_checkpoint(required=True)
-    root = _path(paths).parent
-    installer_fence.assert_state_security(root)
-    durable_state.write_json_atomic(_path(paths), value, trusted_root=root, max_bytes=_MAX_BYTES,
-                                    protect=installer_fence.protect_state)
+    # A reader must never see a newer primary than the staged recovery copy.
+    # Normal readers still trust only the primary and reject malformed state.
+    _write_record_path(_recovery_path(paths), value)
+    _write_record_path(_path(paths), value)
     return record
 
 

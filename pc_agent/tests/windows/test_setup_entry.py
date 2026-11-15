@@ -28,6 +28,9 @@ from pc_agent.windows_setup import (
     (None, 0, 'other-operation', None),
     (None, 0, 'switching', None),
     (None, 0, 'busy', None),
+    ('damaged', 0, 'accepted', ('UPDATED', 0, 'SERVICE', 'SERVICE_RUNNING')),
+    ('damaged-busy', 0, 'accepted', None),
+    ('damaged-foreign', 0, 'accepted', None),
     ('not-frozen', 0, 'accepted', None),
     ('foreign-executable', 0, 'accepted', None),
     ('owner-alive', 0, 'accepted', None),
@@ -72,11 +75,22 @@ def test_frozen_staged_watchdog_uses_package_imports_and_preserves_admission(
     scope['_finish'] = lambda _, **fields: results.append(fields) or fields['code']
     scope['_install_support_after_native'] = lambda root: events.append(('post-install', root))
     monkeypatch.setattr(setup_entry.sys, 'frozen', defect != 'not-frozen', raising=False)
-    monkeypatch.setattr(setup_entry.sys, 'executable', str(tmp_path/'foreign.exe' if defect == 'foreign-executable' else cache/'EndpointAgentSetup.exe'))
+    monkeypatch.setattr(setup_entry.sys, 'executable', str(tmp_path/'foreign.exe' if defect in ('foreign-executable', 'damaged-foreign') else cache/'EndpointAgentSetup.exe'))
     scope['WindowsUpdatePaths'] = SimpleNamespace(production=lambda: paths)
     scope['_resource_root'] = lambda: resource
     scope['_verify_embedded_msi'] = lambda _: (resource/'EndpointAgent.release.json', resource/'Install-EndpointAgentCanary.ps1')
     monkeypatch.setattr(staged_recovery.state, 'read_staged_update', lambda _: finished if 'launch' in events else record)
+    if defect in ('damaged', 'damaged-busy', 'damaged-foreign'):
+        def read_damaged(actual_paths, operation_id):
+            assert actual_paths is paths and operation_id == operation
+            return record, b'INDX'
+        def restore_damaged(actual_paths, actual_record, damaged):
+            assert actual_paths is paths and actual_record is record and damaged == b'INDX'
+            events.append('restore-journal')
+            if defect == 'damaged-busy':
+                raise setup_entry.UpdateInProgress('UPDATE_IN_PROGRESS')
+        monkeypatch.setattr(staged_recovery, 'read_recoverable_stage', read_damaged)
+        monkeypatch.setattr(staged_recovery, 'restore_damaged_stage', restore_damaged)
     monkeypatch.setattr(staged_recovery, '_validate_recovery_inputs', lambda *_: {'package_sha256':digest})
     monkeypatch.setattr(staged_recovery, 'wait_for_original_owner', lambda *a, **k: events.append('wait'))
     def dead(_):
@@ -94,8 +108,11 @@ def test_frozen_staged_watchdog_uses_package_imports_and_preserves_admission(
         return SimpleNamespace(returncode=wrapper_exit)
     monkeypatch.setattr(setup_entry.subprocess, 'run', invoke)
     result = entry['_run_staged_recovery'](operation)
-    if defect is None:
-        expected = ['wait', 'dead', 'launch']
+    if defect in (None, 'damaged'):
+        expected = ['wait', 'dead']
+        if defect == 'damaged':
+            expected.append('restore-journal')
+        expected.append('launch')
         if wrapper_exit in (0, 67) and terminal != 'busy':
             expected.extend(['receipt-lock', 'receipt-unlock'])
         if receipt is not None and wrapper_exit == 0:
@@ -103,6 +120,7 @@ def test_frozen_staged_watchdog_uses_package_imports_and_preserves_admission(
         assert events == expected
     else:
         assert 'launch' not in events
+        assert ('restore-journal' in events) is (defect == 'damaged-busy')
     if receipt is None:
         assert results == []
         assert result == (3010 if wrapper_exit == 3010 else setup_entry.EXIT_REPAIR_REQUIRED)

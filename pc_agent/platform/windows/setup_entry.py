@@ -275,11 +275,11 @@ def _run_staged_recovery(operation_id):
             raise SetupInstallError('RECOVERY_REQUIRED')
         from pc_agent.platform.windows import staged_recovery as recovery
         paths = WindowsUpdatePaths.production()
-        record = recovery.state.read_staged_update(paths)
+        record, damaged = recovery.read_recoverable_stage(paths, operation_id)
         deadline = time.monotonic() + 60
         while record is None and time.monotonic() < deadline:
             time.sleep(0.5)
-            record = recovery.state.read_staged_update(paths)
+            record, damaged = recovery.read_recoverable_stage(paths, operation_id)
         if record is None or record.binding.operation_id != operation_id:
             raise SetupInstallError('RECOVERY_REQUIRED')
         inputs = recovery._validate_recovery_inputs(paths, record)
@@ -293,6 +293,8 @@ def _run_staged_recovery(operation_id):
         for embedded, cached in ((manifest, cache / manifest.name), (wrapper, cache / wrapper.name)):
             if embedded.read_bytes() != cached.read_bytes():
                 raise SetupInstallError('RECOVERY_REQUIRED')
+        if damaged is not None:
+            recovery.restore_damaged_stage(paths, record, damaged)
         from pc_agent.platform.windows.update_paths import _native_folder
         powershell = str(_native_folder(0x25) / "WindowsPowerShell/v1.0/powershell.exe")
         result = subprocess.run([powershell, '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
