@@ -155,6 +155,9 @@ def test_private_plan_publication_retry_preserves_initial_record(inputs,native_p
     with pytest.raises(OSError,match='publication interruption'): plan.publish_plan(paths,cap,record)
     stored=plan._root(paths,cap)/'plan.json';before=stored.read_bytes()
     fence.assert_state_security(stored,secret=True)
+    prepared=stored.with_name('prepared-plan.json')
+    fence.assert_state_security(prepared,secret=True)
+    assert prepared.read_bytes()==before
     monkeypatch.setattr(durable_state,'write_json_atomic',write)
     plan.publish_plan(paths,cap,record)
     assert stored.read_bytes()==before and plan.read_plan(paths,cap)==record

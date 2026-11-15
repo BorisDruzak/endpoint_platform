@@ -11,7 +11,7 @@ import re
 import stat
 import uuid
 
-from endpoint_contracts.runtime_payload import read_json, version_tuple
+from endpoint_contracts.runtime_payload import PayloadConflict, read_json, version_tuple
 from . import durable_state, installer_fence
 
 PHASES = ('prepared', 'old-script-returned', 'new-script-returned',
@@ -240,6 +240,24 @@ def _read_bytes(path, *, secret=False, maximum=_MAX_PLAN):
         return stream.read(maximum + 1)
 
 
+def _read_recovery_plan(root):
+    """Preserve the original before-state across a torn phase replacement."""
+    raw = _read_bytes(root / 'plan.json', secret=True)
+    try:
+        return read_json(raw, _MAX_PLAN), raw
+    except PayloadConflict as damaged:
+        # Only an unreadable payload can select the prepared copy. The same
+        # ACL, bound capability, pointer and native recovery checks still apply.
+        try:
+            raw = _read_bytes(root / 'prepared-plan.json', secret=True)
+        except FileNotFoundError:
+            raise damaged
+        prepared = read_json(raw, _MAX_PLAN)
+        if prepared.get('phase') != 'prepared' or prepared.get('sequence') != 0:
+            _failed()
+        return prepared, raw
+
+
 def _validate_prepared_source(capability,source):
     role=capability['compound']['prepared_old']
     if (not isinstance(source,dict) or 'compound' in source or 'recovery_parent' in source
@@ -299,9 +317,8 @@ def read_recovery_original(paths,capability):
     link=capability['compound']['recovery']
     root=installer_fence.state_root(paths)/'upgrades'/link['original_upgrade_id']
     installer_fence.assert_state_security(root,secret=True)
-    raw=_read_bytes(root/'plan.json',secret=True)
+    original,raw=_read_recovery_plan(root)
     if sha256(raw).hexdigest()!=link['original_plan_sha256']:_failed()
-    original=read_json(raw,_MAX_PLAN)
     if not isinstance(original,dict) or original.get('schema_version')!=1:_failed()
     from .installer_transaction_bridge import _read_capability
     original_cap=_read_capability(paths,original['new']['session_id'])
@@ -315,9 +332,8 @@ def _read_recovery_predecessor(paths,capability,original):
     link=capability['compound']['recovery']
     root=installer_fence.state_root(paths)/'upgrades'/link['predecessor_upgrade_id']
     installer_fence.assert_state_security(root,secret=True)
-    raw=_read_bytes(root/'plan.json',secret=True)
+    previous,raw=_read_recovery_plan(root)
     if sha256(raw).hexdigest()!=link['predecessor_plan_sha256']:_failed()
-    previous=read_json(raw,_MAX_PLAN)
     from .installer_transaction_bridge import _read_capability
     previous_cap=_read_capability(paths,previous['new']['session_id'])
     validate_bound_plan(previous,previous_cap)
@@ -361,7 +377,7 @@ def inspect_recovery_authority(paths,release,*,helper_sha256=None):
     if _recovery_committed_marker(paths,barrier) is not None:return None
     root=installer_fence.state_root(paths)/'upgrades'/barrier['upgrade_id']
     installer_fence.assert_state_security(root,secret=True)
-    raw=_read_bytes(root/'plan.json',secret=True);record=read_json(raw,_MAX_PLAN)
+    record,raw=_read_recovery_plan(root)
     from .installer_transaction_bridge import _read_capability
     current_cap=_read_capability(paths,record['new']['session_id'])
     validate_bound_plan(record,current_cap)
@@ -402,6 +418,7 @@ def publish_recovery_plan(paths,capability,record):
         installer_fence.protect_state(root,secret=True)
     path=root/'plan.json'
     if path.exists() and _read(path,secret=True)!=record:_failed()
+    _immutable_json(root/'prepared-plan.json',record,secret=True,maximum=_MAX_PLAN)
     durable_state.write_json_atomic(path,record,trusted_root=root,max_bytes=_MAX_PLAN,
         protect=lambda target:installer_fence.protect_state(target,secret=True))
     _immutable_json(_history(paths,record['upgrade_id'])/'barrier.json',_barrier(record))
@@ -443,6 +460,7 @@ def publish_plan(paths, capability, record):
     _immutable_json(history/'barrier.json',_barrier(record))
     if previous is not None:
         _immutable_json(root/'predecessor.json',previous,secret=True)
+    _immutable_json(root/'prepared-plan.json',record,secret=True,maximum=_MAX_PLAN)
     durable_state.write_json_atomic(path, record, trusted_root=root, max_bytes=_MAX_PLAN,
         protect=lambda target: installer_fence.protect_state(target, secret=True))
     durable_state.write_json_atomic(barrier_path, _barrier(record), trusted_root=barrier_path.parent,
@@ -489,11 +507,11 @@ def _history(paths,upgrade_id):
     return _archive_directory(_archive_directory(installer_fence.state_root(paths),'upgrade-history'),upgrade_id)
 
 
-def _immutable_json(path,value,*,secret=False):
+def _immutable_json(path,value,*,secret=False,maximum=4096):
     if path.exists():
-        if _read(path,secret=secret,maximum=4096)!=value:_failed()
+        if _read(path,secret=secret,maximum=maximum)!=value:_failed()
         return
-    durable_state.write_json_atomic(path,value,trusted_root=path.parent,max_bytes=4096,
+    durable_state.write_json_atomic(path,value,trusted_root=path.parent,max_bytes=maximum,
         protect=lambda target:installer_fence.protect_state(target,secret=secret))
 
 
