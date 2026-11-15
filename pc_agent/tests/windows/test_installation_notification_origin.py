@@ -30,8 +30,14 @@ def enrolled(native_protected_root):
     return data, paths, box
 
 
-@pytest.mark.parametrize('origin', [None, 'https://endpoint.sosnadmin.local'])
-def test_retained_native_events_deliver_in_order_without_backfilling_origin(enrolled, monkeypatch, origin):
+@pytest.mark.parametrize(('origin', 'expected_host'), [
+    (None, 'endpoint.sosnadmin.local'),
+    ('https://endpoint.sosnadmin.local', 'endpoint.sosnadmin.local'),
+    ('https://endpoint-staging.sosnadmin.local', 'endpoint-staging.sosnadmin.local'),
+])
+def test_retained_native_events_deliver_in_order_without_backfilling_origin(
+    enrolled, monkeypatch, origin, expected_host,
+):
     from datetime import UTC, datetime
     from pc_agent.platform.windows import installation_notification as notification, installer_fence
     data, paths, box = enrolled
@@ -46,10 +52,11 @@ def test_retained_native_events_deliver_in_order_without_backfilling_origin(enro
     before = {p.name:p.read_bytes() for p in data.iterdir()}
     anchor = (box.root/'anchor.json').read_bytes()
     sent = []
-    class Transport:
-        def __init__(self, ca_file, token):
-            assert ca_file == data/'endpoint-ca.crt' and token == 'x'*43
+    class Transport(notification.InstallationHTTPSClient):
         def __call__(self, event):
+            assert self.ca_file == data/'endpoint-ca.crt'
+            assert self._token == 'x'*43
+            assert self._host == expected_host
             sent.append(event)
             return ack(event)
     monkeypatch.setattr(notification, 'InstallationHTTPSClient', Transport)
@@ -95,8 +102,6 @@ def test_missing_override_does_not_hide_other_authority_failures(enrolled, monke
             if path == origin: raise PermissionError('denied')
             return original(path,*args,**kwargs)
         monkeypatch.setattr(Path,method,denied)
-    monkeypatch.setattr(notification,'InstallationHTTPSClient',
-        lambda *args:pytest.fail('invalid authority reached the transport'))
     with pytest.raises((OSError,ValueError)):
         notification._sender(data)
 
