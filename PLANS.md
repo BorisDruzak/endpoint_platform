@@ -557,8 +557,16 @@ The exact Setup 3.2.229 then recovered its original native transaction,
 verified after reboot at sequence 10 with registered ProductState 5 and
 an exact, readable LocalPackage. It left one installed event awaiting
 enrollment after the offline wrapper returned 41. The clone was removed.
-Online delivery of that original event after operator-assisted recovery,
-unattended recovery for this damage profile and VM149 recache remain open.
+The first online clone reached native completion but Windows selected the
+inherited .143 source address. The exact .152 campaign denied enrollment
+without consumption. A fresh clone kept only .152 on the isolated adapter.
+The first exact signed EXE invocation after the same seven-file repair
+returned 0, completed one AUTO request and received one ACK for the
+original installed event. Reboot opened a fresh WSS session on the same
+card with four identical private files. Both clones and the temporary
+catalog were removed, the scoped credential and campaign were revoked
+and the original lab services restored. Unattended recovery for this
+damage profile and VM149 recache remain open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
