@@ -1898,12 +1898,18 @@ function New-StagedRecoverySettings {
     return New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::FromMinutes(250)) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval ([TimeSpan]::FromMinutes(1))
 }
 
-function Copy-InstallerRecoveryInputs {
-    param($Bridge,[string]$SetupImage,[string]$WrapperPath,[string]$ManifestPath,[string]$CacheRoot)
-    if([string]::IsNullOrWhiteSpace($SetupImage)){throw 'RECOVERY_REQUIRED'}
+function Test-InstallerRecoverySetupSignature {
+    param([string]$SetupImage)
     Assert-RegularNonReparseFile -Path $SetupImage -Label 'Setup'
     Assert-ExistingPathChain $SetupImage
-    if((Get-AuthenticodeSignature -LiteralPath $SetupImage).Status -ne 'Valid'){throw 'RECOVERY_REQUIRED'}
+    return (Get-AuthenticodeSignature -LiteralPath $SetupImage).Status -eq 'Valid'
+}
+
+function Copy-InstallerRecoveryInputs {
+    param($Bridge,[string]$SetupImage,[string]$WrapperPath,[string]$ManifestPath,[string]$CacheRoot)
+    if([string]::IsNullOrWhiteSpace($SetupImage) -or -not (Test-InstallerRecoverySetupSignature $SetupImage)){
+        throw 'RECOVERY_REQUIRED'
+    }
     $directory=Join-Path $CacheRoot ('msi-'+$Bridge.Capability.package.package_sha256)
     Assert-InstallerCacheProtection $directory
     $sources=@{'EndpointAgentSetup.exe'=$SetupImage;'EndpointAgent.release.json'=$ManifestPath;'Install-EndpointAgentCanary.ps1'=$WrapperPath}
@@ -3142,6 +3148,11 @@ try {
         if ($_.Exception.Message -eq 'PROVENANCE_CONFLICT') { exit 63 }
         Write-Error 'UPDATE_STATE_INVALID' -ErrorAction Continue; exit 62
     }
+
+# Reject untrusted media before the cache or a native recovery fence is created.
+if ($Operation -ceq 'Install' -and $SetupImagePath -and -not (Test-InstallerRecoverySetupSignature $SetupImagePath)) {
+    exit 64
+}
 
 $programFiles = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
 $packageRoot = Join-Path $programFiles 'Endpoint Platform'

@@ -222,6 +222,12 @@ does not execute a legacy installed tray helper before replacing its files.
 This keeps upgrades from older agents compatible while repair retains its
 tray-stop safeguard.
 
+The Windows account running signed Setup must trust its Authenticode publisher
+chain. An untrusted publisher yields `INSTALL_FAILED / MSI /
+SETUP_PUBLISHER_UNTRUSTED` with exit 21 before Setup creates an installer cache
+or a native transaction fence. Configure the approved publisher chain through
+the workstation's trust policy before running Setup.
+
 ## Fleet eligibility and installation for 3.2.82
 
 Use the approved, signed and timestamped single-file Setup EXE for operator

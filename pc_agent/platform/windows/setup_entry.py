@@ -262,6 +262,8 @@ def _install_embedded_msi(msi_path: Path, *, inventory_fresh_only: bool = False)
         raise SetupInstallError("UPDATE_STATE_INVALID")
     if completed.returncode == 63:
         raise SetupInstallError("PROVENANCE_CONFLICT")
+    if completed.returncode == 64:
+        raise SetupInstallError("SETUP_PUBLISHER_UNTRUSTED")
     if completed.returncode == EXIT_PREFLIGHT_FAILED and inventory_fresh_only:
         raise SetupInstallError("INVENTORY_ASSIGNMENT_INELIGIBLE")
     if completed.returncode not in (0,67,68,3010,1641):
