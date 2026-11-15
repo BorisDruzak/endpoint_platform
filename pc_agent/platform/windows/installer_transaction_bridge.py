@@ -1009,9 +1009,15 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
                          'native_uninstalled': True, 'support_cleanup': support_cleanup},
                         trusted_root=archive, max_bytes=4096, protect=protect_state)
                     result = {'result': 'native-uninstalled', 'support_cleanup': support_cleanup}
+                from .compound_upgrade_plan import read_recovery_original, record_standalone_completion
                 from .installation_lifecycle import record_native_finish
-                record_native_finish(paths, capability, expected, support_cleanup=support_cleanup)
-                from .compound_upgrade_plan import record_standalone_completion
+                event_owner = capability
+                if 'compound' in capability and capability['recovery']:
+                    # The committed replacement proves native success. Keep the
+                    # original transaction identity even if its owner died
+                    # after writing the fact and before retiring the fence.
+                    _, _, event_owner = read_recovery_original(paths, capability)
+                record_native_finish(paths, event_owner, expected, support_cleanup=support_cleanup)
                 record_standalone_completion(paths,capability,fence)
                 # Final mutation. The owner waits for this helper's explicit
                 # completion and actual process exit before starting Agent.

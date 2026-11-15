@@ -317,13 +317,29 @@ def test_recovery_prepare_preserves_original_proofs_and_uses_new_child_attempt(s
 
 
 @pytest.mark.parametrize('mode',['replace-foundation','repair-successor'])
-def test_recovery_full_helper_sequence_keeps_original_and_previous_completion(staged,mode,monkeypatch):
+@pytest.mark.parametrize('fact_already_recorded', [False, True])
+def test_recovery_full_helper_sequence_keeps_original_and_previous_completion(
+        staged,mode,monkeypatch,fact_already_recorded):
+    from datetime import datetime, timezone
+
     from pc_agent.platform.windows.compound_installer import _child
+    from pc_agent.platform.windows.installation_lifecycle import outbox_for
     # The fixture's native API/SCM are modeled; actual driver callbacks have
     # compiled-policy tests and installed recovery remains a separate VM gate.
     test_recovery_prepare_preserves_original_proofs_and_uses_new_child_attempt(staged,mode)
     paths,client,old,original,native,events,done=staged
     cap=client.capability;root=fence.state_root(paths)
+    box = outbox_for(paths)
+    prior_fact = None
+    if fact_already_recorded:
+        release = cap['package']
+        native_fact = dict(version=release['version'], product_code=release['product_code'],
+                           source_revision=release['source_revision'], msi_sha256=release['package_sha256'],
+                           exit_code=0)
+        box.record(transaction_id=cap['transaction_id'], action='installed', device_id=None,
+                   native=native_fact, cleanup={'support':'not_applicable','browser':'not_applicable'},
+                   occurred_at=datetime(2026, 11, 14, tzinfo=timezone.utc))
+        prior_fact, = box._load()[1]['facts']
     original_parent=root/'upgrades'/cap['compound']['recovery']['original_upgrade_id']/'plan.json'
     parent_before=original_parent.read_bytes()
     prior=root/'transactions'/cap['transaction_id']/'completed.json';prior.parent.mkdir(parents=True,exist_ok=True)
@@ -351,3 +367,11 @@ def test_recovery_full_helper_sequence_keeps_original_and_previous_completion(st
     assert bridge.completion_root(paths,cap).joinpath('completed.json').exists()
     with _child(cap):assert fence.read_fence(paths) is None
     assert done[-1][1]['result']=='compound-ready' and 'retire-replaced' in events
+    _, journal = box._load()
+    fact, = journal['facts']
+    assert fact['transaction_id'] == cap['transaction_id']
+    assert fact['action'] == 'installed'
+    assert fact['native']['msi_sha256'] == cap['package']['package_sha256']
+    assert fact['native']['exit_code'] == 0
+    if prior_fact is not None:
+        assert fact == prior_fact
