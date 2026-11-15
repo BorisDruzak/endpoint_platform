@@ -158,8 +158,9 @@ identity check still runs. Fresh post-commit `compound-finalize` may retain
 byte proofs for the exact Foundation files from its authenticated
 MSI. ACL, namespace and descriptor checks still run on every access. Native
 deny-write/delete handles survive metadata-only checkpoints. Before flushing
-an installed file, the durability pass releases that file's pin and binds
-the write handle to the verified identity and change time. Later reads
+an installed file or the registered Windows Installer cache, the durability
+pass releases that file's pin and binds the write handle to the verified
+identity and change time. Later reads
 verify its bytes again. Remaining pins are released on context exit or
 failure. Other phases, recovery and the default Foundation reader perform
 complete byte verification on every call. Reuse-budget exhaustion falls back

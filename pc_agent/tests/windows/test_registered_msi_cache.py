@@ -117,7 +117,8 @@ def test_registered_cache_requires_protected_pinned_exact_semantics(tmp_path,mon
 
 
 @pytest.mark.parametrize('replace_after_proof', [False, True])
-def test_registered_cache_flush_uses_verified_file_identity(tmp_path, monkeypatch, replace_after_proof):
+@pytest.mark.parametrize('phase', ['reconcile', 'compound-finalize'])
+def test_registered_cache_flush_uses_verified_file_identity(tmp_path, monkeypatch, replace_after_proof, phase):
     import win32api
     from pc_agent.platform.windows import durable_state, installer_fence
 
@@ -143,27 +144,28 @@ def test_registered_cache_flush_uses_verified_file_identity(tmp_path, monkeypatc
         flush(handle)
 
     monkeypatch.setattr(win32file, 'FlushFileBuffers', observe_flush)
-    if replace_after_proof:
-        replacement = cache_root / 'replacement.msi'
-        replacement.write_bytes(cache.read_bytes())
-        original_flush = durable_state.flush_existing_file
+    paths = SimpleNamespace(install_root=tmp_path / 'Endpoint Platform' / 'Agent')
+    capability = {'package': {'package_sha256': package.sha256}}
+    roots = msi.immutable_installer_media_roots(paths, capability, phase)
+    with msi.package_read_scope(immutable_media_roots=roots), durable_state.installer_mutation_checkpoints(lambda: None):
+        msi.verify_registered_cache(original, package, native=native)
+        if replace_after_proof:
+            replacement = cache_root / 'replacement.msi'
+            replacement.write_bytes(cache.read_bytes())
+            original_flush = durable_state.flush_existing_file
 
-        def replace_then_flush(path, **options):
-            replacement.replace(path)
-            original_flush(path, **options)
+            def replace_then_flush(path, **options):
+                replacement.replace(path)
+                original_flush(path, **options)
 
-        monkeypatch.setattr(durable_state, 'flush_existing_file', replace_then_flush)
-        with pytest.raises(ValueError, match='file identity changed'):
+            monkeypatch.setattr(durable_state, 'flush_existing_file', replace_then_flush)
+            with pytest.raises(ValueError, match='file identity changed'):
+                msi.persist_registered_cache(original, package, native=native)
+            assert not flushed
+        else:
             msi.persist_registered_cache(original, package, native=native)
-        assert not flushed
-    else:
-        paths = SimpleNamespace(install_root=tmp_path / 'Endpoint Platform' / 'Agent')
-        capability = {'package': {'package_sha256': package.sha256}}
-        roots = msi.immutable_installer_media_roots(paths, capability, 'reconcile')
-        with msi.package_read_scope(immutable_media_roots=roots), durable_state.installer_mutation_checkpoints(lambda: None):
-            msi.persist_registered_cache(original, package, native=native)
-        assert len(flushed) == 2
-        assert cache.read_bytes() == b'Windows Installer database'
+            assert len(flushed) == 2
+            assert cache.read_bytes() == b'Windows Installer database'
 
 
 @pytest.mark.parametrize('owner,writer,allowed',[

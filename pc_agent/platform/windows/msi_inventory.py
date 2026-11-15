@@ -1049,6 +1049,11 @@ def persist_registered_cache(original_path, package, *, native=None) -> None:
     cached, identity = _verified_registered_cache(original_path, package, native)
     if Path(native.property(package.product_code, 'LocalPackage')) != cached:
         raise ProvenanceConflict()
+    scope = _PHASE_READS.get()
+    if scope is not None:
+        # Compound finalization can retain this deny-write pin across checkpoints.
+        # Flush with the verified cache identity after releasing only this pin.
+        scope.release_for_flush(cached)
     durable_state.flush_existing_file(cached, trusted_root=cached.parent, verified_identity=identity)
     durable_state.flush_directory(cached.parent)
 
