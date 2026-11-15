@@ -466,8 +466,14 @@ After provisioning the approved publisher root, the same EXE installed with
 exit 0 and one completed AUTO enrollment. Reboot preserved the four identity
 files and fresh WSS on the same card. The candidate remains limited to the lab.
 The temporary campaign and credential were revoked, the lab Gateway restored
-and VM147 removed. Recovery of the existing 3.2.227 fence on VM146 and
-production qualification remain open.
+and VM147 removed. The original signed 3.2.227 recovered the existing VM146
+transaction after publisher trust was established. It returned 0 with a
+protected completion at sequence 6, one enrollment and fresh WSS after reboot
+with four matching identity files. The recovery omitted the installed fact.
+The source fix queues one fact under the original transaction and starts
+delivery after authenticated standalone recovery. Both evidence snapshots
+are retained with VM146 stopped and isolated and its credential revoked.
+Signed lifecycle acceptance and production qualification remain open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
