@@ -973,16 +973,17 @@ def _assert_registered_cache_security(path):
             raise ProvenanceConflict()
 
 
-def verify_registered_cache(original_path,package,*,native=None):
+def verify_registered_cache(original_path, package, *, native=None, expected_cache=None):
     """Compare the protected native cache to exact original media, read only.
 
     No cached path is returned or executed. Native target registration/context
     and the later actual detected-target set remain separate required checks.
+    Callers with an existing LocalPackage observation can bind it here.
     """
-    _verified_registered_cache(original_path, package, native or NativeMsi())
+    _verified_registered_cache(original_path, package, native or NativeMsi(), expected_cache=expected_cache)
 
 
-def _verified_registered_cache(original_path, package, native):
+def _verified_registered_cache(original_path, package, native, *, expected_cache=None):
     import win32api
     from . import durable_state
     from .installer_fence import assert_namespace_security
@@ -990,6 +991,8 @@ def _verified_registered_cache(original_path, package, native):
     windows=Path(win32api.GetWindowsDirectory())
     cache_root=windows/'Installer'
     cached=Path(native.property(package.product_code,'LocalPackage'))
+    if expected_cache is not None and cached != expected_cache:
+        raise ProvenanceConflict()
     if not cached.is_absolute() or cached.parent!=cache_root or ':' in cached.name or cached.suffix.lower()!='.msi':
         raise ProvenanceConflict()
     try:assert_namespace_security(cached)

@@ -60,7 +60,7 @@ def test_phase_byte_reuse_keeps_native_registration_and_acl_observations_fresh(t
     assert len(properties) == 2
 
 
-@pytest.mark.parametrize('defect',[None,'outside','nested','suffix','ads','ancestor-security','semantic','summary','canonical-bytes','cache-security','cache-mutation'])
+@pytest.mark.parametrize('defect',[None,'outside','nested','suffix','ads','ancestor-security','semantic','summary','canonical-bytes','cache-security','cache-mutation','changed-registration'])
 def test_registered_cache_requires_protected_pinned_exact_semantics(tmp_path,monkeypatch,defect):
     import win32api
     from pc_agent.platform.windows import durable_state
@@ -108,8 +108,11 @@ def test_registered_cache_requires_protected_pinned_exact_semantics(tmp_path,mon
         assert path in checked and cache in checked and windows in checked
         assert namespaces==[path,path]
     else:
-        with pytest.raises(msi.ProvenanceConflict):msi.verify_registered_cache(original,package,native=Native())
-        if defect in {'outside','nested','suffix','ads','ancestor-security','canonical-bytes','cache-security'}:assert not queried
+        previous = cache / 'previous.msi' if defect == 'changed-registration' else None
+        with pytest.raises(msi.ProvenanceConflict):
+            msi.verify_registered_cache(original, package, native=Native(), expected_cache=previous)
+        if defect in {'outside','nested','suffix','ads','ancestor-security','canonical-bytes','cache-security','changed-registration'}:
+            assert not queried
     assert not held
 
 
