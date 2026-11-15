@@ -763,6 +763,57 @@ def _setup_msi_required(
     return False
 
 
+def _resume_unenrolled_installation(msi_path: Path, paths: WindowsUpdatePaths) -> str | None:
+    """Prove a settled, exact native installation before resuming enrollment."""
+    from endpoint_contracts.runtime_payload import read_json
+    from pc_agent.platform.windows import installation_provenance as provenance, installer_fence, msi_inventory
+    from pc_agent.platform.windows.installation_lifecycle import outbox_for
+
+    try:
+        with update_transaction(paths, timeout_ms=0), msi_inventory.package_read_scope():
+            if active_update_state(paths) is not None:
+                raise UpdateInProgress('UPDATE_IN_PROGRESS')
+            fact = outbox_for(paths).awaiting_enrollment()
+            if fact is None:
+                return None
+            release = read_json(msi_path.with_name('EndpointAgent.release.json').read_bytes(), 4096)
+            if fact['native']['msi_sha256'] != release['package_sha256']:
+                return None  # A genuinely different candidate follows its own MSI path.
+            expected = msi_inventory.read_expected_package(msi_path, release)
+            package = expected.package
+            native = {
+                'msi_sha256': package.sha256, 'product_code': package.product_code,
+                'version': package.version, 'source_revision': expected.identity.source_revision,
+                'exit_code': 0,
+            }
+            transaction = fact['transaction_id']
+            receipt_path = installer_fence.state_root(paths) / 'transactions' / transaction / 'completed.json'
+            installer_fence.assert_state_security(receipt_path)
+            receipt = installer_fence.validate_fence(
+                read_json(provenance._read(receipt_path, installer_fence.MAX_FENCE_BYTES),
+                          installer_fence.MAX_FENCE_BYTES))
+            if (fact['native'] != native or receipt['transaction_id'] != transaction
+                    or receipt['phase'] != 'complete' or receipt['operation'] != 'install'
+                    or not receipt['startup_restored']
+                    or receipt['package'] != {
+                        'sha256': package.sha256, 'product_code': package.product_code,
+                        'package_code': package.package_code, 'version': package.version,
+                        'source_revision': expected.identity.source_revision,
+                    }):
+                raise provenance.ProvenanceConflict()
+            if provenance.verified_foundation_release(paths) != release:
+                raise provenance.ProvenanceConflict()
+            msi_inventory.verify_installed(package, paths.install_root)
+            msi_inventory.verify_registered_cache(msi_path, package)
+            installed = provenance.inspect_installed_core(paths, resulting_foundation=package.version)
+            if (installed.current is None or installed.current.origin != 'msi'
+                    or installed.current.identity != expected.identity):
+                raise provenance.ProvenanceConflict()
+            return transaction
+    except (ValueError, OSError, KeyError, TypeError) as error:
+        raise SetupInstallError('PROVENANCE_CONFLICT') from error
+
+
 def _is_strictly_newer_version(candidate: str, installed: str) -> bool:
     """Compare public SemVer installer releases without accepting malformed input."""
     candidate_match = _SEMVER.fullmatch(candidate)
@@ -1111,14 +1162,18 @@ def _run_provisioner(
     installation_id: str,
     claim: str,
     *,
+    native_transaction_id: str | None = None,
     run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> None:
     material = claim
     if valid_installation_id(installation_id):
         material = json.dumps({"installation_id": installation_id, "claim": claim})
+    command = _provisioner_command(executable, config, data_dir, installation_id)
+    if native_transaction_id is not None:
+        command += ['--native-transaction-id', native_transaction_id]
     try:
         completed = run(
-            _provisioner_command(executable, config, data_dir, installation_id),
+            command,
             input=material + "\n",
             text=True,
             capture_output=True,
@@ -1410,13 +1465,23 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args, data_root, status="PREFLIGHT_FAILED", code=EXIT_PREFLIGHT_FAILED,
                 stage="PREFLIGHT", detail="INVENTORY_ASSIGNMENT_INELIGIBLE",
             )
+    native_transaction = None
+    provisioner = None
     try:
         _verify_embedded_msi(resources / "EndpointAgent.msi")
         recovery_operation = _embedded_recovery_operation(resources / "EndpointAgent.msi")
         if assignment is not None and recovery_operation is not None:
             raise SetupInstallError("INVENTORY_ASSIGNMENT_INELIGIBLE")
+        if (installation_state == 'clean' and assignment is None
+                and not interrupted_setup and recovery_operation is None):
+            native_transaction = _resume_unenrolled_installation(resources / 'EndpointAgent.msi', paths)
+            if native_transaction is not None:
+                try:
+                    provisioner = _installed_provisioner()
+                except (OSError, RuntimeError) as error:
+                    raise SetupInstallError('PROVENANCE_CONFLICT') from error
         installed_version = _installed_msi_version() if installation_state == "valid" else None
-        needs_msi = _setup_msi_required(
+        needs_msi = native_transaction is None and _setup_msi_required(
             config.installer_version,
             installed_version,
             installation_valid=installation_state == "valid",
@@ -1426,6 +1491,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         if needs_msi:
             _require_setup_disk(resources / "EndpointAgent.msi")
+    except UpdateInProgress:
+        return _complete(args, data_root, status="UPDATE_IN_PROGRESS", code=EXIT_UPDATE_IN_PROGRESS,
+            stage="PREFLIGHT", detail="UPDATE_IN_PROGRESS")
     except DiskInsufficient:
         return _complete(args, data_root, status="DISK_INSUFFICIENT", code=EXIT_PREFLIGHT_FAILED,
             stage="PREFLIGHT", detail="DISK_INSUFFICIENT")
@@ -1515,8 +1583,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             stage="SERVICE",
             detail="SERVICE_RUNNING",
         )
-    provisioner = None
-    if assignment is None:
+    if assignment is None and provisioner is None:
         result = _install_fresh(args, data_root, resources / "EndpointAgent.msi", installation_state, recovery_operation)
         if isinstance(result, int):
             return result
@@ -1559,7 +1626,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             installed = result
         if installed is None:
             raise SetupProvisionError("Windows provisioner is unavailable")
-        _run_provisioner(installed, config, _data_root(), installation_id, claim)
+        options = {'native_transaction_id': native_transaction} if native_transaction is not None else {}
+        _run_provisioner(installed, config, _data_root(), installation_id, claim, **options)
 
     setup = UniversalWindowsSetup(
         config,

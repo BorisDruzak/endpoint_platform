@@ -115,6 +115,57 @@ def test_provisioning_requires_the_installed_ca_file(tmp_path: Path) -> None:
         request.validate()
 
 
+@pytest.mark.parametrize('changed', [False, True])
+def test_resumed_provisioning_binds_only_original_transaction_under_lock(tmp_path, monkeypatch, changed):
+    from contextlib import contextmanager
+    from dataclasses import replace
+    from types import SimpleNamespace
+    from pc_agent.platform.windows import installation_lifecycle, installation_notification
+    from pc_agent.platform.windows.provision import WindowsProvisioner
+
+    transaction = 'd5839dc6-fcf7-41f6-8603-5aca9dce1186'
+    request = replace(_request(tmp_path), native_transaction_id=transaction)
+    events = []
+    held = False
+
+    @contextmanager
+    def lock():
+        nonlocal held
+        held = True
+        try:
+            yield
+        finally:
+            held = False
+
+    def awaiting():
+        assert held
+        return {'transaction_id': 'other' if changed else transaction}
+
+    def bind(expected, device_id):
+        assert held and expected == transaction and device_id == str(_DEVICE_ID)
+        assert (request.data_root / 'enrollment-identity.json').is_file()
+        events.append('bind')
+
+    def sync(_):
+        assert not held and 'bind' in events
+        events.append('sync')
+        return 'delivered'
+
+    monkeypatch.setattr(installation_lifecycle, 'outbox_for',
+                        lambda _: SimpleNamespace(awaiting_enrollment=awaiting, bind_installation=bind))
+    monkeypatch.setattr(installation_notification, 'sync_enrolled_installation', sync)
+    provisioner = WindowsProvisioner(request, enrollment=_Enrollment(events),
+        service=_Service(events), acl=_Acl(events), mutation_scope=lock,
+        support_installer=lambda: {})
+    if changed:
+        with pytest.raises(ValueError, match='INSTALLATION_NATIVE_CONFLICT'):
+            provisioner.provision_from_stdin(io.StringIO(_CLAIM))
+        assert not events and not request.data_root.exists()
+    else:
+        assert provisioner.provision_from_stdin(io.StringIO(_CLAIM)).device_id == _DEVICE_ID
+        assert events.index('gateway.enroll') < events.index('bind') < events.index('sync')
+
+
 def test_provisioning_rejects_non_certificate_ca_content(tmp_path: Path) -> None:
     """A readable arbitrary file must not bypass TLS trust validation."""
     request = _request(tmp_path)

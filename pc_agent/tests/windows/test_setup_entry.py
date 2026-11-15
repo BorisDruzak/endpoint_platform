@@ -367,6 +367,93 @@ def test_setup_entry_installs_embedded_msi_before_enrollment(
     assert observed_config[0].endpoint_origin == "https://endpoint.sosnadmin.local"
 
 
+def test_completed_native_install_resumes_original_enrollment_without_msi(tmp_path, monkeypatch):
+    _write_public_payload(tmp_path)
+    transaction = 'd5839dc6-fcf7-41f6-8603-5aca9dce1186'
+    executable = tmp_path / 'endpoint-agent-provision.exe'
+    monkeypatch.setattr(setup_entry, '_resource_root', lambda: tmp_path)
+    monkeypatch.setattr(setup_entry, '_data_root', lambda: tmp_path / 'agent-data')
+    monkeypatch.setattr(setup_entry, '_resume_unenrolled_installation', lambda *_: transaction, raising=False)
+    monkeypatch.setattr(setup_entry, '_installed_provisioner', lambda: executable)
+    monkeypatch.setattr(setup_entry, '_require_setup_disk', lambda _: pytest.fail('resume must not cost MSI'))
+    monkeypatch.setattr(setup_entry, '_install_embedded_msi', lambda _: pytest.fail('resume must not replay MSI'))
+    monkeypatch.setattr(setup_entry, 'HttpsSetupTransport', lambda *_: object())
+    delivered = []
+
+    class Setup:
+        def __init__(self, _, *, provision_claim, **kwargs):
+            self.provision_claim = provision_claim
+            self.installation_id_factory = lambda: 'win-test'
+
+        def run(self):
+            assert self.installation_id_factory() == 'win-test'
+            self.provision_claim('claim')
+            return SetupOutcome('provisioned')
+
+    def provision(path, config, data, installation_id, claim, *, native_transaction_id):
+        delivered.append((path, installation_id, claim, native_transaction_id))
+
+    monkeypatch.setattr(setup_entry, 'UniversalWindowsSetup', Setup)
+    monkeypatch.setattr(setup_entry, '_run_provisioner', provision)
+    assert setup_entry.main(['--quiet']) == 0
+    assert delivered == [(executable, 'win-test', 'claim', transaction)]
+
+
+@pytest.mark.parametrize('defect', [None, 'different-release', 'receipt', 'selection'])
+def test_resume_requires_exact_pending_fact_and_settled_native_receipt(tmp_path, monkeypatch, defect):
+    from contextlib import nullcontext
+    from pc_agent.platform.windows import installation_lifecycle, installation_provenance as provenance
+    from pc_agent.platform.windows import installer_fence, msi_inventory
+
+    paths = setup_entry.WindowsUpdatePaths.production()
+    transaction = 'd5839dc6-fcf7-41f6-8603-5aca9dce1186'
+    digest = 'a' * 64
+    product = '{44A74469-6221-459A-8946-8CCA6F214127}'
+    release = {'package_sha256': digest}
+    media = tmp_path / 'EndpointAgent.msi'
+    media.with_name('EndpointAgent.release.json').write_text(json.dumps(release))
+    identity = SimpleNamespace(source_revision='b' * 40, version='3.2.232')
+    package = SimpleNamespace(sha256=digest, product_code=product,
+                              package_code=product, version=identity.version)
+    fact = {'transaction_id': transaction, 'native': {
+        'msi_sha256': 'c' * 64 if defect == 'different-release' else digest,
+        'product_code': product, 'source_revision': identity.source_revision,
+        'version': identity.version, 'exit_code': 0,
+    }}
+    root = installer_fence.state_root(paths) / 'transactions' / transaction
+    root.mkdir(parents=True)
+    receipt = {
+        'schema_version': 1, 'transaction_id': transaction, 'operation': 'install',
+        'phase': 'reconciling' if defect == 'receipt' else 'complete',
+        'package': {'sha256': digest, 'product_code': product, 'package_code': product,
+                    'version': identity.version, 'source_revision': identity.source_revision},
+        'selected': None, 'previous': None, 'startup_restored': True, 'sequence': 10,
+        'service_states': {'EndpointAgent': 'absent', 'EndpointAgentUpdater': 'absent'},
+        'service_startup': {'EndpointAgent': None, 'EndpointAgentUpdater': None}, 'helpers': [],
+    }
+    (root / 'completed.json').write_text(json.dumps(receipt))
+    monkeypatch.setattr(setup_entry, 'update_transaction', lambda *_a, **_kw: nullcontext())
+    monkeypatch.setattr(setup_entry, 'active_update_state', lambda _: None)
+    monkeypatch.setattr(installation_lifecycle, 'outbox_for',
+                        lambda _: SimpleNamespace(awaiting_enrollment=lambda: fact))
+    monkeypatch.setattr(installer_fence, 'assert_state_security', lambda _: None)
+    monkeypatch.setattr(msi_inventory, 'read_expected_package',
+                        lambda *_: SimpleNamespace(package=package, identity=identity))
+    monkeypatch.setattr(msi_inventory, 'verify_registered_cache', lambda *_: None)
+    monkeypatch.setattr(msi_inventory, 'verify_installed', lambda *_: None)
+    monkeypatch.setattr(provenance, 'verified_foundation_release', lambda _: release)
+    monkeypatch.setattr(provenance, 'inspect_installed_core', lambda *_, **_kw: SimpleNamespace(
+        current=SimpleNamespace(identity=identity, origin='zip' if defect == 'selection' else 'msi')))
+
+    if defect in ('receipt', 'selection'):
+        with pytest.raises(setup_entry.SetupInstallError) as error:
+            setup_entry._resume_unenrolled_installation(media, paths)
+        assert error.value.detail == 'PROVENANCE_CONFLICT'
+    else:
+        expected = None if defect == 'different-release' else transaction
+        assert setup_entry._resume_unenrolled_installation(media, paths) == expected
+
+
 @pytest.mark.parametrize("case", [
     "live", "denied", "wrong-pc", "wrong-origin", "existing", "unprotected", "reboot", "race", "short-claim", "bad-expiry",
 ])

@@ -251,6 +251,15 @@ class NativeLifecycleOutbox:
         loaded = self._load()
         return [] if loaded is None else [f['event'] for f in loaded[1]['facts'] if f['device_id']==device_id and f['ack'] is None]
 
+    def awaiting_enrollment(self):
+        """Return the latest fact only while it still awaits enrollment."""
+        loaded = self._load()
+        if loaded is not None and loaded[1]['facts']:
+            latest = loaded[1]['facts'][-1]
+            if latest['delivery'] == 'awaiting_enrollment':
+                return latest
+        return None
+
     def deliver(self, device_id, sender, *, maximum=8):
         loaded = self._load()
         if loaded is None:

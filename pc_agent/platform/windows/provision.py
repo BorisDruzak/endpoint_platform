@@ -73,6 +73,7 @@ class ProvisioningRequest:
     ca_file: Path
     data_root: Path
     installation_id: str = "windows-provisioning"
+    native_transaction_id: str | None = None
 
     def validate(self) -> None:
         if not isinstance(self.installation_id, str) or not self.installation_id or len(self.installation_id) > 128:
@@ -81,6 +82,12 @@ class ProvisioningRequest:
             self.endpoint_origin != STAGING_ORIGIN or not valid_installation_id(self.installation_id)
         ):
             raise ValueError("inventory enrollment is ineligible")
+        if self.native_transaction_id is not None and (
+            valid_installation_id(self.installation_id)
+            or not isinstance(self.native_transaction_id, str)
+            or str(UUID(self.native_transaction_id)) != self.native_transaction_id
+        ):
+            raise ValueError("native transaction identifier is invalid")
         parsed = urlsplit(self.endpoint_origin)
         try:
             port = parsed.port
@@ -275,6 +282,16 @@ class WindowsProvisioner:
                 os.path.lexists(claim_path) or os.path.lexists(endpoint_origin_path)
             ):
                 raise ValueError("an unfinished enrollment already exists")
+            native_outbox = None
+            transaction = self._request.native_transaction_id
+            if transaction is not None:
+                from .installation_lifecycle import outbox_for
+
+                paths = WindowsUpdatePaths(pending_path=data_root / "updates" / "pending_update.json")
+                native_outbox = outbox_for(paths)
+                latest = native_outbox.awaiting_enrollment()
+                if latest is None or latest['transaction_id'] != transaction:
+                    raise ValueError('INSTALLATION_NATIVE_CONFLICT')
             self._acl.protect_directory(data_root)
             _atomic_write(claim_path, claim.encode("ascii"))
             self._acl.protect_claim(claim_path)
@@ -300,6 +317,8 @@ class WindowsProvisioner:
                 or read_enrollment_device_id(identity_path) != device_id
             ):
                 raise RuntimeError("permanent enrollment credential proof failed")
+            if native_outbox is not None:
+                native_outbox.bind_installation(transaction, str(device_id))
         try:
             from .installation_notification import sync_enrolled_installation
             if sync_enrolled_installation(data_root) not in {'delivered', 'not_applicable'}:
@@ -401,6 +420,7 @@ def _parser() -> argparse.ArgumentParser:
     identity.add_argument("--installation-id")
     identity.add_argument("--inventory-stdin", action="store_true")
     parser.add_argument("--material-file")
+    parser.add_argument("--native-transaction-id")
     return parser
 
 
@@ -452,6 +472,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ca_file=Path(args.ca_file),
             data_root=Path(args.data_dir),
             installation_id=installation_id,
+            native_transaction_id=args.native_transaction_id,
         )
         paths = WindowsUpdatePaths(pending_path=request.data_root / "updates" / "pending_update.json")
         provisioner = WindowsProvisioner(request, mutation_scope=lambda: update_transaction(paths))
