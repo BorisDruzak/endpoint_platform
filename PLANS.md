@@ -650,7 +650,19 @@ original event received one matching ACK automatically after link
 restore, the task retired, and the same device card received fresh WSS
 with no new MSI event after link restore. VM153 and the repair database
 were removed after verifying the receipt. The original lab services and
-VM152/sequence-6 database are ready for the rollback test.
+VM152/sequence-6 database were retained.
+For the offline rollback test a fresh VM153 clone started at the
+accepted 3.2.218 VM154 snapshot and sequence 5. After the link was
+disabled, signed Setup 3.2.236 reached trial and then returned 67
+(444.72 seconds). Source Core, MSI and all four identity files were
+restored. The offline reboot preserved both native events and the
+SYSTEM task retried with exit 75. After link restore, Gateway accepted
+sequence 6 for 3.2.236 followed by sequence 7 for 3.2.218. Local ACKs
+matched, the task retired and the original card accepted fresh 3.2.218
+WSS with no new MSI record. VM153, its probe ISO and scratch database
+were removed, baseline Gateway and worker were restored. The next
+open gates for this artifact include offline remove/reinstall,
+interruption recovery, UserSensor and independent Support.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
