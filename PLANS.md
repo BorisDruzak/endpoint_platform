@@ -696,6 +696,13 @@ Exactly one installed event at sequence 6 was acknowledged on the original
 card. The next orderly reboot preserved the four identity files, the exact
 signed registered MSI cache, the event and a fresh WSS connection. The
 temporary VM151 and isolated database were removed after verification.
+A fresh VM151 clone of the clean Windows Server 2012 R2 image ran signed
+Setup 3.2.236 once under a one-use AUTO campaign on a new isolated database.
+Setup returned 0 in 76.203 seconds. Gateway completed one enrollment,
+accepted five context profiles, and acknowledged one installed event at
+sequence 1. An orderly reboot preserved the card, the credential, all
+four identity files and the exact LocalPackage hash, and opened a new WSS
+session. The campaign, clone and scratch database were cleaned up.
 Other interruption boundaries and production qualification remain open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
