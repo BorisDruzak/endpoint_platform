@@ -12,6 +12,7 @@ observer, идентификатор и SHA-256 целевого артефак�
 | Windows amd64, staging Setup 3.2.204 → 3.2.205 | VM135, native exit 0, сохранены приватные файлы, UserSensor после reboot и независимый SSH. [Реестр staging](../releases/windows-3.2.205-staging.json) | Нужна отдельная приёмка production-артефакта для этой пары. |
 | Windows 10 amd64, лабораторный Setup 3.2.192 → 3.2.207 | VM143, подписанный Setup, принятый WSS и heartbeat на прежней карточке, сохранены четыре приватных файла. Повтор отказа SCM 1053 установленным updater записал терминальный результат и сохранил селектор. | Отдельная квалификация для production-артефакта и расширения охвата. |
 | Windows Server 2012 R2 Datacenter amd64, лабораторный Setup 3.2.210 | VM144, build 9600 с WMF 5.1. Чистая установка с кодом 0, строгий WSS, пять профилей, перезагрузка с сохранением четырёх файлов и свежий UserSensor после входа. Исторический сервер ANTARES принимал Setup 3.2.203. [Приёмка ANTARES](2026-11-12-antares-server-agent-preflight.md#закрытие-32202-и-новое-назначение) | Точные переходы, восстановление той же версии, rollback, offline remove/reinstall, обрывы, lifecycle и Support на штатном имени в изоляции, квалификация production-артефакта. |
+| Windows Server 2012 R2 Datacenter amd64, лабораторный Setup 3.2.211 → 3.2.214 | VM148, build 9600 с WMF 5.1. Прямой Setup и native lifecycle с кодом 0, строгий WSS на прежней карточке, четыре приватных файла совпали. Tray и UserSensor автоматически запущены. После назначения Activity сервер принял свежую телеметрию. | Независимый Support, same-version repair, принудительный обрыв и квалификация production-артефакта. |
 | Windows 11 и другие редакции Windows Server, Setup | Требуются отдельные стенды с точными артефактами. | Квалифицировать каждую редакцию и исходную версию, включая сервер с активной интерактивной сессией и без неё. |
 | ALT Linux 11 amd64, native RPM 3.2.183 | VM107 и отдельная физическая группа. Подтверждены native exit 0, сохранение идентичности, пользовательские данные и независимый SSH. [VM107](2026-11-09-linux183-native-canary.md), [физическая группа](2026-11-09-linux183-physical-cohort.md) | Повторить сценарии на новом RPM. ALT Core OTA имеет собственный сценарий остановки, сбоя helper и восстановления селектора. |
 | ALT Workstation K 11.4 amd64, стендовый headless RPM 3.2.205-alt5 | VM142. Установка подписанного стендовым ключом RPM, отказ watcher до остановки Core, удаление и повторная установка без сети. На loopback Gateway подтверждены регистрация, пять профилей и свежий WSS после reboot. | Переход с прежнего RPM, подписанный OTA с переключением и откатом, kill, timeout и потеря питания, приёмка Setup, UserSensor и независимого Support. |
@@ -1473,3 +1474,91 @@ VM146 подтверждает прохождение барьера MSI пос�
 155 целевых тестов Windows прошли, включая проверку отказа при
 неудачной остановке. Для отдельного кандидата 3.2.213 в лаборатории
 подготовлена ревизия `d71fcfb6cdc523d5aaabf67f51cb800dd75c3416`.
+
+#### Канарейка 3.2.213 и совместимость определения пути процесса
+
+Подписанный Setup 3.2.213 зарегистрирован только в лабораторном каталоге
+VM142, запись `979c2a5a-6fb2-4f39-968a-52c89e46d6c0`.
+SHA-256 EXE `015ebf1f4e314afc7f774f95f0a4cc53a5c84ed94b1d2a497f83de898774eecd`,
+MSI `881b46531ea465ba346f418378f4c7980b684fe2a7611be00dab7dfab671da22`.
+Подписи EXE и MSI проверены с отметками времени.
+
+На VM147 лабораторный шлюз повторно принял исходную карточку 3.2.211
+через строгий WSS. Setup запущен в 04:07:33Z при двух процессах Tray
+и одном UserSensor. Локальный результат в 04:09:12Z —
+`INSTALL_FAILED/MSI/MSI_EVIDENCE_FAILED`. Составной журнал остался в
+`prepared`, нативная попытка `switching` с `native_exit=null`,
+исходный MSI зарегистрирован, продукт 3.2.213 отсутствует. Сохранён
+снимок `stab15-setup213-native-hold`. Сам диагностический процесс Setup
+не отдал код завершения сборщику, поэтому в отчёте это поле равно `null`.
+
+| Отчёт VM147 | SHA-256 |
+| --- | --- |
+| `setup213-upgrade-start.json` | `1d01d85287ca1662f1111eaf6bb58625758a0a986384d817c9fc5e1cf930c3ba` |
+| `setup213-upgrade-result.json` | `f52579c60bf8673cfb5b97ce6173e13377767bb446d2a164bf73f9e46d00e345` |
+| `setup213-native-boundary.json` | `653aba3d895f4c7108489ebb08d6217fadd82bf3fb5e60e099f806d7d86a3c42` |
+
+Функция остановки пыталась читать путь процесса через `GetModuleFileNameEx`
+с `PROCESS_QUERY_LIMITED_INFORMATION`. Такая комбинация документирована
+начиная с Windows 10 / Server 2016. Исправление
+`d56e7565f89da85905389aec57399243533765df` использует `QueryFullProcessImageNameW`
+с тем же дескриптором и сравнением точного пути. Прошли 156 целевых тестов
+Windows, включая нативный тест чтения пути с ограниченными правами.
+На VM148 оба вызова проверены на живом UserSensor с одним дескриптором
+`0x101001`. `GetModuleFileNameEx` вернул `0` и Win32 error `5`.
+`QueryFullProcessImageName` вернул точный путь установленного UserSensor.
+Для проверки на Windows Server 2012 R2 выделен кандидат 3.2.214,
+ревизия `829c41ca00a6e0ee12b81ada230a79a727c4f4d3`.
+[Контракт Win32](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-queryfullprocessimagenamea)
+
+#### Прямой переход 3.2.211 → 3.2.214 на VM148
+
+Из того же снимка 3.2.211 создана отдельная VM148. До запуска на ней
+работали оба пользовательских компонента и строгий WSS на исходной карточке.
+Сетевой доступ ограничен изолированным Endpoint на VM142. Исходная VM144
+была остановлена, VM147 с сохранённым снимком отказа отключена от сети.
+
+Setup 3.2.214 и MSI подписаны, проверены Authenticode и отметки времени.
+SHA-256 EXE `e9b74a2cdbff71671fbe7e76c0701a9ada6a9c0c15f2339946b4c2cd84b87183`,
+MSI `f6c3c4cd5dc198c947d77bf9538dcb7de0c39fd7aadbec959874abe42177f8a6`.
+Регистрация `b3f08de3-a093-4059-9ad6-afbc86c7a917` сделана в VM142 как
+`--candidate-only --without-auto-enrollment`.
+
+Обычный `--quiet` начался 04:20:17Z и завершился 04:24:02Z, за 224,734 секунды.
+Код Setup `0`, `SERVICE/UPDATED/SERVICE_RUNNING`, четыре приватных файла
+совпали по SHA-256. В журнале владельца прошли `compound-old-returned`,
+`compound-new-returned`, `compound-finalize`, `record-staged-native-success`,
+`accept-staged-trial` и `restore-staged-companions`. На прежней карточке
+`f0f96379-0e17-463c-b514-4431b8427083` в 04:23:58Z принято событие
+`e6c88d3e-8e8d-59ad-8891-309cbbffa75c` с sequence 2, точным MSI 3.2.214
+и нативным кодом `0`. WSS подтвердился со строгим TLS. Снимок
+`stab15-setup214-native-accepted` сохранён.
+
+Локально в интерактивной сессии после перехода появились новый UserSensor
+и процессы Tray. После назначения только этой карточке политики Activity
+`cd65b2ee-e326-40bf-bc94-a574eef856e3` сервер принял наблюдение UserSensor
+04:29:10,664Z и Activity 04:29:40,268Z. Console отметила UserSensor свежим.
+
+Support вернул `support_dependency_signature_invalid` и остался недоступен.
+На build 9600 отсутствуют `Get-WindowsCapability` и
+`%WINDIR%\System32\OpenSSH\sshd.exe`. Обычный путь Support опрашивает FoD,
+а исключение для упакованного Microsoft OpenSSH ограничено build 14393.
+[Требования Microsoft к OpenSSH FoD](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_install_firstuse)
+
+| Отчёт VM148 | SHA-256 |
+| --- | --- |
+| `setup214-upgrade-start.json` | `085fd4c78d6b02b69440c1497a1326b1d1e47d0a1430a9701bae31c8fce611b9` |
+| `setup214-upgrade-result.json` | `e66a60fbc31b145a2a6580495d9563e7d28bc22c9375de9df479d056635e112b` |
+| `setup214-console-accepted.json` | `30aa53ccb41bf85bc3b4ae21a5bf0fe3f5935432c4509ebc348a27f94486e56a` |
+| `setup214-activity-policy.json` | `e0e5e2625f04e304170be4e47df1b92bf4736ff77746662ef6759fa259886d92` |
+| `setup214-console-user-sensor-accepted.json` | `22adc01857edcf71871616e88848767bdae9c998f5af187d4e3d4f5a9d248412` |
+
+На отключённой от сети VM146 из точного пакета Microsoft
+`b67ff8becd203502190ec42ac7787c24c2cd3325ed7700485fe7a1c83d2a7957`
+запустились `ssh.exe -V`, `sshd.exe -V` и `ssh-keygen.exe -?`.
+Проверены хеши файлов, подписи `Valid` и совпадение закреплённого издателя.
+PowerShell на build 9600 не показал `TimeStamperCertificate` для этих
+трёх файлов. Это проверка загрузки и подписи команды, отдельная проверка
+нативной метки времени, запуска службы и независимого SSH остаётся открытой.
+Локальный отчёт `setup214-support-offline-binaries.json`, SHA-256
+`1e309291c13d6c789cbf883ab7d11e7f35dac814d120fe30950378ca47c2aa47`.
