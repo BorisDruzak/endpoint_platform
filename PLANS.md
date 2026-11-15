@@ -363,8 +363,11 @@ existing CA and signed-by keyring in a temporary lists directory. Production
 publisher ownership, alert delivery to the publisher and live renewal remain open.
 Release evidence requires an exact-source CI receipt before publication.
 STAB-15: the [release qualification matrix](docs/verification/2026-11-14-agent-release-qualification-matrix.md)
-records historical evidence and the test cases required for each exact new
-OS, source and artifact combination. New installed canary evidence is pending.
+records installed canary evidence by OS, exact source and signed artifact.
+Windows Server 2012 R2 recovered from a power cut during removal of Setup 3.2.218
+and accepted Setup 3.2.222 with the original device identity and fresh UserSensor.
+Automatic delivery of queued installation events after offline rollback and
+the remaining platform combinations are open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
