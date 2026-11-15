@@ -697,6 +697,33 @@ def test_recovery_accepts_only_inventoried_partial_candidate_and_saved_selectors
     assert (root/'unrelated.txt').read_bytes()==b'unknown evidence'
 
 
+def test_completed_reconciliation_preserves_zeroed_known_payload_as_conflicting_evidence(handoff_input):
+    module, paths, root, request, _ = handoff_input
+    assert module.prepare_installer_provenance(paths, request) == 'handoff'
+    (root / '.endpoint-msi-runtime.json').write_text(json.dumps({
+        'schema_version': 1,
+        'version': '3.2.82',
+        'component_guid': '33333333-3333-4333-8333-333333333333',
+    }))
+    assert module.reconcile_installed_core(paths, request) == 'handoff'
+    module.validate_interrupted_reconciliation(paths, request)
+
+    state_root = paths.install_root.parent / 'installer-state'
+    plan = state_root / 'provenance' / request['transaction_id'] / 'plan.json'
+    original_plan = plan.read_bytes()
+    original_selector = paths.current_path.read_bytes()
+    assert json.loads(original_plan)['phase'] == 'complete'
+    contract = root / 'endpoint-runtime-contract.json'
+    zeroed = bytes(contract.stat().st_size)
+    contract.write_bytes(zeroed)
+
+    with pytest.raises(module.ProvenanceConflict):
+        module.validate_interrupted_reconciliation(paths, request)
+    assert plan.read_bytes() == original_plan
+    assert paths.current_path.read_bytes() == original_selector
+    assert contract.read_bytes() == zeroed
+
+
 def test_proven_removed_selector_does_not_authorize_other_selector_state(handoff_input):
     module, paths, _, request, _ = handoff_input
     module.prepare_installer_provenance(paths, request)
