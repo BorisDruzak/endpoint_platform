@@ -405,8 +405,11 @@ and the retry task retired without another MSI operation. A temporary
 lab policy confirmed UUID-pinned SSH on VM143 while Core and updater
 were stopped and Setup Observer was disabled. The policy was disabled,
 the broker port closed, the temporary principal and key removed,
-and Core returned to WSS. Rollback, forced interruption and interactive
-UserSensor remain open for this Windows 10 profile.
+and Core returned to WSS. Ordinary console sign-in as a temporary
+standard user started the installed UserSensor and Tray. Gateway
+acknowledged the device-scoped Activity policy, accepted content-free
+ACTIVE observations and showed a fresh UserSensor on the original device.
+Rollback and forced interruption remain open for this Windows 10 profile.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
