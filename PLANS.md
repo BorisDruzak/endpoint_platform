@@ -660,9 +660,17 @@ SYSTEM task retried with exit 75. After link restore, Gateway accepted
 sequence 6 for 3.2.236 followed by sequence 7 for 3.2.218. Local ACKs
 matched, the task retired and the original card accepted fresh 3.2.218
 WSS with no new MSI record. VM153, its probe ISO and scratch database
-were removed, baseline Gateway and worker were restored. The next
-open gates for this artifact include offline remove/reinstall,
-interruption recovery, UserSensor and independent Support.
+were removed, baseline Gateway and worker were restored.
+On a fresh full VM153 clone of the accepted 3.2.236 snapshot, offline
+uninstall returned 0 with Support cleanup complete, and the same
+signed Setup repaired the retained installation with exit 10. An
+offline reboot preserved removed sequence 7, installed sequence 8 and
+all four identity files. After link restore the stock SYSTEM task
+delivered both events once without another MSI operation and retired.
+Core 3.2.236 connected on the original card. Support 1.1.9 re-registered
+as generation 2 on the same credential with access disabled. VM153
+and its matching accepted database are now the offline baseline for
+UserSensor and independent SSH. Interruption recovery remains open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
