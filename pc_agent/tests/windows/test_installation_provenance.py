@@ -431,7 +431,7 @@ def handoff_input(tmp_path, monkeypatch):
     expected=msi_inventory.ExpectedMsi(package,identity,manifest,(root/'endpoint-runtime-contract.json').read_bytes(),tuple(foundation))
     monkeypatch.setattr(msi_inventory,'read_expected_package',lambda *_:expected)
     monkeypatch.setattr(msi_inventory,'verify_installed',lambda *_:None)
-    monkeypatch.setattr(msi_inventory,'persist_installed',lambda *_:None)
+    monkeypatch.setattr(msi_inventory,'persist_installed',lambda *_, **_kw:None)
     def foundation_verified(_package,install_root,*,expected):
         with msi_inventory.verified_foundation_bytes(expected,install_root): pass
         return 'complete'
@@ -716,8 +716,9 @@ def test_native_flush_failure_preserves_prepared_plan_and_allows_retry(handoff_i
     original_receipt = receipt.read_bytes()
     attempts = []
 
-    def persist(package, install_root):
+    def persist(package, install_root, *, original_path):
         assert package == expected.package and install_root == paths.install_root
+        assert original_path == request['package_path']
         assert plan.read_bytes() == original_plan
         assert not (state_root / 'foundation.json').exists()
         attempts.append(package)

@@ -113,6 +113,53 @@ def test_registered_cache_requires_protected_pinned_exact_semantics(tmp_path,mon
     assert not held
 
 
+@pytest.mark.parametrize('replace_after_proof', [False, True])
+def test_registered_cache_flush_uses_verified_file_identity(tmp_path, monkeypatch, replace_after_proof):
+    import win32api
+    from pc_agent.platform.windows import durable_state, installer_fence
+
+    cache_root = tmp_path / 'Windows' / 'Installer'
+    cache_root.mkdir(parents=True)
+    cache = cache_root / 'registered.msi'
+    cache.write_bytes(b'Windows Installer database')
+    original = tmp_path / 'original.msi'
+    original.write_bytes(b'original MSI with cabinet')
+    package = SimpleNamespace(product_code='product', package_code='package', version='3.2.230',
+                              sha256=hashlib.sha256(original.read_bytes()).hexdigest())
+    native = SimpleNamespace(property=lambda *_: str(cache), database_semantics=lambda _: 'same')
+    monkeypatch.setattr(win32api, 'GetWindowsDirectory', lambda: str(cache_root.parent))
+    monkeypatch.setattr(msi, '_assert_registered_cache_security', lambda _: None)
+    monkeypatch.setattr(installer_fence, 'assert_namespace_security', lambda _: None)
+    monkeypatch.setattr(msi, 'read_package', lambda *_: package)
+    flushed = []
+    import win32file
+    flush = win32file.FlushFileBuffers
+
+    def observe_flush(handle):
+        flushed.append(True)
+        flush(handle)
+
+    monkeypatch.setattr(win32file, 'FlushFileBuffers', observe_flush)
+    if replace_after_proof:
+        replacement = cache_root / 'replacement.msi'
+        replacement.write_bytes(cache.read_bytes())
+        original_flush = durable_state.flush_existing_file
+
+        def replace_then_flush(path, **options):
+            replacement.replace(path)
+            original_flush(path, **options)
+
+        monkeypatch.setattr(durable_state, 'flush_existing_file', replace_then_flush)
+        with pytest.raises(ValueError, match='file identity changed'):
+            msi.persist_registered_cache(original, package, native=native)
+        assert not flushed
+    else:
+        with msi.package_read_scope(), durable_state.installer_mutation_checkpoints(lambda: None):
+            msi.persist_registered_cache(original, package, native=native)
+        assert len(flushed) == 2
+        assert cache.read_bytes() == b'Windows Installer database'
+
+
 @pytest.mark.parametrize('owner,writer,allowed',[
  ('S-1-5-18','S-1-5-18',True),('S-1-5-32-544','S-1-5-32-544',True),
  ('S-1-5-19','S-1-5-18',False),('S-1-5-18','S-1-5-19',False),

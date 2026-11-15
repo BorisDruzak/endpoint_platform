@@ -1,4 +1,4 @@
-"""Setup and fixed-host read-only MSI package and installed ownership adapter.
+"""Setup and fixed-host MSI package, installed ownership and durability adapter.
 
 Opening the database never opens an installation session or runs MSI actions.
 The offline worker must not import this module.
@@ -979,10 +979,13 @@ def verify_registered_cache(original_path,package,*,native=None):
     No cached path is returned or executed. Native target registration/context
     and the later actual detected-target set remain separate required checks.
     """
+    _verified_registered_cache(original_path, package, native or NativeMsi())
+
+
+def _verified_registered_cache(original_path, package, native):
     import win32api
     from . import durable_state
     from .installer_fence import assert_namespace_security
-    native=native or NativeMsi()
     original_path=Path(original_path)
     windows=Path(win32api.GetWindowsDirectory())
     cache_root=windows/'Installer'
@@ -1016,6 +1019,20 @@ def verify_registered_cache(original_path,package,*,native=None):
             reject_reparse_ancestors(path);_assert_registered_cache_security(path)
         try:assert_namespace_security(cached)
         except ValueError as error:raise ProvenanceConflict() from error
+        _, _, identity, change_time = identities[-1]
+        return cached, (identity, change_time)
+
+
+def persist_registered_cache(original_path, package, *, native=None) -> None:
+    """Flush only the verified file that Windows Installer registered."""
+    from . import durable_state
+
+    native = native or NativeMsi()
+    cached, identity = _verified_registered_cache(original_path, package, native)
+    if Path(native.property(package.product_code, 'LocalPackage')) != cached:
+        raise ProvenanceConflict()
+    durable_state.flush_existing_file(cached, trusted_root=cached.parent, verified_identity=identity)
+    durable_state.flush_directory(cached.parent)
 
 
 def installed_feature_state(package: PackageInventory, *, native=None) -> str:
@@ -1040,7 +1057,7 @@ def verify_installed(package: PackageInventory, install_root: Path, *, native=No
     _verify_components(package,install_root,native,package.components.values())
 
 
-def persist_installed(package: PackageInventory, install_root: Path) -> None:
+def persist_installed(package: PackageInventory, install_root: Path, *, original_path: Path) -> None:
     """Flush the verified package's files, directory entries and registration."""
     from . import durable_state
 
@@ -1055,6 +1072,7 @@ def persist_installed(package: PackageInventory, install_root: Path) -> None:
             directories.add(directory)
     for directory in sorted(directories, key=lambda path: (-len(path.parts), path)):
         durable_state.flush_directory(directory)
+    persist_registered_cache(original_path, package)
     _flush_installation_registry()
 
 

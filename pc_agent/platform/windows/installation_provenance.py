@@ -1098,7 +1098,8 @@ def reconcile_installed_core(paths: WindowsUpdatePaths, expected_msi, *, native_
         raise ProvenanceConflict()
     # Native registration and readable files can still be buffered after MSI
     # returns. Persist them before publishing our own ownership records.
-    msi_inventory.persist_installed(expected.package, paths.install_root)
+    msi_inventory.persist_installed(expected.package, paths.install_root,
+                                     original_path=expected_msi['package_path'])
     for archive_id in plan['archives']:
         from .runtime_identity import verify_retained_archive
         retained = verify_retained_archive(paths, archive_id)

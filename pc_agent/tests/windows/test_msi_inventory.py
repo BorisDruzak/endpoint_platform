@@ -53,20 +53,26 @@ def test_persist_installed_flushes_package_files_before_directories_and_registry
     install_root = tmp_path / 'Agent'
     inventory = package(module)
     payload = install_root / inventory.files[0].path
+    original = tmp_path / 'source.msi'
     calls = []
 
     def flush_file(path, *, trusted_root):
         assert trusted_root == install_root
         calls.append(path)
 
+    def persist_cache(path, package):
+        assert path == original and package == inventory
+        calls.append('cache')
+
     monkeypatch.setattr(durable_state, 'flush_existing_file', flush_file)
     monkeypatch.setattr(durable_state, 'flush_directory', calls.append)
+    monkeypatch.setattr(module, 'persist_registered_cache', persist_cache)
     monkeypatch.setattr(module, '_flush_installation_registry', lambda: calls.append('registry'))
 
-    module.persist_installed(inventory, install_root)
+    module.persist_installed(inventory, install_root, original_path=original)
 
     assert calls == [payload, payload.parent, install_root / 'versions',
-                     install_root, tmp_path, 'registry']
+                     install_root, tmp_path, 'cache', 'registry']
 
 
 def test_foundation_verification_rejects_missing_component_with_runtime_retired(tmp_path):

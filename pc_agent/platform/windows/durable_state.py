@@ -458,7 +458,7 @@ def durable_rename_directory(source: Path, destination: Path, *, trusted_root: P
         flush_directory(destination.parent)
 
 
-def flush_existing_file(path: Path, *, trusted_root: Path) -> None:
+def flush_existing_file(path: Path, *, trusted_root: Path, verified_identity: tuple | None = None) -> None:
     """Flush an existing file within a caller-validated Windows directory."""
     import pywintypes
     import win32con
@@ -476,7 +476,24 @@ def flush_existing_file(path: Path, *, trusted_root: Path) -> None:
             attributes = win32file.GetFileInformationByHandle(handle)[0]
             if attributes & (_REPARSE_POINT | win32con.FILE_ATTRIBUTE_DIRECTORY):
                 raise ValueError("state handle is not a regular file")
-            win32file.FlushFileBuffers(handle)
+            if verified_identity is None:
+                win32file.FlushFileBuffers(handle)
+            else:
+                import msvcrt
+
+                raw = handle.Detach()
+                try:
+                    descriptor = msvcrt.open_osfhandle(raw, os.O_WRONLY | os.O_BINARY)
+                except BaseException:
+                    win32file.CloseHandle(raw)
+                    raise
+                try:
+                    details = os.fstat(descriptor)
+                    if (_copy_identity(details), details.st_ctime_ns) != verified_identity:
+                        raise ValueError('state file identity changed between verification and flush')
+                    win32file.FlushFileBuffers(msvcrt.get_osfhandle(descriptor))
+                finally:
+                    os.close(descriptor)
         finally:
             handle.Close()
     except pywintypes.error as error:
