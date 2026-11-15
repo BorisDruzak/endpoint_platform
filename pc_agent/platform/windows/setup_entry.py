@@ -773,6 +773,12 @@ def _resume_unenrolled_installation(msi_path: Path, paths: WindowsUpdatePaths) -
         with update_transaction(paths, timeout_ms=0), msi_inventory.package_read_scope():
             if active_update_state(paths) is not None:
                 raise UpdateInProgress('UPDATE_IN_PROGRESS')
+            state = installer_fence.state_root(paths)
+            try:
+                state.lstat()
+            except FileNotFoundError:
+                return None
+            installer_fence.assert_state_security(state)
             fact = outbox_for(paths).awaiting_enrollment()
             if fact is None:
                 return None
@@ -787,7 +793,7 @@ def _resume_unenrolled_installation(msi_path: Path, paths: WindowsUpdatePaths) -
                 'exit_code': 0,
             }
             transaction = fact['transaction_id']
-            receipt_path = installer_fence.state_root(paths) / 'transactions' / transaction / 'completed.json'
+            receipt_path = state / 'transactions' / transaction / 'completed.json'
             installer_fence.assert_state_security(receipt_path)
             receipt = installer_fence.validate_fence(
                 read_json(provenance._read(receipt_path, installer_fence.MAX_FENCE_BYTES),

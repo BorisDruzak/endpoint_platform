@@ -399,6 +399,18 @@ def test_completed_native_install_resumes_original_enrollment_without_msi(tmp_pa
     assert delivered == [(executable, 'win-test', 'claim', transaction)]
 
 
+def test_resume_without_installer_state_leaves_first_install_eligible(tmp_path, monkeypatch):
+    from contextlib import nullcontext
+    from pc_agent.platform.windows.installer_fence import state_root
+
+    paths = setup_entry.WindowsUpdatePaths.production()
+    assert not state_root(paths).exists()
+    monkeypatch.setattr(setup_entry, 'update_transaction', lambda *_a, **_kw: nullcontext())
+    monkeypatch.setattr(setup_entry, 'active_update_state', lambda _: None)
+    assert setup_entry._resume_unenrolled_installation(tmp_path / 'EndpointAgent.msi', paths) is None
+    assert not state_root(paths).exists()
+
+
 @pytest.mark.parametrize('defect', [None, 'different-release', 'receipt', 'selection'])
 def test_resume_requires_exact_pending_fact_and_settled_native_receipt(tmp_path, monkeypatch, defect):
     from contextlib import nullcontext
