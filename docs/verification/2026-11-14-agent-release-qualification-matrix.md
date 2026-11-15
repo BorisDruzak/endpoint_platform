@@ -1557,8 +1557,15 @@ Support вернул `support_dependency_signature_invalid` и остался н
 `b67ff8becd203502190ec42ac7787c24c2cd3325ed7700485fe7a1c83d2a7957`
 запустились `ssh.exe -V`, `sshd.exe -V` и `ssh-keygen.exe -?`.
 Проверены хеши файлов, подписи `Valid` и совпадение закреплённого издателя.
-PowerShell на build 9600 не показал `TimeStamperCertificate` для этих
-трёх файлов. Это проверка загрузки и подписи команды, отдельная проверка
-нативной метки времени, запуска службы и независимого SSH остаётся открытой.
-Локальный отчёт `setup214-support-offline-binaries.json`, SHA-256
-`1e309291c13d6c789cbf883ab7d11e7f35dac814d120fe30950378ca47c2aa47`.
+У всех 15 EXE/DLL из манифеста PowerShell на build 9600 подтвердил
+подпись и издателя, а поле `TimeStamperCertificate` осталось пустым.
+На Windows 11 то же поле у всех 15 файлов заполнено. Действующая
+нативная функция проверки метки вернула `false` для всех файлов
+на обеих системах. Загрузка команд подтверждена. Проверка метки на
+build 9600, запуск службы и независимый SSH остаются открытыми.
+
+| Отчёт OpenSSH | SHA-256 |
+| --- | --- |
+| `setup214-support-offline-binaries.json` | `1e309291c13d6c789cbf883ab7d11e7f35dac814d120fe30950378ca47c2aa47` |
+| `setup214-support-native-timestamps.json` | `2c10014c3834e2d9427a752b9de448fb208f564cda57ee462c9c1c514fba327c` |
+| `setup214-support-modern-timestamps.json` | `b5a52c2e80a99071a1f6abf99815b1b5cdd81f570b7da7162f0891df46a8b43a` |
