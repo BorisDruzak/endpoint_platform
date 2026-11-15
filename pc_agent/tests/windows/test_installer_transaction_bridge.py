@@ -6,6 +6,53 @@ import pytest
 from pc_agent.tests.windows.test_installer_fence import native_protected_root
 
 
+@pytest.mark.skipif(os.name != 'nt', reason='Windows PowerShell installer finalization')
+def test_offline_same_version_repair_arms_only_the_notification_retry(tmp_path):
+    source = Path(__file__).resolve().parents[3] / 'packaging/windows/Install-EndpointAgentCanary.ps1'
+    script = tmp_path / 'repair-notification.ps1'
+    script.write_text(r"""param($Source)
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [Management.Automation.Language.Parser]::ParseFile($Source, [ref]$tokens, [ref]$errors)
+if ($errors.Count) { throw 'Installer script does not parse' }
+$block = $ast.Find({
+    param($node)
+    $node -is [Management.Automation.Language.IfStatementAst] -and
+        $node.Clauses[0].Item1.Extent.Text -ceq '$null -ne $installationNotification'
+}, $true)
+if ($null -eq $block) { throw 'Installer notification finalization missing' }
+function Invoke-InstallationNotification($HelperPath, $HelperHash, $LaunchDirectory) {
+    if ($HelperPath -cne 'helper' -or $HelperHash -cne 'hash' -or $LaunchDirectory -cne 'launch') {
+        throw 'Wrong notification input'
+    }
+    if ($script:delivery -ceq 'exception') { throw 'Transport unavailable' }
+    return $script:delivery
+}
+function Register-InstallationEventRetry($Bridge) {
+    if ($Bridge.HelperPath -cne 'helper' -or $Bridge.HelperHash -cne 'hash' -or
+        $Bridge.LaunchDirectory -cne 'launch') { throw 'Wrong retry input' }
+    $script:registrations++
+}
+$installationNotification = @{HelperPath='helper'; HelperHash='hash'; LaunchDirectory='launch'}
+$installationNotificationRetry = $true
+$script:registrations = 0
+foreach ($script:delivery in 'pending','exception','delivered') {
+    Invoke-Expression $block.Extent.Text
+}
+if ($script:registrations -ne 2) { throw "Expected two repair retries, observed $script:registrations" }
+$installationNotificationRetry = $false
+$script:delivery = 'pending'
+Invoke-Expression $block.Extent.Text
+if ($script:registrations -ne 2) { throw 'Unexpected registration for a non-repair path' }
+""", encoding='utf-8')
+    result = subprocess.run(
+        ['powershell.exe', '-NoProfile', '-NonInteractive', '-File', str(script), str(source)],
+        capture_output=True, text=True, timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 @pytest.mark.parametrize('phase,native,minutes,allowed',[
     ('prepare',False,31,True),('prepare',False,120,True),
     ('prepare',False,121,True),('prepare',False,239,True),

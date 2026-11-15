@@ -3054,6 +3054,7 @@ if ($inputHash -ne [string]$manifest.package_sha256) {
 $updateMutex = $null
 $transactionOwned = $false
 $installationNotification = $null
+$installationNotificationRetry = $false
 try {
     try {
         $updateMutex = New-UpdateTransaction
@@ -3431,6 +3432,7 @@ try {
                   $initial.foundation_release.package_sha256 -ceq $inputHash) {
             # ADDLOCAL alone can leave an already installed feature unchanged.
             $msiArguments += @('REINSTALL=EndpointAgentFeature','REINSTALLMODE=amus')
+            $installationNotificationRetry = $true
         }
     }
     $nativeStarted = $true
@@ -3591,7 +3593,13 @@ finally {
     if ($null -ne $installationNotification) {
         try {
             $delivery=Invoke-InstallationNotification @installationNotification
-            if ($delivery -cne 'delivered') { Write-Warning 'INSTALLATION_NOTIFICATION_PENDING: native result unchanged.' }
-        } catch { Write-Warning 'INSTALLATION_NOTIFICATION_PENDING: native result unchanged.' }
+        } catch { $delivery = 'pending' }
+        if ($delivery -cne 'delivered') {
+            Write-Warning 'INSTALLATION_NOTIFICATION_PENDING: native result unchanged.'
+            if ($installationNotificationRetry) {
+                try { Register-InstallationEventRetry $installationNotification }
+                catch { Write-Warning 'INSTALLATION_NOTIFICATION_RETRY_PENDING' }
+            }
+        }
     }
 }

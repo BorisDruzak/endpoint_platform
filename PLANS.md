@@ -373,6 +373,13 @@ automatically reinstalled and rebound Support after a separate offline remove
 and reinstall from 3.2.222. Pinned independent SSH passed with Core and updater
 stopped and Setup Observer disabled. The remaining platform and source
 combinations are open.
+On the same VM, the exact 3.2.225 artifact restored a missing Core service
+registration while offline. The original MSI registration and four private
+files survived repair and reboot, and Core returned to WSS on the same
+device. Native event 9 remained pending after reconnect. The repair path
+now reuses the protected native notification task if immediate delivery
+is pending. A new signed candidate must prove automatic delivery and task
+retirement after offline same-version repair.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
