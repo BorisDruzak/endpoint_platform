@@ -257,6 +257,58 @@ def test_reinstall_default_requires_recovery_of_each_local_feature(operation,rec
             validate_feature_plan(operation,states,rollback_disabled='',recovery=recovery)
 
 
+@pytest.mark.parametrize('states,service_state,startup,live_startup,same_package,valid', [
+    ((3, 5, 3, 3), 'absent', None, None, True, True),
+    ((3, 5, 3, 3), 'stopped', {'start_type': 3}, {'start_type': 4}, True, False),
+    ((3, 5, 3, 3), 'absent', {'start_type': 3}, {'start_type': 4}, True, False),
+    ((3, 5, 3, 3), 'absent', None, {'start_type': 4}, True, False),
+    ((3, 5, 3, 3), 'absent', None, None, False, False),
+    ((3, 5, 3, 5), 'absent', None, None, True, False),
+    ((2, 5, 3, 3), 'absent', None, None, True, False),
+])
+def test_preflight_limits_normal_reinstall_to_the_missing_service_of_the_installed_foundation(
+        monkeypatch, tmp_path, states, service_state, startup, live_startup, same_package, valid):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    from pc_agent.platform.windows import (
+        installation_provenance, installer_data_security, installer_fence,
+        installer_transaction_bridge as bridge, legacy_foundation_upgrade, msi_inventory,
+    )
+
+    package = {'package_sha256': 'a' * 64}
+    cap = {'transaction_id': 'transaction', 'operation': 'install', 'recovery': False,
+           'package': package, 'selected': 'selected', 'previous': None,
+           'service_states': {'EndpointAgent': service_state, 'EndpointAgentUpdater': 'stopped'}}
+    paths = SimpleNamespace(install_root=tmp_path / 'agent')
+    expected = SimpleNamespace(
+        package=SimpleNamespace(sha256='a' * 64, product_code='product',
+                                package_code='package', version='3.2.216'),
+        identity=SimpleNamespace(source_revision='source'),
+    )
+    fence = bridge._public_fence(expected, cap, {'EndpointAgent': startup, 'EndpointAgentUpdater': None})
+    fence['phase'] = 'msi-starting'
+    checked = []
+    monkeypatch.setattr(msi_inventory, 'read_expected_package', lambda *_: expected)
+    monkeypatch.setattr(installer_fence, 'read_fence', lambda *_: fence)
+    monkeypatch.setattr(installation_provenance, 'verified_foundation_release',
+                        lambda *_: package if same_package else {'package_sha256': 'b' * 64})
+    monkeypatch.setattr(legacy_foundation_upgrade, 'verify_native_preflight', lambda *_, **__: None)
+    monkeypatch.setattr(bridge, '_matching_inspection', lambda *_, **__: None)
+    services = SimpleNamespace(assert_quarantined=lambda: None, snapshot=lambda: {'EndpointAgent': live_startup})
+    monkeypatch.setattr(bridge, 'InstallerServices', lambda *_: nullcontext(services))
+    monkeypatch.setattr(installer_data_security, 'before_native', lambda *_: checked.append('native'))
+    client = SimpleNamespace(phase='msi-preflight', capability=cap)
+
+    if valid:
+        assert bridge._execute_authorized_phase(client, paths, feature_states=states, complete=False) == {}
+        assert checked == ['native']
+    else:
+        with pytest.raises(ValueError, match='OWNER_AUTH_FAILED'):
+            bridge._execute_authorized_phase(client, paths, feature_states=states, complete=False)
+        assert checked == []
+
+
 @pytest.mark.parametrize('operation,recovery,states,valid',[
     ('uninstall',True,(-1,-1,-1,-1),True),('uninstall',True,(-1,2,-1,2),True),
     ('uninstall',False,(-1,2,-1,2),False),('install',True,(-1,2,-1,2),False),

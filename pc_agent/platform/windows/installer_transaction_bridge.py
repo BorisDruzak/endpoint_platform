@@ -153,7 +153,7 @@ class InstallerServices:
         self._apply(original)
 
 
-def validate_feature_plan(operation,states,*,rollback_disabled,recovery=False,finalization=False):
+def validate_feature_plan(operation,states,*,rollback_disabled,recovery=False,finalization=False,foundation_repair=False):
     """Validate costing's actual feature states, independently of REMOVE text."""
     if (len(states)!=4 or any(type(value) is not int or value not in {-1,1,2,3,5} for value in states)
         or any(value==5 for value in states[::2])
@@ -163,11 +163,13 @@ def validate_feature_plan(operation,states,*,rollback_disabled,recovery=False,fi
     if finalization:
         valid=operation=='uninstall' and recovery is True and all(value in {-1,2} for value in states)
     elif operation=='install':
-        # REINSTALL is evaluated after ADDLOCAL and can request DEFAULT5 for
-        # already-local features. Preserve that native value; only an owned
-        # recovery may reinstall each feature whose installed state is LOCAL3.
-        valid=all(after==3 or (after==5 and recovery is True and before==3)
-            for before,after in ((foundation_before,foundation_after),(runtime_before,runtime_after)))
+        # REINSTALL supersedes ADDLOCAL for already-local features. Repair
+        # authorizes DEFAULT only for Foundation. Recovery may request both.
+        foundation_valid = foundation_after == 3 or (
+            foundation_after == 5 and foundation_before == 3 and (recovery is True or foundation_repair is True)
+        )
+        runtime_valid = runtime_after == 3 or (runtime_after == 5 and runtime_before == 3 and recovery is True)
+        valid = foundation_valid and runtime_valid
     elif operation=='retire-initial-runtime':
         valid=foundation_before==foundation_after==3 and runtime_before in ((2,3) if recovery else (3,)) and runtime_after==2
     elif operation=='uninstall':
@@ -809,12 +811,21 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
     elif phase in {'msi-preflight','uninstall-finalize-preflight'}:
         finalization=phase=='uninstall-finalize-preflight'
         if uninstall_finalization!=('1' if finalization else ''): _failed()
-        validate_feature_plan(capability['operation'],feature_states,rollback_disabled=rollback_disabled,
-            recovery=capability['recovery'],finalization=finalization)
         fence=read_fence(paths)
         if fence is None or any(fence[key]!=_public_fence(expected,capability)[key] for key in
             ('transaction_id','package','operation','selected','previous')):
             raise ValueError('PROVENANCE_CONFLICT')
+        foundation_repair = (
+            capability['operation'] == 'install' and not capability['recovery']
+            and 'compound' not in capability and 'staged_rollback' not in capability
+            and feature_states == (3, 5, 3, 3) and fence['phase'] == 'msi-starting'
+            and fence['service_states'] == capability['service_states']
+            and fence['service_states']['EndpointAgent'] == 'absent'
+            and fence['service_startup']['EndpointAgent'] is None
+            and provenance.verified_foundation_release(paths) == capability['package']
+        )
+        validate_feature_plan(capability['operation'],feature_states,rollback_disabled=rollback_disabled,
+            recovery=capability['recovery'],finalization=finalization,foundation_repair=foundation_repair)
         if capability['operation']=='install' and 'compound' not in capability:
             from .legacy_foundation_upgrade import verify_native_preflight
             verify_native_preflight(paths,request,upgrade_detected,recovery=capability['recovery'])
@@ -829,7 +840,10 @@ def _execute_authorized_phase(client,paths,*,feature_states=None,rollback_disabl
         else:
             _matching_inspection(paths,expected,capability,retirement=capability['operation']=='retire-initial-runtime')
         if capability['operation']!='retire-initial-runtime':
-            with InstallerServices(paths) as services: services.assert_quarantined()
+            with InstallerServices(paths) as services:
+                services.assert_quarantined()
+                if foundation_repair and services.snapshot()['EndpointAgent'] is not None:
+                    _failed()
         if capability['operation']=='install':
             installer_data_security.before_native(paths,data_request)
     else:
