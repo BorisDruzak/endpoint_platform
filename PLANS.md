@@ -448,9 +448,12 @@ with access disabled and the four identity files matched. A standard
 console sign-in on VM145 launched the exact 3.2.227 UserSensor and Tray
 after reboot. Gateway acknowledged the device-scoped Activity policy and
 accepted fresh UserSensor and content-free ACTIVE observations. The
-temporary account and profile were removed. Clean install on a fresh
-Windows 10 image, independent Support and production qualification remain
-open for the candidate.
+temporary account and profile were removed. A separate VM145 run verified
+UUID-pinned independent Support 1.1.9 SSH with Core and updater stopped
+and Setup Observer disabled. Console accepted operator attestation.
+The lease and broker port were closed, test credentials removed and
+baseline service states restored. Clean install on a fresh Windows 10
+image and production qualification remain open for the candidate.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
