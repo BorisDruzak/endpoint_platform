@@ -1173,13 +1173,27 @@ def _inventory_slot_clean(data_root: Path) -> bool:
 
 
 def _install_support_after_native(data_root: Path) -> None:
-    from pc_agent.platform.windows.provision import install_enrolled_support
     from pc_agent.platform.windows.installation_notification import sync_enrolled_installation
+    from pc_agent.platform.windows.offline_reinstall import schedule_retry
+    try:
+        delivered = sync_enrolled_installation(data_root) in {'delivered', 'not_applicable'}
+    except Exception:
+        delivered = False
+    if delivered:
+        if _activate_enrolled_support(data_root):
+            return
+    else:
+        _write_support_install_result(False, 'support_install_failed')
+    try:
+        schedule_retry(data_root)
+    except Exception:
+        pass
+
+
+def _activate_enrolled_support(data_root: Path) -> bool:
+    from pc_agent.platform.windows.provision import install_enrolled_support
     activation_retry=None
     try:
-        if sync_enrolled_installation(data_root) not in {'delivered', 'not_applicable'}:
-            _write_support_install_result(False, 'support_install_failed')
-            return
         result=install_enrolled_support(data_root)
         installed = result.get('installed') is True
         support_error=result.get('error')
@@ -1191,6 +1205,7 @@ def _install_support_after_native(data_root: Path) -> None:
         _write_support_install_result(installed,support_error,activation_retry=activation_retry)
     else:
         _write_support_install_result(installed,support_error)
+    return installed
 
 
 def _write_support_install_result(installed: bool, error_code=None, *, activation_retry=None) -> None:
@@ -1283,7 +1298,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     notification = notification_main(argv)
     if notification is not None:
         return notification
-    args = _parser().parse_args(argv)
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if len(arguments) == 2 and arguments[0] == '--resume-offline-reinstall':
+        from pc_agent.platform.windows.offline_reinstall import resume
+        return resume(arguments[1], _activate_enrolled_support)
+    args = _parser().parse_args(arguments)
     if args.recover_staged_restoration:
         return _run_staged_restoration_recovery(args.recover_staged_restoration)
     if args.recover_native_continuation:
