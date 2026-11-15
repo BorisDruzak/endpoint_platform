@@ -452,8 +452,12 @@ temporary account and profile were removed. A separate VM145 run verified
 UUID-pinned independent Support 1.1.9 SSH with Core and updater stopped
 and Setup Observer disabled. Console accepted operator attestation.
 The lease and broker port were closed, test credentials removed and
-baseline service states restored. Clean install on a fresh Windows 10
-image and production qualification remain open for the candidate.
+baseline service states restored. Clean Windows 10 build 19045 Setup 3.2.227
+on VM146 returned 21 (MSI_EVIDENCE_FAILED) and retained the msi-starting
+fence despite successful Windows Installer events. Gateway received no
+enrollment request. The temporary campaign was revoked and the original lab
+Gateway restored. VM146 remains stopped and isolated with its diagnostic
+snapshot. Clean install and production qualification remain open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
