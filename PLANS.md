@@ -669,8 +669,16 @@ all four identity files. After link restore the stock SYSTEM task
 delivered both events once without another MSI operation and retired.
 Core 3.2.236 connected on the original card. Support 1.1.9 re-registered
 as generation 2 on the same credential with access disabled. VM153
-and its matching accepted database are now the offline baseline for
-UserSensor and independent SSH. Interruption recovery remains open.
+and its matching accepted database are the offline baseline for
+independent SSH. A disposable VM151 clone verified UserSensor after a
+real console type-2 login of a temporary standard user. Explorer,
+Tray and UserSensor started in the same session and the sensor binary
+matched the signed-build payload. Gateway accepted a fresh sensor
+sample and an ACTIVE interval under the device-only privacy policy,
+with application, category and browser fields empty. The device card,
+four identity files and sequence-8 history matched the source.
+The temporary user, profile, VM151 and isolated database were removed.
+Interruption recovery and independent SSH remain open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
