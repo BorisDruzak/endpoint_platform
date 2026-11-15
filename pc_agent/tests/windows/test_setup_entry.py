@@ -20,8 +20,21 @@ from pc_agent.windows_setup import (
 )
 
 
-@pytest.mark.parametrize('defect', [None, 'not-frozen', 'foreign-executable', 'owner-alive', 'changed-wrapper'])
-def test_frozen_staged_watchdog_uses_package_imports_and_preserves_admission(tmp_path, monkeypatch, defect):
+@pytest.mark.parametrize('defect,wrapper_exit,terminal,receipt', [
+    (None, 0, 'accepted', ('UPDATED', 0, 'SERVICE', 'SERVICE_RUNNING')),
+    (None, 67, 'rolled-back', ('ROLLED_BACK', 67, 'MSI', 'CANDIDATE_ROLLED_BACK')),
+    (None, 3010, 'switching', None),
+    (None, 61, 'switching', None),
+    (None, 0, 'other-operation', None),
+    (None, 0, 'switching', None),
+    (None, 0, 'busy', None),
+    ('not-frozen', 0, 'accepted', None),
+    ('foreign-executable', 0, 'accepted', None),
+    ('owner-alive', 0, 'accepted', None),
+    ('changed-wrapper', 0, 'accepted', None),
+])
+def test_frozen_staged_watchdog_uses_package_imports_and_preserves_admission(
+        tmp_path, monkeypatch, defect, wrapper_exit, terminal, receipt):
     """Exercise the real file entry, not its package-imported function."""
     from pc_agent.platform.windows import staged_recovery, update_paths
 
@@ -38,13 +51,32 @@ def test_frozen_staged_watchdog_uses_package_imports_and_preserves_admission(tmp
         (cache/name).write_bytes(b'changed' if defect == 'changed-wrapper' and name.endswith('.ps1') else b'reviewed embedded input')
     operation = '11111111-1111-4111-8111-111111111111'
     record = SimpleNamespace(binding=SimpleNamespace(operation_id=operation), owner={'pid':42})
+    finished_binding = SimpleNamespace(operation_id='foreign') if terminal == 'other-operation' else record.binding
+    finished = SimpleNamespace(binding=finished_binding, phase=terminal, owner=record.owner)
     events = []
+    results = []
+    from contextlib import contextmanager
+
+    @contextmanager
+    def transaction(actual_paths, *, timeout_ms):
+        assert actual_paths is paths and timeout_ms == 0
+        if terminal == 'busy':
+            raise setup_entry.UpdateInProgress('UPDATE_IN_PROGRESS')
+        events.append('receipt-lock')
+        try:
+            yield
+        finally:
+            events.append('receipt-unlock')
+
+    scope['update_transaction'] = transaction
+    scope['_finish'] = lambda _, **fields: results.append(fields) or fields['code']
+    scope['_install_support_after_native'] = lambda root: events.append(('post-install', root))
     monkeypatch.setattr(setup_entry.sys, 'frozen', defect != 'not-frozen', raising=False)
     monkeypatch.setattr(setup_entry.sys, 'executable', str(tmp_path/'foreign.exe' if defect == 'foreign-executable' else cache/'EndpointAgentSetup.exe'))
     scope['WindowsUpdatePaths'] = SimpleNamespace(production=lambda: paths)
     scope['_resource_root'] = lambda: resource
     scope['_verify_embedded_msi'] = lambda _: (resource/'EndpointAgent.release.json', resource/'Install-EndpointAgentCanary.ps1')
-    monkeypatch.setattr(staged_recovery.state, 'read_staged_update', lambda _: record)
+    monkeypatch.setattr(staged_recovery.state, 'read_staged_update', lambda _: finished if 'launch' in events else record)
     monkeypatch.setattr(staged_recovery, '_validate_recovery_inputs', lambda *_: {'package_sha256':digest})
     monkeypatch.setattr(staged_recovery, 'wait_for_original_owner', lambda *a, **k: events.append('wait'))
     def dead(_):
@@ -59,15 +91,24 @@ def test_frozen_staged_watchdog_uses_package_imports_and_preserves_admission(tmp
         assert command[command.index('-Operation')+1] == 'RecoverStagedUpdate'
         assert command[command.index('-StagedOperationId')+1] == operation
         assert kwargs['shell'] is False
-        return SimpleNamespace(returncode=0)
+        return SimpleNamespace(returncode=wrapper_exit)
     monkeypatch.setattr(setup_entry.subprocess, 'run', invoke)
     result = entry['_run_staged_recovery'](operation)
     if defect is None:
-        assert result == 0
-        assert events == ['wait','dead','launch']
+        expected = ['wait', 'dead', 'launch']
+        if wrapper_exit in (0, 67) and terminal != 'busy':
+            expected.extend(['receipt-lock', 'receipt-unlock'])
+        if receipt is not None and wrapper_exit == 0:
+            expected.append(('post-install', paths.pending_path.parents[1]))
+        assert events == expected
     else:
-        assert result == setup_entry.EXIT_REPAIR_REQUIRED
         assert 'launch' not in events
+    if receipt is None:
+        assert results == []
+        assert result == (3010 if wrapper_exit == 3010 else setup_entry.EXIT_REPAIR_REQUIRED)
+    else:
+        assert results == [dict(zip(('status', 'code', 'stage', 'detail'), receipt))]
+        assert result == wrapper_exit
 
 
 @pytest.mark.parametrize(

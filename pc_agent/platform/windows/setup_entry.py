@@ -302,7 +302,26 @@ def _run_staged_recovery(operation_id):
             '-SetupImagePath', str(cache / 'EndpointAgentSetup.exe')],
             check=False, shell=False, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL, creationflags=_windowless_creation_flags())
-        return result.returncode if result.returncode in (0,67,3010,1641) else EXIT_REPAIR_REQUIRED
+        if result.returncode in (3010, 1641):
+            return result.returncode
+        if result.returncode not in (0, 67):
+            return EXIT_REPAIR_REQUIRED
+        phase = 'accepted' if result.returncode == 0 else 'rolled-back'
+        data_root = paths.pending_path.parents[1]
+        with update_transaction(paths, timeout_ms=0):
+            terminal = recovery.state.read_staged_update(paths)
+            if terminal is None or terminal.binding != record.binding or terminal.phase != phase:
+                return EXIT_REPAIR_REQUIRED
+            if phase == 'accepted':
+                _finish(data_root, status='UPDATED', code=EXIT_SUCCESS,
+                        stage='SERVICE', detail='SERVICE_RUNNING')
+            else:
+                _finish(data_root, status='ROLLED_BACK', code=67,
+                        stage='MSI', detail='CANDIDATE_ROLLED_BACK')
+        # Delivery and Support acquire their own lock and can do bounded I/O.
+        if phase == 'accepted':
+            _install_support_after_native(data_root)
+        return result.returncode
     except Exception:
         return EXIT_REPAIR_REQUIRED
 
