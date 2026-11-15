@@ -626,6 +626,13 @@ The original lab Gateway and worker are running and the scratch database
 was removed. VM146 and VM152 were removed with their disks and snapshots
 after verifying retention of the test reports. VM154 remains the source
 for the next 3.2.218 repeat.
+The registered MSI cache pin is now released before the durability flush
+while retaining the verified file identity and change time. A Windows
+regression reproduces the sharing violation in compound finalization
+and rejects file replacement between verification and flush. The signed
+3.2.236 lab EXE/MSI at source `57a86985b8be74e1c4ea733f870515375e5991a0`
+have verified timestamps and hashes. Native acceptance from 3.2.218 is
+pending.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
