@@ -1316,3 +1316,66 @@ staging origin, разрешаемым только внутри изолиро�
 | `setup210-reboot-before-login.png` | `bd09f4c92071050fc388f8d2a5da0b9b246e05b329323a3c2f00e108a92caadd` |
 | `setup210-wss-sessions-after-reboot.json` | `fb8f3dd9701b5c93422eccc64d5608dcdb8ad01cbddede915bd595289b213efd` |
 | `setup210-console-after-login.json` | `77501d67e72379fe4475980d2fc4ea4638667438300342225d2d561812d0cfbb` |
+
+#### Setup 3.2.211 и повтор доставки факта установки
+
+Состояние успешной установки и перезагрузки 3.2.210 осталось в снимке
+`stab15-setup210-clean-and-reboot`. Для 3.2.211 VM144 восстановили
+из чистого снимка и с отдельной базой на `0053_activity_dirty_since`.
+Штатное staging-имя `endpoint-staging.sosnadmin.local` разрешалось
+в loopback только на VM144. Проброс TCP 443 вёл на VM142 через
+изолированный bridge. Сертификат выдан CA стенда. Проверка дала HTTP 200
+и расхождение UTC в 1,278 секунды.
+
+Исходник подписанного кандидата 3.2.211 —
+`d7245db0b5f90124c0d2619d1be0c6faf060147c`.
+SHA-256 EXE — `4e90cf7dcd880b06d2e1b079c058b1a88e8c4e33be588e20da6e61aa52d88fef`,
+MSI — `abe1bc791005f679c9faca432f169f017dcf5ac4b8437f0930c803080cd8f8d8`.
+Чистый `--quiet` занял 73,250 секунды, вернул
+`COMPLETED / SERVICE / SERVICE_RUNNING`, код 0. Заявка
+`891067ce-5b34-43a7-912c-a20fff28098f` завершилась, карточка
+`f0f96379-0e17-463c-b514-4431b8427083` подтвердила строгий WSS
+и пять свежих профилей без предупреждений.
+
+Первый POST события установки получил HTTP 409, поскольку в
+лабораторном каталоге ещё отсутствовала запись точного подписанного
+релиза. Перед регистрацией Authenticode подтвердил подписи EXE и MSI
+и издателя. Канонический регистратор сверил хеши обоих файлов и
+ProductCode из инспектированного манифеста. Кандидат
+`375fae49-8dab-4875-a78d-c01e4e29dacd` записан
+только в базе стенда с `--candidate-only --without-auto-enrollment`.
+Повторный запуск того же Setup вернул `ALREADY_INSTALLED`, код 10,
+и оставил службу работающей. В журнале MsiInstaller сохранились
+только события исходной установки. Повторный POST получил HTTP 200.
+В журнале карточки одна запись `installed`, sequence 1,
+event `4407cedc-0c64-5315-b3d0-b6ff4b73e329`, с исходным временем
+02:55:57,106Z и нативным кодом 0. Это проверка повторной доставки
+исходного факта, проверка восстановления файлов через MSI остаётся открытой.
+
+После доставки факта Support вернул `support_signature_invalid`.
+Для точного установленного `EndpointSupportAccess.exe` с SHA-256
+`95942614dccae785499298bf2ae3ee8c28884c1db50c6e13786bfa9f07aefe0e`
+PowerShell на VM144 подтвердил `Valid` и закреплённого издателя.
+`TimeStamperCertificate` пуст, а нативный WinTrust подтвердил
+метку времени на тех же байтах. Коммит
+`849553522f8158dcc89de4f3b81f870afe175790` добавил проверку WinTrust
+и повторную сверку SHA-256 для этого случая. Незакреплённый издатель,
+невалидная подпись, неподтверждённая метка или другой хеш отклоняются.
+Версия изменённого компонента Support — 1.1.8. Связанные тесты
+Support, native continuation и допуска observer прошли, всего 188.
+Свежий подписанный кандидат с 1.1.8 должен отдельно пройти активацию
+и проверку независимого доступа. В исходном образе VM144 нет
+`Get-WindowsCapability` и inbox `sshd.exe`.
+Принятый lifecycle и исход отказа Support сохранены в снимке
+`stab15-setup211-lifecycle`.
+
+| Отчёт | SHA-256 |
+| --- | --- |
+| `setup211-isolated-staging-name-preflight.png` | `4678870efe742a23a830a54658996455dbf3e117cdc82cfd342c7c4dc3cbffee` |
+| `setup211-install-receipt.json` | `d83f473d9e07c0af0fc9d8123698df5c4a7ba50ef01aeccdd26a6d0d28aa5e2a` |
+| `setup211-support-diagnostic.json` | `9164e800630daffac8e5c4672367b02247d8be4f57b7a658efbd2c36f5b2e2a6` |
+| `setup211-console-before-catalog.json` | `0a3ef75ad885c5c55f9ca12ac511afedb1f0f79678fb57f5bc13e238119e1f90` |
+| `setup211-console-after-catalog.json` | `18ed55c594755863655460eabf7c4d02e57c252a1ff4c34e5172719bfc66d6be` |
+| `setup211-catalog-retry-terminal.png` | `2c3b5c5b1a3508eb2124ad88f0be00c56f8f7a246e996251c3f8a0c4c6fbf508` |
+| `setup211-catalog-retry-msi-events.png` | `37b729aaf9314b98beda39bf5f0924f11a7c10e68309232752c59fceac626615` |
+| `setup211-support-wintrust.png` | `c38f224526dba6827f5f42112e0f630e0c377f7b90fdcbdbb1a11b6d3bdda6bf` |
