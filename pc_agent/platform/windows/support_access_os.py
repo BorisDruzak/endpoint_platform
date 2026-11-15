@@ -364,6 +364,10 @@ $pending=(Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component B
 
     def capabilities(self):
         rows = run_fixed_powershell(r'''
+if (!(Get-Command Get-WindowsCapability -CommandType Cmdlet -ErrorAction SilentlyContinue)) {
+ ConvertTo-Json -InputObject @(@{name=$null;state='NotPresent'},@{name=$null;state='NotPresent'}) -Compress
+ return
+}
 $out=@();foreach($name in @('OpenSSH.Client~~~~0.0.1.0','OpenSSH.Server~~~~0.0.1.0')){
  $c=Get-WindowsCapability -Online -Name $name
  $out+=@{name=$c.Name;state=[string]$c.State}

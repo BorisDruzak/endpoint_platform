@@ -10,18 +10,27 @@ from pc_agent.tests.windows.test_support_access import DEVICE, KEY, TOKEN, Child
 from datetime import datetime, timezone
 
 
-@pytest.mark.parametrize(("build", "offers_fod", "uses_bundle"), [
-    (14393, False, True),
-    (14393, True, False),
-    (17763, True, False),
-    (19045, True, False),
+@pytest.mark.parametrize(("build", "product_type", "offers_fod", "uses_bundle"), [
+    (9600, 3, False, True),
+    (9600, 2, False, True),
+    (9600, 1, False, None),
+    (9600, 3, True, False),
+    (14393, 3, False, True),
+    (14393, 3, True, False),
+    (17763, 3, True, False),
+    (17763, 3, False, None),
+    (19045, 1, True, False),
 ])
-def test_support_prefers_offered_fod_to_bundled_openssh(monkeypatch, tmp_path, build, offers_fod, uses_bundle):
+def test_support_prefers_offered_fod_to_bundled_openssh(
+        monkeypatch, tmp_path, build, product_type, offers_fod, uses_bundle):
+    from types import SimpleNamespace
+
     from pc_agent.platform.windows import support_access_bundle as bundle
     from pc_agent.platform.windows import support_access_native as native
     from pc_agent.platform.windows import support_access_os as fod
 
     monkeypatch.setattr(native, "_windows_build", lambda: build, raising=False)
+    monkeypatch.setattr(native.sys, "getwindowsversion", lambda: SimpleNamespace(product_type=product_type), raising=False)
     monkeypatch.setattr(native, "production_roots", lambda: (tmp_path, tmp_path))
     bundled = {"profile": bundle.PROFILE, "keygen": "bundled-keygen"}
     inbox = {"profile": fod.PROFILE, "keygen": "inbox-keygen"}
@@ -38,6 +47,10 @@ def test_support_prefers_offered_fod_to_bundled_openssh(monkeypatch, tmp_path, b
 
     monkeypatch.setattr(fod, "WindowsFOD", lambda _: Servicing())
     ops = native.WindowsSupportOps()
+    if uses_bundle is None:
+        with pytest.raises(ValueError, match="support_dependency_install_failed"):
+            ops.dependencies()
+        return
     expected = bundled if uses_bundle else inbox
     assert ops.dependencies() == expected
     assert ops._keygen == expected["keygen"]

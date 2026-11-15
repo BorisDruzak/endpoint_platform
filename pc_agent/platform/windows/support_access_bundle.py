@@ -16,6 +16,8 @@ import sys
 import time
 import zipfile
 
+from .authenticode_timestamp import has_verified_timestamp
+
 MANIFEST_SHA256 = '18dfc978f8af2e79024cb2e60123c6e4a98cd54e03cb7a3750ec082a5a96c2fa'
 PROFILE = 'bundled-openssh-v1'
 MARKER = '.endpoint-support-runtime.json'
@@ -184,8 +186,8 @@ $ErrorActionPreference='Stop'
 $out=@()
 foreach($p in ($env:ENDPOINT_SUPPORT_SIGNATURE_FILES|ConvertFrom-Json)) {
  $s=Get-AuthenticodeSignature -LiteralPath $p
- if($s.Status -ne 'Valid' -or !$s.TimeStamperCertificate -or $s.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation'){throw 'signature'}
- $out+=@{name=[IO.Path]::GetFileName($p);thumbprint=$s.SignerCertificate.Thumbprint}
+ if($s.Status -ne 'Valid' -or $s.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation'){throw 'signature'}
+ $out+=@{name=[IO.Path]::GetFileName($p);thumbprint=$s.SignerCertificate.Thumbprint;timestamp=[bool]$s.TimeStamperCertificate}
 }
 ConvertTo-Json -InputObject @($out) -Compress
 '''
@@ -197,9 +199,17 @@ ConvertTo-Json -InputObject @($out) -Compress
     if response.returncode:raise ValueError('support_bundle_signature_invalid')
     values=json.loads(response.stdout)
     if (not isinstance(values,list) or len(values)!=len(rows) or
+        any(not isinstance(row, dict) or set(row) != {'name', 'thumbprint', 'timestamp'}
+            or not isinstance(row['name'], str) or type(row['timestamp']) is not bool for row in values) or
         {row['name']:row['thumbprint'] for row in values}!=
         {row['path']:row['publisher_thumbprint'] for row in rows}):
         raise ValueError('support_bundle_signature_invalid')
+    expected_hashes = {row['path']: row['sha256'] for row in rows}
+    for row in values:
+        if not row['timestamp']:
+            path = slot / row['name']
+            if not has_verified_timestamp(path, row['thumbprint']) or _hash(path) != expected_hashes[row['name']]:
+                raise ValueError('support_bundle_signature_invalid')
 
 
 def install() -> dict:

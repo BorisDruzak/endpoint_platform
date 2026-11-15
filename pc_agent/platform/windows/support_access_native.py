@@ -591,8 +591,10 @@ $v=(Get-Item -LiteralPath $p).VersionInfo
             raise ValueError('support_dependency_migration_unsupported')
         if previous and previous.get('profile') == bundled.PROFILE:
             bundled.verify_profile(previous)  # Retain the exact old compensation input.
+        build = _windows_build()
+        legacy_server = build == 9600 and sys.getwindowsversion().product_type in (2, 3)
         result = ensure_inbox_openssh(WindowsFOD(production_roots()[0]),
-            unavailable_fallback=bundled.install if _windows_build() == 14393 else None)
+            unavailable_fallback=bundled.install if build == 14393 or legacy_server else None)
         self._keygen=result['keygen']
         return result
 

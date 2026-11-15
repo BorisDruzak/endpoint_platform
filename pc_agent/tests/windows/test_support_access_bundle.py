@@ -1,6 +1,7 @@
 """Closed, pinned private runtime; never service/OS capability mutation."""
 import copy,hashlib,importlib,json,os,stat,zipfile
 from pathlib import Path
+from types import SimpleNamespace
 import pytest
 from pc_agent.tests.windows.test_installer_fence import native_protected_root
 
@@ -26,6 +27,47 @@ def test_public_manifest_pins_complete_microsoft_closure():
     m=bundle().load_manifest()
     assert m['preview'] is True and len([r for r in m['runtime_files'] if r['path'].endswith(('.exe','.dll'))])==15
     assert {'sshd-auth.exe','sshd-session.exe','ssh-shellhost.exe','libcrypto.dll','LICENSE.txt','NOTICE.txt','moduli'}<={r['path'] for r in m['runtime_files']}
+
+
+@pytest.mark.parametrize(('managed', 'native', 'valid_pin', 'changed', 'accepted'), [
+    (True, False, True, False, True),
+    (False, True, True, False, True),
+    (False, True, True, True, False),
+    (False, False, True, False, False),
+    (False, True, False, False, False),
+    (None, True, True, False, False),
+])
+def test_bundle_timestamp_checks_exact_publisher_and_trust_state(
+        tmp_path, monkeypatch, managed, native, valid_pin, changed, accepted):
+    from pc_agent.platform.windows import support_access_native
+
+    module = bundle()
+    publisher = 'A' * 40
+    payload = b'pinned fixture'
+    (tmp_path / 'sshd.exe').write_bytes(payload)
+    manifest = {'runtime_files': [{'path': 'sshd.exe', 'publisher_thumbprint': publisher,
+                                  'sha256': hashlib.sha256(payload).hexdigest()}]}
+    result = [{'name': 'sshd.exe', 'thumbprint': publisher if valid_pin else 'B' * 40,
+               'timestamp': managed}]
+    monkeypatch.setattr(support_access_native, 'windows_root', lambda: tmp_path)
+    monkeypatch.setattr(module.subprocess, 'CREATE_NO_WINDOW', 0, raising=False)
+    monkeypatch.setattr(module.subprocess, 'run', lambda *args, **kwargs:
+                        SimpleNamespace(returncode=0, stdout=json.dumps(result)))
+    calls = []
+
+    def verify(path, thumbprint):
+        calls.append((path, thumbprint))
+        if changed:
+            path.write_bytes(b'replaced fixture')
+        return native
+
+    monkeypatch.setattr(module, 'has_verified_timestamp', verify)
+    if accepted:
+        module.verify_signatures(tmp_path, manifest)
+    else:
+        with pytest.raises(ValueError, match='support_bundle_signature_invalid'):
+            module.verify_signatures(tmp_path, manifest)
+    assert calls == ([(tmp_path / 'sshd.exe', publisher)] if managed is False and valid_pin else [])
 
 
 def test_closed_archive_matches_before_any_publish(archive):

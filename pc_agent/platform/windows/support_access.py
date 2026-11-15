@@ -12,7 +12,7 @@ from pathlib import Path
 import re
 import uuid
 
-COMPONENT_VERSION = '1.1.8'
+COMPONENT_VERSION = '1.1.9'
 RESTORED_ACTIVATION_CODES = frozenset({
     'support_activation_image_restored',
     'support_activation_start_restored',
