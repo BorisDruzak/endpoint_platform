@@ -2,7 +2,7 @@
 param([Parameter(Mandatory)][ValidateSet('Install','Run')][string]$Mode)
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
-$script:ClientVersion='1.0.11'
+$script:ClientVersion='1.0.13'
 $script:Publisher='4D4C23389F5FF77BC4EB32044761019EAE8FB776'
 $script:Origin='https://endpoint.sosnadmin.local'
 $script:ProgramFiles=[Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
@@ -187,8 +187,12 @@ public static class EndpointSetupAuthenticodeTimestamp {
    if(signer.Error!=0 || signer.CounterCount!=1)return false;
    IntPtr leaf=Leaf(primary);
    if(leaf==IntPtr.Zero)return false;
-   using(var certificate=new X509Certificate2(leaf)) {
+   // X509Certificate2 implements IDisposable starting with .NET Framework 4.6.
+   var certificate=new X509Certificate2(leaf);
+   try {
     if(!String.Equals(certificate.Thumbprint,publisher,StringComparison.Ordinal))return false;
+   } finally {
+    certificate.Reset();
    }
    IntPtr counter=WTHelperGetProvSignerFromChain(provider,0,true,0);
    if(counter==IntPtr.Zero)return false;
