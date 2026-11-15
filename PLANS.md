@@ -590,9 +590,16 @@ guest clock and restarting Core during the same enrollment let the
 baseline complete and the wrapper return 0. Five context profiles and a
 new WSS on the same card after normal reboot were verified, along with
 four unchanged private files. The test campaign and credential were
-revoked and the temporary VM, ISOs and database removed. Unassisted
-online acceptance, upgrade, UserSensor and Support on this exact
-Server 2012 R2 release profile remain open.
+revoked and the temporary VM, ISOs and database removed. A fresh clone
+with Proxmox localtime=0 and guest timezone UTC passed the same late cut
+and offline recovery. Measured clock offsets stayed below one second.
+The online resume returned 0 in 30.55 seconds without time correction
+or a manual Core restart, with one unchanged native receipt, one AUTO
+completion, one ACK for the original event and five context profiles.
+Normal reboot preserved all four private files, the MSI cache and WSS
+on the same card. The temporary campaign, credential, VM and database
+were cleaned up. Upgrade, same-version repair, rollback, offline
+remove/reinstall, UserSensor and Support remain open for this exact release.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
