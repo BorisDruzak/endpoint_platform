@@ -11,7 +11,7 @@ observer, идентификатор и SHA-256 целевого артефак�
 | Windows 10 amd64, production Setup 3.2.192 → 3.2.205 | VM126. В снимке production-аудита всего пять подтверждённых применений Setup 3.2.205. [Артефакт production](2026-11-14-stability-release-baseline.md) | Проверить весь набор сценариев ниже для нового кандидата и отдельно зафиксировать точный профиль каждого источника. |
 | Windows amd64, staging Setup 3.2.204 → 3.2.205 | VM135, native exit 0, сохранены приватные файлы, UserSensor после reboot и независимый SSH. [Реестр staging](../releases/windows-3.2.205-staging.json) | Нужна отдельная приёмка production-артефакта для этой пары. |
 | Windows 10 amd64, лабораторный Setup 3.2.192 → 3.2.207 | VM143, подписанный Setup, принятый WSS и heartbeat на прежней карточке, сохранены четыре приватных файла. Повтор отказа SCM 1053 установленным updater записал терминальный результат и сохранил селектор. | Отдельная квалификация для production-артефакта и расширения охвата. |
-| Windows Server 2012 R2 Datacenter amd64, лабораторный Setup 3.2.207 | VM144, чистый build 9600. Read-only preflight проверен до и после WMF 5.1. Исторический сервер ANTARES принимал Setup 3.2.203. [Приёмка ANTARES](2026-11-12-antares-server-agent-preflight.md#закрытие-32202-и-новое-назначение) | Штатная установка через лабораторный Gateway, точные переходы и остальные сценарии карточки. |
+| Windows Server 2012 R2 Datacenter amd64, лабораторный Setup 3.2.210 | VM144, build 9600 с WMF 5.1. Чистая установка с кодом 0, строгий WSS, пять профилей, перезагрузка с сохранением четырёх файлов и свежий UserSensor после входа. Исторический сервер ANTARES принимал Setup 3.2.203. [Приёмка ANTARES](2026-11-12-antares-server-agent-preflight.md#закрытие-32202-и-новое-назначение) | Точные переходы, восстановление той же версии, rollback, offline remove/reinstall, обрывы, lifecycle и Support на штатном имени в изоляции, квалификация production-артефакта. |
 | Windows 11 и другие редакции Windows Server, Setup | Требуются отдельные стенды с точными артефактами. | Квалифицировать каждую редакцию и исходную версию, включая сервер с активной интерактивной сессией и без неё. |
 | ALT Linux 11 amd64, native RPM 3.2.183 | VM107 и отдельная физическая группа. Подтверждены native exit 0, сохранение идентичности, пользовательские данные и независимый SSH. [VM107](2026-11-09-linux183-native-canary.md), [физическая группа](2026-11-09-linux183-physical-cohort.md) | Повторить сценарии на новом RPM. ALT Core OTA имеет собственный сценарий остановки, сбоя helper и восстановления селектора. |
 | ALT Workstation K 11.4 amd64, стендовый headless RPM 3.2.205-alt5 | VM142. Установка подписанного стендовым ключом RPM, отказ watcher до остановки Core, удаление и повторная установка без сети. На loopback Gateway подтверждены регистрация, пять профилей и свежий WSS после reboot. | Переход с прежнего RPM, подписанный OTA с переключением и откатом, kill, timeout и потеря питания, приёмка Setup, UserSensor и независимого Support. |
@@ -1248,3 +1248,71 @@ HTTPS на этом адресе прошёл, включая выдачу уч�
 `gateway_wss=false`. Следующий чистый прогон требует новый кандидат
 с DNS origin, сертификат с этим DNS SAN и проверку UTC перед запуском.
 Требование DNS-имени в транспортном коде сохраняется.
+
+Исходный процесс 3.2.209 дождался предельного времени и записал
+`TIMED_OUT / ENROLLMENT / WAITING_WSS`, код 51. Снимок экрана
+`setup209-terminal-result.png` имеет SHA-256
+`91f5616a848e850b24e17931da2adc535664afee48fb6069fb3cd580b75c1efe`.
+Записи Gateway этого прогона сохранены в отдельной базе.
+
+#### Чистая установка 3.2.210 с DNS origin
+
+Лабораторный Setup собран из `ef18e191cf883709779219a3b1158038bcbddfc8`
+с тем же observer 1.0.13 и origin `https://endpoint-stab15.lab.test:19443`.
+EXE и MSI подписаны с метками времени. SHA-256 EXE —
+`9651def420c6c50f5099d33ac999ba39cb8e5a2c6787938c96e174cb6e4ecf44`,
+MSI — `a2d5a43984c1bf928e92e71569e15e0ef46c698d4a163df3b508b2ea6a4eeade`.
+VM144 снова запущена из `stab15-clean-wmf51` на изолированном мосту.
+Новый серверный сертификат содержит DNS SAN, подписан тем же CA
+стенда. Проверка на VM144 дала HTTP 200 через DNS и разницу UTC
+с Gateway в 1,226 секунды. На Gateway использована отдельная пустая
+база на `0053_activity_dirty_since`. Снимки и база предыдущих прогонов
+сохранены.
+
+Setup со штатным `--quiet` выполнялся с 02:38:46,539Z по
+02:39:58,195Z, 71,656 секунды. Код `0`, `COMPLETED / SERVICE /
+SERVICE_RUNNING`. Gateway одобрил ровно одну заявку
+`20d6c936-228b-413a-a267-ab98707b6e0c`, принял первый WSS в
+02:39:48,563Z и перевёл её в `completed`. На карточке
+`16c6e592-8eac-462f-b484-068e3e4f7469` Console показала Core и
+Launcher 3.2.210, Windows 6.3.9600.0 и свежие профили
+`baseline_v1`, `health_v1`, `inventory_v1`, `network_v1`,
+`session_v1` без предупреждений. Локальный canary сообщил
+`gateway_wss=true`, `strict_tls=true`, `hostname_valid=true`,
+`http_fallback=false`.
+
+После включения Endpoint Policy на изолированном Gateway назначена
+политика Activity только этой карточке. Сервер принял свежее
+наблюдение UserSensor в 02:44:06,773Z и Activity в 02:44:21,076Z
+из активной сессии. Support локально `support_install_failed`,
+независимое действие не подтверждено. Console по-прежнему показывает
+`installation_state=unknown`, свежий Core не заменяет lifecycle факт.
+Observer отсутствует в серверной проекции.
+
+При штатной перезагрузке исходная WSS-сессия закрылась в 02:44:42,546Z.
+Новая загрузка Windows зафиксирована в 02:44:48,499Z. Новый WSS на
+той же карточке принят в 02:44:53,293Z до входа пользователя.
+После входа проверены служба, строгий TLS без HTTP fallback и
+совпадение всех четырёх приватных файлов по SHA-256. Console приняла
+UserSensor в 02:46:50,795Z и Activity в 02:47:35,103Z и отметила
+UserSensor свежим.
+
+В 3.2.210 origin стенда разрешён транспортом WSS. Отдельный
+`InstallationHTTPSClient` допускает только фиксированные имена
+production и staging на HTTPS 443. Поэтому 3.2.210 с доменом
+`.test` оставил lifecycle pending и не дошёл до независимого Support.
+Для этих двух проверок требуется чистый прогон с точным штатным
+staging origin, разрешаемым только внутри изолированного стенда.
+
+Отчёты сохранены в `C:\endpoint-platform-wix-build\stab15-server2012r2-vm144`.
+
+| Отчёт | SHA-256 |
+| --- | --- |
+| `setup210-dns-clock-preflight.png` | `56d08ab50e31d8e9f82c41f7c8722bed3d02f945d897031fc3fa982c802717aa` |
+| `setup210-install-receipt.json` | `186c2c2a8cb4fae79c2386fef7e8da802691f40868dba161d87e5533bf85587b` |
+| `setup210-console-post-wss.json` | `d5deb20a368cbeb195b5bbfb8a0978f44be4eb5e03bdf11abd09cc36d0ce4d11` |
+| `setup210-reboot-before.json` | `19f6dfc9c45e08c7aca5db3664ef711a7d764d5df79ab7e31b2a33bb4e25dc38` |
+| `setup210-reboot-after.json` | `491845a8316b51298d43ebdf070b8660633dc379c0a9ecdc023401a05b20f044` |
+| `setup210-reboot-before-login.png` | `bd09f4c92071050fc388f8d2a5da0b9b246e05b329323a3c2f00e108a92caadd` |
+| `setup210-wss-sessions-after-reboot.json` | `fb8f3dd9701b5c93422eccc64d5608dcdb8ad01cbddede915bd595289b213efd` |
+| `setup210-console-after-login.json` | `77501d67e72379fe4475980d2fc4ea4638667438300342225d2d561812d0cfbb` |
