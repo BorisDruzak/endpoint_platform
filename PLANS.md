@@ -579,6 +579,20 @@ agent opened a new WSS session on the same card. The clone, scratch
 database and temporary artifacts were removed. The scoped credential and
 campaign were revoked and the original lab services restored. Unattended
 recovery from the previously damaged 3.2.229 and 3.2.230 states remains open.
+The same signed Setup 3.2.234 on a clean Server 2012 R2 build 9600
+clone from VM144 retained the registered MSI cache and all 121 files
+after the same late cut. ISA QGA timeouts required orderly restarts and
+read-only diagnostic media to inspect the original transaction. The exact
+offline retry completed it natively at sequence 10. Online resume
+acknowledged that single original installed event and left the native
+receipt unchanged. The lab clock was five hours ahead. Correcting the
+guest clock and restarting Core during the same enrollment let the
+baseline complete and the wrapper return 0. Five context profiles and a
+new WSS on the same card after normal reboot were verified, along with
+four unchanged private files. The test campaign and credential were
+revoked and the temporary VM, ISOs and database removed. Unassisted
+online acceptance, upgrade, UserSensor and Support on this exact
+Server 2012 R2 release profile remain open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
