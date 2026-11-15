@@ -686,7 +686,17 @@ recorded an operator attestation. Disabling the policy closed the
 broker port. The observer and service states were restored, fresh WSS
 returned after reboot, and temporary account, keys, VM and database
 were removed. The baseline lab exporter was restarted after its
-configured two-hour timeout. Interruption recovery remains open.
+configured two-hour timeout. The temporary offline reinstall baseline VM153
+was removed after independent SSH passed. A full VM151 clone of the signed
+3.2.218 source then lost power on raw local-lvm/directsync during old-MSI
+uninstall, at msi-executing sequence 2 with matching prepared plans.
+Windows logged the unexpected shutdown and the stock recovery task resumed
+the same staged operation. The accepted result was SERVICE/UPDATED/0.
+Exactly one installed event at sequence 6 was acknowledged on the original
+card. The next orderly reboot preserved the four identity files, the exact
+signed registered MSI cache, the event and a fresh WSS connection. The
+temporary VM151 and isolated database were removed after verification.
+Other interruption boundaries and production qualification remain open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
