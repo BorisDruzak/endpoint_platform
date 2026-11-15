@@ -460,8 +460,14 @@ creating either. Trusted, unchanged signed 3.2.227 then installed with exit 0
 and one completed AUTO enrollment on VM147. Reboot preserved its identity and
 fresh WSS on the same card. The temporary campaign and credential were revoked,
 the lab Gateway restored and VM147 removed. VM146 retains the original fence.
-Verification of a newly signed Setup with the fix and production qualification
-remain open.
+Signed Setup 3.2.228 rejected the untrusted image on a fresh Windows 10 VM
+with exit 21 before creating a cache, transaction, services or agent data.
+After provisioning the approved publisher root, the same EXE installed with
+exit 0 and one completed AUTO enrollment. Reboot preserved the four identity
+files and fresh WSS on the same card. The candidate remains limited to the lab.
+The temporary campaign and credential were revoked, the lab Gateway restored
+and VM147 removed. Recovery of the existing 3.2.227 fence on VM146 and
+production qualification remain open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
