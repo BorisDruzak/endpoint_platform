@@ -136,3 +136,81 @@ def test_invalid_protected_ca_keeps_facts_pending_before_any_connection(enrolled
     assert len(box.pending(DEVICE)) == 1
     assert (box.root/'journal.json').read_bytes() == before
     assert not (data/'endpoint-origin').exists()
+
+
+@pytest.mark.parametrize('outcome, expected, retire', [
+    ('pending', 75, False), ('delivered', 0, True), ('not_applicable', 0, True),
+])
+def test_retry_sender_retires_only_a_settled_queue_under_the_installer_mutex(
+        monkeypatch, outcome, expected, retire):
+    from contextlib import contextmanager
+    from pc_agent.platform.windows import installation_notification as notification, update_transaction
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+
+    paths = object()
+    events = []
+
+    @contextmanager
+    def transaction(actual, *, timeout_ms):
+        assert actual is paths and timeout_ms == 0
+        events.append('acquired')
+        try:
+            yield
+        finally:
+            events.append('released')
+
+    monkeypatch.setattr(WindowsUpdatePaths, 'production', classmethod(lambda _: paths))
+    monkeypatch.setattr(update_transaction, 'update_transaction', transaction)
+    monkeypatch.setattr(notification.installer_fence, 'read_fence', lambda _: None)
+    def deliver(actual):
+        assert actual is paths
+        events.append('delivery')
+        return outcome
+    monkeypatch.setattr(notification, 'deliver_retained', deliver)
+    monkeypatch.setattr(notification, '_retire_retry_task', lambda: events.append('retired'), raising=False)
+
+    assert notification.notification_main(['--installation-events-send-retry']) == expected
+    assert events == ['acquired', 'delivery', *(['retired'] if retire else []), 'released']
+
+
+def test_retry_task_launches_only_the_bounded_sender(monkeypatch):
+    from pc_agent.platform.windows import installation_notification as notification
+
+    calls = []
+    monkeypatch.setattr(notification, 'bounded_delivery',
+        lambda *, retry_task: calls.append(retry_task) or 'pending')
+    assert notification.notification_main(['--installation-events-retry']) == 75
+    assert calls == [True]
+    assert notification.notification_main(['--installation-events-retry', 'unexpected']) is None
+
+
+@pytest.mark.parametrize('defect', [None, 'different-image', 'different-mode', 'multiple-actions'])
+def test_retry_retirement_checks_the_registered_action(monkeypatch, tmp_path, defect):
+    import sys
+    from types import SimpleNamespace
+    from pc_agent.platform.windows import installation_notification as notification
+
+    com = pytest.importorskip('win32com.client')
+    program = tmp_path / 'endpoint-installer-host.exe'
+    monkeypatch.setattr(sys, 'executable', str(program))
+    action = SimpleNamespace(Type=0, Path=str(program), Arguments='--installation-events-retry')
+    if defect == 'different-image':
+        action.Path = str(tmp_path / 'different.exe')
+    if defect == 'different-mode':
+        action.Arguments = '--installation-events-deliver'
+    actions = SimpleNamespace(Count=2 if defect == 'multiple-actions' else 1,
+                              Item=lambda index: action)
+    task = SimpleNamespace(Definition=SimpleNamespace(Actions=actions))
+    deleted = []
+    folder = SimpleNamespace(GetTask=lambda name: task,
+                             DeleteTask=lambda name, flags: deleted.append((name, flags)))
+    scheduler = SimpleNamespace(Connect=lambda: None, GetFolder=lambda name: folder)
+    monkeypatch.setattr(com, 'Dispatch', lambda name: scheduler)
+
+    if defect is None:
+        notification._retire_retry_task()
+        assert deleted == [('EndpointInstallationEventDelivery', 0)]
+    else:
+        with pytest.raises(ValueError, match='INSTALLATION_RETRY_TASK_CONFLICT'):
+            notification._retire_retry_task()
+        assert deleted == []

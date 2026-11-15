@@ -87,3 +87,46 @@ finally {
     assert result.returncode==native_exit,result.stderr
     assert 'post-native' in result.stdout
     assert 'INSTALLATION_NOTIFICATION_PENDING' in result.stdout
+
+
+@pytest.mark.parametrize('phase, register_fails, expected', [
+    ('accepted', False, 'removed'),
+    ('rolled-back', False, 'armed,removed'),
+    ('rolled-back', True, 'armed'),
+])
+def test_rollback_arms_delivery_before_retiring_the_native_recovery_task(
+        tmp_path, phase, register_fails, expected):
+    powershell = shutil.which('powershell.exe') or shutil.which('pwsh')
+    if not powershell:
+        pytest.skip('PowerShell wrapper')
+    script = tmp_path/'notification-retry.ps1'
+    script.write_text(r'''param($Source,$Phase,$Registration,$Expected)
+$ErrorActionPreference='Stop'
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($Source,[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'wrapper parse failure'}
+$node=$ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Remove-StagedRecoveryTask'},$true)
+Invoke-Expression $node.Extent.Text
+$id='11111111-1111-4111-8111-111111111111'
+$bridge=@{TransactionId=$id}
+$script:events=@()
+function Read-UpdateGateState {
+    [pscustomobject]@{Value=[pscustomobject]@{binding=[pscustomobject]@{operation_id=$id};phase=$Phase}}
+}
+function Register-InstallationEventRetry {
+    param($Bridge)
+    if($Bridge.TransactionId -cne $id){throw 'wrong operation'}
+    $script:events+=@('armed')
+    if($Registration -ceq 'fail'){throw 'scheduler unavailable'}
+}
+function Get-ScheduledTask { $true }
+function Unregister-ScheduledTask { $script:events+=@('removed') }
+Remove-StagedRecoveryTask $bridge 'state-root'
+if(($script:events -join ',') -cne $Expected){throw ('wrong cleanup actions: '+($script:events -join ','))}
+Write-Output 'passed'
+''', encoding='utf-8')
+    result = subprocess.run([powershell, '-NoProfile', '-NonInteractive', '-File', str(script),
+                             str(SOURCE), phase, 'fail' if register_fails else 'pass', expected],
+                            capture_output=True, text=True, timeout=15)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().endswith('passed')

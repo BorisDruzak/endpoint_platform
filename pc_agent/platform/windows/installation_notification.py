@@ -1,8 +1,8 @@
-"""Bounded foreground notification; native facts never import this module.
+"""Bounded notification from Setup, provisioning or the retry task.
 
-The authenticated native owner records facts before fence retirement. Only an
-outer Setup/provisioner/installer-host stage enters this networking boundary,
-after native helper completion and release of the installer mutex.
+The authenticated native owner records facts before fence retirement. The
+notification process enters its own installer transaction after native helper
+completion.
 """
 from __future__ import annotations
 
@@ -20,6 +20,9 @@ from . import installer_fence
 from .installation_lifecycle import _identity, outbox_for
 
 _ORIGIN = 'https://endpoint.sosnadmin.local'
+_RETRY_TASK = 'EndpointInstallationEventDelivery'
+_RETRY_MODE = '--installation-events-retry'
+_RETRY_SEND_MODE = '--installation-events-send-retry'
 _INSTALLATION_HOSTS = {
     _ORIGIN: 'endpoint.sosnadmin.local',
     'https://endpoint-staging.sosnadmin.local': 'endpoint-staging.sosnadmin.local',
@@ -161,10 +164,11 @@ def _run_notification_process(arguments, *, timeout_ms=20000):
     return status
 
 
-def bounded_delivery():
-    """Existing foreground Setup/provisioner/wrapper waits for a contained child."""
+def bounded_delivery(*, retry_task=False):
+    """Wait for a contained notification child."""
+    mode = _RETRY_SEND_MODE if retry_task else '--installation-events-send'
     if getattr(sys, 'frozen', False):
-        command = [sys.executable, '--installation-events-send']
+        command = [sys.executable, mode]
     else:
         # NativeProcessJob uses the interpreter's directory as cwd. Source-only
         # runs therefore bind this checkout explicitly instead of ambient cwd.
@@ -172,11 +176,33 @@ def bounded_delivery():
         command = [sys.executable, '-c',
             'import sys;sys.path.insert(0,'+repr(source_root)+');'
             'from pc_agent.platform.windows.installer_host_entry import main;'
-            "raise SystemExit(main(['--installation-events-send']))"]
+            'raise SystemExit(main('+repr([mode])+'))']
     try:
         return _run_notification_process(command)
     except Exception:
         return 'pending'
+
+
+def _retire_retry_task():
+    """Called while the installer mutex still protects the drained queue."""
+    from pywintypes import com_error
+    from win32com.client import Dispatch
+
+    scheduler = Dispatch('Schedule.Service')
+    scheduler.Connect()
+    folder = scheduler.GetFolder('\\')
+    try:
+        actions = folder.GetTask(_RETRY_TASK).Definition.Actions
+    except com_error as error:
+        if (error.hresult & 0xffffffff) != 0x80070002:
+            raise
+        return
+    if actions.Count != 1:
+        raise ValueError('INSTALLATION_RETRY_TASK_CONFLICT')
+    action = actions.Item(1)
+    if action.Type != 0 or Path(action.Path) != Path(sys.executable) or action.Arguments != _RETRY_MODE:
+        raise ValueError('INSTALLATION_RETRY_TASK_CONFLICT')
+    folder.DeleteTask(_RETRY_TASK, 0)
 
 
 def notification_main(argv=None):
@@ -184,7 +210,9 @@ def notification_main(argv=None):
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments == ['--installation-events-deliver']:
         return 0 if bounded_delivery() == 'delivered' else 75
-    if arguments != ['--installation-events-send']:
+    if arguments == [_RETRY_MODE]:
+        return 0 if bounded_delivery(retry_task=True) == 'delivered' else 75
+    if arguments not in (['--installation-events-send'], [_RETRY_SEND_MODE]):
         return None
     from .update_paths import WindowsUpdatePaths
     from .update_transaction import update_transaction
@@ -194,6 +222,10 @@ def notification_main(argv=None):
             if installer_fence.read_fence(paths) is not None:
                 return 75
             result = deliver_retained(paths)
-            return 0 if result in {'delivered','not_applicable'} else 75
+            if result not in {'delivered', 'not_applicable'}:
+                return 75
+            if arguments == [_RETRY_SEND_MODE]:
+                _retire_retry_task()
+            return 0
     except Exception:
         return 75

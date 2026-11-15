@@ -24,7 +24,8 @@ def test_packaged_host_keeps_exact_offline_native_dispatch_aliases():
     assert host._parser is native._parser
 
 
-@pytest.mark.parametrize('mode', ['--installation-events-send','--installation-events-deliver'])
+@pytest.mark.parametrize('mode', ['--installation-events-send','--installation-events-deliver',
+    '--installation-events-retry','--installation-events-send-retry'])
 def test_service_launcher_rejects_notification_modes(mode):
     from pc_agent.platform.windows import service_launcher
     with pytest.raises(SystemExit) as error:
@@ -48,7 +49,8 @@ def test_installer_host_rejects_service_modes(option):
     assert error.value.code == 2
 
 
-@pytest.mark.parametrize('mode', ['--installation-events-send','--installation-events-deliver'])
+@pytest.mark.parametrize('mode', ['--installation-events-send','--installation-events-deliver',
+    '--installation-events-retry','--installation-events-send-retry'])
 def test_notification_only_entry_has_no_native_owner_authority(monkeypatch, mode):
     from pc_agent.platform.windows import installer_host_entry as entry, installation_notification
     from pc_agent.platform.windows import installer_transaction_bridge as bridge

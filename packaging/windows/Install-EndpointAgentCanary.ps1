@@ -1953,11 +1953,71 @@ function Register-StagedRecoveryTask {
     Start-ScheduledTask -TaskName $name
 }
 
+function Register-InstallationEventRetry {
+    param($Bridge)
+    $helperPath = $Bridge.HelperPath
+    $launchDirectory = $Bridge.LaunchDirectory
+    Assert-ExistingPathChain $helperPath
+    Assert-CacheArtifactProtection $helperPath
+    Assert-ExistingPathChain $launchDirectory
+    Assert-InstallerCacheProtection $launchDirectory
+    $pin = [IO.File]::Open($helperPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+    try {
+        if ((Get-FileHash -LiteralPath $helperPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $Bridge.HelperHash) {
+            throw 'INSTALLATION_RETRY_TASK_CONFLICT'
+        }
+        $name = 'EndpointInstallationEventDelivery'
+        $mode = '--installation-events-retry'
+        $existing = Get-ScheduledTask -TaskName $name -TaskPath '\' -ErrorAction SilentlyContinue
+        if ($null -ne $existing) {
+            $action = @($existing.Actions)
+            $cacheRoot = Split-Path (Split-Path $helperPath -Parent) -Parent
+            if ($action.Count -ne 1 -or $action[0].Arguments -cne $mode -or
+                (Split-Path $action[0].Execute -Leaf) -ine 'endpoint-installer-host.exe' -or
+                (Split-Path (Split-Path $action[0].Execute -Parent) -Parent) -ine $cacheRoot) {
+                throw 'INSTALLATION_RETRY_TASK_CONFLICT'
+            }
+        }
+        $scheduler = New-Object -ComObject Schedule.Service
+        $scheduler.Connect()
+        $folder = $scheduler.GetFolder('\')
+        $definition = $scheduler.NewTask(0)
+        $definition.RegistrationInfo.Description = 'Deliver retained Endpoint Platform installation events'
+        $definition.Principal.UserId = 'SYSTEM'
+        $definition.Principal.LogonType = 5
+        $definition.Principal.RunLevel = 1
+        $settings = $definition.Settings
+        $settings.Enabled = $true
+        $settings.ExecutionTimeLimit = 'PT1M'
+        $settings.MultipleInstances = 2
+        $settings.StartWhenAvailable = $true
+        $settings.DisallowStartIfOnBatteries = $false
+        $settings.StopIfGoingOnBatteries = $false
+        $trigger = $definition.Triggers.Create(1)
+        $trigger.StartBoundary = [DateTimeOffset]::Now.AddSeconds(15).ToString('yyyy-MM-ddTHH:mm:sszzz')
+        $trigger.Repetition.Interval = 'PT1M'
+        $definition.Triggers.Create(8) | Out-Null
+        $action = $definition.Actions.Create(0)
+        $action.Path = $helperPath
+        $action.Arguments = $mode
+        $action.WorkingDirectory = $launchDirectory
+        $folder.RegisterTaskDefinition($name,$definition,6,'SYSTEM',$null,5,'O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)') | Out-Null
+    } finally { $pin.Dispose() }
+}
+
 function Remove-StagedRecoveryTask {
-    param([string]$OperationId,[string]$StateRoot)
+    param($Bridge,[string]$StateRoot)
+    $OperationId = $Bridge.TransactionId
     if($OperationId -cnotmatch '^[0-9a-f-]{36}$'){throw 'OWNER_AUTH_FAILED'}
     $record=Read-UpdateGateState -Path (Join-Path $StateRoot 'staged-update.json') -Limit 65536
     if($null -eq $record -or $record.Value.binding.operation_id -cne $OperationId -or $record.Value.phase -cnotin @('accepted','rolled-back')){throw 'RECOVERY_REQUIRED'}
+    if ($record.Value.phase -ceq 'rolled-back') {
+        try { Register-InstallationEventRetry $Bridge }
+        catch {
+            Write-Warning 'INSTALLATION_NOTIFICATION_RETRY_PENDING'
+            return
+        }
+    }
     $name='EndpointStagedRecovery-'+$OperationId
     if(Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue){Unregister-ScheduledTask -TaskName $name -Confirm:$false}
 }
@@ -1989,7 +2049,7 @@ function Complete-StagedTerminalCleanup {
             if($ServiceStates[$name] -ceq 'Running' -and $restored.services.$name -cne 'running'){throw 'RECOVERY_REQUIRED'}
         }
         if($restored.users -isnot [string] -or $restored.users -cnotin @('running','not-required','launch-requested','session-unavailable')){throw 'RECOVERY_REQUIRED'}
-        Remove-StagedRecoveryTask $Bridge.TransactionId $StateRoot
+        Remove-StagedRecoveryTask $Bridge $StateRoot
     } catch {
         Write-Warning 'STAGED_TERMINAL_CLEANUP_DEFERRED'
         # Accepted health is durable; ordinary cleanup cannot undo it. A
