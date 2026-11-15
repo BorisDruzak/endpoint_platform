@@ -3514,3 +3514,22 @@ Windows перед публикацией завершённого плана. �
 сохранены как исходные стенды, VM146, VM147, VM157 и VM162 сохраняют
 снимки с диагностикой. VM148 и VM154 остаются родителями дисков
 сохранённых стендов.
+
+#### Принудительное сохранение нативной установки Windows
+
+Изменение `cd293045493d147637e32cb2eba04763685a98cf` вызывает
+`FlushFileBuffers` для файлов из проверенного состава MSI и их каталогов.
+Затем Setup вызывает `RegFlushKey` для разделов MSI и SCM перед записью
+`native_verified` и нового владельца Foundation. При ошибке сохранения
+тест подтверждает неизменность исходного плана, селектора и записи
+передачи владения, а повтор продолжает исходную транзакцию.
+[Документация FlushFileBuffers](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers)
+и [RegFlushKey](https://learn.microsoft.com/en-us/windows/win32/api/winreg/nf-winreg-regflushkey).
+
+На Windows проверен вызов API для временного файла и его каталога.
+Команда `python -m pytest -q pc_agent/tests/windows tests/packaging --tb=short`
+на CPython 3.12.16 дала 3443 успешных теста и 9 пропусков.
+Core кандидата 3.2.230 собран из
+`bc1e8d8b79f1f5c0aaeed7112fe816a25d43eb94`.
+Сохранность MSI и файлов при отключении питания на границе
+`reconciling` требует отдельного прогона подписанного Setup.
