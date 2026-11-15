@@ -629,7 +629,7 @@ def test_tray_shutdown_uses_the_fixed_program_files_target(
     import win32event
     import win32process
 
-    from pc_agent.platform.windows import service_launcher
+    from pc_agent.platform.windows import companion_processes, service_launcher
 
     tray = tmp_path / "Endpoint Platform" / "Agent" / "EndpointAgentTray.exe"
     tray.parent.mkdir(parents=True)
@@ -649,7 +649,12 @@ def test_tray_shutdown_uses_the_fixed_program_files_target(
         return _Handle()
 
     monkeypatch.setattr(win32api, "OpenProcess", open_process)
-    monkeypatch.setattr(win32process, "GetModuleFileNameEx", lambda *_args: str(tray))
+
+    def unavailable_with_limited_access(*_args: object) -> str:
+        raise win32api.error(5, "GetModuleFileNameEx", "Access is denied")
+
+    monkeypatch.setattr(win32process, "GetModuleFileNameEx", unavailable_with_limited_access)
+    monkeypatch.setattr(companion_processes, "_process_path", lambda _: str(tray))
     monkeypatch.setattr(
         win32process, "TerminateProcess", lambda _handle, code: terminated.append(code)
     )
@@ -676,7 +681,7 @@ def test_companion_shutdown_stops_only_installed_tray_and_user_sensor(
     import win32event
     import win32process
 
-    from pc_agent.platform.windows import service_launcher
+    from pc_agent.platform.windows import companion_processes, service_launcher
 
     root = tmp_path / "Endpoint Platform" / "Agent"
     root.mkdir(parents=True)
@@ -698,13 +703,28 @@ def test_companion_shutdown_stops_only_installed_tray_and_user_sensor(
     monkeypatch.setenv("ProgramW6432", str(tmp_path))
     monkeypatch.setattr(win32process, "EnumProcesses", lambda: list(images))
     monkeypatch.setattr(win32api, "OpenProcess", lambda _a, _b, pid: Handle(pid))
-    monkeypatch.setattr(win32process, "GetModuleFileNameEx", lambda h, _i: str(images[h.process_id]))
+    monkeypatch.setattr(companion_processes, "_process_path", lambda h: str(images[h.process_id]))
     monkeypatch.setattr(win32process, "TerminateProcess", lambda h, _c: terminated.append(h.process_id))
     monkeypatch.setattr(win32event, "WaitForSingleObject", lambda *_: win32event.WAIT_OBJECT_0)
 
     service_launcher.stop_tray_companions(WindowsUpdatePaths(root,tmp_path/'updates/pending_update.json'))
 
     assert terminated == [101, 102]
+
+
+def test_companion_image_query_reads_a_limited_process_handle():
+    win32api = pytest.importorskip("win32api", reason="native Windows process handle contract")
+    import win32con
+
+    from pc_agent.platform.windows import companion_processes
+
+    process = win32api.OpenProcess(
+        win32con.PROCESS_QUERY_LIMITED_INFORMATION, False, win32api.GetCurrentProcessId()
+    )
+    try:
+        assert Path(companion_processes._process_path(process)).samefile(win32api.GetModuleFileName(0))
+    finally:
+        process.Close()
 
 
 def test_boot_rejects_executable_without_any_ownership_evidence(tmp_path,monkeypatch):
