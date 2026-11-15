@@ -109,6 +109,18 @@ class _PackageReadScope:
                 del self.pins[path]
         self.values = {key: value for key, value in self.values.items() if key[1] in self.pins}
 
+    def release_for_flush(self, path):
+        if path not in self.pins:
+            return None
+        self.validate(path)
+        _, identity, changed = self.pins[path]
+        try:
+            self.pin_scopes.pop(path).close()
+        finally:
+            del self.pins[path]
+            self.values = {key: value for key, value in self.values.items() if key[1] != path}
+        return identity, changed
+
     def read(self, kind, path, identity, reader):
         from .durable_state import _copy_identity, _pinned_copy_source
         path = Path(path).absolute()
@@ -1069,9 +1081,13 @@ def persist_installed(package: PackageInventory, install_root: Path, *, original
 
     install_root = install_root.absolute()
     directories = {install_root, install_root.parent}
+    scope = _PHASE_READS.get()
     for item in package.files:
         path = install_root / item.path
-        durable_state.flush_existing_file(path, trusted_root=install_root)
+        # A retained deny-write handle conflicts with the required write open.
+        # Carry its identity to the flush handle and discard cached byte proofs.
+        identity = scope.release_for_flush(path) if scope is not None else None
+        durable_state.flush_existing_file(path, trusted_root=install_root, verified_identity=identity)
         for directory in path.parents:
             if directory == install_root:
                 break

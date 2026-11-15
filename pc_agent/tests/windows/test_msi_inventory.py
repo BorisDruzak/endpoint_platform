@@ -56,8 +56,9 @@ def test_persist_installed_flushes_package_files_before_directories_and_registry
     original = tmp_path / 'source.msi'
     calls = []
 
-    def flush_file(path, *, trusted_root):
+    def flush_file(path, *, trusted_root, verified_identity):
         assert trusted_root == install_root
+        assert verified_identity is None
         calls.append(path)
 
     def persist_cache(path, package):

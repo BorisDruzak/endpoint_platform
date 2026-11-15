@@ -157,10 +157,13 @@ every registered-cache lookup, ACL, namespace, byte size and before/after
 identity check still runs. Fresh post-commit `compound-finalize` may retain
 byte proofs for the exact Foundation files from its authenticated
 MSI. ACL, namespace and descriptor checks still run on every access. Native
-deny-write/delete handles survive metadata-only checkpoints and are released
-on context exit or failure. Other phases, recovery and the default Foundation
-reader perform complete byte verification on every call. Reuse-budget
-exhaustion falls back to the original fresh reader.
+deny-write/delete handles survive metadata-only checkpoints. Before flushing
+an installed file, the durability pass releases that file's pin and binds
+the write handle to the verified identity and change time. Later reads
+verify its bytes again. Remaining pins are released on context exit or
+failure. Other phases, recovery and the default Foundation reader perform
+complete byte verification on every call. Reuse-budget exhaustion falls back
+to the original fresh reader.
 
 The fresh compound upgrade uses one `compound-finalize` helper only after real
 native End(Commit)=0 and all required callbacks. It executes the same ordered

@@ -334,6 +334,56 @@ def test_postcommit_foundation_reads_keep_pins_and_fresh_security_checks(tmp_pat
                 pytest.fail('post-context changed bytes admitted')
 
 
+@pytest.mark.parametrize('replace_before_flush', [False, True])
+def test_installed_file_flush_hands_off_a_verified_foundation_pin(
+    tmp_path, monkeypatch, replace_before_flush,
+):
+    from types import SimpleNamespace
+    from pc_agent.platform.windows import durable_state, update_transaction
+
+    body = b'exact foundation'
+    rows = []
+    for name, (file_id, component) in msi.FOUNDATION_EXECUTABLES.items():
+        (tmp_path / name).write_bytes(body)
+        rows.append({'path': name, 'file': file_id, 'component': component,
+                     'size': len(body), 'sha256': hashlib.sha256(body).hexdigest()})
+    expected = SimpleNamespace(foundation_files=rows)
+    row = rows[0]
+    path = tmp_path / row['path']
+    package = SimpleNamespace(files=(msi.InstalledFile(
+        row['file'], row['component'], row['path'], row['size'],
+    ),))
+    monkeypatch.setattr(update_transaction, '_assert_state_security', lambda *_: None)
+    monkeypatch.setattr(durable_state, 'flush_directory', lambda *_: None)
+    monkeypatch.setattr(msi, 'persist_registered_cache', lambda *_: None)
+    monkeypatch.setattr(msi, '_flush_installation_registry', lambda: None)
+    with (msi.package_read_scope(),
+          msi.immutable_foundation_reads(expected, tmp_path),
+          durable_state.installer_mutation_checkpoints(lambda: None)):
+        with msi.verified_foundation_bytes(expected, tmp_path):
+            pass
+        with pytest.raises(OSError):
+            path.write_bytes(body)
+        if replace_before_flush:
+            flush = durable_state.flush_existing_file
+
+            def replace_and_flush(target, **kwargs):
+                replacement = tmp_path / 'replacement'
+                replacement.write_bytes(body)
+                replacement.replace(target)
+                flush(target, **kwargs)
+
+            monkeypatch.setattr(durable_state, 'flush_existing_file', replace_and_flush)
+            with pytest.raises(ValueError, match='identity changed'):
+                msi.persist_installed(package, tmp_path, original_path=tmp_path / 'source.msi')
+        else:
+            msi.persist_installed(package, tmp_path, original_path=tmp_path / 'source.msi')
+            with msi.verified_foundation_bytes(expected, tmp_path):
+                pass
+            with pytest.raises(OSError):
+                path.write_bytes(body)
+
+
 def test_postcommit_foundation_cache_rejects_security_changes(tmp_path, monkeypatch):
     from types import SimpleNamespace
     from pc_agent.platform.windows import update_transaction
