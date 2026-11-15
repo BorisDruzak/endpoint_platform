@@ -14,6 +14,7 @@ observer, идентификатор и SHA-256 целевого артефак�
 | Windows Server 2012 R2 Datacenter amd64, лабораторный Setup 3.2.210 | VM144, build 9600 с WMF 5.1. Чистая установка с кодом 0, строгий WSS, пять профилей, перезагрузка с сохранением четырёх файлов и свежий UserSensor после входа. Исторический сервер ANTARES принимал Setup 3.2.203. [Приёмка ANTARES](2026-11-12-antares-server-agent-preflight.md#закрытие-32202-и-новое-назначение) | Точные переходы, восстановление той же версии, rollback, offline remove/reinstall, обрывы, lifecycle и Support на штатном имени в изоляции, квалификация production-артефакта. |
 | Windows Server 2012 R2 Datacenter amd64, лабораторный Setup 3.2.211 → 3.2.214 | VM148, build 9600 с WMF 5.1. Прямой Setup и native lifecycle с кодом 0, строгий WSS на прежней карточке, четыре приватных файла совпали. Tray и UserSensor автоматически запущены. После назначения Activity сервер принял свежую телеметрию. | Независимый Support, same-version repair, принудительный обрыв и квалификация production-артефакта. |
 | Windows Server 2012 R2 Datacenter amd64, лабораторный Setup 3.2.214 → 3.2.215 | VM148. Setup и событие установки с кодом 0, четыре приватных файла совпали. Support 1.1.9 установлен автоматически. SSH с закреплённым ключом прошёл при остановленных Core и updater и выключенном observer. | Same-version repair, принудительный обрыв и отдельная квалификация production-артефакта. |
+| Windows Server 2012 R2 Datacenter amd64, лабораторный Setup 3.2.215 → 3.2.216 | VM148. Setup и событие установки с кодом 0, четыре приватных файла совпали, основной агент и Support работают. VM151. Ремонт той же версии отклонён в `InstallerOwnerPreflight` до выполнения нативного сценария MSI. | Повтор same-version repair с исправленным кандидатом, rollback, offline remove/reinstall, принудительный обрыв и квалификация production-артефакта. |
 | Windows 11 и другие редакции Windows Server, Setup | Требуются отдельные стенды с точными артефактами. | Квалифицировать каждую редакцию и исходную версию, включая сервер с активной интерактивной сессией и без неё. |
 | ALT Linux 11 amd64, native RPM 3.2.183 | VM107 и отдельная физическая группа. Подтверждены native exit 0, сохранение идентичности, пользовательские данные и независимый SSH. [VM107](2026-11-09-linux183-native-canary.md), [физическая группа](2026-11-09-linux183-physical-cohort.md) | Повторить сценарии на новом RPM. ALT Core OTA имеет собственный сценарий остановки, сбоя helper и восстановления селектора. |
 | ALT Workstation K 11.4 amd64, стендовый headless RPM 3.2.205-alt5 | VM142. Установка подписанного стендовым ключом RPM, отказ watcher до остановки Core, удаление и повторная установка без сети. На loopback Gateway подтверждены регистрация, пять профилей и свежий WSS после reboot. | Переход с прежнего RPM, подписанный OTA с переключением и откатом, kill, timeout и потеря питания, приёмка Setup, UserSensor и независимого Support. |
@@ -1658,3 +1659,60 @@ Foundation, подтверждённой штатным helper. Прошёл 201
 | `setup215-repair-result.json` | `3b6ddf14f05828c543b727500ade859b8fb484171cc84535cea314a22c95d221` |
 | `setup215-repair-native-boundary.json` | `109fbce57495a16632e30f7342e2a3115d26ef19358fa78075e125c7409d8cc6` |
 | `setup215-repair-trace-result.json` | `9f731ab2919fca5946238230212bd756b47c527ee2aee5701c952a609ed171ca` |
+
+#### Переход 3.2.215 → 3.2.216 на VM148
+
+Setup зарегистрирован в изолированном каталоге VM142, запись
+`ef862fe1-a6f6-4354-84ec-fe33fa4c3bde`. Кандидат собран из
+`9b5ffcada54c3ee7a63533f9fa4ff1c97e1810c5`. Проверены подписи
+Authenticode и метки времени EXE и MSI. SHA-256 EXE
+`a641db05e519e7e98df301fb9dd05cc0b1628a8cc5a802f52981d72e4edafe41`,
+MSI `48eb8ace355c4610a90949815f6f471bbe24d41a9999cdb1f6ee63d2251ab11c`.
+
+Штатный Setup `--quiet` запущен с активными Tray и UserSensor.
+Переход завершился за 253,187 секунды в 05:28:41Z, код Setup
+`0`, `SERVICE/UPDATED/SERVICE_RUNNING`. Основной агент и Support
+работают, четыре приватных файла совпали. Изолированный сервер принял
+WSS и событие установки `1f40edbd-f23a-5f68-b637-0e4b9e175cf9` с
+sequence 4 и нативным кодом `0` на прежней карточке.
+
+| Отчёт перехода | SHA-256 |
+| --- | --- |
+| `setup216-upgrade-start.json` | `2eb2982aca547033b4d1deec588248a7014edab6327b68fa844b7e40a3a7792a` |
+| `setup216-upgrade-result.json` | `787090e432426e8dd760665f7d2d2c0ca4fe280c7f4e7a9951ff090044328317` |
+| `setup216-console.json` | `d07295907b88237a94d6f7ff59ee5d02bab592ff8d40ee50c3c8dc030754905e` |
+
+#### Ремонт 3.2.216 на отключённой VM151
+
+VM151 создана из снимка установленной 3.2.216 на VM148. Сетевой
+адаптер удалён. Перед стартом были активны UserSensor, два процесса
+Tray и независимый Support. После удаления только регистрации
+службы `EndpointAgent` тот же подписанный Setup `--quiet` за 43,172
+секунды вернул `21`, `MSI/INSTALL_FAILED/MSI_EVIDENCE_FAILED`.
+ProductCode и четыре приватных файла сохранились, Support работает,
+регистрация службы не восстановилась. Сохранён снимок
+`stab15-setup216-repair-native-hold`.
+
+Ошибку 1722 вызвал `InstallerOwnerPreflight`. Защищённая диагностика
+показывает `OWNER_AUTH_FAILED` в `validate_feature_plan`, fence остался
+в `msi-starting`, sequence 1. На отдельной отключённой VM152
+Windows Installer 5.0 с тем же MSI при `ADDLOCAL` выставил
+`(3,3,3,3)`. При добавлении `REINSTALL=EndpointAgentFeature`
+переход стал `(3,5,3,3)`. Здесь `3` означает LOCAL, `5` — DEFAULT.
+Диагностика выполнила только подготовку расчёта и чтение состояний
+функций, без выполнения сценария установки.
+
+В `e13a2faa3f5958dd43ab9471a41d3f75e63242e8` для обычной установки разрешается ровно `(3,5,3,3)`, если защищённая
+запись подготовки закрепляет отсутствие EndpointAgent, SCM
+подтверждает это перед запуском сценария MSI, а проверенная
+установленная Foundation совпадает с манифестом запускаемого
+пакета. Для новой установки, обновления и случая отсутствующих либо
+несовпадающих свидетельств сохраняется штатная проверка плана.
+Живая проверка ремонта требует нового подписанного кандидата.
+
+| Отчёт ремонта 3.2.216 | SHA-256 |
+| --- | --- |
+| `setup216-repair-start.json` | `f0a2aeed3c5038dd38ebbecb004da26dc1d7d2d58f0a7a22a6319cc7fbf8acac` |
+| `setup216-repair-result.json` | `bcb1216cf25f5866bd7aa98464707aa49706bd52ccc8eb1fb7b52aa2fe48e94a` |
+| `setup216-repair-native-boundary.json` | `f29bb1b7072d4ceb1646b9d364409c202b4b2b77ec275400461b84cb229a27d7` |
+| `setup216-repair-feature-costing.json` | `de5e8eee242e44b8b63adfaebb2ac93fa4705bfb28316e9bf8c0a79bafd569f6` |
