@@ -444,9 +444,13 @@ task without another MSI operation. A separate offline uninstall and
 reinstall of the same signed 3.2.227 on VM145 returned 0 and 10. The exact
 removed and installed events survived an offline reboot and Gateway
 acknowledged them in order. Support 1.1.9 registered for the first time
-with access disabled and the four identity files matched. Clean install
-on a fresh Windows 10 image, interactive UserSensor, independent Support
-and production qualification remain open for the candidate.
+with access disabled and the four identity files matched. A standard
+console sign-in on VM145 launched the exact 3.2.227 UserSensor and Tray
+after reboot. Gateway acknowledged the device-scoped Activity policy and
+accepted fresh UserSensor and content-free ACTIVE observations. The
+temporary account and profile were removed. Clean install on a fresh
+Windows 10 image, independent Support and production qualification remain
+open for the candidate.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
