@@ -3366,6 +3366,11 @@ try {
         if ($null -ne $interruptedFence) {
             if ($preparation.new_product_state -notin @(-1,5)) { throw 'PROVENANCE_CONFLICT' }
             if ($preparation.new_product_state -eq 5) { $msiArguments += @('REINSTALL=ALL','REINSTALLMODE=amus') }
+        } elseif ($Operation -ceq 'Install' -and $previousServiceStates['EndpointAgent'] -ceq 'Absent' -and
+                  $null -ne $initial.PSObject.Properties['foundation_release'] -and
+                  $initial.foundation_release.package_sha256 -ceq $inputHash) {
+            # ADDLOCAL alone can leave an already installed feature unchanged.
+            $msiArguments += @('REINSTALL=EndpointAgentFeature','REINSTALLMODE=amus')
         }
     }
     $nativeStarted = $true
