@@ -516,6 +516,15 @@ PROVISIONING_UNEXPECTED (41) with no adapter. VM151 is stopped and isolated for
 the original fact's enrollment, WSS and delivery verification. The new
 disruption test qualifies this local boundary only. Recovery of the previously
 damaged VM147 and VM149 state and other release-matrix profiles remains open.
+The isolated online repeat for 3.2.232 completed one AUTO enrollment, accepted
+WSS and five context profiles, and reconnected on the same device after reboot
+with four unchanged identity files. The original native fact stayed unbound
+because the wrapper ran another MSI transaction and acknowledged only that
+new fact. The source fix resumes enrollment from matching signed MSI, protected
+completion and current ownership proof and binds the original fact under the
+provisioner lock. VM151 was reverted to the offline snapshot after the campaign
+and credential were revoked and the original Gateway was restored. Signed
+3.2.233 still needs the same power-cut, offline completion and online ACK run.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
