@@ -424,8 +424,12 @@ companion restoration was still using the revoked trial session. The Setup
 wrapper now opens a fresh cleanup session for the same transaction after a
 verified rollback. Direct and scheduled rollback regressions first failed
 against the original wrapper, then passed along with the accepted path.
-The nine targeted Windows test modules passed (363 tests). Verify code 67,
-automatic event delivery and forced interruption with new signed media.
+The nine targeted Windows test modules passed (363 tests). Signed Setup
+3.2.227 and its MSI completed the package checks and were registered only
+in the isolated VM142 database. VM145 is stopped at the exact 3.2.192
+source with the 227 ISO attached and link down. The 226 failure snapshot
+remains available. Run the offline rollback, check code 67 and automatic
+event delivery, then exercise forced interruption.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
