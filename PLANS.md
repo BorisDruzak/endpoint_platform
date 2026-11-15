@@ -600,6 +600,25 @@ Normal reboot preserved all four private files, the MSI cache and WSS
 on the same card. The temporary campaign, credential, VM and database
 were cleaned up. Upgrade, same-version repair, rollback, offline
 remove/reinstall, UserSensor and Support remain open for this exact release.
+The direct Server 2012 R2 3.2.218 to 3.2.234 trial used VM154's
+accepted 218 snapshot and a matching isolated copy of its sequence-5
+Gateway state. The old service had stopped at boot with SCM 1066 and
+was started once after the clone's lab network was configured. Fresh
+3.2.218 WSS identified the original card before Setup. The upgrade
+returned 21 with target MSI and selector 3.2.234, private4 unchanged
+and no new server event. The compound plan stayed retired and its
+original child remained reconciling at sequence 6. Win32 32 came from
+the installed-file flush inside the combined finalization while the
+same Foundation file was pinned against writes. Source fix
+`38f3ff61592e2957dadaa7a5b5db6341a017c7e2` binds the flush handle to the verified
+file identity and change time after closing that file's read pin.
+Real Windows regressions cover successful flushing and rejection of a
+replaced file, and related checks passed (267 runtime and 175 Setup /
+packaging tests). VM152 is stopped without a network adapter with the
+failure snapshot. The scratch Gateway and database were retired after
+restoring the baseline lab services. The following lab candidate is
+3.2.235 at source `df910cc6c704f2cc0544af88170837bfc2fc9d7d`. A signed build
+and clean 218-source repeat are still required for upgrade qualification.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
