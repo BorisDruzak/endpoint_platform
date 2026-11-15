@@ -40,6 +40,9 @@ class WindowsGoldenProbe:
     def windows_health(self) -> dict[str, object]:
         return {"uptime_seconds": 123, "free_bytes": 4294967296}
 
+    def windows_updater_status(self) -> str:
+        return "active"
+
     def windows_inventory(self) -> dict[str, object]:
         return {
             "system": {"hostname": "WIN-01", "os_name": "Windows", "os_version": "11", "os_build": "26100", "architecture": "x86_64"},
