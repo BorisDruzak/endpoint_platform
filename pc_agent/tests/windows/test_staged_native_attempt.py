@@ -9,6 +9,7 @@ from pc_agent.tests.windows.test_staged_update_state import staged, move, native
 
 @pytest.fixture
 def attempt(recovery, staged, monkeypatch):
+    from pc_agent.platform.windows import companion_processes
     from pc_agent.platform.windows import staged_boot_marker as marker
     _, paths, binding, cap = recovery
     move(staged,'preparing','prepared');move(staged,'prepared','switching')
@@ -21,7 +22,44 @@ def attempt(recovery, staged, monkeypatch):
     monkeypatch.setattr(module,'_validate_recovery_inputs',lambda *_:{'boot':original})
     monkeypatch.setattr(marker,'capture',capture)
     monkeypatch.setattr(marker,'present',lambda _,token:tokens[token])
+    monkeypatch.setattr(companion_processes, 'stop_tray_companions', lambda _: None)
     return paths,binding,cap,tokens,original
+
+
+def test_native_attempt_stops_companions_before_publication(attempt, monkeypatch):
+    from pc_agent.platform.windows import companion_processes
+
+    paths, binding, cap, _, _ = attempt
+    stopped = []
+
+    def stop(companion_paths):
+        assert companion_paths == paths
+        assert module._native_attempt(paths, module.state.read_staged_update(paths)) is None
+        stopped.append(True)
+
+    monkeypatch.setattr(companion_processes, 'stop_tray_companions', stop)
+    with durable_state.installer_mutation_checkpoints(lambda: None):
+        attempt_id = module.begin_native_attempt(paths, binding.operation_id, cap['owner'])
+
+    assert stopped == [True]
+    pending = module._native_attempt(paths, module.state.read_staged_update(paths))
+    assert pending['attempt_id'] == attempt_id
+
+
+def test_native_attempt_does_not_publish_when_companion_stop_fails(attempt, monkeypatch):
+    from pc_agent.platform.windows import companion_processes
+
+    paths, binding, cap, _, _ = attempt
+
+    def stop(_):
+        raise RuntimeError('companion did not stop')
+
+    monkeypatch.setattr(companion_processes, 'stop_tray_companions', stop)
+    with durable_state.installer_mutation_checkpoints(lambda: None):
+        with pytest.raises(RuntimeError, match='companion did not stop'):
+            module.begin_native_attempt(paths, binding.operation_id, cap['owner'])
+
+    assert module._native_attempt(paths, module.state.read_staged_update(paths)) is None
 
 
 def test_pending_attempt_blocks_trial_and_owner_loss_requests_rollback(attempt):

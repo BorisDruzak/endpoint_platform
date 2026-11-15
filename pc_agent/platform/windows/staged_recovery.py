@@ -221,6 +221,7 @@ def _native_attempt(paths, record):
 
 def begin_native_attempt(paths, operation_id, owner):
     from . import staged_boot_marker as marker
+    from .companion_processes import stop_tray_companions
     from uuid import uuid4
     durable_state.installer_mutation_checkpoint(required=True)
     record = state.read_staged_update(paths)
@@ -233,6 +234,11 @@ def begin_native_attempt(paths, operation_id, owner):
     prior = _native_attempt(paths, record)
     if prior and prior['schema_version'] == 2 and prior['owner'] != owner:
         _assert_owner_dead(prior['owner'])
+    # MSI checks file use before its deferred actions run. Stop the staged
+    # companions here so their foundation archives can be removed without a reboot.
+    durable_state.installer_mutation_checkpoint(required=True)
+    stop_tray_companions(paths)
+    durable_state.installer_mutation_checkpoint(required=True)
     # Publish unresolved BEFORE any new native attempt. Failed publication
     # leaves the old authoritative record intact and launches no native work.
     token = marker.capture(operation_id)
