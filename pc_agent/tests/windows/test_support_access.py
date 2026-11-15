@@ -742,6 +742,45 @@ def test_native_payload_signature_rejects_unsigned_before_activation(tmp_path):
         native.WindowsSupportOps().inspect_payload(unsigned)
 
 
+@pytest.mark.parametrize(('status', 'stamp', 'native_stamp', 'digest_matches', 'accepted'), [
+    (0, True, False, True, True),
+    (0, False, True, True, True),
+    (0, False, False, True, False),
+    (0, False, True, False, False),
+    (1, False, True, True, False),
+])
+def test_support_payload_requires_a_verified_timestamp(
+    monkeypatch, tmp_path, status, stamp, native_stamp, digest_matches, accepted,
+):
+    import hashlib
+    import json
+    from subprocess import CompletedProcess
+
+    native = importlib.import_module('pc_agent.platform.windows.support_access_native')
+    path = tmp_path / 'EndpointSupportAccess.exe'
+    path.write_bytes(b'signed support fixture')
+    digest = hashlib.sha256(path.read_bytes()).hexdigest() if digest_matches else '0' * 64
+    identity = {'version': [1, 1, 7, 0], 'sha256': digest}
+    output = json.dumps({**identity, 'powershell_timestamp': stamp})
+    monkeypatch.setattr(native.subprocess, 'run', lambda *_args, **_kwargs: CompletedProcess([], status, output))
+    checks = []
+
+    def verify(path, publisher):
+        checks.append((path, publisher))
+        return native_stamp
+
+    monkeypatch.setattr(native, 'has_verified_timestamp', verify)
+    if accepted:
+        assert native.WindowsSupportOps().inspect_payload(path) == {
+            **identity, 'version': tuple(identity['version']),
+        }
+    else:
+        with pytest.raises(ValueError, match='support_signature_invalid'):
+            native.WindowsSupportOps().inspect_payload(path)
+    assert checks == ([(path, '4D4C23389F5FF77BC4EB32044761019EAE8FB776')]
+                      if status == 0 and not stamp else [])
+
+
 def test_native_activation_mutex_sdk_boundary():
     native=importlib.import_module('pc_agent.platform.windows.support_access_native')
     with native.WindowsSupportOps().activation_lock():pass

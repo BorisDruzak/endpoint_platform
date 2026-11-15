@@ -18,9 +18,12 @@ import time
 from ctypes import wintypes
 from threading import Event,Thread
 
+from .authenticode_timestamp import has_verified_timestamp
 from .support_bootstrap import (
     TRUSTED_SIDS, BOOTSTRAP_SERVICE_SIDS, reject_links, assert_bootstrap_file,
 )
+
+_PAYLOAD_PUBLISHER = '4D4C23389F5FF77BC4EB32044761019EAE8FB776'
 
 
 def _windows_build() -> int:
@@ -382,17 +385,32 @@ class WindowsSupportOps:
 $ErrorActionPreference='Stop'
 $p=$env:ENDPOINT_SUPPORT_VERIFY_FILE
 $s=Get-AuthenticodeSignature -LiteralPath $p
-if($s.Status -ne 'Valid' -or $s.SignerCertificate.Thumbprint -ne '4D4C23389F5FF77BC4EB32044761019EAE8FB776' -or !$s.TimeStamperCertificate){throw 'support_signature_invalid'}
+if ($s.Status -ne 'Valid' -or $s.SignerCertificate.Thumbprint -ne $env:ENDPOINT_SUPPORT_VERIFY_PUBLISHER) {
+    throw 'support_signature_invalid'
+}
 $v=(Get-Item -LiteralPath $p).VersionInfo
-@{version=@($v.FileMajorPart,$v.FileMinorPart,$v.FileBuildPart,$v.FilePrivatePart);sha256=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}|ConvertTo-Json -Compress
+@{
+    version=@($v.FileMajorPart,$v.FileMinorPart,$v.FileBuildPart,$v.FilePrivatePart)
+    sha256=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
+    powershell_timestamp=[bool]$s.TimeStamperCertificate
+} | ConvertTo-Json -Compress
 '''
         environment=dict(os.environ,ENDPOINT_SUPPORT_VERIFY_FILE=str(path),
+            ENDPOINT_SUPPORT_VERIFY_PUBLISHER=_PAYLOAD_PUBLISHER,
             PSModulePath=str(windows_root()/'System32/WindowsPowerShell/v1.0/Modules'))
         result=subprocess.run([str(windows_root()/'System32/WindowsPowerShell/v1.0/powershell.exe'),
             '-NoProfile','-NonInteractive','-EncodedCommand',base64.b64encode(script.encode('utf-16-le')).decode()],
             env=environment,capture_output=True,text=True,timeout=30,creationflags=subprocess.CREATE_NO_WINDOW)
-        if result.returncode:raise ValueError('support_signature_invalid')
-        record=json.loads(result.stdout.strip().splitlines()[-1]);record['version']=tuple(record['version'])
+        if result.returncode:
+            raise ValueError('support_signature_invalid')
+        record = json.loads(result.stdout.strip().splitlines()[-1])
+        timestamp = record.pop('powershell_timestamp', None)
+        if timestamp is False and has_verified_timestamp(path, _PAYLOAD_PUBLISHER):
+            with path.open('rb') as stream:
+                timestamp = hashlib.file_digest(stream, 'sha256').hexdigest() == record['sha256']
+        if timestamp is not True:
+            raise ValueError('support_signature_invalid')
+        record['version'] = tuple(record['version'])
         return record
 
     def prepare_payload(self,source,target):
