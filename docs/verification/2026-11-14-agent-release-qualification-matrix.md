@@ -1379,3 +1379,43 @@ Support, native continuation и допуска observer прошли, всего
 | `setup211-catalog-retry-terminal.png` | `2c3b5c5b1a3508eb2124ad88f0be00c56f8f7a246e996251c3f8a0c4c6fbf508` |
 | `setup211-catalog-retry-msi-events.png` | `37b729aaf9314b98beda39bf5f0924f11a7c10e68309232752c59fceac626615` |
 | `setup211-support-wintrust.png` | `c38f224526dba6827f5f42112e0f630e0c377f7b90fdcbdbb1a11b6d3bdda6bf` |
+
+#### Прямой переход 3.2.211 → 3.2.212
+
+Подписанный Setup 3.2.212 с Support 1.1.8 собран из
+`c49e475684f591308fcc9bdc5f94cd430d1c9de3`. Проверены подписи EXE и
+MSI, обе с метками времени. SHA-256 EXE —
+`e8fe3de39505ea673213f7360c1105132f2398885cc06f8fca531aa0fb2a83b8`,
+MSI — `d2c834eaf00052143b749ea9f822ef3dd43ddf4008a0b6c4776a7fd8f068b3af`.
+В изолированном каталоге записан кандидат
+`97073474-6f15-4fa4-9bb8-f8d64bdfea79` без AUTO enrollment и
+публикации загрузки.
+
+Перед запуском прежняя карточка `f0f96379-0e17-463c-b514-4431b8427083`
+с версией 3.2.211 была online и сохраняла принятое событие `installed`.
+Запуск подписанного Setup `--quiet` на той же VM завершился в
+03:17:58,528Z с кодом 21 и `INSTALL_FAILED / MSI / MSI_EVIDENCE_FAILED`.
+В позднем чтении Gateway не видел 3.2.212. Последняя связь 3.2.211 —
+03:17:00,110Z, карточка offline с сохранённым фактом `installed`.
+Результат Support остался от прогона 3.2.211. Активация 1.1.8
+в этом переходе не подтверждена.
+
+Метрики показывают успешные `stage-online`, `seal-staged-switch`,
+`adopt-staged-switch` и `record-staged-native-start`. События
+MsiInstaller в 03:16:28Z предшествуют подготовке переключения
+и не доказывают завершение перехода. Дальнейший исход не зафиксирован:
+задача `EndpointStagedRecovery-e4761791-7868-4c1d-865b-bd4318ca1c2b`
+вернула 60, в защищённом `reboot.json` для попытки
+`78675ec6-1280-46ef-a59d-371b67c2870f` поле `native_exit` пусто.
+Корневая причина остаётся открытой. Диск сохранён в
+`stab15-setup212-native-hold`; исходная VM и журналы остаются в
+изолированном стенде для чтения.
+
+| Отчёт | SHA-256 |
+| --- | --- |
+| `setup212-source-baseline.json` | `43a5ed458e324464fb2120a07b07d48fd9892b348c712645a6eb8f92114f3db8` |
+| `setup212-upgrade-terminal.png` | `39577c39744811aad5b6fac0f2005dc9912b1c8e94803a3aacb0d0074cea3f02` |
+| `setup212-native-diagnostic.json` | `b36afdc2383eec2990ca8dd711c24d7e1b08776bfb827b9426de0b82f3947c72` |
+| `setup212-final-console-211.json` | `6888a89739d4d399be94053380dfcfbf9262cb3fc15b51ba967cafc99cd57776` |
+| `setup212-final-console-212.json` | `1a3192e47ad67b830e9dbbf23d3fac0689efe0619b55f08867ca4e842bf44d65` |
+| `setup212-native-hold.png` | `34e35973476404b9b8c2f3cc98e39b48cb722f9c2bf0275a1bcf740120bd3504` |
