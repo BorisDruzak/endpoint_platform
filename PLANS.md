@@ -508,7 +508,14 @@ planned cut, preserved the prepared plan, and the cache still opened with
 return 0. A regression with the actual reconcile read scope reproduced the
 shared-handle failure. The source fix releases that cache read pin before
 flushing the same verified file. VM150 and lab ISO were removed after evidence
-capture. A distinct 3.2.232 candidate is reserved for the late-cut retry.
+capture. Signed Setup 3.2.232 preserved the registered LocalPackage, MSI
+registration and all 121 payload files after a late cut on VM151. The same
+signed EXE completed the original transaction offline with native0 at sequence
+10 and one installed fact awaiting enrollment. The wrapper returned
+PROVISIONING_UNEXPECTED (41) with no adapter. VM151 is stopped and isolated for
+the original fact's enrollment, WSS and delivery verification. The new
+disruption test qualifies this local boundary only. Recovery of the previously
+damaged VM147 and VM149 state and other release-matrix profiles remains open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
