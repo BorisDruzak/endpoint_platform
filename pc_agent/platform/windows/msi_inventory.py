@@ -344,7 +344,7 @@ def _foundation_records(value, *, schema=1):
     return tuple(value)
 
 
-def _verify_shared_namespace(rows, install_root):
+def _verify_shared_namespace(rows, install_root, *, removed_files=frozenset()):
     from .foundation_layout import SHARED_DIRECTORY
     from .update_transaction import _assert_state_security
     expected = {row['path'] for row in rows if row['path'].startswith(SHARED_DIRECTORY + '/')}
@@ -352,10 +352,21 @@ def _verify_shared_namespace(rows, install_root):
         raise ProvenanceConflict()
     directories = {str(parent).replace('\\', '/') for name in expected
                    for parent in Path(name).parents if str(parent) != '.'}
+    present = expected - removed_files
+    required_dirs = {parent.as_posix() for name in present
+                     for parent in Path(name).parents if parent != Path('.')}
     found_files, found_dirs = set(), set()
     root = install_root / SHARED_DIRECTORY
+    if not present and removed_files:
+        try:
+            root.lstat()
+        except FileNotFoundError:
+            return
     reject_reparse_ancestors(root)
-    for folder, children, files in os.walk(root, followlinks=False):
+    def fail_walk(error):
+        raise error
+
+    for folder, children, files in os.walk(root, onerror=fail_walk, followlinks=False):
         folder = Path(folder)
         reject_reparse_ancestors(folder)
         _assert_state_security(folder)
@@ -363,7 +374,7 @@ def _verify_shared_namespace(rows, install_root):
         for child in children:
             reject_reparse_ancestors(folder / child)
         found_files.update((folder / leaf).relative_to(install_root).as_posix() for leaf in files)
-    if found_files != expected or found_dirs != directories:
+    if found_files != present or not required_dirs <= found_dirs <= directories:
         raise ProvenanceConflict()
 
 
@@ -392,7 +403,7 @@ def immutable_foundation_reads(expected, install_root):
 
 
 @contextmanager
-def verified_foundation_bytes(expected,install_root,*,allow_execution_metadata=False):
+def verified_foundation_bytes(expected,install_root,*,allow_execution_metadata=False,removed_files=frozenset()):
     """Hold exact Foundation bytes, optionally across accepted image execution.
 
     Ordinary reads keep their strict ChangeTime guard. The accepted-native
@@ -404,7 +415,7 @@ def verified_foundation_bytes(expected,install_root,*,allow_execution_metadata=F
     from endpoint_contracts.runtime_payload import reject_reparse_ancestors
     schema = getattr(expected, 'foundation_schema', 1)
     scope = _PHASE_READS.get()
-    if allow_execution_metadata and scope is not None and scope.foundation_inputs:
+    if allow_execution_metadata and (removed_files or (scope is not None and scope.foundation_inputs)):
         # An immutable read cache deliberately retains its original timestamp
         # proof. Never rebaseline it or silently turn cached reads into launches.
         raise ProvenanceConflict()
@@ -412,10 +423,12 @@ def verified_foundation_bytes(expected,install_root,*,allow_execution_metadata=F
     reject_reparse_ancestors(install_root)
     _assert_state_security(install_root)
     if schema in (2, 3):
-        _verify_shared_namespace(rows, install_root)
+        _verify_shared_namespace(rows, install_root, removed_files=removed_files)
     with ExitStack() as stack:
         identities=[]
         for row in rows:
+            if row['path'] in removed_files:
+                continue
             path=install_root/row['path']
             reject_reparse_ancestors(path);_assert_state_security(path)
             before=durable_state._copy_identity(path.lstat())
@@ -444,7 +457,9 @@ def verified_foundation_bytes(expected,install_root,*,allow_execution_metadata=F
             identities.append((path,descriptor,before,opened.st_ctime_ns,row,metadata))
         yield
         if schema in (2, 3):
-            _verify_shared_namespace(rows, install_root)
+            _verify_shared_namespace(rows, install_root, removed_files=removed_files)
+        for name in removed_files:
+            _verify_removed_file(install_root / name)
         for path,descriptor,before,changed,row,metadata in identities:
             slot = row['path']
             after=os.fstat(descriptor)
@@ -1035,6 +1050,19 @@ def verify_foundation(package: PackageInventory, install_root: Path, *, native=N
     return state
 
 
+def verify_interrupted_foundation(expected: ExpectedMsi, install_root: Path, *, native=None) -> frozenset[str]:
+    """Verify the registered predecessor of a bound, interrupted removal."""
+    native = native or NativeMsi()
+    package = expected.package
+    installed_feature_state(package, native=native)
+    removed = _verify_components(package, install_root, native,
+        (component for component in package.components.values() if FOUNDATION_FEATURE in component.features),
+        allow_removed_files=True)
+    with verified_foundation_bytes(expected, install_root, removed_files=removed):
+        pass
+    return removed
+
+
 def verify_replaced_product(old: PackageInventory, new: PackageInventory, install_root: Path, *, native=None) -> None:
     """Old registration is absent; shared resources belong to the exact successor."""
     native=native or NativeMsi()
@@ -1111,7 +1139,15 @@ def verify_support_uninstalled(expected: ExpectedMsi, install_root: Path, *, nat
         raise ValueError('SUPPORT_CLEANUP_INCOMPLETE') from error
 
 
-def _verify_components(package,install_root,native,components):
+def _verify_removed_file(path):
+    try:
+        reject_reparse_ancestors(path)
+    except FileNotFoundError:
+        return
+    raise ProvenanceConflict()
+
+
+def _verify_components(package,install_root,native,components,*,allow_removed_files=False):
     components = tuple(components)
     features = sorted({feature for component in components for feature in component.features})
     # MsiQueryFeatureState opens the product's feature configuration. Repeat it
@@ -1121,14 +1157,18 @@ def _verify_components(package,install_root,native,components):
         if native.feature(package.product_code, feature) != 3:
             raise ProvenanceConflict()
     files = {item.name: item for item in package.files}
+    removed = set()
     for component in components:
         state, location = native.component(package.product_code, component.guid)
-        if state != 3:
+        item = files.get(component.keypath)
+        if item is not None and Path(location) != install_root / item.path:
             raise ProvenanceConflict()
-        if component.keypath in files:
-            expected = install_root / files[component.keypath].path
-            if Path(location) != expected:
-                raise ProvenanceConflict()
+        if state == 2 and allow_removed_files and item is not None and item.component == component.name:
+            _verify_removed_file(install_root / item.path)
+            removed.add(item.path)
+        elif state != 3:
+            raise ProvenanceConflict()
     for feature in features:
         if native.feature(package.product_code, feature) != 3:
             raise ProvenanceConflict()
+    return frozenset(removed)

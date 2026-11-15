@@ -697,6 +697,18 @@ def test_recovery_accepts_only_inventoried_partial_candidate_and_saved_selectors
     assert (root/'unrelated.txt').read_bytes()==b'unknown evidence'
 
 
+def test_proven_removed_selector_does_not_authorize_other_selector_state(handoff_input):
+    module, paths, _, request, _ = handoff_input
+    module.prepare_installer_provenance(paths, request)
+    paths.current_path.unlink()
+    with pytest.raises(module.ProvenanceConflict):
+        module.validate_interrupted_reconciliation(paths, request)
+    module.validate_interrupted_reconciliation(paths, request, allow_native_absence=True)
+    paths.current_path.write_bytes(b'{"schema_version":1,"version":"3.2.999","source_revision":"unrelated"}')
+    with pytest.raises(module.ProvenanceConflict):
+        module.validate_interrupted_reconciliation(paths, request, allow_native_absence=True)
+
+
 def test_retirement_requires_independent_current_and_previous_zip_cores(handoff_input,monkeypatch):
     from pc_agent.platform.windows import update_transaction
     monkeypatch.setattr(update_transaction,'_assert_state_security',lambda _:None)

@@ -96,10 +96,20 @@ def _prepare_recovery(client,paths,expected):
     if mode=='replace-foundation':
         old_request=bridge._request_data(paths,old)
         old_expected=msi_inventory.read_expected_package(old_request['package_path'],old['package'])
-        msi_inventory.verify_foundation(old_expected.package,paths.install_root,expected=old_expected)
         active=fence.read_fence(paths)
-        if active is None or active['transaction_id']!=old['transaction_id']:_fail()
-        provenance.validate_interrupted_reconciliation(paths,request)
+        wanted=bridge._public_fence(old_expected,old)
+        if (active is None or active['phase'] not in {'msi-starting', 'msi-executing'}
+                or active['startup_restored'] or active['service_startup']!=record['service_startup']
+                or any(active[key]!=wanted[key] for key in
+                    ('transaction_id','package','operation','selected','previous','service_states'))):
+            _fail()
+        selector_removed = False
+        if active['phase'] == 'msi-executing':
+            removed = msi_inventory.verify_interrupted_foundation(old_expected, paths.install_root, native=native)
+            selector_removed = 'current.json' in removed
+        else:
+            msi_inventory.verify_foundation(old_expected.package,paths.install_root,expected=old_expected)
+        provenance.validate_interrupted_reconciliation(paths,request,allow_native_absence=selector_removed)
     else:
         provenance.validate_interrupted_reconciliation(paths,request,
             native_current=msi_inventory.read_native_selector(request['package_path'],expected))

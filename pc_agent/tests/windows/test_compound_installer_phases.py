@@ -61,10 +61,17 @@ def staged(inputs,tmp_path,monkeypatch):
     monkeypatch.setattr(provenance,'inspect_installed_core',lambda *_a,**_k:SimpleNamespace(
         current=SimpleNamespace(digest=cap['selected']),previous=None))
     monkeypatch.setattr(msi_inventory,'read_native_selector',lambda *_:b'exact authored selector fixture')
-    for name in ('prepare_installer_provenance','validate_interrupted_reconciliation','validate_maintenance_recovery'):
+    for name in ('prepare_installer_provenance','validate_maintenance_recovery'):
         monkeypatch.setattr(provenance,name,lambda *_a,name=name,**_k:events.append(name))
     monkeypatch.setattr(msi_inventory,'verify_installed',lambda *_:events.append('native-new-verified'))
     monkeypatch.setattr(msi_inventory,'verify_foundation',lambda *_a,**_k:events.append('native-old-foundation-verified'))
+    monkeypatch.setattr(msi_inventory,'verify_interrupted_foundation',
+        lambda *_a,**_k:events.append('native-old-interrupted-verified') or {'current.json'})
+    def validate_reconciliation(*_a, allow_native_absence=False, **_k):
+        events.append('validate_interrupted_reconciliation')
+        if allow_native_absence:
+            events.append('allow-removed-current')
+    monkeypatch.setattr(provenance,'validate_interrupted_reconciliation',validate_reconciliation)
     monkeypatch.setattr(msi_inventory,'verify_replaced_product',lambda *_a,**_k:events.append('old-owner-absent'),raising=False)
     monkeypatch.setattr(provenance,'retire_maintenance_authority',lambda *_a:events.append('retire-old-authority'))
     monkeypatch.setattr(provenance,'reconcile_installed_core',lambda *_a,**_k:events.append('reconcile-core') or 'migrated')
@@ -280,8 +287,11 @@ def test_failure_after_ready_write_preserves_parent_and_never_acknowledges_compl
     assert (fence.state_root(paths)/'upgrade.json').exists()
 
 
-@pytest.mark.parametrize('mode',['replace-foundation','repair-successor'])
-def test_recovery_prepare_preserves_original_proofs_and_uses_new_child_attempt(staged,mode):
+@pytest.mark.parametrize(('mode','interruption'), [
+    ('replace-foundation', None), ('repair-successor', None),
+    ('replace-foundation', 'partial'), ('replace-foundation', 'wrong-package'),
+])
+def test_recovery_prepare_preserves_original_proofs_and_uses_new_child_attempt(staged,mode,interruption):
     from hashlib import sha256
     from pc_agent.platform.windows.compound_installer import _child
     paths,client,old,original_fence,native,events,done=staged
@@ -304,8 +314,21 @@ def test_recovery_prepare_preserves_original_proofs_and_uses_new_child_attempt(s
         (root/'capabilities'/(old_current['session_id']+'.json')).write_text(json.dumps(old_current))
     else:
         native[old['package']['product_code']]=-1;native[current['package']['product_code']]=5
+    if interruption:
+        active = {**original_fence, 'phase':'msi-executing', 'sequence':2}
+        if interruption == 'wrong-package':
+            active['package'] = {**active['package'], 'package_code':'{BBBBBBBB-BBBB-4BBB-8BBB-BBBBBBBBBBBB}'}
+        (root/'transaction.json').write_text(json.dumps(active))
     client.capability=current;client.phase='prepare';events.clear();done.clear()
+    if interruption == 'wrong-package':
+        with pytest.raises(ValueError, match='PROVENANCE_CONFLICT'):
+            bridge.execute_authorized_phase(client,paths)
+        assert not done and not events
+        assert original_plan.read_bytes() == before
+        return
     bridge.execute_authorized_phase(client,paths)
+    assert ('native-old-interrupted-verified' in events) is (interruption == 'partial')
+    assert ('allow-removed-current' in events) is (interruption == 'partial')
     assert done==[('complete',{'result':'compound-recovery-prepared','mode':mode})]
     assert 'data-prepare' not in events and 'prepare_installer_provenance' not in events
     assert events.index('data-restore_native_rollback_inheritance') < events.index('data-before_native')
@@ -323,7 +346,7 @@ def run_recovery_to_ready(staged, mode, monkeypatch, fact_already_recorded):
     from pc_agent.platform.windows.installation_lifecycle import outbox_for
     # The fixture's native API/SCM are modeled; actual driver callbacks have
     # compiled-policy tests and installed recovery remains a separate VM gate.
-    test_recovery_prepare_preserves_original_proofs_and_uses_new_child_attempt(staged,mode)
+    test_recovery_prepare_preserves_original_proofs_and_uses_new_child_attempt(staged,mode,None)
     paths,client,old,original,native,events,done=staged
     cap=client.capability;root=fence.state_root(paths)
     box = outbox_for(paths)

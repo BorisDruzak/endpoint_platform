@@ -964,7 +964,11 @@ def _partial_retained_tree(paths,retained,metadata):
 
 def validate_interrupted_reconciliation(paths: WindowsUpdatePaths, expected_msi, *,
                                       native_current=None, allow_native_absence=False) -> None:
-    """Inspect immutable saved authority; caller has not yet gained mutation entry."""
+    """Inspect immutable saved authority before gaining mutation entry.
+
+    The caller may permit a missing current selector after proving native
+    removal of that exact MSI keypath.
+    """
     from .installer_fence import state_root
     from .runtime_identity import verify_retained_archive
     expected=_expected_request(expected_msi)
@@ -972,8 +976,6 @@ def validate_interrupted_reconciliation(paths: WindowsUpdatePaths, expected_msi,
         from .msi_inventory import read_native_selector
         if native_current != read_native_selector(Path(expected_msi['package_path']), expected):
             raise ProvenanceConflict()
-    elif allow_native_absence:
-        raise ProvenanceConflict()
     root=state_root(paths)/'provenance'/expected_msi['transaction_id']
     plan=_read_plan(root,expected_msi,expected)
     core=next(item for item in expected.package.files if item.path==f'versions/{expected.identity.version}/pc_agent.exe')
@@ -1011,8 +1013,10 @@ def validate_interrupted_reconciliation(paths: WindowsUpdatePaths, expected_msi,
         path=paths.install_root/name
         actual=_read(path,4096).hex() if _present(path) else None
         if actual not in (before,after):
-            native_transition = (name == 'current.json' and native_current is not None
-                and (actual == native_current.hex() or (allow_native_absence and actual is None)))
+            native_transition = name == 'current.json' and (
+                (actual is None and allow_native_absence)
+                or (native_current is not None and actual == native_current.hex())
+            )
             if not native_transition and (before is not None or actual is None or after is None or read_json(bytes.fromhex(actual),4096)!=read_json(bytes.fromhex(after),4096)):
                 raise ProvenanceConflict()
         if actual is not None:
