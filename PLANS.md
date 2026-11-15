@@ -527,8 +527,20 @@ and credential were revoked and the original Gateway was restored. Signed
 3.2.233 exposed a missing installer-state parent on a truly clean VM and
 stopped before MSI. The regression now covers first install without creating
 state and retains proof checks when it exists. Temporary VM152 and the isolated
-catalog were removed. Setup 3.2.234 still needs the same power-cut, offline
-completion and original online ACK run.
+catalog were removed.
+VM151, its diagnostic snapshot, disk and dedicated ISO were removed after
+the two 3.2.232 receipts were verified. Signed Setup 3.2.234 on a clean
+Windows 10 19045 clone from VM147 preserved MSI registration, the exact
+registered cache and all 121 files after a late power cut. The exact EXE
+completed the original native transaction offline at sequence 10. The online
+repeat returned 0 with one completed AUTO enrollment and one acknowledged
+installed event for that original transaction. The protected completion stayed
+byte-identical and remained the only native completion. Reboot preserved four
+private files and opened a new WSS session on the same card. The scoped campaign
+and credential were revoked, the original lab services restored, the scratch
+catalog and VM152 with its disk and ISO removed. Recovery of the previously
+damaged VM147 and VM149 states and qualification of other OS/source profiles
+remain open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
