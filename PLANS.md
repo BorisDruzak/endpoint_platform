@@ -486,8 +486,14 @@ also has a resident stream. A clean VM149 clone recovered the exact signed
 completed one enrollment and retained one installed event and ACK under the
 original transaction. Reboot preserved WSS and the four identity files.
 The scoped campaign and credential were revoked, the lab Gateway restored and
-VM149 removed. Storage durability and safe recovery for the damaged VM147
-state, the other source profiles and production qualification remain open.
+VM149 removed. A separate clean clone with QEMU directsync reproduced the
+same seven zero-filled files and absent MSI registration after a late
+power cut. Exact Setup kept the original reconciling transaction and
+returned 20 (PROVENANCE_CONFLICT). The regression preserves an exact-size
+zeroed file, completed plan and selector on fail-closed inspection.
+A guest-side persistence comparison is still needed. Storage durability and
+safe recovery for the damaged VM147 state, the other source profiles and
+production qualification remain open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
