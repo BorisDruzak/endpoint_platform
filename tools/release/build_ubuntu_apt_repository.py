@@ -21,6 +21,7 @@ REPOSITORIES = {
 FINGERPRINT = re.compile(r"[A-Fa-f0-9]{40}")
 VALIDITY = timedelta(days=7)
 RENEWAL_WARNING = timedelta(days=3)
+INRELEASE_LIMIT = 1024 * 1024
 
 
 def _sign_release(release: Path, output: Path, fingerprint: str) -> None:
@@ -33,7 +34,7 @@ def _sign_release(release: Path, output: Path, fingerprint: str) -> None:
 def _verified_release(path: Path, keyring: Path, fingerprint: str) -> str:
     if not FINGERPRINT.fullmatch(fingerprint):
         raise ValueError("use the full OpenPGP signing-key fingerprint")
-    if not path.is_file() or path.is_symlink() or path.stat().st_size > 1024 * 1024:
+    if not path.is_file() or path.is_symlink() or path.stat().st_size > INRELEASE_LIMIT:
         raise ValueError("unexpected InRelease file")
     verified = subprocess.run(
         ["gpgv", "--keyring", keyring.resolve(strict=True), "--status-fd", "2",
@@ -141,11 +142,73 @@ def renew(
         _sign_release(release, signed, fingerprint)
         if _verified_release(signed, keyring, fingerprint) != metadata:
             raise ValueError("new InRelease does not match proposed metadata")
-        signed.chmod(0o644)
-        release.chmod(0o644)
-        release.replace(suite / "Release")
-        signed.replace(current)
+        _replace_metadata(suite, release, signed)
     return valid_until
+
+
+def _replace_metadata(suite: Path, release: Path, signed: Path) -> None:
+    release.chmod(0o644)
+    signed.chmod(0o644)
+    release.replace(suite / "Release")
+    signed.replace(suite / "InRelease")
+
+
+def _read_inrelease(path: Path) -> bytes:
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("unexpected InRelease file")
+    with path.open("rb") as stream:
+        payload = stream.read(INRELEASE_LIMIT + 1)
+    if len(payload) > INRELEASE_LIMIT:
+        raise ValueError("unexpected InRelease file")
+    return payload
+
+
+def _without_release_dates(metadata: str) -> str:
+    return re.sub(r"^(Date|Valid-Until): .+$", r"\1:", metadata, flags=re.MULTILINE)
+
+
+def publish_renewal(
+    root: Path, candidate: Path, expected_sha256: str, keyring: Path, fingerprint: str, *,
+    now: datetime | None = None, codename: str = SUITE,
+) -> datetime:
+    """Install a signed date-only renewal while the caller excludes other publishers."""
+    now = (now or datetime.now(UTC)).astimezone(UTC)
+    if codename not in REPOSITORIES:
+        raise ValueError("unsupported APT codename")
+    if re.fullmatch(r"[0-9a-f]{64}", expected_sha256) is None:
+        raise ValueError("expected the original live InRelease SHA-256")
+    suite = root / "dists" / codename
+    current = suite / "InRelease"
+    original = _read_inrelease(current)
+    if hashlib.sha256(original).hexdigest() != expected_sha256:
+        raise ValueError("live InRelease changed since preparation")
+
+    # Verify private copies so the exact candidate bytes checked are the bytes published.
+    with TemporaryDirectory(prefix=".apt-publish-", dir=suite) as scratch:
+        original_copy = Path(scratch) / "Original"
+        original_copy.write_bytes(original)
+        signed = Path(scratch) / "InRelease"
+        signed.write_bytes(_read_inrelease(candidate))
+        old = _verified_release(original_copy, keyring, fingerprint)
+        new = _verified_release(signed, keyring, fingerprint)
+        old_date, old_expiry = _release_dates(old, codename)
+        new_date, new_expiry = _release_dates(new, codename)
+        if (
+            new_date <= old_date
+            or new_date > now + timedelta(seconds=10)
+            or new_expiry <= max(old_expiry, now)
+            or new_expiry - new_date != VALIDITY
+        ):
+            raise ValueError("unexpected APT renewal dates")
+        if _without_release_dates(old) != _without_release_dates(new):
+            raise ValueError("renewal may change only Date and Valid-Until")
+        _verify_indexes(root, suite, new)
+        release = Path(scratch) / "Release"
+        release.write_bytes(new.encode("utf-8"))
+        if _read_inrelease(current) != original:
+            raise ValueError("live InRelease changed since preparation")
+        _replace_metadata(suite, release, signed)
+    return new_expiry
 
 
 def build(artifacts: list[Path], output: Path, fingerprint: str, *, codename: str = SUITE) -> None:
@@ -205,11 +268,25 @@ def main() -> None:
     actions.add_argument("--renew-if-due", type=Path, metavar="REPOSITORY",
                          help="verify the staging tree and sign when at most three days remain")
     actions.add_argument("--check", type=Path, metavar="INRELEASE")
+    actions.add_argument("--publish-renewal", type=Path, metavar="LIVE_REPOSITORY")
+    parser.add_argument("--from-inrelease", type=Path, metavar="SIGNED_RENEWAL")
+    parser.add_argument("--expected-inrelease-sha256", metavar="SHA256")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--keyring", type=Path)
     parser.add_argument("--codename", choices=REPOSITORIES, default=SUITE)
     parser.add_argument("--signing-fingerprint", required=True)
     args = parser.parse_args()
+    if args.publish_renewal is not None:
+        if args.from_inrelease is None or args.expected_inrelease_sha256 is None or args.keyring is None:
+            parser.error("--publish-renewal requires --from-inrelease, --expected-inrelease-sha256 and --keyring")
+        expiry = publish_renewal(
+            args.publish_renewal, args.from_inrelease, args.expected_inrelease_sha256,
+            args.keyring, args.signing_fingerprint, codename=args.codename,
+        )
+        print(f"Published Valid-Until {expiry.isoformat()}")
+        return
+    if args.from_inrelease is not None or args.expected_inrelease_sha256 is not None:
+        parser.error("publication inputs require --publish-renewal")
     if args.deb:
         if args.output is None:
             parser.error("--deb requires --output")

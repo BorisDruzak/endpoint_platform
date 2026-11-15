@@ -371,6 +371,10 @@ original hashes. The temporary copies and key were removed. The publisher
 CLI now supports scheduled verification and renewal at three days or less.
 With GnuPG and APT 2.8.4, both copied channels skipped fresh metadata, signed
 when due and skipped an immediate retry. Package and index hashes matched.
+The publication CLI now verifies the exact pre-renewal InRelease hash, the
+pinned signature and all published package hashes before installing the signed
+date-only renewal. APT accepted both renewed copies. The stale-hash attempts
+left the target indexes unchanged.
 Release evidence requires an exact-source CI receipt before publication.
 STAB-15: the [release qualification matrix](docs/verification/2026-11-14-agent-release-qualification-matrix.md)
 records installed canary evidence by OS, exact source and signed artifact.

@@ -117,3 +117,96 @@ def test_scheduled_renewal_rejects_future_dated_metadata(tmp_path):
     with pytest.raises(ValueError, match="future"):
         apt.renew(tmp_path, tmp_path / "key.gpg", "a" * 40, now=now, only_if_due=True)
     assert (suite / "InRelease").read_bytes() == signed
+
+
+@pytest.fixture
+def renewal_for_publication(tmp_path, codename):
+    now = datetime(2026, 11, 14, tzinfo=UTC)
+    root = tmp_path / "live"
+    suite, index, package, artifact, packages, _ = _repository(
+        root, codename, date=now - timedelta(days=4), expiry=now + timedelta(days=3),
+    )
+    current = suite / "InRelease"
+    (suite / "Release").write_bytes(current.read_bytes())
+    staged = tmp_path / "staged"
+    staged_suite, *_ = _repository(
+        staged, codename, date=now - timedelta(days=4), expiry=now + timedelta(days=3),
+    )
+    keyring = tmp_path / "key.gpg"
+    fingerprint = "a" * 40
+    apt.renew(staged, keyring, fingerprint, now=now, codename=codename)
+    return root, current, staged_suite / "InRelease", index, package, artifact, packages, now, keyring, fingerprint
+
+
+@pytest.mark.parametrize("codename", ["noble", "bookworm"])
+def test_publish_renewal_replaces_only_metadata(renewal_for_publication, codename):
+    root, current, candidate, index, package, artifact, packages, now, keyring, fingerprint = renewal_for_publication
+    expected = hashlib.sha256(current.read_bytes()).hexdigest()
+
+    assert apt.publish_renewal(
+        root, candidate, expected, keyring, fingerprint, codename=codename, now=now,
+    ) == now + timedelta(days=7)
+    assert current.read_bytes() == candidate.read_bytes()
+    assert current.with_name("Release").read_bytes() == candidate.read_bytes()
+    assert index.read_bytes() == packages
+    assert package.read_bytes() == artifact
+
+
+@pytest.mark.parametrize("codename", ["noble"])
+@pytest.mark.parametrize("problem, message", [
+    ("stale", "live InRelease changed"),
+    ("different_metadata", "only Date and Valid-Until"),
+    ("corrupt_payload", "pool/test.deb"),
+    ("future", "renewal dates"),
+    ("wrong_signer", "signer"),
+])
+def test_publish_renewal_preserves_live_metadata_on_rejection(
+    renewal_for_publication, codename, problem, message, monkeypatch,
+):
+    root, current, candidate, _, package, _, _, now, keyring, fingerprint = renewal_for_publication
+    expected = hashlib.sha256(current.read_bytes()).hexdigest()
+    if problem == "stale":
+        current.write_bytes(current.read_bytes() + b"\n")
+    elif problem == "different_metadata":
+        candidate.write_bytes(candidate.read_bytes() + b"Origin: Changed\n")
+    elif problem == "corrupt_payload":
+        package.write_bytes(b"changed bytes")
+    elif problem == "future":
+        now -= timedelta(minutes=1)
+    else:
+        candidate.write_bytes(b"unexpected signature")
+
+        def reject_foreign_signer(path, _keyring, _fingerprint):
+            value = path.read_text()
+            if value == "unexpected signature":
+                raise ValueError("InRelease signer does not match")
+            return value
+
+        monkeypatch.setattr(apt, "_verified_release", reject_foreign_signer)
+    original = current.read_bytes()
+    release = current.with_name("Release")
+    original_release = release.read_bytes()
+
+    with pytest.raises(ValueError, match=message):
+        apt.publish_renewal(root, candidate, expected, keyring, fingerprint, codename=codename, now=now)
+    assert current.read_bytes() == original
+    assert release.read_bytes() == original_release
+
+
+@pytest.mark.parametrize("codename", ["noble"])
+def test_publish_renewal_rechecks_live_hash_at_commit(renewal_for_publication, codename, monkeypatch):
+    root, current, candidate, _, _, _, _, now, keyring, fingerprint = renewal_for_publication
+    original = current.read_bytes()
+    expected = hashlib.sha256(original).hexdigest()
+    replacement = original + b"other publisher\n"
+    verify = apt._verify_indexes
+
+    def replace_live_after_verification(*args):
+        verify(*args)
+        current.write_bytes(replacement)
+
+    monkeypatch.setattr(apt, "_verify_indexes", replace_live_after_verification)
+    with pytest.raises(ValueError, match="live InRelease changed"):
+        apt.publish_renewal(root, candidate, expected, keyring, fingerprint, codename=codename, now=now)
+    assert current.read_bytes() == replacement
+    assert current.with_name("Release").read_bytes() == original
