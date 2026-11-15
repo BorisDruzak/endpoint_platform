@@ -383,6 +383,13 @@ and delivered the exact repair event once after reconnect. Gateway
 accepted it under the same device credential and event generation,
 and the task retired without another MSI operation. This run covers
 the Windows Server 2012 R2 profile without an interactive sign-in.
+On Windows 10 build 19045 VM143, the same Setup 3.2.226 upgraded
+MSI 3.2.192 with native exit 0 and one accepted installation event.
+An isolated lab identity was established before the source baseline.
+All four identity files matched after upgrade and reboot. Gateway
+received WSS from the same device after reboot and completed five new
+context collections. Same-version repair, offline reinstall, rollback,
+interactive UserSensor and independent Support remain open for this pair.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
