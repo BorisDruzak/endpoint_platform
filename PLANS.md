@@ -491,9 +491,16 @@ same seven zero-filled files and absent MSI registration after a late
 power cut. Exact Setup kept the original reconciling transaction and
 returned 20 (PROVENANCE_CONFLICT). The regression preserves an exact-size
 zeroed file, completed plan and selector on fail-closed inspection.
-A guest-side persistence comparison is still needed. Storage durability and
-safe recovery for the damaged VM147 state, the other source profiles and
-production qualification remain open.
+Signed Setup 3.2.230 flushes the verified installation files, directories and
+native registry hives before publishing completion. On a clean VM149 clone
+with directsync, a hard cut at the same reconciling boundary preserved all
+121 files and MSI registration. The exact retry returned MSI_COST_UNAVAILABLE
+with its original fence unchanged. The registered Windows Installer LocalPackage
+differs from the exact signed media and MsiOpenDatabaseW returns 110. The
+protected signed media matches and opens with return 0. VM149 is stopped and
+isolated with the native-cache failure snapshot. The native MSI cache durability,
+safe recovery for both VM147 and VM149, other source profiles and production
+qualification remain open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
