@@ -19,7 +19,7 @@ from endpoint_server.worktime.service import transition, request_correction, fin
 from tests.server.test_linux_support_lifecycle_postgresql import seed
 from tests.server.test_update_postgresql import update_migration_database_urls, _alembic_config, _fetch
 
-HEAD = '0051_staging_linux_worktime'
+MERGE_REVISION = '0051_staging_linux_worktime'
 PARENTS = ('0050_linux_enrollment_binding', '0044_worktime_helpdesk')
 ROOT = Path(__file__).resolve().parents[2]
 pytestmark = pytest.mark.usefixtures('preserve_migration_loggers')
@@ -27,8 +27,9 @@ pytestmark = pytest.mark.usefixtures('preserve_migration_loggers')
 
 def test_staging_merge_preserves_both_original_branches():
     script = ScriptDirectory.from_config(_alembic_config('postgresql+asyncpg://unused@127.0.0.1/unused'))
-    assert script.get_heads() == [HEAD]
-    merge = script.get_revision(HEAD)
+    assert script.get_current_head() is not None
+    assert MERGE_REVISION in {revision.revision for revision in script.walk_revisions()}
+    merge = script.get_revision(MERGE_REVISION)
     assert merge.down_revision == PARENTS and merge.is_merge_point
     assert script.get_revision('0044_worktime_helpdesk').down_revision == '0043_worktime_recorded'
     assert script.get_revision('0043_worktime_recorded').down_revision == '0042_worktime_companion'
@@ -56,8 +57,8 @@ def test_populated_production0050_upgrade_preserves_native_identity(update_migra
 
     device = asyncio.run(populate())
     columns, before = asyncio.run(fingerprint(plain))
-    command.upgrade(config, HEAD)
-    assert asyncio.run(_fetch(plain, 'SELECT version_num FROM alembic_version'))[0]['version_num'] == HEAD
+    command.upgrade(config, MERGE_REVISION)
+    assert asyncio.run(_fetch(plain, 'SELECT version_num FROM alembic_version'))[0]['version_num'] == MERGE_REVISION
     assert asyncio.run(fingerprint(plain, columns))[1] == before
 
     async def verify():
@@ -69,7 +70,7 @@ def test_populated_production0050_upgrade_preserves_native_identity(update_migra
             await provider.close()
 
     asyncio.run(verify())
-    command.upgrade(config, HEAD)
+    command.upgrade(config, MERGE_REVISION)
     assert asyncio.run(fingerprint(plain, columns))[1] == before
 
 
@@ -95,6 +96,8 @@ async def fingerprint(url, columns=None):
 def test_populated_worktime0044_upgrade_preserves_history_and_linux_identity(update_migration_database_urls):
     url, plain = update_migration_database_urls
     config = _alembic_config(url)
+    current_head = ScriptDirectory.from_config(config).get_current_head()
+    assert current_head is not None
     command.upgrade(config, '0044_worktime_helpdesk')
 
     async def populate():
@@ -123,8 +126,8 @@ def test_populated_worktime0044_upgrade_preserves_history_and_linux_identity(upd
 
     device = asyncio.run(populate())
     columns, before = asyncio.run(fingerprint(plain))
-    command.upgrade(config, 'head')
-    assert asyncio.run(_fetch(plain, 'SELECT version_num FROM alembic_version'))[0]['version_num'] == HEAD
+    command.upgrade(config, current_head)
+    assert asyncio.run(_fetch(plain, 'SELECT version_num FROM alembic_version'))[0]['version_num'] == current_head
     assert asyncio.run(fingerprint(plain, columns))[1] == before
     assert asyncio.run(_fetch(plain, "SELECT count(*) AS n FROM pg_constraint WHERE conname='ck_worktime_timesheet_independent'"))[0]['n'] == 0
     assert asyncio.run(_fetch(plain, 'SELECT count(*) AS n FROM enrollment_requests'))[0]['n'] == 0
@@ -138,6 +141,6 @@ def test_populated_worktime0044_upgrade_preserves_history_and_linux_identity(upd
         finally:
             await provider.close()
     asyncio.run(verify())
-    # Reapplying head is inert, including original sessions and complete ledger rows.
-    command.upgrade(config, 'head')
+    # Reapplying the current head is inert, including original sessions and complete ledger rows.
+    command.upgrade(config, current_head)
     assert asyncio.run(fingerprint(plain, columns))[1] == before
