@@ -425,11 +425,13 @@ wrapper now opens a fresh cleanup session for the same transaction after a
 verified rollback. Direct and scheduled rollback regressions first failed
 against the original wrapper, then passed along with the accepted path.
 The nine targeted Windows test modules passed (363 tests). Signed Setup
-3.2.227 and its MSI completed the package checks and were registered only
-in the isolated VM142 database. VM145 is stopped at the exact 3.2.192
-source with the 227 ISO attached and link down. The 226 failure snapshot
-remains available. Run the offline rollback, check code 67 and automatic
-event delivery, then exercise forced interruption.
+3.2.227 qualified offline rollback on VM145 from the exact Windows 10
+3.2.192 source with exit 67. The MSI registration, selector and four
+identity files were restored; Gateway accepted WSS and both exact native
+events in order after reconnect. The delivery task retired without
+another MSI operation. Both the 226 failure and 227 acceptance snapshots
+are available. Verify forced interruption and native recovery from the
+same source in a separate run.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
