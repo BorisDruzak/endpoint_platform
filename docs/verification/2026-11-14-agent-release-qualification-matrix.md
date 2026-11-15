@@ -1627,3 +1627,34 @@ exporter опубликовал пустой набор разрешений, и
 | `support215-reboot-verified.json` | `d67650727bd0ed6eb5a2a72e62143becd484efde08518827a1a17802f7098232` |
 | `setup215-console-after-reboot.json` | `331e43cdcfff3597873b7ad78a40dfac9ce736695e0ea29b7b3342e4104b0054` |
 | `support215-final-status.json` | `e9cd1cc0259e07c7ecf778785109ec647a52a8e4a834d7842b57ef738b2a1901` |
+
+#### Восстановление службы при той же версии Setup
+
+На отключённой от сети VM149 из `stab15-setup215-ready-repair` остановлена
+и удалена только регистрация службы `EndpointAgent`. Support и четыре
+приватных файла сохранены. Нативный MSI 3.2.215 остался зарегистрирован
+с исходным ProductCode. Подписанный Setup 3.2.215 со штатным `--quiet`
+через 50,250 секунды вернул `21`, `MSI_EVIDENCE_FAILED`.
+Windows Installer зафиксировал `1603` и ошибку 1722 в `ConfigureFoundation`.
+Защищённая диагностика фазы `foundation-config` показывает Win32 `1060`
+при открытии службы для настройки SID. Служба не восстановилась.
+Действующий fence остался `msi-executing`, sequence 3. Сохранён снимок
+`stab15-setup215-repair-native-hold`.
+
+Отдельная отключённая VM150 из исходного снимка повторила тот же отказ
+и Win32 `1060`. В Windows Installer для уже установленного точного MSI
+`ADDLOCAL` не обеспечил повторную установку зарегистрированной функции.
+Изменение `967cf1219b64105d488d17d388e0c294e11bf224` явно запрашивает
+`REINSTALL=EndpointAgentFeature` только для `Install`, отсутствующей
+службы `EndpointAgent` и совпадения SHA-256 входного MSI с установленной
+Foundation, подтверждённой штатным helper. Прошёл 201 тест Windows.
+Для живой проверки выделена отдельная подписываемая версия 3.2.216,
+исход `9b5ffcada54c3ee7a63533f9fa4ff1c97e1810c5`.
+[Контракт REINSTALL](https://learn.microsoft.com/en-us/windows/win32/msi/reinstall)
+
+| Отчёт ремонта 3.2.215 | SHA-256 |
+| --- | --- |
+| `setup215-repair-start.json` | `befdd93750e6311838b2cee1c7a1bb5b9e6ab8daa3be84894044a4703e6f98ae` |
+| `setup215-repair-result.json` | `3b6ddf14f05828c543b727500ade859b8fb484171cc84535cea314a22c95d221` |
+| `setup215-repair-native-boundary.json` | `109fbce57495a16632e30f7342e2a3115d26ef19358fa78075e125c7409d8cc6` |
+| `setup215-repair-trace-result.json` | `9f731ab2919fca5946238230212bd756b47c527ee2aee5701c952a609ed171ca` |
