@@ -33,7 +33,7 @@ def artifact(root, version, *, signed=True):
 
 
 @pytest.fixture(scope='module')
-def publication_url(update_migration_database_urls):
+def publication_url(update_migration_database_urls, preserve_migration_loggers):
     url,_=update_migration_database_urls;command.upgrade(_alembic_config(url),'head');return url
 
 

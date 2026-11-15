@@ -209,7 +209,9 @@ async def run_ubuntu_enrollment_scenario(database_url: str):
         await provider.close()
 
 
-def test_web_approval_and_capability_handoff_use_one_campaign(update_migration_database_urls):
+def test_web_approval_and_capability_handoff_use_one_campaign(
+    update_migration_database_urls, preserve_migration_loggers,
+):
     import asyncio
     from alembic import command
     from tests.server.test_update_postgresql import _alembic_config

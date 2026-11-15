@@ -6,7 +6,7 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 
 
-def test_linux_migration_is_additive_and_preserves_windows_default_offline():
+def test_linux_migration_is_additive_and_preserves_windows_default_offline(preserve_migration_loggers):
     output=io.StringIO()
     config=Config(Path('alembic.ini'),output_buffer=output)
     config.set_main_option('sqlalchemy.url','postgresql+asyncpg://unused@127.0.0.1/unused')

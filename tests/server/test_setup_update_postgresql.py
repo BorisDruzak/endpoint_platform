@@ -12,7 +12,9 @@ from endpoint_server.db.models import Device
 from tests.server.test_update_postgresql import update_migration_database_urls, _alembic_config, _fetch
 
 
-def test_setup_migration_preserves_populated_previous_revision_and_downgrades(update_migration_database_urls):
+def test_setup_migration_preserves_populated_previous_revision_and_downgrades(
+    update_migration_database_urls, preserve_migration_loggers,
+):
     url, plain = update_migration_database_urls
     config = _alembic_config(url)
     command.upgrade(config, '0042_worktime_companion')
