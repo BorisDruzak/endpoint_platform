@@ -131,6 +131,16 @@ def test_bad_headless_crash_requests_root_rollback_without_writing_selector(
             raise PermissionError("root-owned selector")
         return original_write_text(path, *args, **kwargs)
 
+    class RootWorkerTakesOver(Exception):
+        pass
+
+    delays = []
+
+    def wait(seconds: float) -> None:
+        delays.append(seconds)
+        if len(delays) == launcher_main.IMMEDIATE_CRASH_RETRY_LIMIT:
+            raise RootWorkerTakesOver
+
     monotonic_values = iter([0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
     monkeypatch.setenv("ENDPOINT_AGENT_ALT_UPDATE_MODE", "1")
     monkeypatch.setattr(
@@ -140,15 +150,17 @@ def test_bad_headless_crash_requests_root_rollback_without_writing_selector(
         launcher_main, "resolve_install_root", lambda cli_value=None: install_root
     )
     monkeypatch.setattr(launcher_main.subprocess, "Popen", fake_popen)
-    monkeypatch.setattr(launcher_main.time, "monotonic", lambda: next(monotonic_values))
-    monkeypatch.setattr(launcher_main.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        launcher_main, "time",
+        SimpleNamespace(monotonic=lambda: next(monotonic_values), sleep=wait),
+    )
     monkeypatch.setattr(Path, "write_text", deny_root_selector_write)
     monkeypatch.setattr(sys, "argv", ["launcher.py", "--no-gui"])
 
-    with pytest.raises(SystemExit) as exc_info:
+    with pytest.raises(RootWorkerTakesOver):
         launcher_main.main()
 
-    assert exc_info.value.code == 0
+    assert delays == [1.0, 2.0, 60.0]
     assert json.loads(current_path.read_text(encoding="utf-8")) == {
         "schema_version": 1,
         "source_revision": "badheadless",
