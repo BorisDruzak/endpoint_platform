@@ -541,8 +541,10 @@ def test_rpm_installed_release_is_accepted_as_an_ota_rollback_baseline(tmp_path:
     archive, sidecar, launcher = _write_release_fixture(tmp_path)
     source = tmp_path / "unpacked"
     source.mkdir()
-    with tarfile.open(archive) as bundle:
-        bundle.extractall(source, filter="data")
+    # Match the RPM preparation shell's payload permissions under a private CI umask.
+    subprocess.run(
+        ["tar", "-xzf", str(archive)], cwd=source, check=True, umask=0o022,
+    )
     buildroot = tmp_path / "buildroot"
     install = _text(SPEC).split("%install\n", 1)[1].split(
         "install -m 0644 %{SOURCE10}", 1
