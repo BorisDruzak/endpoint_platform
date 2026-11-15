@@ -631,8 +631,16 @@ while retaining the verified file identity and change time. A Windows
 regression reproduces the sharing violation in compound finalization
 and rejects file replacement between verification and flush. The signed
 3.2.236 lab EXE/MSI at source `57a86985b8be74e1c4ea733f870515375e5991a0`
-have verified timestamps and hashes. Native acceptance from 3.2.218 is
-pending.
+have verified timestamps and hashes. On a full clone of the accepted 218
+snapshot, Setup 3.2.236 returned 0 (258.92 seconds), the compound marker
+and child receipt completed, and the staged update reached accepted.
+After reboot, LocalPackage matched the signed MSI, all four identity
+files matched, and the original card received fresh 3.2.236 WSS with
+one acknowledged installed event at sequence 6. The offline VM152
+snapshot and matching lab DB are retained for same-version repair and
+rollback. The superseded 235 failure VM153 and its temporary media were
+removed after checking its report hash. UserSensor, independent Support
+and the other matrix gates for 3.2.236 remain open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
