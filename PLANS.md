@@ -501,6 +501,14 @@ protected signed media matches and opens with return 0. VM149 is stopped and
 isolated with the native-cache failure snapshot. The native MSI cache durability,
 safe recovery for both VM147 and VM149, other source profiles and production
 qualification remain open.
+Setup 3.2.231 added persistence of the verified registered LocalPackage and
+uses database semantics during recovery costing. The signed clean VM150 run
+reported Win32 32 while opening its cache for flush. It stopped before the
+planned cut, preserved the prepared plan, and the cache still opened with
+return 0. A regression with the actual reconcile read scope reproduced the
+shared-handle failure. The source fix releases that cache read pin before
+flushing the same verified file. VM150 and lab ISO were removed after evidence
+capture. A distinct 3.2.232 candidate is reserved for the late-cut retry.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
