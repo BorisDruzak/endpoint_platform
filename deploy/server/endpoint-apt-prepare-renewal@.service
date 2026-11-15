@@ -1,0 +1,10 @@
+[Unit]
+Description=Prepare signed Endpoint APT renewal for %i
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/endpoint-apt-publisher/%i.env
+UMask=0077
+NoNewPrivileges=yes
+TimeoutStartSec=300s
+ExecStart=/usr/bin/python3 /opt/endpoint-apt-publisher/build_ubuntu_apt_repository.py --prepare-renewal ${ENDPOINT_APT_REPOSITORY} --output ${ENDPOINT_APT_OUTPUT} --codename %i --keyring ${ENDPOINT_APT_KEYRING} --signing-fingerprint ${ENDPOINT_APT_FINGERPRINT}

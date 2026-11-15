@@ -166,3 +166,43 @@ python tools/release/build_ubuntu_apt_repository.py \
 После публикации выполните проверку выше, `apt-get update` и
 `apt-cache policy` для `endpoint-agent-ubuntu` или `endpoint-agent-debian`
 с обычными настройками APT на пилотном узле соответствующего канала.
+
+### Регулярная подготовка подписи на Linux-хосте издателя
+
+Разместите проверенную копию сборщика по пути
+`/opt/endpoint-apt-publisher/build_ubuntu_apt_repository.py`.
+Установите `endpoint-apt-prepare-renewal@.service` и одноимённый
+`.timer` из `deploy/server` в `~/.config/systemd/user` учётной
+записи издателя. Для каждого канала создайте файл `noble.env` или
+`bookworm.env` в `~/.config/endpoint-apt-publisher`. Ниже приведена конфигурация для Ubuntu.
+
+```ini
+ENDPOINT_APT_REPOSITORY=/mirror/endpoint/ubuntu
+ENDPOINT_APT_OUTPUT=/release/endpoint-apt/prepared
+ENDPOINT_APT_KEYRING=/release/endpoint-ubuntu-apt.gpg
+ENDPOINT_APT_FINGERPRINT=D132784F1C7F0D78BDA2842FDE5739F7FD0AFEBE
+GNUPGHOME=/path/to/approved/publisher-keyring
+```
+
+`ENDPOINT_APT_REPOSITORY` должен указывать на актуальное опубликованное
+дерево, доступное учётной записи издателя на чтение. Рабочий каталог
+`ENDPOINT_APT_OUTPUT` находится отдельно и доступен ей на запись.
+Для `bookworm.env` укажите зеркало Debian и публичный ключ издателя
+для этого канала. Сверьте запуск от учётной записи издателя до
+включения таймеров.
+
+```sh
+systemctl --user daemon-reload
+systemctl --user start endpoint-apt-prepare-renewal@noble.service endpoint-apt-prepare-renewal@bookworm.service
+systemctl --user enable --now endpoint-apt-prepare-renewal@noble.timer endpoint-apt-prepare-renewal@bookworm.timer
+```
+
+Таймеры работают каждые шесть часов UTC через пользовательский экземпляр
+systemd. Для обслуживания без входа пользователя настройте запуск этого
+экземпляра после загрузки хоста. При остатке не более трёх дней служба
+создаёт `<выход>/<канал>/<исходный-sha256>/InRelease`. При повторном
+запуске она сверяет и возвращает готовый действующий индекс для того же
+исходного хеша. Для публикации передайте этот индекс и хеш из имени
+каталога в `--publish-renewal`. Службы подготовки читают опубликованное
+дерево и записывают файлы в отдельный каталог. Оба журнала издателя
+проверяются через `journalctl --user -u 'endpoint-apt-prepare-renewal@*.service'`.

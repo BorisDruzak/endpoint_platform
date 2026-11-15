@@ -123,27 +123,43 @@ def renew(
     suite = root / "dists" / codename
     current = suite / "InRelease"
     metadata = _verified_release(current, keyring, fingerprint)
+    valid_until = _renewal_expiry(metadata, codename, now, only_if_due=only_if_due)
+    _verify_indexes(root, suite, metadata)
+    if valid_until is None:
+        return None
+    renewed = _updated_release(metadata, now, valid_until)
+    with TemporaryDirectory(prefix=".apt-renew-", dir=suite) as scratch:
+        release, signed = _signed_release_files(Path(scratch), renewed, keyring, fingerprint)
+        _replace_metadata(suite, release, signed)
+    return valid_until
+
+
+def _renewal_expiry(metadata: str, codename: str, now: datetime, *, only_if_due: bool) -> datetime | None:
     date, expires = _release_dates(metadata, codename)
     if only_if_due and date > now:
         raise ValueError("APT metadata is dated in the future")
-    should_renew = not only_if_due or expires <= now + RENEWAL_WARNING
-    if should_renew and (now <= date or now + VALIDITY <= expires):
-        raise ValueError("renewal must advance the signed repository dates")
-    _verify_indexes(root, suite, metadata)
-    if not should_renew:
+    if only_if_due and expires > now + RENEWAL_WARNING:
         return None
-    valid_until = now + VALIDITY
+    if now <= date or now + VALIDITY <= expires:
+        raise ValueError("renewal must advance the signed repository dates")
+    return now + VALIDITY
+
+
+def _updated_release(metadata: str, now: datetime, valid_until: datetime) -> str:
     metadata = re.sub(r"^Date: .+$", f"Date: {format_datetime(now, usegmt=True)}", metadata, flags=re.MULTILINE)
-    metadata = re.sub(r"^Valid-Until: .+$",
-                      f"Valid-Until: {format_datetime(valid_until, usegmt=True)}", metadata, flags=re.MULTILINE)
-    with TemporaryDirectory(prefix=".apt-renew-", dir=suite) as scratch:
-        release, signed = Path(scratch) / "Release", Path(scratch) / "InRelease"
-        release.write_bytes(metadata.encode("utf-8"))
-        _sign_release(release, signed, fingerprint)
-        if _verified_release(signed, keyring, fingerprint) != metadata:
-            raise ValueError("new InRelease does not match proposed metadata")
-        _replace_metadata(suite, release, signed)
-    return valid_until
+    return re.sub(r"^Valid-Until: .+$", f"Valid-Until: {format_datetime(valid_until, usegmt=True)}",
+                  metadata, flags=re.MULTILINE)
+
+
+def _signed_release_files(
+    directory: Path, metadata: str, keyring: Path, fingerprint: str,
+) -> tuple[Path, Path]:
+    release, signed = directory / "Release", directory / "InRelease"
+    release.write_bytes(metadata.encode("utf-8"))
+    _sign_release(release, signed, fingerprint)
+    if _verified_release(signed, keyring, fingerprint) != metadata:
+        raise ValueError("new InRelease does not match proposed metadata")
+    return release, signed
 
 
 def _replace_metadata(suite: Path, release: Path, signed: Path) -> None:
@@ -165,6 +181,69 @@ def _read_inrelease(path: Path) -> bytes:
 
 def _without_release_dates(metadata: str) -> str:
     return re.sub(r"^(Date|Valid-Until): .+$", r"\1:", metadata, flags=re.MULTILINE)
+
+
+def _verify_renewed_metadata(old: str, new: str, codename: str, now: datetime) -> datetime:
+    old_date, old_expiry = _release_dates(old, codename)
+    new_date, new_expiry = _release_dates(new, codename)
+    if (
+        new_date <= old_date
+        or new_date > now + timedelta(seconds=10)
+        or new_expiry <= max(old_expiry, now)
+        or new_expiry - new_date != VALIDITY
+    ):
+        raise ValueError("unexpected APT renewal dates")
+    if _without_release_dates(old) != _without_release_dates(new):
+        raise ValueError("renewal may change only Date and Valid-Until")
+    return new_expiry
+
+
+def prepare_renewal(
+    root: Path, output: Path, keyring: Path, fingerprint: str, *,
+    now: datetime | None = None, codename: str = SUITE,
+) -> Path | None:
+    """Prepare a signed renewal outside a read-only view of the published repository."""
+    now = (now or datetime.now(UTC)).astimezone(UTC).replace(microsecond=0)
+    if codename not in REPOSITORIES:
+        raise ValueError("unsupported APT codename")
+    suite = root / "dists" / codename
+    source = suite / "InRelease"
+    original = _read_inrelease(source)
+    source_sha = hashlib.sha256(original).hexdigest()
+    candidate = output / codename / source_sha / "InRelease"
+    if candidate.resolve().is_relative_to(root.resolve()):
+        raise ValueError("renewal output must be outside the published repository")
+
+    with TemporaryDirectory(prefix="endpoint-apt-original-") as temporary:
+        verified_copy = Path(temporary) / "InRelease"
+        verified_copy.write_bytes(original)
+        metadata = _verified_release(verified_copy, keyring, fingerprint)
+    valid_until = _renewal_expiry(metadata, codename, now, only_if_due=True)
+    _verify_indexes(root, suite, metadata)
+    if _read_inrelease(source) != original:
+        raise ValueError("live InRelease changed during preparation")
+    if valid_until is None:
+        return None
+
+    destination = candidate.parent
+    if not destination.exists():
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with TemporaryDirectory(prefix=".apt-prepare-", dir=destination.parent) as scratch:
+            bundle = Path(scratch) / "renewal"
+            bundle.mkdir()
+            renewed = _updated_release(metadata, now, valid_until)
+            release, _ = _signed_release_files(bundle, renewed, keyring, fingerprint)
+            release.unlink()
+            if _read_inrelease(source) != original:
+                raise ValueError("live InRelease changed during preparation")
+            try:
+                bundle.rename(destination)
+            except OSError:
+                if not candidate.is_file():
+                    raise
+    prepared = _verified_release(candidate, keyring, fingerprint)
+    _verify_renewed_metadata(metadata, prepared, codename, now)
+    return candidate
 
 
 def publish_renewal(
@@ -191,17 +270,7 @@ def publish_renewal(
         signed.write_bytes(_read_inrelease(candidate))
         old = _verified_release(original_copy, keyring, fingerprint)
         new = _verified_release(signed, keyring, fingerprint)
-        old_date, old_expiry = _release_dates(old, codename)
-        new_date, new_expiry = _release_dates(new, codename)
-        if (
-            new_date <= old_date
-            or new_date > now + timedelta(seconds=10)
-            or new_expiry <= max(old_expiry, now)
-            or new_expiry - new_date != VALIDITY
-        ):
-            raise ValueError("unexpected APT renewal dates")
-        if _without_release_dates(old) != _without_release_dates(new):
-            raise ValueError("renewal may change only Date and Valid-Until")
+        new_expiry = _verify_renewed_metadata(old, new, codename, now)
         _verify_indexes(root, suite, new)
         release = Path(scratch) / "Release"
         release.write_bytes(new.encode("utf-8"))
@@ -268,6 +337,7 @@ def main() -> None:
     actions.add_argument("--renew-if-due", type=Path, metavar="REPOSITORY",
                          help="verify the staging tree and sign when at most three days remain")
     actions.add_argument("--check", type=Path, metavar="INRELEASE")
+    actions.add_argument("--prepare-renewal", type=Path, metavar="PUBLISHED_REPOSITORY")
     actions.add_argument("--publish-renewal", type=Path, metavar="LIVE_REPOSITORY")
     parser.add_argument("--from-inrelease", type=Path, metavar="SIGNED_RENEWAL")
     parser.add_argument("--expected-inrelease-sha256", metavar="SHA256")
@@ -293,7 +363,18 @@ def main() -> None:
         build(args.deb, args.output, args.signing_fingerprint, codename=args.codename)
         return
     if args.keyring is None:
-        parser.error("--renew, --renew-if-due and --check require --keyring")
+        parser.error("verification and renewal require --keyring")
+    if args.prepare_renewal is not None:
+        if args.output is None:
+            parser.error("--prepare-renewal requires --output")
+        candidate = prepare_renewal(
+            args.prepare_renewal, args.output, args.keyring, args.signing_fingerprint, codename=args.codename,
+        )
+        if candidate is None:
+            print("Verified repository: renewal not due")
+        else:
+            print(f"Prepared renewal {candidate}")
+        return
     repository = args.renew or args.renew_if_due
     if repository is not None:
         expiry = renew(repository, args.keyring, args.signing_fingerprint, codename=args.codename,

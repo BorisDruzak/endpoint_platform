@@ -210,3 +210,35 @@ def test_publish_renewal_rechecks_live_hash_at_commit(renewal_for_publication, c
         apt.publish_renewal(root, candidate, expected, keyring, fingerprint, codename=codename, now=now)
     assert current.read_bytes() == replacement
     assert current.with_name("Release").read_bytes() == original
+
+
+@pytest.mark.parametrize("codename", ["noble", "bookworm"])
+def test_prepare_renewal_exports_candidate_without_changing_source(renewal_for_publication, codename, tmp_path):
+    root, current, _, _, _, _, _, now, keyring, fingerprint = renewal_for_publication
+    original = current.read_bytes()
+    output = tmp_path / "outgoing"
+    sha = hashlib.sha256(original).hexdigest()
+    expected = output / codename / sha / "InRelease"
+
+    assert apt.prepare_renewal(root, output, keyring, fingerprint, now=now, codename=codename) == expected
+    prepared = expected.read_bytes()
+    assert format_datetime(now + timedelta(days=7), usegmt=True).encode() in prepared
+    assert apt.prepare_renewal(
+        root, output, keyring, fingerprint, now=now + timedelta(days=1), codename=codename,
+    ) == expected
+    assert expected.read_bytes() == prepared
+    assert current.read_bytes() == original
+    assert current.with_name("Release").read_bytes() == original
+
+
+@pytest.mark.parametrize("codename", ["noble"])
+def test_prepare_renewal_does_not_create_output_when_fresh(renewal_for_publication, codename, tmp_path):
+    root, current, _, _, _, _, _, now, keyring, fingerprint = renewal_for_publication
+    original = current.read_bytes()
+    output = tmp_path / "outgoing"
+
+    assert apt.prepare_renewal(
+        root, output, keyring, fingerprint, now=now - timedelta(seconds=1), codename=codename,
+    ) is None
+    assert not output.exists()
+    assert current.read_bytes() == original
