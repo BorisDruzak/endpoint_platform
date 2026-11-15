@@ -479,9 +479,15 @@ with the expected MSI ProductCode absent and seven zero-filled payload files.
 Both retained MSI copies match the signed artifact. Exact Setup returned 20
 (PROVENANCE_CONFLICT) before enrollment and preserved the original transaction.
 The isolated campaign was revoked and the lab Gateway restored. VM147 stays
-stopped and isolated with the power-cut and held snapshots. Storage durability,
-signed lifecycle acceptance after successful recovery and production
-qualification remain open.
+stopped and isolated with the power-cut and held snapshots. All seven damaged
+files on VM147 have resident NTFS data streams. The intact current selector
+also has a resident stream. A clean VM149 clone recovered the exact signed
+3.2.229 transaction from msi-starting after power loss. It returned 0,
+completed one enrollment and retained one installed event and ACK under the
+original transaction. Reboot preserved WSS and the four identity files.
+The scoped campaign and credential were revoked, the lab Gateway restored and
+VM149 removed. Storage durability and safe recovery for the damaged VM147
+state, the other source profiles and production qualification remain open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
