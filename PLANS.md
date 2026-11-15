@@ -541,6 +541,17 @@ and credential were revoked, the original lab services restored, the scratch
 catalog and VM152 with its disk and ISO removed. Recovery of the previously
 damaged VM147 and VM149 states and qualification of other OS/source profiles
 remain open.
+Read-only tests on a temporary clone of VM149 isolated the failure to the
+registered LocalPackage. The exact protected MSI opened successfully and
+returned 0 for CostInitialize, FileCost and CostFinalize. The registered cache
+returned 110 from MsiOpenDatabase and the installed product returned 1620
+from MsiOpenProduct despite reporting state 5. The fence, plan and cache
+hashes stayed unchanged. The temporary clone and disk were removed.
+For VM147, read-only extraction from exact signed Setup 3.2.229 media
+recovered the expected bytes for all seven zero-filled files. Six match the
+installed-runtime manifest and the seventh matches the MSI marker and Core
+component identity. Recovery of the files and native registration has yet
+to be tested on a clone of the held state.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
