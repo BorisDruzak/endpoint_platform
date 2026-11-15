@@ -1040,6 +1040,38 @@ def verify_installed(package: PackageInventory, install_root: Path, *, native=No
     _verify_components(package,install_root,native,package.components.values())
 
 
+def persist_installed(package: PackageInventory, install_root: Path) -> None:
+    """Flush the verified package's files, directory entries and registration."""
+    from . import durable_state
+
+    install_root = install_root.absolute()
+    directories = {install_root, install_root.parent}
+    for item in package.files:
+        path = install_root / item.path
+        durable_state.flush_existing_file(path, trusted_root=install_root)
+        for directory in path.parents:
+            if directory == install_root:
+                break
+            directories.add(directory)
+    for directory in sorted(directories, key=lambda path: (-len(path.parts), path)):
+        durable_state.flush_directory(directory)
+    _flush_installation_registry()
+
+
+def _flush_installation_registry() -> None:
+    import winreg
+    from .durable_state import installer_mutation_checkpoint
+
+    # RegFlushKey persists the hive containing the key. MSI registration
+    # resides in SOFTWARE and native service registration resides in SYSTEM.
+    for subkey in (r'SOFTWARE\Microsoft\Windows\CurrentVersion\Installer',
+                   r'SYSTEM\CurrentControlSet\Services'):
+        installer_mutation_checkpoint()
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, subkey, 0,
+                            winreg.KEY_QUERY_VALUE | winreg.KEY_WOW64_64KEY) as key:
+            winreg.FlushKey(key)
+
+
 def verify_foundation(package: PackageInventory, install_root: Path, *, native=None,expected=None) -> str:
     native=native or NativeMsi()
     state=installed_feature_state(package,native=native)

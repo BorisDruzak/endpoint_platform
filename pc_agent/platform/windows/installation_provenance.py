@@ -1096,6 +1096,9 @@ def reconcile_installed_core(paths: WindowsUpdatePaths, expected_msi, *, native_
         _read(root / 'handoff-manifest.json', MAX_MANIFEST_BYTES)
     elif _present(candidate_root / ZIP_RECEIPT):
         raise ProvenanceConflict()
+    # Native registration and readable files can still be buffered after MSI
+    # returns. Persist them before publishing our own ownership records.
+    msi_inventory.persist_installed(expected.package, paths.install_root)
     for archive_id in plan['archives']:
         from .runtime_identity import verify_retained_archive
         retained = verify_retained_archive(paths, archive_id)

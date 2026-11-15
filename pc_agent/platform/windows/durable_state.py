@@ -458,6 +458,31 @@ def durable_rename_directory(source: Path, destination: Path, *, trusted_root: P
         flush_directory(destination.parent)
 
 
+def flush_existing_file(path: Path, *, trusted_root: Path) -> None:
+    """Flush an existing file within a caller-validated Windows directory."""
+    import pywintypes
+    import win32con
+    import win32file
+    import win32timezone  # noqa: F401
+
+    path = _checked_path(path, trusted_root)
+    installer_mutation_checkpoint()
+    try:
+        handle = win32file.CreateFile(
+            str(path), win32con.GENERIC_WRITE, win32con.FILE_SHARE_READ, None,
+            win32con.OPEN_EXISTING, win32file.FILE_FLAG_OPEN_REPARSE_POINT, None,
+        )
+        try:
+            attributes = win32file.GetFileInformationByHandle(handle)[0]
+            if attributes & (_REPARSE_POINT | win32con.FILE_ATTRIBUTE_DIRECTORY):
+                raise ValueError("state handle is not a regular file")
+            win32file.FlushFileBuffers(handle)
+        finally:
+            handle.Close()
+    except pywintypes.error as error:
+        raise OSError(None, str(error), str(path), error.winerror) from error
+
+
 def flush_directory(path: Path) -> None:
     """Persist metadata; surface native Windows failures as chained OSError."""
     path = path.absolute()

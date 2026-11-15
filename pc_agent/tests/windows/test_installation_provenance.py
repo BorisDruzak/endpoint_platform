@@ -431,6 +431,7 @@ def handoff_input(tmp_path, monkeypatch):
     expected=msi_inventory.ExpectedMsi(package,identity,manifest,(root/'endpoint-runtime-contract.json').read_bytes(),tuple(foundation))
     monkeypatch.setattr(msi_inventory,'read_expected_package',lambda *_:expected)
     monkeypatch.setattr(msi_inventory,'verify_installed',lambda *_:None)
+    monkeypatch.setattr(msi_inventory,'persist_installed',lambda *_:None)
     def foundation_verified(_package,install_root,*,expected):
         with msi_inventory.verified_foundation_bytes(expected,install_root): pass
         return 'complete'
@@ -695,6 +696,44 @@ def test_recovery_accepts_only_inventoried_partial_candidate_and_saved_selectors
     (root/'unrelated.txt').write_bytes(b'unknown evidence')
     with pytest.raises(module.ProvenanceConflict): module.validate_interrupted_reconciliation(paths,request)
     assert (root/'unrelated.txt').read_bytes()==b'unknown evidence'
+
+
+def test_native_flush_failure_preserves_prepared_plan_and_allows_retry(handoff_input, monkeypatch):
+    from pc_agent.platform.windows import msi_inventory
+
+    module, paths, root, request, expected = handoff_input
+    assert module.prepare_installer_provenance(paths, request) == 'handoff'
+    (root / '.endpoint-msi-runtime.json').write_text(json.dumps({
+        'schema_version': 1,
+        'version': '3.2.82',
+        'component_guid': '33333333-3333-4333-8333-333333333333',
+    }))
+    state_root = paths.install_root.parent / 'installer-state'
+    plan = state_root / 'provenance' / request['transaction_id'] / 'plan.json'
+    original_plan = plan.read_bytes()
+    original_selector = paths.current_path.read_bytes()
+    receipt = root / '.endpoint-update.json'
+    original_receipt = receipt.read_bytes()
+    attempts = []
+
+    def persist(package, install_root):
+        assert package == expected.package and install_root == paths.install_root
+        assert plan.read_bytes() == original_plan
+        assert not (state_root / 'foundation.json').exists()
+        attempts.append(package)
+        if len(attempts) == 1:
+            raise OSError('native persistence failed')
+
+    monkeypatch.setattr(msi_inventory, 'persist_installed', persist)
+    with pytest.raises(OSError, match='native persistence failed'):
+        module.reconcile_installed_core(paths, request)
+    assert plan.read_bytes() == original_plan
+    assert paths.current_path.read_bytes() == original_selector
+    assert receipt.read_bytes() == original_receipt
+
+    assert module.reconcile_installed_core(paths, request) == 'handoff'
+    assert len(attempts) == 2
+    assert json.loads(plan.read_bytes())['phase'] == 'complete'
 
 
 def test_completed_reconciliation_preserves_zeroed_known_payload_as_conflicting_evidence(handoff_input):

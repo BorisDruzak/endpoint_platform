@@ -47,6 +47,28 @@ def test_live_complete_product_identity(tmp_path):
     module.verify_installed(package(module), tmp_path, native=native)
 
 
+def test_persist_installed_flushes_package_files_before_directories_and_registry(tmp_path, monkeypatch):
+    from pc_agent.platform.windows import durable_state, msi_inventory as module
+
+    install_root = tmp_path / 'Agent'
+    inventory = package(module)
+    payload = install_root / inventory.files[0].path
+    calls = []
+
+    def flush_file(path, *, trusted_root):
+        assert trusted_root == install_root
+        calls.append(path)
+
+    monkeypatch.setattr(durable_state, 'flush_existing_file', flush_file)
+    monkeypatch.setattr(durable_state, 'flush_directory', calls.append)
+    monkeypatch.setattr(module, '_flush_installation_registry', lambda: calls.append('registry'))
+
+    module.persist_installed(inventory, install_root)
+
+    assert calls == [payload, payload.parent, install_root / 'versions',
+                     install_root, tmp_path, 'registry']
+
+
 def test_foundation_verification_rejects_missing_component_with_runtime_retired(tmp_path):
     from dataclasses import replace
     from pc_agent.platform.windows import msi_inventory as module
