@@ -401,9 +401,12 @@ stayed pending. A separate run recorded an explicit disable before
 native removal. Gateway acknowledged the next original event pair
 and consumed one rebind for the install event. Support advanced from
 generation 2 to 3 with access disabled. Core and Support were fresh
-and the retry task retired without another MSI operation. Independent
-SSH, rollback, forced interruption and interactive UserSensor remain
-open for this Windows 10 profile.
+and the retry task retired without another MSI operation. A temporary
+lab policy confirmed UUID-pinned SSH on VM143 while Core and updater
+were stopped and Setup Observer was disabled. The policy was disabled,
+the broker port closed, the temporary principal and key removed,
+and Core returned to WSS. Rollback, forced interruption and interactive
+UserSensor remain open for this Windows 10 profile.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
