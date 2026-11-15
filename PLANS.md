@@ -678,7 +678,15 @@ sample and an ACTIVE interval under the device-only privacy policy,
 with application, category and browser fields empty. The device card,
 four identity files and sequence-8 history matched the source.
 The temporary user, profile, VM151 and isolated database were removed.
-Interruption recovery and independent SSH remain open.
+A separate VM151 clone verified Support 1.1.9 through its loopback
+broker port under a ten-minute policy. Strict SSH with the device
+host key returned the temporary local administrator while Core and
+updater were stopped and the Setup Observer was disabled. The API
+recorded an operator attestation. Disabling the policy closed the
+broker port. The observer and service states were restored, fresh WSS
+returned after reboot, and temporary account, keys, VM and database
+were removed. The baseline lab exporter was restarted after its
+configured two-hour timeout. Interruption recovery remains open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
