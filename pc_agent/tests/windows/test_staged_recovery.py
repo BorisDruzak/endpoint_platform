@@ -89,6 +89,51 @@ def test_companion_session_changes_during_update():
     assert companion_restore_decisions(before, [{'session_id':2,'sid':'S-1-5-21-100'}]) == before
 
 
+@pytest.mark.parametrize(('schema', 'user_id', 'resolved_sid', 'rights', 'accepted'), [
+    ('1.2', r'HOST\User', 'S-1-5-21-10-20-30-1001', 'GRGX', True),
+    ('1.2', r'HOST\User', 'S-1-5-21-10-20-30-1002', 'GRGX', False),
+    ('1.2', r'HOST\User', None, 'GRGX', False),
+    ('1.2', 'User', 'S-1-5-21-10-20-30-1001', 'GRGX', False),
+    ('1.3', r'HOST\User', 'S-1-5-21-10-20-30-1001', 'GRGX', False),
+    ('1.4', 'S-1-5-21-10-20-30-1001', None, 'GRGX', True),
+    ('1.4', 'S-1-5-21-10-20-30-1001', None, 'GRGWGX', False),
+])
+def test_companion_launcher_legacy_principal_matches_original_sid(
+    tmp_path, monkeypatch, schema, user_id, resolved_sid, rights, accepted,
+):
+    win32security = pytest.importorskip('win32security')
+    from xml.sax.saxutils import escape
+    from pc_agent.platform.windows.staged_recovery import _validate_companion_launcher
+
+    expected_sid = 'S-1-5-21-10-20-30-1001'
+    executable = escape(str(tmp_path / 'EndpointUserSensor.exe'))
+    xml = f'''<Task version="{schema}" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+      <Principals><Principal><UserId>{user_id}</UserId></Principal></Principals>
+      <Actions><Exec><Command>{executable}</Command></Exec></Actions>
+    </Task>'''
+    task = SimpleNamespace(
+        Xml=xml,
+        Definition=SimpleNamespace(Principal=SimpleNamespace(LogonType=3, RunLevel=0),
+                                   Settings=SimpleNamespace(MultipleInstances=2)),
+        GetSecurityDescriptor=lambda _: f'O:BAG:BAD:P(A;;FA;;;SY)(A;;{rights};;;{expected_sid})',
+    )
+
+    def lookup(system, account):
+        assert system is None and account == r'HOST\User'
+        if resolved_sid is None:
+            raise win32security.error(1332, 'LookupAccountName', 'No account mapping')
+        return win32security.ConvertStringSidToSid(resolved_sid), 'HOST', win32security.SidTypeUser
+
+    monkeypatch.setattr(win32security, 'LookupAccountName', lookup)
+    paths = SimpleNamespace(install_root=tmp_path)
+    item = {'role': 'sensor', 'session_id': 1, 'sid': expected_sid}
+    if accepted:
+        _validate_companion_launcher(task, paths, item)
+    else:
+        with pytest.raises(ValueError, match='RECOVERY_REQUIRED'):
+            _validate_companion_launcher(task, paths, item)
+
+
 def test_setup_recovery_dispatch_does_not_enter_enrollment(monkeypatch):
     from pc_agent.platform.windows import setup_entry
     operation = str(uuid4()); calls = []

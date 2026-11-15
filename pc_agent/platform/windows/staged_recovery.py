@@ -576,7 +576,6 @@ def _validate_companion_launcher(task, paths, item):
     actions = xml.findall('{*}Actions/{*}Exec')
     principal = task.Definition.Principal
     if (len(xml.findall('{*}Principals/{*}Principal')) != 1
-            or xml.findtext('{*}Principals/{*}Principal/{*}UserId') != item['sid']
             or principal.LogonType != 3 or principal.RunLevel != 0
             or xml.findall('{*}Triggers/*') or task.Definition.Settings.MultipleInstances != 2
             or len(actions) != 1 or len(xml.findall('{*}Actions/*')) != 1
@@ -584,6 +583,19 @@ def _validate_companion_launcher(task, paths, item):
             or actions[0].findtext('{*}Arguments') not in (None, '')
             or actions[0].findtext('{*}WorkingDirectory') not in (None, '')):
         _fail()
+    user_id = xml.findtext('{*}Principals/{*}Principal/{*}UserId', default='')
+    if user_id != item['sid']:
+        # Server 2012 R2 can export interactive launchers as schema 1.2 with a
+        # qualified account name. Resolve it back to the captured session SID.
+        domain, _, user = user_id.partition('\\')
+        if xml.get('version') != '1.2' or not domain or not user or '\\' in user:
+            _fail()
+        try:
+            sid, _, account_type = win32security.LookupAccountName(None, user_id)
+        except win32security.error:
+            _fail()
+        if account_type != win32security.SidTypeUser or win32security.ConvertSidToStringSid(sid) != item['sid']:
+            _fail()
     descriptor = win32security.ConvertStringSecurityDescriptorToSecurityDescriptor(task.GetSecurityDescriptor(7), 1)
     owner, acl = descriptor.GetSecurityDescriptorOwner(), descriptor.GetSecurityDescriptorDacl()
     admins = {'S-1-5-18', 'S-1-5-32-544'}
@@ -592,6 +604,8 @@ def _validate_companion_launcher(task, paths, item):
     for index in range(acl.GetAceCount()):
         kind, mask, sid = acl.GetAce(index)
         sid = win32security.ConvertSidToStringSid(sid)
+        # pywin32 returns the DWORD as signed when GENERIC_READ is set.
+        mask &= 0xFFFFFFFF
         if kind[0] != 0 or sid not in admins | {item['sid']} or (sid == item['sid'] and mask & ~0xA01200A9):
             _fail()
 
