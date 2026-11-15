@@ -388,8 +388,12 @@ MSI 3.2.192 with native exit 0 and one accepted installation event.
 An isolated lab identity was established before the source baseline.
 All four identity files matched after upgrade and reboot. Gateway
 received WSS from the same device after reboot and completed five new
-context collections. Same-version repair, offline reinstall, rollback,
-interactive UserSensor and independent Support remain open for this pair.
+context collections. The same signed 3.2.226 media restored a missing
+Core service registration while offline on VM143. The native event
+survived an offline reboot. Gateway acknowledged it once after reconnect,
+and the retry task retired without another MSI operation. Offline
+reinstall, rollback, forced interruption, interactive UserSensor and
+independent Support remain open for this Windows 10 profile.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
