@@ -361,6 +361,13 @@ signatures. An isolated failure test produced error-priority journal entries
 for both suites and exit 1. Ordinary APT accepted both live suites with the
 existing CA and signed-by keyring in a temporary lists directory. Production
 publisher ownership, alert delivery to the publisher and live renewal remain open.
+The [STAB-17 rehearsal](docs/verification/2026-11-16-stab17-apt-renewal-rehearsal.md)
+verified the signatures and SHA-256 chain for both live indexes and all eight
+published DEBs. The scheduled pilot check exited 0. Ordinary APT accepted
+both live suites over HTTPS and identified the expected candidates. Copies of
+those exact repositories were renewed under an isolated rehearsal signer.
+APT accepted both renewed copies and downloaded the candidates with their
+original hashes. The temporary copies and key were removed.
 Release evidence requires an exact-source CI receipt before publication.
 STAB-15: the [release qualification matrix](docs/verification/2026-11-14-agent-release-qualification-matrix.md)
 records installed canary evidence by OS, exact source and signed artifact.
