@@ -565,8 +565,20 @@ returned 0, completed one AUTO request and received one ACK for the
 original installed event. Reboot opened a fresh WSS session on the same
 card with four identical private files. Both clones and the temporary
 catalog were removed, the scoped credential and campaign were revoked
-and the original lab services restored. Unattended recovery for this
-damage profile and VM149 recache remain open.
+and the original lab services restored.
+On an offline clone of the VM149 hold, all 14,804 differing 4 KiB
+LocalPackage blocks were entirely zero. The other bytes matched the
+exact signed 3.2.230 MSI. Restoring only those blocks in the clone
+preserved the file ID, ACL, registered path, fence, plan and selector.
+The cache matched the signed MSI and both MsiOpenDatabase and
+MsiOpenProduct returned 0. The first Setup invocation with the scoped
+Gateway accessible completed the original native transaction at sequence
+10 and received an ACK for its only installed event. Normal reboot
+preserved the cache, all 121 runtime files and four private files. The
+agent opened a new WSS session on the same card. The clone, scratch
+database and temporary artifacts were removed. The scoped credential and
+campaign were revoked and the original lab services restored. Unattended
+recovery from the previously damaged 3.2.229 and 3.2.230 states remains open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
