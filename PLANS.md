@@ -10,6 +10,14 @@ separately at `5bdb4a6f319628dff135919a2b6f7e819b8f4b22`. See the
 for source parity, package identity, dependencies and pending release evidence.
 
 Current: production source captured, recovery regression verified on both bases.
+STAB-14 server candidate `bcf31dc22217` passed the full isolated Linux,
+Windows and Console gates, the 0051 to 0053 migration rehearsal and
+the packaged API smoke check. Two archive builds matched byte for byte.
+Production remains on 0051. Its release volume had 7.79 GiB free against
+the 10 GiB gate, and the volume group had 27.0 GiB unallocated. On the
+separate signed Windows Setup 3.2.236 source `57a86985b8be`, the full
+Windows gate passed and both installer hashes and signatures were verified.
+The GitHub Actions receipt and publication remain open.
 STAB-01 source: WSS bounded FIFO and separate command task, fixed worker
 process with capability budgets, deadline admission and owned process-tree
 cleanup. HTTP pull remains sequential. Windows source fault injection covers
