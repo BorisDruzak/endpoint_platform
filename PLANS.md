@@ -412,7 +412,12 @@ Ubuntu 24.04.5 VM installed the signed Noble DEB from the same source and
 confirmed 201/204 and one enrollment audit through the real Gateway.
 Its stock unit opened a new WSS session after reboot with the same device,
 credentials, origin and CA. The Ubuntu VM, disk and test media were removed.
-Production publication and the Proxmox verification remain open.
+The identical signed Bookworm DEB passed on isolated nested Proxmox VE 8.4.0.
+The real Gateway returned 201/204, retained one registration and cleared its
+retry envelope. The stock systemd unit sent a heartbeat and `health_v1` in a
+new WSS session after reboot, with the same identity, credentials, origin and
+CA. The temporary Proxmox VM, disk and payload ISO were removed. Production
+publication remains open.
 Ubuntu VM138 built the exact Core in an isolated dependency path and exercised
 upgrade, failed-service repair, manual stop, masking, rollback, offline
 reinstall, and reboot with a local TLS peer. One rollback startup failed in
