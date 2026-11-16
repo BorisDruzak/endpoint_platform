@@ -367,7 +367,13 @@ Exact same-version reinstall recovered the half-installed package and passed
 dpkg integrity and identity checks. Gateway persisted a new heartbeat in
 the post-reinstall session with the original device ID.
 The worker removed the expired retry envelope and wrote the periodic cleanup
-audit event. Direct enrollment delivery acknowledgement remains open.
+audit event. Linux first-boot bootstrap now sends the existing delivery
+acknowledgment after verifying the credential and identity files and
+persisting the claim-removal request. A loopback TLS run against the actual
+Endpoint API and PostgreSQL 16.15 returned 201 then 204, removed the one
+envelope and recorded one acknowledgment audit event. A failed ACK leaves
+the verified enrollment usable and allows server expiry cleanup. The
+refreshed signed DEB and installed-service acceptance remain open.
 Ubuntu VM138 built the exact Core in an isolated dependency path and exercised
 upgrade, failed-service repair, manual stop, masking, rollback, offline
 reinstall, and reboot with a local TLS peer. One rollback startup failed in
