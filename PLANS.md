@@ -1277,6 +1277,11 @@ runs exceeded the 5 s delivery and 1 s reconnect start and result
 targets. Reconnect start moved in opposite directions. Result ACK p95
 rose by 6.5–203.2 ms in both pairs. The isolated comparison preserved all
 history and verified all 256 snapshots per run.
+A second indexed 192-client comparison held the dispatcher constant and
+changed its limit from eight to four concurrent deliveries. Online delivery
+p95 increased by 0.983–3.269 s in both pairs. Reconnect start and result
+ACK improved, with all runs still over the 1 s targets. Four is excluded
+from this capacity profile and the candidate keeps eight.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
