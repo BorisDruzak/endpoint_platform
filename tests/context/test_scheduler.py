@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
@@ -13,7 +13,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from endpoint_server.context.models import ContextCollection
-from endpoint_server.context.scheduler import schedule_due_collections
+from endpoint_server.context.scheduler import schedule_due_collections, schedule_due_collections_with_backlog
 from endpoint_server.db.models import Command, CommandResult, Device
 from tests.server.test_update_postgresql import update_service_database_url, update_service_provider
 
@@ -129,8 +129,6 @@ async def test_scheduler_inserts_new_collections_with_deadlines(session: AsyncSe
 
 @pytest.mark.asyncio
 async def test_scheduler_measures_lateness_for_work_it_actually_enqueues(session):
-    from endpoint_server.context.scheduler import schedule_due_collections_with_backlog
-
     device = Device(device_identifier="scheduler-age", created_at=NOW - timedelta(minutes=2))
     retired = Device(device_identifier="retired-age", created_at=NOW - timedelta(days=3), retired_at=NOW)
     session.add_all([device, retired])
@@ -150,6 +148,35 @@ async def test_scheduler_measures_lateness_for_work_it_actually_enqueues(session
     assert (observed.created, observed.oldest_due_age_seconds) == (3, 240)
     repeated = await schedule_due_collections_with_backlog(session, now=NOW)
     assert (repeated.created, repeated.oldest_due_age_seconds) == (0, 0)
+
+
+@pytest.mark.asyncio
+async def test_scheduler_pages_by_device_and_retries_a_rolled_back_page(session):
+    first_id, retired_id, second_id, third_id = (UUID(int=value) for value in range(1, 5))
+    session.add_all([
+        Device(id=device_id, device_identifier=str(device_id), created_at=NOW,
+               retired_at=NOW if device_id == retired_id else None)
+        for device_id in (third_id, retired_id, second_id, first_id)
+    ])
+    await session.commit()
+
+    first = await schedule_due_collections_with_backlog(session, now=NOW, page_size=1)
+    assert (first.created, first.next_device_id) == (5, first_id)
+    await session.commit()
+
+    abandoned = await schedule_due_collections_with_backlog(
+        session, now=NOW, page_size=1, after_device_id=first.next_device_id,
+    )
+    assert (abandoned.created, abandoned.next_device_id) == (5, second_id)
+    await session.rollback()
+
+    resumed = await schedule_due_collections_with_backlog(
+        session, now=NOW, page_size=2, after_device_id=first.next_device_id,
+    )
+    assert (resumed.created, resumed.next_device_id) == (10, None)
+    await session.commit()
+    device_ids = (await session.scalars(select(ContextCollection.device_id))).all()
+    assert sorted(device_ids) == sorted([first_id, second_id, third_id] * 5)
 
 
 @pytest.mark.asyncio

@@ -27,6 +27,7 @@ class ContextScheduleRule:
 class ContextScheduleBatch:
     created: int
     oldest_due_age_seconds: float
+    next_device_id: UUID | None = None
 
 
 SCHEDULE_RULES: tuple[ContextScheduleRule, ...] = (
@@ -129,22 +130,37 @@ async def schedule_due_collections_with_backlog(
     session: AsyncSession,
     *,
     now: datetime | None = None,
+    after_device_id: UUID | None = None,
+    page_size: int | None = None,
 ) -> ContextScheduleBatch:
-    """Create at most one active fixed-profile request for every active device.
+    """Create at most one active request per fixed profile for the selected devices.
 
     A device/profile advisory lock protects the no-row case that a normal row
     lock cannot cover.  Each request gets an interval-bounded expiry, so an
     offline agent cannot leave the periodic scheduler blocked indefinitely.
     """
+    if page_size is not None and page_size < 1:
+        raise ValueError("context schedule page size must be positive")
     scheduled_at = _now(now)
-    devices = (await session.scalars(
-        select(Device).where(Device.retired_at.is_(None)).order_by(Device.id)
-    )).all()
+    candidate_ids = select(Device.id).where(Device.retired_at.is_(None)).order_by(Device.id)
+    if after_device_id is not None:
+        candidate_ids = candidate_ids.where(Device.id > after_device_id)
+    if page_size is not None:
+        candidate_ids = candidate_ids.limit(page_size + 1)
+    device_ids = (await session.scalars(candidate_ids)).all()
+    next_device_id = None
+    if page_size is not None and len(device_ids) > page_size:
+        device_ids = device_ids[:page_size]
+        next_device_id = device_ids[-1]
     created = 0
     oldest_due_age = 0.0
-    for device in devices:
+    for device_id in device_ids:
         from endpoint_server.installation_lifecycle.service import removed
-        await session.scalar(select(Device).where(Device.id == device.id).with_for_update())
+        device = await session.scalar(
+            select(Device).where(Device.id == device_id, Device.retired_at.is_(None)).with_for_update()
+        )
+        if device is None:
+            continue
         await _expire_overdue_scheduled_collections(session, now=scheduled_at, device_id=device.id)
         if await removed(session, device.id):
             continue
@@ -175,7 +191,7 @@ async def schedule_due_collections_with_backlog(
                 created += 1
                 oldest_due_age = max(oldest_due_age, overdue.total_seconds())
     await session.flush()
-    return ContextScheduleBatch(created, oldest_due_age)
+    return ContextScheduleBatch(created, oldest_due_age, next_device_id)
 
 
 __all__ = ["ContextScheduleRule", "SCHEDULE_RULES", "schedule_due_collections"]

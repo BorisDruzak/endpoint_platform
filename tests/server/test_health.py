@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from ipaddress import ip_network
 from pathlib import Path
 from typing import AsyncIterator
+from uuid import UUID
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -473,7 +474,7 @@ async def test_worker_isolates_context_scheduler_failure(
     provider = WorkerSessionProvider()
     retained = asyncio.Event()
 
-    async def failing_scheduler(_: WorkerSession) -> int:
+    async def failing_scheduler(_: WorkerSession, **_options) -> int:
         raise RuntimeError("scheduler database fault")
 
     async def successful_retention(_: WorkerSession) -> int:
@@ -502,6 +503,42 @@ async def test_worker_isolates_context_scheduler_failure(
 
 
 @pytest.mark.asyncio
+async def test_worker_retries_context_schedule_from_last_committed_page(monkeypatch):
+    from endpoint_server import worker
+
+    provider = WorkerSessionProvider()
+    jobs = worker.MaintenanceJobs(provider)
+    first, second = UUID(int=1), UUID(int=2)
+    cursors = []
+    times = []
+    original_commit = provider.session.commit
+
+    async def schedule(_session, *, now, page_size, after_device_id):
+        assert page_size == 16
+        cursors.append(after_device_id)
+        times.append(now)
+        next_device = {None: first, first: second, second: None}[after_device_id]
+        return worker.ContextScheduleBatch(1, 1.0, next_device)
+
+    async def commit():
+        if len(cursors) == 2:
+            raise RuntimeError("commit failed")
+        await original_commit()
+
+    monkeypatch.setattr(worker, "schedule_due_collections_with_backlog", schedule)
+    monkeypatch.setattr(provider.session, "commit", commit)
+    due_at = asyncio.get_running_loop().time()
+
+    cursor = await worker._run_context_schedule(jobs, due_at=due_at, after_device_id=None)
+    assert cursor == first
+    assert await worker._run_context_schedule(jobs, due_at=due_at, after_device_id=cursor) is None
+    assert cursors == [None, first, first, second]
+    assert times[0] == times[1] and times[2] == times[3]
+    assert provider.session.commit_calls == 3
+    assert provider.session.rollback_calls == 1
+
+
+@pytest.mark.asyncio
 async def test_worker_reports_context_lateness_only_after_commit(monkeypatch, caplog):
     from endpoint_server import worker
 
@@ -509,7 +546,7 @@ async def test_worker_reports_context_lateness_only_after_commit(monkeypatch, ca
     sampled = asyncio.Event()
     calls = 0
 
-    async def schedule(_session):
+    async def schedule(_session, **_options):
         nonlocal calls
         calls += 1
         return worker.ContextScheduleBatch(1, 240.0)

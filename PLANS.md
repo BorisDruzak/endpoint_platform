@@ -808,8 +808,14 @@ result acknowledgements met one second in the periodic wave and exceeded
 it on reconnect. Gateway now skips the replaced socket's close query when
 the committed replacement transaction confirms closure of that session.
 At 96 devices this eliminated 96 redundant closes in each fixed run.
-Reconnect result ACK improved to 1.65–1.89 s at p95. Delivery and
-reconnect latency targets and production-scale qualification remain open.
+Reconnect result ACK improved to 1.65–1.89 s at p95 in that comparison.
+The worker now commits periodic requests in 16-device transactions and
+resumes from the last confirmed page after a failed commit. In paired
+96-device runs, 32–39 commands reached clients before the final commit.
+Periodic delivery p95 was 4.82–5.47 s and only one run met the 5 s target.
+Reconnect result ACK was 2.15–2.27 s at p95 in the paged-worker runs.
+Delivery and reconnect targets and production-scale qualification remain
+open.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API

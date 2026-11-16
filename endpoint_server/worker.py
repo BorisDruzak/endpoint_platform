@@ -9,7 +9,7 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
@@ -41,6 +41,8 @@ logger = logging.getLogger(__name__)
 _ARTIFACT_SPACE_WARNING_BYTES = 5 * 1024**3
 _DEFAULT_JOB_BUDGET_SECONDS = 15.0
 _ROLLBACK_BUDGET_SECONDS = 3.0
+_CONTEXT_SCHEDULE_PAGE_SIZE = 16
+_CONTEXT_SCHEDULE_MAX_PAGES = 64
 _JOB_BUDGETS = {
     "advance_preparations": 25.0,
     "schedule_fleet": 25.0,
@@ -219,6 +221,33 @@ def _next_periodic_deadline(due_at: float, interval: float, now: float) -> float
     return following if following > now else now + interval
 
 
+async def _run_context_schedule(
+    jobs: MaintenanceJobs, *, due_at: float, after_device_id: UUID | None,
+) -> UUID | None:
+    scheduled_at = datetime.now(UTC)
+
+    async def schedule_page(session):
+        return await schedule_due_collections_with_backlog(
+            session, now=scheduled_at, after_device_id=after_device_id,
+            page_size=_CONTEXT_SCHEDULE_PAGE_SIZE,
+        )
+
+    def record_page(result: object) -> float | None:
+        nonlocal after_device_id
+        if isinstance(result, ContextScheduleBatch):
+            # MaintenanceJobs calls this only after the transaction committed.
+            after_device_id = result.next_device_id
+            return result.oldest_due_age_seconds
+        return None
+
+    await jobs.run(
+        "schedule_due_collections", schedule_page, due_at=due_at, batches=_CONTEXT_SCHEDULE_MAX_PAGES,
+        continue_if=lambda result: isinstance(result, ContextScheduleBatch) and result.next_device_id is not None,
+        committed_backlog=record_page,
+    )
+    return after_device_id
+
+
 async def run_worker(
     settings: Settings,
     session_provider: SessionProvider | None = None,
@@ -243,6 +272,7 @@ async def run_worker(
     next_schedule = tick + context_schedule_interval_seconds
     next_retention = tick + context_retention_interval_seconds
     next_disk_check = tick
+    context_schedule_after = None
     try:
         while True:
             if loop.time() >= next_disk_check:
@@ -297,9 +327,8 @@ async def run_worker(
                 )
                 next_payload = _next_periodic_deadline(next_payload, cleanup_interval_seconds, loop.time())
             if loop.time() >= next_schedule:
-                await jobs.run(
-                    "schedule_due_collections", schedule_due_collections_with_backlog, due_at=next_schedule,
-                    committed_backlog=_committed_batch_backlog_age,
+                context_schedule_after = await _run_context_schedule(
+                    jobs, due_at=next_schedule, after_device_id=context_schedule_after,
                 )
                 next_schedule = _next_periodic_deadline(next_schedule, context_schedule_interval_seconds, loop.time())
             if loop.time() >= next_retention:
