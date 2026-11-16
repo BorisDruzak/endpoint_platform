@@ -85,7 +85,17 @@ heartbeat during the stalled call and then completed a healthy DNS request.
 Stopping the service during another resolver wait took 22.318 ms and reaped
 the owned worker. After restart PostgreSQL accepted one failed result and
 the local outbox emptied on ACK. The original resolver and Gateway were
-restored. Windows WMI and print spooler fault scenarios remain open.
+restored. The
+[Windows native wait receipt](docs/verification/2026-11-14-agent-release-qualification-matrix.md#ожидание-wmi-и-диспетчера-печати-в-windows-stab-01)
+covers installed Setup 3.2.237 on the isolated Windows 10 clone. While
+Spooler or Winmgmt was suspended, the same WSS session accepted heartbeat
+between each delivery ACK and result. The printer probe exited before
+Spooler resumed, with one typed failure; inventory returned partial
+`probe_unavailable` while WMI was held. After resuming both services,
+printer and full inventory reads succeeded. SCM stopped the agent during
+another real printer call in 579.518 ms and the child was gone. A fresh WSS
+session delivered one failed result and the SQLite outbox cleared.
+The temporary VM, disk, media and provider database were removed.
 STAB-03 source: bounded Windows Core cancellation,
 suspended launch into an owned Job, confirmed tree teardown and updater
 stop proof. On isolated VM143, SCM stopped the frozen launcher under
