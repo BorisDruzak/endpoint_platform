@@ -317,7 +317,17 @@ from the lock-aware writer. Windows source tests cover a real subprocess exit
 without cleanup and a concurrent check during an active transfer. An
 unconsumed, durable publication record allows recovery to retire the exact
 attempt ZIP left between ZIP promotion and pending publication. Recovery
-validates the digest and preserves changed bytes or active handoffs. Historical
+validates the digest and preserves changed bytes or active handoffs.
+Terminal Core cache cleanup now records the exact archive identity when
+Windows denies sharing or locking. The ordinary idle update check retries
+under the update mutex with a bounded byte budget, validates the archive
+digest and completes the directory flush before retiring the receipt.
+This applies after local acceptance and after the acknowledged failure or
+rollback. Six Windows regressions used a live NTFS handle without delete
+sharing and distinguished unchanged files, changed bytes and interruption
+after unlink. The wider Windows recovery suite passed 414 tests with one
+skip. Frozen installed artifacts still need a build and native verification
+of this change. Historical
 Core caches, scratch files from writers without the lock and archives tied to
 quarantined handoff records remain open, along with server deployment releases
 and retirement of catalog artifacts. The server archive ships both storage

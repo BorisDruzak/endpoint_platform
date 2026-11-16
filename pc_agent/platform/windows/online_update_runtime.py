@@ -22,7 +22,7 @@ from pc_agent.transport.base import GatewayCredentialRejected, GatewayTerminalEr
 from .update_paths import WindowsUpdatePaths
 from .update_download_retention import (
     TRANSFER_PREFIX, _assert_cache_security, own_core_download, retire_interrupted_core_downloads,
-    retire_update_download,
+    retire_update_download, retry_deferred_core_downloads,
 )
 from .update_transaction import update_transaction, UpdateInProgress, _read_state
 from .durable_state import (
@@ -162,9 +162,11 @@ class WindowsOnlineUpdateRuntime:
                 # Finish a visible handoff's directory barrier before SCM can
                 # consume it, including after a failed publication flush.
                 flush_directory(self._paths.updates_root)
-            elif not self._has_update_recovery_state() and self._prepared_download_present():
-                with own_core_download(self._paths):
-                    self._retire_prepared_download()
+            elif not self._has_update_recovery_state():
+                retry_deferred_core_downloads(self._paths)
+                if self._prepared_download_present():
+                    with own_core_download(self._paths):
+                        self._retire_prepared_download()
         if pending is not None:
             if not await self._adapter.record_scheduled_handoff(
                 pending["operation_id"], assigned_version=pending["version"], rollback_version=current,
@@ -465,7 +467,10 @@ class WindowsOnlineUpdateRuntime:
                     # The attempt uses DIRECTORY_ACL (Agent/Updater modify).
                     # Keep pending/outcome retry authority until it is retired.
                     if pending is not None:
-                        retire_update_download(self._paths, pending)
+                        retire_update_download(
+                            self._paths, pending, assert_security=_assert_cache_security,
+                            protect_receipt=self._acl.protect_update_path,
+                        )
                     durable_unlink(attempt_path, trusted_root=self._paths.updates_root, missing_ok=True)
                     durable_unlink(self._paths.pending_path, trusted_root=self._paths.updates_root, missing_ok=True)
                     durable_unlink(outcome_path, trusted_root=self._paths.updates_root, missing_ok=True)

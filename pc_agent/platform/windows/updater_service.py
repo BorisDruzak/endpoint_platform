@@ -740,7 +740,8 @@ class WindowsUpdater:
                 raise ValueError("accepted transition pending identity differs")
             self._validator._security.assert_update_path(self._paths.pending_path)
             retire_update_download(
-                self._paths, payload, assert_security=self._validator._security.assert_update_path
+                self._paths, payload, assert_security=self._validator._security.assert_update_path,
+                protect_receipt=PyWin32AclAdapter().protect_update_path,
             )
         durable_unlink(self._paths.pending_path, trusted_root=self._paths.updates_root, missing_ok=True)
         _clear_startup_attempt(self._paths)
