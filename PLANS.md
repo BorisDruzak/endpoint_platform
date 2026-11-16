@@ -1163,7 +1163,15 @@ The two candidate runs recovered queued work in 2.958 and 3.143 seconds.
 Start and result ACK p95 stayed below one second. Online delivery moved
 in opposite directions across pairs. An evening production counter sample
 measured 8.90–9.30 transactions per second for the active Helpdesk
-database. A representative Helpdesk application workload remains open.
+database. A later 62-second read-only production sample measured 10.00
+transactions/s and captured table activity. Registry identity reads led
+the sample. An isolated Helpdesk from installed staging source
+`473cdde4a70c` and schema 161 completed 90 authenticated HTTP requests
+across the queue, Studio catalog, service catalog and departments.
+At 3 requests/s the synthetic database measured 23.607 transactions/s.
+The application driver and counter profile are ready for the paired
+Gateway trial. Peak production mix and concurrent Gateway acceptance
+remain open.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
