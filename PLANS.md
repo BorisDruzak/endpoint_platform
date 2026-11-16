@@ -1324,6 +1324,12 @@ disk were removed. Achieved daily RPO still requires regular scheduled
 history and transaction evidence. Restored Worktime advertises the login
 option and denies anonymous access. External release-signing inputs and
 restored SSO sign-in remain open.
+The first permanent 04:00 run completed in 78 s with a new PBS archive
+at 23:00:04 UTC. Both earlier archives were retained and HTTPS, API and
+worker health were checked. The backup log skipped guest fs-freeze.
+VM115 has the virtio channel and Proxmox agent enabled, while the Ubuntu
+package and service are absent. Restore of this particular archive
+and an observed recurring RPO remain open.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
 
