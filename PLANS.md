@@ -1255,7 +1255,12 @@ On 258,478 synthetic PostgreSQL rows it replaced the sequential scan
 with an index scan and reduced P95 for 24 locked lookup samples from
 21.594 ms to 0.064 ms. The migration round trip preserved delivery
 rows and the Gateway and migration suites passed 222 tests.
-The index still needs a paired Gateway run with retained history.
+The 192-client Linux/TLS comparison then preloaded 258,478 deliveries
+in every database. With the same dispatcher and Helpdesk workload,
+0055 lowered online delivery p95 by 1.248–1.417 s and reconnect result
+ACK p95 by 0.260–0.534 s in both pairs. The indexed runs still had
+5.943–6.054 s delivery p95 and 1.512–1.634 s reconnect start p95.
+The 256 new snapshots and all pre-existing deliveries were verified.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
