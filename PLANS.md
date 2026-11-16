@@ -407,8 +407,12 @@ Gateway on a network-isolated Debian 12 VM with the stock systemd profile.
 Gateway returned 201/204 once, and PostgreSQL retained one delivery audit
 and no retry envelope. The installed unit sent a heartbeat on initial startup and after
 reboot on the same device with the original credentials, origin and CA.
-The temporary VM, disk and three test ISOs were removed. Production
-publication and corresponding Ubuntu and Proxmox verification remain open.
+The temporary Debian VM, disk and three test ISOs were removed. A separate
+Ubuntu 24.04.5 VM installed the signed Noble DEB from the same source and
+confirmed 201/204 and one enrollment audit through the real Gateway.
+Its stock unit opened a new WSS session after reboot with the same device,
+credentials, origin and CA. The Ubuntu VM, disk and test media were removed.
+Production publication and the Proxmox verification remain open.
 Ubuntu VM138 built the exact Core in an isolated dependency path and exercised
 upgrade, failed-service repair, manual stop, masking, rollback, offline
 reinstall, and reboot with a local TLS peer. One rollback startup failed in

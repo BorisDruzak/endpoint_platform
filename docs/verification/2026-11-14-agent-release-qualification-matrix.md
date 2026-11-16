@@ -522,6 +522,44 @@ baseline оставался `collecting` на момент диагностик�
 конфигурации совпали, установленный Core подтвердил исходную ревизию.
 VM остановлена. Этот DEB установлен локально через dpkg.
 
+### Подтверждение доставки Ubuntu через подписанный Noble APT
+
+Ubuntu DEB 3.2.205-1ubuntu1 собран на Ubuntu 24.04 из чистого
+`1481bae4a7fb4cea2b5774e08d0f6f69d6de2d37` с Python 3.12.3 и
+PyInstaller 6.19.0. SHA-256 пакета —
+`7de5c8fcd2ee590fd08accb8da98842e9ede4addfba40095b018487b8803f637`.
+Временная VM136 с Ubuntu 24.04.5 и ядром `6.8.0-147-generic`
+работала без сетевого адаптера. APT принял локальный подписанный
+Noble-индекс и скачал пакет с указанным SHA-256. Встроенная
+ревизия и версия установленного Core совпали с квитанцией сборки.
+
+Тот же исходный коммит Gateway работал на Python 3.12.3 и
+изолированном PostgreSQL 15.20 со схемой
+`0054_periodic_context_profiles`. Стенд выдал один claim.
+Установленный Core получил 201 и 204 от Gateway через HTTPS с
+проверкой имени и CA. При ACK существовали файлы идентичности,
+учётных данных и запроса удаления claim с правами 0600.
+PostgreSQL сохранил одну регистрацию, один
+`enrollment.delivery_acknowledged` и ноль конвертов повторной
+доставки. До запуска постоянной службы WSS-сессий было ноль.
+
+`endpoint-agent-ubuntu.service` открыл WSS и отправил heartbeat
+со штатными `LoadCredential`, `ProtectSystem=strict`,
+`ProtectHome=yes`, `PrivateTmp=yes` и `NoNewPrivileges=yes`.
+Проверка systemd показала пустой `DropInPaths`. После обычной
+перезагрузки сменились kernel boot ID и идентификатор WSS.
+Gateway принял heartbeat на прежней карточке. Повторной
+регистрации и подтверждения не было. Хеши учётных данных,
+идентичности, origin и CA совпали, `dpkg --audit` пуст.
+
+Временная Ubuntu VM136, её диск, два ISO и область стенда удалены.
+Квитанция `stock-vm-receipt.json` в
+`C:/endpoint-platform-wix-build/stab16-ubuntu-stock-ack`
+имеет SHA-256
+`38a19818b173b7169fa7e5c938f2ab55c1cb80dba7d1b5bdaf446f2b4c023edc`.
+Публикация Ubuntu через production APT и проверка того же пути
+на Proxmox остаются открытыми.
+
 ### Подготовка отдельного Proxmox VE 8.4
 
 VM139 выделена для вложенного Proxmox VE. Единственный виртуальный
