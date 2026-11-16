@@ -372,8 +372,15 @@ acknowledgment after verifying the credential and identity files and
 persisting the claim-removal request. A loopback TLS run against the actual
 Endpoint API and PostgreSQL 16.15 returned 201 then 204, removed the one
 envelope and recorded one acknowledgment audit event. A failed ACK leaves
-the verified enrollment usable and allows server expiry cleanup. The
-refreshed signed DEB and installed-service acceptance remain open.
+the verified enrollment usable and allows server expiry cleanup.
+Debian LXC 127 built the exact 1481bae4 source and verified the DEB through
+a signed local APT repository. The frozen enrollment-only process received
+one 204 after the credential files were verified. The systemd service then
+sent one authenticated hello and a heartbeat to the loopback TLS peer.
+The persistent unit hit the known 226/NAMESPACE restriction and required
+a temporary LXC namespace override. The original package was restored and
+the container stopped. Acceptance on a full Debian VM with the stock unit
+and production publication remain open.
 Ubuntu VM138 built the exact Core in an isolated dependency path and exercised
 upgrade, failed-service repair, manual stop, masking, rollback, offline
 reinstall, and reboot with a local TLS peer. One rollback startup failed in
