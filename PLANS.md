@@ -28,7 +28,14 @@ isolated Linux and Windows workflow tasks and the Console tests.
 The 0051 to 0054 rehearsal preserved the Activity rows and the
 legacy device's unknown profile state. The two server archives
 matched byte for byte, and the packaged API and Console served
-from the new archive. GitHub Actions and publication remain open.
+from the new archive. A later exact-source trial of `3d98f465f5d7`
+passed Linux, Windows and Console with a new byte-identical server
+archive. The 0051 to 0054 migration preserved a synthetic native Setup
+hold and an unrequested Core owner. The archived provider cancelled the
+paused Core rollout through the authenticated API, replayed the same
+receipt, and preserved the separate Setup hold. Production release-space
+preflight returned exit 2 with 7,786,672,128 bytes free. GitHub Actions and
+publication remain open.
 STAB-01 source: WSS bounded FIFO and separate command task, fixed worker
 process with capability budgets, deadline admission and owned process-tree
 cleanup. HTTP pull remains sequential. Windows source fault injection covers
