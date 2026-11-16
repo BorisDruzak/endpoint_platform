@@ -375,3 +375,16 @@ SHA-256 манифеста —
 Предрелизная проверка вернула код 2 при пороге 10 ГиБ. GitHub Actions
 ещё не запускался на этом SHA. Кандидат проверен на стенде,
 публикация на production остаётся открытой.
+
+## Локальный Windows gate для кандидата 28eade8c4c80
+
+Задачу `windows-release-gate` воспроизвели локально на точном коммите
+`28eade8c4c8031b25cb8c26ec9482328276acfd3`. Использовали чистый
+отдельный checkout с CRLF для PowerShell и Python 3.12.16.
+Из 2 916 тестов прошли 2 912, четыре пропущены. Код выхода 0.
+
+Квитанция `C:/endpoint-platform-wix-build/stab19-delivery-link-tls/windows-exact-source-receipt.json`
+связывает исходники, JUnit, журнал, зависимости и подтверждение CRLF.
+SHA-256 квитанции
+`028338ee144e26f169de8c7525ec679f15613b14af5b8b592bbae55916031cd3`.
+Для этой ревизии остаются полный Linux gate и квитанция GitHub Actions.

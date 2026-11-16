@@ -49,6 +49,10 @@ Setup hold. The archived API repeated the Core cancellation check and
 the archived worker logged the release-space warning and kept running.
 Production had 7,578,681,344 bytes free and the release preflight exited 2.
 GitHub Actions has no receipt for this SHA.
+Candidate `28eade8c4c80` passed the complete local Windows workflow
+task from a clean CRLF checkout on Python 3.12.16. The JUnit records
+2,912 passes and four skips. Linux and hosted CI remain separate gates
+for this source revision.
 STAB-01 source: WSS bounded FIFO and separate command task, fixed worker
 process with capability budgets, deadline admission and owned process-tree
 cleanup. HTTP pull remains sequential. Windows source fault injection covers
