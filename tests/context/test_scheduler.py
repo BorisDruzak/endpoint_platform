@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select, text
+from sqlalchemy import event, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from endpoint_server.context.models import ContextCollection
@@ -99,6 +99,30 @@ async def test_scheduler_never_enqueues_manual_only_diagnostics(session: AsyncSe
         "inventory_v1",
         "session_v1",
     }
+
+
+@pytest.mark.asyncio
+async def test_scheduler_inserts_new_collections_with_deadlines(session: AsyncSession) -> None:
+    device = Device(device_identifier="scheduler-insert-deadlines", created_at=NOW)
+    session.add(device)
+    await session.flush()
+    statements = []
+
+    def observe(_connection, _cursor, statement, _parameters, _context, _many):
+        statements.append(statement)
+
+    engine = session.get_bind()
+    event.listen(engine, "before_cursor_execute", observe)
+    try:
+        assert await schedule_due_collections(session, now=NOW) == 5
+        await session.commit()
+    finally:
+        event.remove(engine, "before_cursor_execute", observe)
+
+    writes = [sql for sql in statements if sql.startswith(("INSERT ", "UPDATE "))]
+    assert writes
+    assert all(sql.startswith("INSERT INTO context_collections") and "expires_at" in sql for sql in writes)
+    assert not await schedule_due_collections(session, now=NOW)
 
 
 @pytest.mark.asyncio

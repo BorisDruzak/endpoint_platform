@@ -95,6 +95,7 @@ async def request_collection_outcome(
     idempotency_key: str,
     *,
     now: datetime | None = None,
+    expires_at: datetime | None = None,
 ) -> tuple[ContextCollection, bool]:
     """Create one request and report whether this transaction inserted it."""
     checked_device_id = require_uuid(device_id, "device id")
@@ -124,6 +125,7 @@ async def request_collection_outcome(
         id=uuid4(), device_id=checked_device_id, profile=checked_profile,
         requested_by=requested_by, idempotency_key=idempotency_key,
         status="requested", requested_at=_now(now),
+        expires_at=_now(expires_at) if expires_at is not None else None,
     )
     session.add(collection)
     await session.flush()

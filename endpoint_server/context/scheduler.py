@@ -152,16 +152,16 @@ async def schedule_due_collections_with_backlog(
             if latest is not None and overdue < timedelta(0):
                 continue
             bucket = int(scheduled_at.timestamp() // rule.interval.total_seconds())
-            collection, inserted = await request_collection_outcome(
+            _, inserted = await request_collection_outcome(
                 session,
                 device.id,
                 rule.profile,
                 "scheduler",
                 f"scheduler:{rule.profile}:{bucket}",
                 now=scheduled_at,
+                expires_at=scheduled_at + rule.interval,
             )
             if inserted:
-                collection.expires_at = scheduled_at + rule.interval
                 created += 1
                 oldest_due_age = max(oldest_due_age, overdue.total_seconds())
     await session.flush()

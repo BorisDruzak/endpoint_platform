@@ -96,16 +96,16 @@ async def queue_connect_refreshes(
         if latest is not None and observed_at - _utc(latest.collected_at) < rule.freshness:
             continue
         bucket = int(observed_at.timestamp() // _DELIVERY_WINDOW.total_seconds())
-        collection, inserted = await request_collection_outcome(
+        _, inserted = await request_collection_outcome(
             session,
             device_id,
             rule.profile,
             "connect-refresh",
             f"connect-refresh:{rule.profile}:{bucket}",
             now=observed_at,
+            expires_at=observed_at + _DELIVERY_WINDOW,
         )
         if inserted:
-            collection.expires_at = observed_at + _DELIVERY_WINDOW
             created += 1
     await session.flush()
     return created
