@@ -1200,8 +1200,18 @@ reconnecting clients exceeded it in both trials. Event-loop p99 was
 8.3–8.5 ms and the queue returned to zero within 6.027 s. The widest
 online delivery stage was from commit to the delivery handler.
 This single pair establishes a missed capacity target under the tested
-workload. Peak production mix, repeat measurements and the cause of
-the commit-to-handler delay still need verification.
+workload.
+A diagnostic repeat reproduced the miss and split the delay around the
+scheduled scan. First online commands delivered by the scan spent
+1.681–1.754 s p95 from commit to scan start and 1.148–1.386 s p95 from
+candidate selection to handler entry. Candidate selection took
+0.156–0.179 s p95. Result recording spent 0.743–0.870 s p95 acquiring
+a Gateway database connection. This supports separate controlled tests
+of dispatch scheduling and connection contention before changing either.
+A separate production reconstruction observed at most 38 devices in
+minute-level WSS presence samples and 73 scheduler requests per minute
+on 16 November. The concurrent production Helpdesk route mix and
+multi-day peak still need measurement.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
