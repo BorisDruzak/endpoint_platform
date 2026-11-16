@@ -328,6 +328,12 @@ from deployment selectors, running processes and other recognized releases.
 Their combined 3,424,309,248 bytes yield a projected 665,825,280 bytes of
 headroom over the threshold. Production still has the same deployed trees.
 The ext4 root volume group has 27 GiB of unallocated capacity.
+The deployed worker now reports `release_disk` at startup and at the
+existing 15-minute interval. It shares the deploy gate's 10 GiB threshold
+and reports the artifact volume separately. The archived worker on Ubuntu
+and PostgreSQL 16.15 warned on a separate tmpfs with 2,605,330,432 free
+bytes; the CLI exited 2 and the next maintenance job succeeded.
+Production deployment of the warning remains open.
 STAB-02 foundation: local SQLite records a command ID, device, payload digest,
 and start before execution, then commits completion and outbox together.
 Interrupted starts recover as unknown outcomes. Negotiated WSS sessions

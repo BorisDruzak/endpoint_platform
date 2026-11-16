@@ -15,7 +15,8 @@
   rollback, staged commit, explicit pins, observed Linux process references,
   and transitive protection through links between release directories.
   `--check-release-space` checks the 10 GiB deployment threshold on the
-  release volume and works before the initial selector is created.
+  release volume and works before the initial selector is created. The
+  worker uses the same check when running from a versioned release.
 - `inventory_storage.py`: read-only artifact-volume inventory against the four
   release catalog owners. Both inventory modules ship in the server archive.
 - `verify_server_release_payload.py`: operator-side, read-only comparison of a

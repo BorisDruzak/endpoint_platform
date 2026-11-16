@@ -116,8 +116,13 @@ Never use symlinks for the environment or secret files.
 ## 4. Install release and service assets
 
 Extract the uploaded archive to its immutable versioned directory and create
-the virtual environment. After section 3 has provisioned the release directory,
-run the release-volume check from the operator checkout:
+the virtual environment. The worker logs `release_disk` at startup and
+every 15 minutes when running from the versioned release directory. This
+warning uses the same 10 GiB threshold as the release-volume check.
+`artifact_disk` measures the configured artifact volume separately.
+
+After section 3 has provisioned the release directory, run the
+release-volume check from the operator checkout:
 
 ```powershell
 Get-Content -Raw tools/release/inventory_deployments.py |
