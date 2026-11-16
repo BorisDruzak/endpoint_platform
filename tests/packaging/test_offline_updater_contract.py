@@ -80,7 +80,8 @@ def test_durable_state_dependency_gate():
         (ROOT / 'pc_agent/platform/windows/service_control.py').read_text(encoding='utf-8'))
     assert_offline_modules(service_names)
     assert set(service_names) <= {'__future__', 'os', 'subprocess', 'dataclasses', 'pathlib',
-                                  'typing', 'win32con', 'win32security', 'win32service', 'win32serviceutil'}
+                                  'typing', 'pywintypes', 'win32con', 'win32security',
+                                  'win32service', 'win32serviceutil'}
 
 
 def test_migrated_offline_worker_project_import_graph_is_closed_to_network():
