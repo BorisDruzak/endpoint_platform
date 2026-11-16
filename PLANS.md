@@ -642,7 +642,10 @@ on all eight hosts accepted their live HTTPS source. With scratch lists
 and a dual keyring it accepted both pinned Release revisions and resolved
 the same candidate. The old keyring rejected the successor on all eight.
 Permanent source, keyring and CA hashes matched before and after the probe.
-Production trust transition remains open.
+The OpenVPN pilot now uses the dual public keyring in the configured
+Signed-By path. Its installed APT accepted the live HTTPS index and the
+successor-signed fixture and downloaded the same DEB. The remaining
+consumers and live metadata publication remain open.
 Release evidence requires an exact-source CI receipt before publication.
 STAB-15: the [release qualification matrix](docs/verification/2026-11-14-agent-release-qualification-matrix.md)
 records installed canary evidence by OS, exact source and signed artifact.
