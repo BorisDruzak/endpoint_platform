@@ -84,6 +84,7 @@ class GatewayConnection:
     effective_capabilities: frozenset[str] = frozenset()
     protocol_features: frozenset[str] = frozenset()
     send_lock: asyncio.Lock = field(default_factory=asyncio.Lock, compare=False, repr=False)
+    ready_for_dispatch: asyncio.Event = field(default_factory=asyncio.Event, compare=False, repr=False)
 
     async def send(self, envelope: object) -> None:
         """Serialize control and command writes on one active WebSocket."""

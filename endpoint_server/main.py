@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -75,6 +76,7 @@ from endpoint_server.gateway.connection_registry import (
     ConnectionRegistry,
     GatewayWorkerLease,
 )
+from endpoint_server.gateway.scheduled_dispatch import run_scheduled_dispatch
 from endpoint_server.gateway.ws_routes import (
     assert_single_gateway_worker,
     router as gateway_ws_router,
@@ -89,10 +91,15 @@ from endpoint_server.updates.admin_transaction import UpdateAdminTransactionProv
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.gateway_worker_lease.acquire()
+    dispatch = asyncio.create_task(run_scheduled_dispatch(
+        app.state.gateway_connection_registry, app.state.session_provider,
+    ))
     try:
         yield
     finally:
         try:
+            dispatch.cancel()
+            await asyncio.gather(dispatch, return_exceptions=True)
             await app.state.gateway_connection_registry.shutdown_all()
             if app.state.update_admin_provider is not None:
                 await app.state.update_admin_provider.close()

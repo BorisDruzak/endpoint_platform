@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+import ipaddress
+import json
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -7,12 +11,15 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from endpoint_contracts.gateway_ws import CommandEnvelopeV1
-from endpoint_server.context.models import ContextCollection
+from endpoint_contracts.gateway_ws import COMMAND_JOURNAL_FEATURE, COMMAND_JOURNAL_HEADER, CommandEnvelopeV1
+from endpoint_server.context.models import ContextCollection, ContextSnapshot
 from endpoint_server.db.models import Command, CommandDelivery, DeviceSession
 from endpoint_server.gateway.command_service import CommandService
 
-from .conftest import seed_device
+from endpoint_server.main import create_app
+
+from .conftest import agent_hello, gateway_settings, seed_device
+from .test_stability_capacity import _envelope, _result
 
 
 @pytest.mark.asyncio
@@ -132,3 +139,195 @@ async def test_no_pending_command_sends_nothing(
 
     assert not delivered
     assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_idle_gateway_delivers_worker_request_without_heartbeat(session_provider, tmp_path, monkeypatch):
+    initial_dispatch_done = asyncio.Event()
+    deliver_next = CommandService.deliver_next
+
+    async def observe_initial_dispatch(service, *args, **kwargs):
+        delivered = await deliver_next(service, *args, **kwargs)
+        if not delivered:
+            initial_dispatch_done.set()
+        return delivered
+
+    monkeypatch.setattr(CommandService, "deliver_next", observe_initial_dispatch)
+    token = uuid4().hex
+    device = await seed_device(session_provider, token=token)
+    settings = replace(
+        gateway_settings(artifact_root=tmp_path),
+        allowed_agent_cidrs=(ipaddress.ip_network("127.0.0.0/8"),),
+    )
+    app = create_app(settings, session_provider)
+    inbound, outbound = asyncio.Queue(), asyncio.Queue()
+    scope = {
+        "type": "websocket", "scheme": "wss", "path": "/agent/v1/connect",
+        "root_path": "", "query_string": b"", "client": ("127.0.0.1", 54321),
+        "server": ("localhost", 443), "subprotocols": [],
+        "headers": [(b"authorization", f"Bearer {token}".encode()),
+                    (COMMAND_JOURNAL_HEADER.lower().encode(), b"1"),
+                    (b"x-forwarded-proto", b"https"), (b"x-forwarded-for", b"127.0.0.1")],
+    }
+
+    async def send(frame):
+        await inbound.put({"type": "websocket.receive", "text": json.dumps(frame)})
+
+    async def receive(kind):
+        frame = await asyncio.wait_for(outbound.get(), timeout=4)
+        assert frame["type"] == "websocket.send", frame
+        envelope = json.loads(frame["text"])
+        assert envelope["kind"] == kind, envelope
+        return envelope["payload"]
+
+    hello = agent_hello(device.id, instance_id=uuid4())
+    hello.update(capabilities=["context.health.collect"], protocol_features=[COMMAND_JOURNAL_FEATURE])
+    async with app.router.lifespan_context(app):
+        task = asyncio.create_task(app(scope, inbound.get, outbound.put))
+        try:
+            await inbound.put({"type": "websocket.connect"})
+            assert (await asyncio.wait_for(outbound.get(), timeout=4))["type"] == "websocket.accept"
+            await send(_envelope("agent_hello", 0, hello))
+            handshake = await receive("gateway_hello")
+            await asyncio.wait_for(initial_dispatch_done.wait(), timeout=4)
+            now = datetime.now(UTC)
+            async with session_provider() as db:
+                db.add(ContextCollection(
+                    device_id=device.id, profile="health_v1", requested_by="scheduler",
+                    idempotency_key="idle-worker-request", status="requested",
+                    requested_at=now, expires_at=now + timedelta(minutes=5),
+                ))
+                await db.commit()
+
+            command = (await receive("command"))["command_id"]
+            await send(_envelope("command_ack", 2, {
+                "schema_version": "agent_command_ack_v1", "device_id": str(device.id),
+                "command_id": command, "status": "running", "acknowledged_at": now.isoformat(),
+            }))
+            assert (await receive("command_start"))["command_id"] == command
+            await send(_result(device.id, command, 1))
+            assert (await receive("result_ack"))["command_id"] == command
+            async with session_provider() as db:
+                delivery = (await db.scalars(select(CommandDelivery))).one()
+                assert str(delivery.device_session_id) == handshake["session_id"]
+                assert len((await db.scalars(select(ContextSnapshot))).all()) == 1
+        finally:
+            await inbound.put({"type": "websocket.disconnect", "code": 1000})
+            await asyncio.wait_for(task, timeout=5)
+
+
+@pytest.mark.asyncio
+async def test_scheduled_candidates_require_matching_capability_and_live_request(session_provider):
+    due, expired, manual, offline = [await seed_device(session_provider, token=uuid4().hex) for _ in range(4)]
+    now = datetime.now(UTC)
+    async with session_provider() as db:
+        db.add_all(
+            ContextCollection(
+                device_id=device.id, profile="health_v1", requested_by=requester,
+                idempotency_key="scheduled-selection", status="requested", requested_at=now - timedelta(minutes=5),
+                expires_at=now + timedelta(seconds=remaining),
+            )
+            for device, requester, remaining in (
+                (due, "scheduler", 60), (expired, "scheduler", -1),
+                (manual, "admin", 60), (offline, "scheduler", 60),
+            )
+        )
+        await db.commit()
+    service = CommandService(session_provider)
+    caps = frozenset({"context.health.collect"})
+    assert await service.scheduled_pending_devices({due.id: frozenset({"context.inventory.collect"})}) == ()
+    assert await service.scheduled_pending_devices({due.id: caps, expired.id: caps, manual.id: caps}) == (due.id,)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["send", "commit_ack"])
+async def test_scheduled_send_failure_replays_committed_delivery_on_reconnect(session_provider, monkeypatch, failure):
+    from endpoint_contracts import AgentHelloV1
+    from endpoint_server.gateway.connection_registry import ConnectionRegistry, GatewayConnection
+    from endpoint_server.gateway.presence_service import PresenceService
+    from endpoint_server.gateway.scheduled_dispatch import _deliver
+
+    device = await seed_device(session_provider)
+    hello = AgentHelloV1.model_validate(agent_hello(device.id, instance_id=uuid4()))
+    presence = PresenceService(session_provider)
+    first = await presence.open_session(device_id=device.id, hello=hello, source_address="192.168.101.20")
+    async with session_provider() as db:
+        db.add(ContextCollection(
+            device_id=device.id, profile="health_v1", requested_by="scheduler",
+            idempotency_key="broken-scheduled-send", status="requested", requested_at=datetime.now(UTC),
+        ))
+        await db.commit()
+
+    class BrokenSocket:
+        def __init__(self):
+            self.closed = []
+
+        async def send_json(self, _payload):
+            raise OSError("peer disappeared")
+
+        async def close(self, code):
+            self.closed.append(code)
+
+    socket = BrokenSocket()
+    capabilities = frozenset({"context.health.collect"})
+    registry = ConnectionRegistry()
+    connection = GatewayConnection(device.id, first.session_id, socket, effective_capabilities=capabilities)
+    connection.ready_for_dispatch.set()
+    await registry.register(connection)
+    service = CommandService(session_provider)
+    original_delivery = service.deliver_next
+    if failure == "commit_ack":
+        # Reuse the actual transaction and interrupt its post-commit callback.
+        # The dispatcher cannot know whether PostgreSQL committed in this case.
+        async def lost_commit_ack(device_id, session_id, send, **kwargs):
+            async def disconnected(_envelope):
+                raise OSError("database commit acknowledgement was lost")
+            return await original_delivery(device_id, session_id, disconnected, **kwargs)
+
+        monkeypatch.setattr(service, "deliver_next", lost_commit_ack)
+    await _deliver(service, registry, connection)
+    monkeypatch.setattr(service, "deliver_next", original_delivery)
+    assert socket.closed == [1011]
+    assert not connection.ready_for_dispatch.is_set()
+
+    async with session_provider() as db:
+        delivery = (await db.scalars(select(CommandDelivery))).one()
+        assert delivery.device_session_id == first.session_id
+
+    second = await presence.open_session(device_id=device.id, hello=hello, source_address="192.168.101.20")
+    sent = []
+    assert await service.deliver_next(device.id, second.session_id, sent.append, allowed_capabilities=capabilities)
+    assert sent[0].payload.command_id == delivery.command_id
+
+
+@pytest.mark.asyncio
+async def test_cancelled_dispatch_shutdown_releases_worker_lease(session_provider, tmp_path, monkeypatch):
+    import endpoint_server.main as endpoint_main
+
+    started, stopping = asyncio.Event(), asyncio.Event()
+
+    async def delayed_dispatch_shutdown(*_):
+        started.set()
+        try:
+            await asyncio.Future()
+        finally:
+            stopping.set()
+            await asyncio.Future()
+
+    monkeypatch.setattr(endpoint_main, "run_scheduled_dispatch", delayed_dispatch_shutdown)
+    app = create_app(gateway_settings(artifact_root=tmp_path), session_provider)
+
+    async def serve():
+        async with app.router.lifespan_context(app):
+            await asyncio.Future()
+
+    task = asyncio.create_task(serve())
+    await asyncio.wait_for(started.wait(), timeout=3)
+    task.cancel()
+    await asyncio.wait_for(stopping.wait(), timeout=3)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=3)
+    lease = app.state.gateway_worker_lease
+    lease.acquire()
+    lease.release()

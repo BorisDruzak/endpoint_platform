@@ -320,6 +320,7 @@ async def connect_agent(websocket: WebSocket) -> None:
             allowed_capabilities=frozenset(effective_capabilities),
             agent_platform=first.payload.platform,
         )
+        connection.ready_for_dispatch.set()
 
         while True:
             envelope = await asyncio.wait_for(

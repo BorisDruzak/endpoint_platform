@@ -5,12 +5,12 @@ from __future__ import annotations
 import inspect
 import hashlib
 import json
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import AbstractSet
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 
 from endpoint_contracts import (
     AgentCommandAckV1,
@@ -33,6 +33,7 @@ from endpoint_contracts.gateway_ws import (
 from endpoint_server.context.ingestion import ingest_context_result
 from endpoint_server.context.models import ContextCollection, ContextSnapshot
 from endpoint_server.context.repository import expire_overdue_collections, link_collection_command
+from endpoint_server.context.scheduler import SCHEDULE_RULES
 from endpoint_server.context.service import ContextError
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.db.models import (
@@ -69,6 +70,10 @@ _CAPABILITIES = {
     "inventory_v1": "context.inventory.collect",
     "session_v1": "context.session.collect",
 }
+
+
+_SCHEDULED_PROFILES = frozenset(rule.profile for rule in SCHEDULE_RULES)
+_SCHEDULED_CAPABILITIES = frozenset(_CAPABILITIES[profile] for profile in _SCHEDULED_PROFILES)
 
 
 class CommandStateRejected(ValueError):
@@ -863,6 +868,34 @@ async def next_pending_command(
 class CommandService:
     def __init__(self, session_provider: SessionProvider) -> None:
         self._session_provider = session_provider
+
+    async def scheduled_pending_devices(
+        self, capabilities: Mapping[UUID, AbstractSet[str]],
+    ) -> tuple[UUID, ...]:
+        """Find online candidates without claiming queue rows or opening deliveries."""
+        eligible = {device_id for device_id, advertised in capabilities.items()
+                    if not _SCHEDULED_CAPABILITIES.isdisjoint(advertised)}
+        if not eligible:
+            return ()
+        collection = ContextCollection
+        statement = (
+            select(collection.device_id, collection.profile)
+            .where(
+                collection.device_id.in_(eligible),
+                collection.requested_by == "scheduler",
+                collection.profile.in_(_SCHEDULED_PROFILES),
+                collection.status == "requested",
+                collection.command_id.is_(None),
+                or_(collection.expires_at.is_(None), collection.expires_at > datetime.now(UTC)),
+            )
+            .group_by(collection.device_id, collection.profile)
+            .order_by(func.min(collection.requested_at), collection.device_id)
+        )
+        async with self._session_provider() as session:
+            rows = (await session.execute(statement)).all()
+        return tuple(dict.fromkeys(
+            device_id for device_id, profile in rows if _CAPABILITIES[profile] in capabilities[device_id]
+        ))
 
     async def deliver_next(
         self,
