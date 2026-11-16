@@ -12,7 +12,7 @@ from endpoint_server.db.models import Device,DeviceCredential,AuditEvent
 from endpoint_server.installation_lifecycle.models import InstallationEvent,InstallationState
 from endpoint_server.enrollment.credentials import device_token_digest
 from endpoint_server.main import create_app
-from tests.server.test_update_postgresql import update_migration_database_urls,_alembic_config
+from tests.server.test_update_postgresql import update_migration_database_urls,_alembic_config,_insert_historical_device
 from tests.server.test_update_agent_api import _settings
 from tests.server.test_installation_lifecycle import seed,next_event
 from tests.contracts.test_installation_lifecycle import event_data
@@ -27,7 +27,9 @@ def test_migration_preserves_legacy_unknown_and_downgrade(update_migration_datab
         p=AsyncSessionProvider(url)
         try:
             async with p() as s:
-                d=Device(device_identifier=uuid4().hex);s.add(d);await s.commit();return d.id
+                device_id = await _insert_historical_device(s, uuid4().hex)
+                await s.commit()
+                return device_id
         finally: await p.close()
     identifier=asyncio.run(legacy())
     command.upgrade(_alembic_config(url),'head')

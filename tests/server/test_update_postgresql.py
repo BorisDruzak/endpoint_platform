@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import asyncpg
 import httpx
@@ -17,7 +17,7 @@ import pytest
 import pytest_asyncio
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import UniqueConstraint, func, select
+from sqlalchemy import UniqueConstraint, func, select, text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.engine import make_url
 from sqlalchemy.schema import CreateIndex
@@ -73,6 +73,16 @@ async def _fetch(database_url: str, statement: str) -> list[asyncpg.Record]:
         return await connection.fetch(statement)
     finally:
         await connection.close()
+
+
+async def _insert_historical_device(session, device_identifier: str) -> UUID:
+    """Seed columns available before the current Device mapping."""
+    device_id = uuid4()
+    await session.execute(
+        text("INSERT INTO devices (id, device_identifier) VALUES (:id, :identifier)"),
+        {"id": device_id, "identifier": device_identifier},
+    )
+    return device_id
 
 
 def _alembic_config(database_url: str) -> Config:

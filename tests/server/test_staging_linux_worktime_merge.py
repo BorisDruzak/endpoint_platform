@@ -16,8 +16,8 @@ from endpoint_server.db.models.worktime_sessions import HelpdeskWorktimeSession,
 from endpoint_server.db.session import AsyncSessionProvider
 from endpoint_server.support_access.platforms import verified_platform
 from endpoint_server.worktime.service import transition, request_correction, finalize_timesheet
-from tests.server.test_linux_support_lifecycle_postgresql import seed
-from tests.server.test_update_postgresql import update_migration_database_urls, _alembic_config, _fetch
+from tests.server.test_linux_support_lifecycle_postgresql import seed_platform_evidence
+from tests.server.test_update_postgresql import update_migration_database_urls, _alembic_config, _fetch, _insert_historical_device
 
 MERGE_REVISION = '0051_staging_linux_worktime'
 PARENTS = ('0050_linux_enrollment_binding', '0044_worktime_helpdesk')
@@ -49,9 +49,10 @@ def test_populated_production0050_upgrade_preserves_native_identity(update_migra
         provider = AsyncSessionProvider(url)
         try:
             async with provider() as session:
-                principal = await seed(session)
+                device_id = await _insert_historical_device(session, uuid4().hex)
+                await seed_platform_evidence(session, device_id)
                 await session.commit()
-                return principal.device.id
+                return device_id
         finally:
             await provider.close()
 
@@ -107,7 +108,8 @@ def test_populated_worktime0044_upgrade_preserves_history_and_linux_identity(upd
         person = uuid4()
         try:
             async with provider() as session:
-                principal = await seed(session)
+                device_id = await _insert_historical_device(session, uuid4().hex)
+                await seed_platform_evidence(session, device_id)
                 admin = AdminUser(username='staging-preservation-fixture', password_digest='fixture-only', scopes=[])
                 identity = ConfirmedIdentity(person_id=person, issuer='https://helpdesk-staging.sosnadmin.local', subject=str(person), authority_kind='helpdesk', ad_object_guid=None, state='active', confirmed_at=now)
                 session.add_all([admin, identity]); await session.flush()
@@ -120,7 +122,7 @@ def test_populated_worktime0044_upgrade_preserves_history_and_linux_identity(upd
                 sheet = await finalize_timesheet(session, person, person, '2026-09', 'Self finalized fixture', uuid4(), now)
                 assert sheet.finalized_by == person
                 await session.commit()
-                return principal.device.id
+                return device_id
         finally:
             await provider.close()
 

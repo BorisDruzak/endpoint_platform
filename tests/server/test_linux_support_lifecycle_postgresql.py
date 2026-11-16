@@ -18,34 +18,41 @@ from endpoint_server.installation_lifecycle.models import InstallationState,Inst
 from endpoint_server.installation_lifecycle.linux_sources import LinuxNativeRelease,resolve_linux_source
 from endpoint_server.installation_lifecycle.service import accept_event,InstallationConflict
 from endpoint_server.support_access.service import register,SupportConflict
-from tests.server.test_update_postgresql import update_migration_database_urls,_alembic_config,_fetch
+from tests.server.test_update_postgresql import update_migration_database_urls,_alembic_config,_fetch,_insert_historical_device
 from tests.server.test_linux_support_lifecycle import registration
 from tests.contracts.test_linux_support_lifecycle import native_data,event_data
 
 pytestmark=pytest.mark.usefixtures('preserve_migration_loggers')
 
 
-async def seed(session,platform='linux'):
+async def seed(session, platform='linux'):
+    device = Device(device_identifier=uuid4().hex)
+    session.add(device)
+    await session.flush()
+    credential = await seed_platform_evidence(session, device.id, platform)
+    return SimpleNamespace(device=device, credential=credential)
+
+
+async def seed_platform_evidence(session, device_id, platform='linux'):
     now=datetime.now(UTC)
-    device=Device(device_identifier=uuid4().hex);session.add(device);await session.flush()
-    credential=DeviceCredential(device_id=device.id,credential_identifier='initial',token_digest=uuid4().hex)
+    credential=DeviceCredential(device_id=device_id,credential_identifier='initial',token_digest=uuid4().hex)
     session.add(credential)
     campaign=EnrollmentCampaign(campaign_identifier=uuid4().hex,token_digest=uuid4().hex,
         max_uses=1,use_count=1,allowed_cidrs=['127.0.0.0/8'],target_platform=platform,policy={})
     session.add(campaign);await session.flush()
     session.add(EnrollmentClaim(campaign_id=campaign.id,claim_identifier=uuid4().hex,claim_digest=uuid4().hex,
         installation_session_digest=uuid4().hex,fingerprint_digest=uuid4().hex,expires_at=now+timedelta(hours=1),
-        device_id=device.id,claimed_at=now))
-    collection=ContextCollection(device_id=device.id,profile='baseline_v1',requested_by='fixture',idempotency_key=uuid4().hex,
+        device_id=device_id,claimed_at=now))
+    collection=ContextCollection(device_id=device_id,profile='baseline_v1',requested_by='fixture',idempotency_key=uuid4().hex,
         status='completed',requested_at=now,completed_at=now)
     session.add(collection);await session.flush()
     payload=json.loads(Path('tests/fixtures/context/'+('alt' if platform=='linux' else 'windows')+'/baseline_v1.json').read_text())
-    snapshot=ContextSnapshot(collection_id=collection.id,device_id=device.id,profile='baseline_v1',
+    snapshot=ContextSnapshot(collection_id=collection.id,device_id=device_id,profile='baseline_v1',
         collected_at=now,normalized_projection=payload)
     session.add(snapshot);await session.flush()
-    session.add(ContextCurrent(device_id=device.id,profile='baseline_v1',snapshot_id=snapshot.id,updated_at=now))
+    session.add(ContextCurrent(device_id=device_id,profile='baseline_v1',snapshot_id=snapshot.id,updated_at=now))
     await session.flush()
-    return SimpleNamespace(device=device,credential=credential)
+    return credential
 
 
 def test_linux_migration_defaults_roundtrip_and_no_silent_authority_loss(update_migration_database_urls):
@@ -58,12 +65,12 @@ def test_linux_migration_defaults_roundtrip_and_no_silent_authority_loss(update_
             # Legacy insert intentionally omits every new field.
             from sqlalchemy import text
             async with provider() as session:
-                device=Device(device_identifier=uuid4().hex);session.add(device);await session.flush()
-                credential=DeviceCredential(device_id=device.id,credential_identifier='initial',token_digest=uuid4().hex)
+                device_id = await _insert_historical_device(session, uuid4().hex)
+                credential=DeviceCredential(device_id=device_id,credential_identifier='initial',token_digest=uuid4().hex)
                 session.add(credential);await session.flush()
                 from tests.contracts.test_support_access import key
                 await session.execute(text('INSERT INTO support_access (id,device_id,source_credential_id,tunnel_public_key,host_public_key,remote_port,component_version,revision,generation,operator_public_keys,installed,tunnel_connected) VALUES (:id,:device,:credential,:tunnel,:host,32000,\'1.0.0\',1,1,\'[]\',false,false)'),
-                    {'id':uuid4(),'device':device.id,'credential':credential.id,'tunnel':key(30),'host':key(31)})
+                    {'id':uuid4(),'device':device_id,'credential':credential.id,'tunnel':key(30),'host':key(31)})
                 await session.commit()
         finally:
             await provider.close()

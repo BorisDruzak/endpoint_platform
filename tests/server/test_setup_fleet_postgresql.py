@@ -19,7 +19,7 @@ from endpoint_server.setup_updates.scheduler import schedule_one, schedule_one_w
 from endpoint_server.setup_updates.preparation import request_setup
 from endpoint_server.setup_updates.service import record_presence, SetupConflict
 from tests.server.test_update_agent_api import _settings
-from tests.server.test_update_postgresql import update_migration_database_urls, _alembic_config, _fetch
+from tests.server.test_update_postgresql import update_migration_database_urls, _alembic_config, _fetch, _insert_historical_device
 
 pytestmark = pytest.mark.usefixtures('preserve_migration_loggers')
 
@@ -73,9 +73,7 @@ def test_fleet_migration_is_additive_disabled_and_reversible(update_migration_da
     async def preserve():
         provider = AsyncSessionProvider(url)
         async with provider() as session:
-            device_id = uuid4()
-            session.add(Device(id=device_id, device_identifier='preserve-before-fleet'))
-            await session.flush()
+            device_id = await _insert_historical_device(session, 'preserve-before-fleet')
             # Use the actual previous schema: the new ORM has fields that must
             # not exist before0045. Keep this active instance unchanged.
             await session.execute(text('INSERT INTO device_instances '

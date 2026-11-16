@@ -4,12 +4,11 @@ from uuid import uuid4
 import pytest
 
 from alembic import command
-from sqlalchemy import text
 from endpoint_server.db.session import AsyncSessionProvider
 from endpoint_server.setup_updates.models import SetupRelease, SetupAssignment
 from endpoint_server.setup_updates.service import lock_device
 from endpoint_server.db.models import Device
-from tests.server.test_update_postgresql import update_migration_database_urls, _alembic_config, _fetch
+from tests.server.test_update_postgresql import update_migration_database_urls, _alembic_config, _fetch, _insert_historical_device
 
 
 def test_setup_migration_preserves_populated_previous_revision_and_downgrades(
@@ -21,8 +20,8 @@ def test_setup_migration_preserves_populated_previous_revision_and_downgrades(
     async def seed():
         provider = AsyncSessionProvider(url)
         async with provider() as session:
-            device = Device(id=uuid4(), device_identifier='setup-migration-preserved')
-            session.add(device); await session.commit()
+            await _insert_historical_device(session, 'setup-migration-preserved')
+            await session.commit()
         await provider.close()
     asyncio.run(seed())
     command.upgrade(config, 'head')
@@ -35,8 +34,15 @@ def test_setup_migration_preserves_populated_previous_revision_and_downgrades(
     command.upgrade(config, 'head')
 
 
-def test_device_update_lock_serializes_competing_owners(update_migration_database_urls):
+@pytest.fixture(scope="module")
+def setup_head_database(update_migration_database_urls, preserve_migration_loggers):
     url, _ = update_migration_database_urls
+    command.upgrade(_alembic_config(url), 'head')
+    return url
+
+
+def test_device_update_lock_serializes_competing_owners(setup_head_database):
+    url = setup_head_database
     async def scenario():
         provider = AsyncSessionProvider(url)
         identity = uuid4()
@@ -62,10 +68,10 @@ def test_device_update_lock_serializes_competing_owners(update_migration_databas
     asyncio.run(scenario())
 
 
-def test_postgresql_recovery_hold_has_unique_active_device_ownership(update_migration_database_urls):
+def test_postgresql_recovery_hold_has_unique_active_device_ownership(setup_head_database):
     from datetime import UTC,datetime
     from sqlalchemy.exc import IntegrityError
-    url,_=update_migration_database_urls
+    url = setup_head_database
     async def scenario():
         provider=AsyncSessionProvider(url)
         identity,release_id=uuid4(),uuid4()
@@ -87,7 +93,7 @@ def test_postgresql_recovery_hold_has_unique_active_device_ownership(update_migr
     asyncio.run(scenario())
 
 
-def test_real_admin_cookie_csrf_and_persisted_scope_protect_setup_assignment(update_migration_database_urls, tmp_path):
+def test_real_admin_cookie_csrf_and_persisted_scope_protect_setup_assignment(setup_head_database, tmp_path):
     from datetime import UTC, datetime
     from dataclasses import replace
     import httpx
@@ -96,7 +102,7 @@ def test_real_admin_cookie_csrf_and_persisted_scope_protect_setup_assignment(upd
     from endpoint_server.setup_updates.service import record_presence
     from endpoint_server.main import create_app
     from tests.server.test_update_agent_api import _settings
-    url, _ = update_migration_database_urls
+    url = setup_head_database
     async def scenario():
         provider = AsyncSessionProvider(url)
         settings = replace(_settings(tmp_path), database_url=url)
