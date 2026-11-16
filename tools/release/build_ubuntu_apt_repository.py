@@ -248,7 +248,7 @@ def prepare_renewal(
 
 def publish_renewal(
     root: Path, candidate: Path, expected_sha256: str, keyring: Path, fingerprint: str, *,
-    now: datetime | None = None, codename: str = SUITE,
+    now: datetime | None = None, codename: str = SUITE, successor_fingerprint: str | None = None,
 ) -> datetime:
     """Install a signed date-only renewal while the caller excludes other publishers."""
     now = (now or datetime.now(UTC)).astimezone(UTC)
@@ -269,7 +269,8 @@ def publish_renewal(
         signed = Path(scratch) / "InRelease"
         signed.write_bytes(_read_inrelease(candidate))
         old = _verified_release(original_copy, keyring, fingerprint)
-        new = _verified_release(signed, keyring, fingerprint)
+        expected_signer = fingerprint if successor_fingerprint is None else successor_fingerprint
+        new = _verified_release(signed, keyring, expected_signer)
         new_expiry = _verify_renewed_metadata(old, new, codename, now)
         _verify_indexes(root, suite, new)
         release = Path(scratch) / "Release"
@@ -341,6 +342,8 @@ def main() -> None:
     actions.add_argument("--publish-renewal", type=Path, metavar="LIVE_REPOSITORY")
     parser.add_argument("--from-inrelease", type=Path, metavar="SIGNED_RENEWAL")
     parser.add_argument("--expected-inrelease-sha256", metavar="SHA256")
+    parser.add_argument("--successor-fingerprint", metavar="OPENPGP_FINGERPRINT",
+                        help="verify the renewed index with this key during an explicit publisher transition")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--keyring", type=Path)
     parser.add_argument("--codename", choices=REPOSITORIES, default=SUITE)
@@ -352,10 +355,12 @@ def main() -> None:
         expiry = publish_renewal(
             args.publish_renewal, args.from_inrelease, args.expected_inrelease_sha256,
             args.keyring, args.signing_fingerprint, codename=args.codename,
+            successor_fingerprint=args.successor_fingerprint,
         )
         print(f"Published Valid-Until {expiry.isoformat()}")
         return
-    if args.from_inrelease is not None or args.expected_inrelease_sha256 is not None:
+    if any(value is not None for value in
+           (args.from_inrelease, args.expected_inrelease_sha256, args.successor_fingerprint)):
         parser.error("publication inputs require --publish-renewal")
     if args.deb:
         if args.output is None:

@@ -419,6 +419,15 @@ left the target indexes unchanged. Publisher user-unit templates now prepare
 signed date-only renewals from a read-only mirror into a separate output
 directory keyed by the original InRelease hash. Both exact package sets
 passed a real GnuPG and APT rehearsal including an unchanged retry.
+On 16 November both live indexes entered the warning interval and
+ordinary APT still downloaded both expected packages. The prior
+signing key was absent from inspected keyrings. The operator authorized
+a replacement, and a protected local signer prepared date-only
+candidates for both channels. APT accepted old and new indexes with
+the dual public keyring. The publisher now supports an explicit
+successor fingerprint while verifying the original signature and hash.
+All seven confirmed clients still pin the prior key. Client trust
+transition, live publication and central alert delivery remain open.
 Release evidence requires an exact-source CI receipt before publication.
 STAB-15: the [release qualification matrix](docs/verification/2026-11-14-agent-release-qualification-matrix.md)
 records installed canary evidence by OS, exact source and signed artifact.

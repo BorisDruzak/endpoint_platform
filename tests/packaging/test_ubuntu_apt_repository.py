@@ -152,6 +152,35 @@ def test_publish_renewal_replaces_only_metadata(renewal_for_publication, codenam
     assert package.read_bytes() == artifact
 
 
+@pytest.mark.parametrize("codename", ["noble", "bookworm"])
+def test_publish_renewal_requires_explicit_successor_for_new_signer(renewal_for_publication, codename, monkeypatch):
+    root, current, candidate, index, package, artifact, packages, now, keyring, original_fingerprint = (
+        renewal_for_publication
+    )
+    original = current.read_bytes()
+    expected = hashlib.sha256(original).hexdigest()
+    successor = "b" * 40
+
+    def verified_release(path, _keyring, fingerprint):
+        required = original_fingerprint if path.name == "Original" else successor
+        if fingerprint != required:
+            raise ValueError("unexpected signer")
+        return path.read_text()
+
+    monkeypatch.setattr(apt, "_verified_release", verified_release)
+    with pytest.raises(ValueError, match="unexpected signer"):
+        apt.publish_renewal(root, candidate, expected, keyring, original_fingerprint, codename=codename, now=now)
+    assert current.read_bytes() == current.with_name("Release").read_bytes() == original
+
+    assert apt.publish_renewal(
+        root, candidate, expected, keyring, original_fingerprint, codename=codename, now=now,
+        successor_fingerprint=successor,
+    ) == now + timedelta(days=7)
+    assert current.read_bytes() == candidate.read_bytes()
+    assert index.read_bytes() == packages
+    assert package.read_bytes() == artifact
+
+
 @pytest.mark.parametrize("codename", ["noble"])
 @pytest.mark.parametrize("problem, message", [
     ("stale", "live InRelease changed"),
