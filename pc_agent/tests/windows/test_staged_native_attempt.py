@@ -134,10 +134,13 @@ def test_zero_result_needs_exact_native_release_and_atomic_outcome(attempt,monke
 
 
 @pytest.mark.skipif(__import__('os').name!='nt',reason='actual owner control flow and compiled policy')
-def test_owner_requires_pending_publication_before_launch_and_settlement_before_success(tmp_path):
+@pytest.mark.parametrize('line_ending', [b'\n', b'\r\n'], ids=['lf', 'crlf'])
+def test_owner_requires_pending_publication_before_launch_and_settlement_before_success(tmp_path, line_ending):
     import subprocess
     from pathlib import Path
-    source=Path(__file__).resolve().parents[3]/'packaging/windows/Install-EndpointAgentCanary.ps1'
+    wrapper = Path(__file__).resolve().parents[3] / 'packaging/windows/Install-EndpointAgentCanary.ps1'
+    source = tmp_path / wrapper.name
+    source.write_bytes(wrapper.read_bytes().replace(b'\r\n', b'\n').replace(b'\n', line_ending))
     script=tmp_path/'native-gate.ps1'
     script.write_text(r'''param($Source)
 $ErrorActionPreference='Stop';$tokens=$null;$errors=$null
@@ -154,9 +157,15 @@ $denied=$false;try{$policy.RegisterHelper([EndpointInstallerBridge.Identity]::ne
 if(!$denied){throw 'success admitted without actual native settlement'}
 $gate=$ast.Find({param($n)$n -is [Management.Automation.Language.IfStatementAst] -and $n.Extent.Text.StartsWith('if($stagedOnline -or $null -ne $stagedRecoveryObserved)')},$true)
 if(!$gate){throw 'pending launch barrier missing'}
-$sourceText=[IO.File]::ReadAllText($Source)
-$native=$sourceText.IndexOf("`n    Start-WindowsInstaller`n    if",$gate.Extent.EndOffset)
-if($native -lt $gate.Extent.EndOffset){throw 'pending barrier does not precede native launch'}
+$launches = @($gate.Parent.Statements | Where-Object {
+    $_ -is [Management.Automation.Language.PipelineAst] -and
+        $_.PipelineElements.Count -eq 1 -and
+        $_.PipelineElements[0] -is [Management.Automation.Language.CommandAst] -and
+        $_.PipelineElements[0].GetCommandName() -eq 'Start-WindowsInstaller'
+})
+if ($launches.Count -ne 1 -or $launches[0].Extent.StartOffset -lt $gate.Extent.EndOffset) {
+    throw 'pending barrier does not precede native launch'
+}
 $stagedOnline=$true;$stagedRecoveryObserved=$null;$bridge=[pscustomobject]@{TransactionId='33333333-3333-4333-8333-333333333333'}
 $fakePolicy=New-Object psobject;$fakePolicy|Add-Member ScriptMethod MarkQuiescent {}
 $script:fakeBridge=[pscustomobject]@{Policy=$fakePolicy}
