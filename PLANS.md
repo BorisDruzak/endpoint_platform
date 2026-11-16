@@ -828,6 +828,10 @@ keeping all 15 connections in the test pool eliminated physical
 reopens during reconnect. Result ACK took 1.42–1.51 s at p95 and the
 paired effects on ACK differed. The next comparison should
 isolate the contest for pool slots between reconnect work and feedback.
+The shared device bearer verifier now reads credential and active
+device in one statement, including ambiguity checks for retired
+devices. The 96-client TLS comparison counted 96 fewer authentication
+SELECTs per wave, with reconnect result ACK at 1.43–1.46 s p95.
 Delivery and reconnect targets and production-scale qualification
 remain open.
 
