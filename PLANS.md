@@ -51,8 +51,17 @@ Production had 7,578,681,344 bytes free and the release preflight exited 2.
 GitHub Actions has no receipt for this SHA.
 Candidate `28eade8c4c80` passed the complete local Windows workflow
 task from a clean CRLF checkout on Python 3.12.16. The JUnit records
-2,912 passes and four skips. Linux and hosted CI remain separate gates
-for this source revision.
+2,912 passes and four skips. Console passed 125 tests, the two server
+archives matched, and all 333 files were verified. The full Linux
+run recovered schema 0051 to 0054 and passed 5,318 tests and two subtests,
+with one WSS reconnect test failure and 722 skips. Its heartbeat had
+only reached a client-side statement callback when the test launched
+the replacement. The regression now holds the instance row so the
+heartbeat owns the session before replacement starts. The changed test
+passed 20 independent PostgreSQL runs and the reconnect and delivery
+suite passed 32 tests with one skip. The full gate for `761dae0b58c0`,
+archive startup smoke and hosted CI remain open. Production release-space
+preflight returned 2 at 7,553,687,552 free bytes.
 STAB-01 source: WSS bounded FIFO and separate command task, fixed worker
 process with capability budgets, deadline admission and owned process-tree
 cleanup. HTTP pull remains sequential. Windows source fault injection covers
