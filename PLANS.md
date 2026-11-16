@@ -823,8 +823,13 @@ empty queue check had delayed entry into the result handler by
 1.24–1.33 s at p95. With the change the delay was 9.1–9.6 ms and
 total result ACK was 1.41–1.59 s. At 192 devices result ACK went from
 4.19 to 3.19 s at p95 in single runs. Pool acquisition accounts for
-most of the observed handler tail. Delivery and reconnect targets and
-production-scale qualification remain open.
+most of the observed handler tail. At the same 15-connection limit,
+keeping all 15 connections in the test pool eliminated physical
+reopens during reconnect. Result ACK took 1.42–1.51 s at p95 and the
+paired effects on ACK differed. The next comparison should
+isolate the contest for pool slots between reconnect work and feedback.
+Delivery and reconnect targets and production-scale qualification
+remain open.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
