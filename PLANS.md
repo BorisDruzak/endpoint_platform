@@ -876,7 +876,14 @@ accepted new WSS, genuine console UserSensor and fresh observer 1.0.13
 reports. The four identity files and registered MSI matched. The fleet
 qualification API returned 409 and persisted no qualification or policy.
 The temporary Windows VM, database, services and media were removed.
-Independent Support and production qualification for this pair remain open.
+The server now includes 1.0.13 in the qualified observer versions while
+requiring both source versions in its hello. A PostgreSQL 15.20 replay
+used the original canary timestamps and persisted evidence: the prior
+code rejected the observer, and the new code qualified exact Setup
+3.2.237 from Foundation 3.2.236. A stale UserSensor was still rejected
+and the database contained no fleet policy. Temporary databases and ISO
+were removed. Independent Support and production qualification for this
+pair remain open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,

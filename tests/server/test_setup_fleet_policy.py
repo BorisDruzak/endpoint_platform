@@ -69,7 +69,7 @@ async def test_companion_fixed_observer_keeps_existing_native_qualification_gate
 
 
 @pytest.mark.parametrize('location', ['source', 'presence'])
-@pytest.mark.parametrize('client_version', ['1.0.9', '1.0.13'])
+@pytest.mark.parametrize('client_version', ['1.0.9', '1.0.12'])
 async def test_unqualified_observer_cannot_supply_native_qualification(db, fleet, location, client_version):
     from endpoint_server.setup_updates.models import SetupClientPresence
     job, _ = await qualification_evidence(db, fleet)
@@ -83,13 +83,11 @@ async def test_unqualified_observer_cannot_supply_native_qualification(db, fleet
             actor='test-admin', request_id='unqualified-observer', now=NOW)
 
 
-@pytest.mark.parametrize(('client_version', 'source', 'target'), [
-    ('1.0.10', '3.2.165', '3.2.167'),
-    ('1.0.13', '3.2.237', '3.2.238'),
-])
-async def test_candidate_observer_accepts_an_explicit_setup_assignment(db, fleet, client_version, source, target):
+async def test_candidate_observer_accepts_an_explicit_setup_assignment(db, fleet):
     from endpoint_server.setup_updates.preparation import request_setup
     from endpoint_server.setup_updates.service import record_presence
+
+    client_version, source, target = '1.0.10', '3.2.165', '3.2.167'
     device, release, _, instance = fleet
     release.version = target
     instance.agent_version = instance.launcher_version = source
@@ -105,6 +103,18 @@ async def test_candidate_observer_accepts_an_explicit_setup_assignment(db, fleet
         actor='test-admin', request_id='candidate-observer', now=NOW, explicit_observer=True)
     assert job.source_client_version == client_version
     assert job.source_foundation_version == job.source_core_version == source
+
+
+@pytest.mark.parametrize('missing', ['foundation_version', 'core_version'])
+async def test_observer_113_without_source_version_cannot_fetch_native_setup(db, fleet, missing):
+    from endpoint_server.setup_updates.models import SetupClientPresence
+    from endpoint_server.setup_updates.service import qualified_presence, record_presence
+
+    fields = dict(client_version='1.0.13', ready=True, foundation_version='3.2.236', core_version='3.2.236')
+    fields.pop(missing)
+    await record_presence(db, fleet[0].id, fields, now=NOW)
+    presence = await db.scalar(select(SetupClientPresence).where(SetupClientPresence.device_id == fleet[0].id))
+    assert not qualified_presence(presence, NOW)
 
 
 async def test_fleet_requires_exact_authenticated_platform_and_fresh_open_wss(db, fleet):
@@ -370,15 +380,26 @@ def test_core_only_build_is_not_a_full_setup_target_even_if_number_is_newer():
     assert not product_release(core)
 
 
-async def test_current_source158_client_can_qualify_direct_future_setup_without_new_bootstrap(db, fleet):
-    from endpoint_server.setup_updates.models import SetupPreparation
-    fleet[1].version = '3.2.169'
+@pytest.mark.parametrize(('source', 'target', 'client_version'), [
+    ('3.2.158', '3.2.169', '1.0.5'),
+    ('3.2.236', '3.2.237', '1.0.13'),
+])
+async def test_qualified_client_accepts_direct_native_proof_without_enabling_fleet(db, fleet, source, target, client_version):
+    from endpoint_server.setup_updates.models import SetupClientPresence, SetupPreparation
+    device, release, policy, _ = fleet
+    release.version = target
+    policy.enabled = False
     job, _ = await qualification_evidence(db, fleet)
     prep = await db.scalar(select(SetupPreparation).where(SetupPreparation.assignment_id == job.id))
     await db.delete(prep)
-    job.source_foundation_version = job.source_core_version = '3.2.158'
-    qualification = await qualify_release(db, fleet[1].id, job.id, actor='test-admin', request_id='direct', now=NOW)
-    assert qualification.source_foundation == '3.2.158'
+    job.source_foundation_version = job.source_core_version = source
+    job.source_client_version = client_version
+    presence = await db.scalar(select(SetupClientPresence).where(SetupClientPresence.device_id == device.id))
+    presence.client_version = client_version
+    qualification = await qualify_release(db, release.id, job.id, actor='test-admin', request_id='direct', now=NOW)
+    assert qualification.source_foundation == source
+    assert qualification.sha256 == release.sha256 and qualification.evidence_assignment_id == job.id
+    assert policy.enabled is False
 
 
 @pytest.mark.parametrize('field,value', [('source_foundation_version', None), ('source_core_version', None), ('source_client_version', '1.0.4')])

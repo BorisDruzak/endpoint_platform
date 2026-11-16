@@ -34,13 +34,14 @@ def now_utc(value=None):
 
 
 def qualified_presence(presence, now):
-    # Explicit canaries may use known signed candidate versions with both
-    # source versions. Fleet admission requires its own qualified observer set.
+    # Explicit canaries may also use candidate 1.0.10 with both source
+    # versions. Fleet admission requires its own qualified observer set.
     if presence is None or not presence.ready:
         return False
-    supported = (presence.client_version in (*QUALIFIED_SETUP_CLIENT_VERSIONS, LEGACY_SETUP_CLIENT_VERSION)
-        or (presence.client_version in ('1.0.10', '1.0.13')
-            and presence.foundation_version and presence.core_version))
+    client_version = presence.client_version
+    if client_version in ('1.0.10', '1.0.13') and not (presence.foundation_version and presence.core_version):
+        return False
+    supported = client_version in (*QUALIFIED_SETUP_CLIENT_VERSIONS, LEGACY_SETUP_CLIENT_VERSION, '1.0.10')
     return bool(supported and -timedelta(seconds=30) <= now - utc(presence.last_seen_at) <= timedelta(minutes=10))
 
 
