@@ -747,7 +747,13 @@ The local process-crash drill verified result replay after forced API exit
 before result submission and after commit, and after immediate PostgreSQL
 stop and WAL crash recovery with the API process still running. The Linux
 Nginx/TLS rehearsal held 32 devices for 125 seconds with the default worker
-tick and completed 64 health collections. Production-scale qualification
+tick and completed 64 health collections. The next isolated Linux rehearsal
+ran Nginx and split Gateway, worker and clients into separate processes.
+Both 32 and 96 synthetic agents held sessions for 125 seconds. Replacement
+drained in 1.770 and 5.016 seconds, with p95 result ACK 0.713 and 1.807
+seconds respectively. Registry and PostgreSQL agreed on the active owners.
+The proposed one-second ACK target held at 32 and was exceeded at 96.
+Production-scale qualification
 and restore from a verified external production copy remain open. The
 read-only backup inventory found local database dumps and no VM115 backups
 in the checked Proxmox storages.
