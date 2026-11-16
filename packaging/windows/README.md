@@ -3,6 +3,8 @@
 The current published Windows release, exact packages, source revisions,
 download links and source qualification limits are recorded in
 [`docs/releases/current-agent-release.json`](../../docs/releases/current-agent-release.json).
+Follow `primary_windows_release.record` for the current Windows packages.
+The top-level `version` identifies the historical package checkpoint.
 Use the `initial-runtime-<version>.json` named by that record. Older immutable
 bindings and build examples below remain historical inputs. Foundation changes
 use a source-qualified full signed Setup; Core bridge qualification is recorded

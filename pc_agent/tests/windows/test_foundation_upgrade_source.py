@@ -104,12 +104,16 @@ def test_foundation_without_modern_marker_uses_exact_readonly_legacy_inspection(
 
 def test_qualified_full_setup_uses_new_immutable_version_independent_of_core_bridge():
     packaging = Path(__file__).resolve().parents[3] / 'packaging' / 'windows'
-    release = json.loads((packaging.parents[1] / 'docs/releases/current-agent-release.json').read_text(encoding='utf-8'))
-    version = release['version']
-    current = json.loads((packaging / f'initial-runtime-{version}.json').read_text(encoding='utf-8'))
+    root = packaging.parents[1]
+    catalog = json.loads((root / 'docs/releases/current-agent-release.json').read_text(encoding='utf-8'))
+    published = catalog['primary_windows_release']
+    release = json.loads((root / published['record']).read_text(encoding='utf-8'))
+    current = json.loads((root / release['runtime_source_binding']).read_text(encoding='utf-8'))
     approved = json.loads((packaging / 'initial-runtime-3.2.149.json').read_text(encoding='utf-8'))
+    version = published['version']
 
-    assert current['version'] == current['agent_version'] == version
+    assert release['version'] == current['version'] == current['agent_version'] == version
+    assert current['source_revision'] == release['msi']['source_revision']
     assert tuple(map(int, version.split('.'))) > (3, 2, 149)
     assert current['component_guid'] != approved['component_guid']
     assert re.fullmatch(r'[0-9a-fA-F]{40}', current['source_revision'])

@@ -44,7 +44,14 @@
 
 # Canonical agent release
 
-- Current Windows rollout checkpoint, 2026-11-11T16:58Z: the primary Windows
+- On 2026-11-16 the latest published production Windows installer was
+  **3.2.205**. The downloaded EXE and its MSI binding have separate source
+  revisions. Both local signatures and the served EXE hash were verified.
+  Policy21 is paused. The current qualification covers Foundation 3.2.192
+  through 2026-12-13T22:59:06Z. The [production release record](docs/releases/windows-3.2.205-production.json)
+  lists the exact files and download link.
+
+- Historical Windows rollout checkpoint, 2026-11-11T16:58Z: the primary Windows
   installer is **3.2.192**. VM126 (Windows 10 build19045) qualified a direct
   transition from177/client107 with native0, 182.174 seconds, private4 and
   genuine UserSensor. With Windows servicing complete and the VM's existing
@@ -55,7 +62,7 @@
   involved a pending Windows restart and an unresolvable domain principal on
   this workgroup VM. Keep those receipts. VM100 was untouched during this
   repeat.
-- Policy18 is enabled for exact 192/source177, selected/max2. The four Windows
+- At that checkpoint policy18 was enabled for exact 192/source177, selected/max2. The four Windows
   10 devices .144/.146/.170/.207 await reconnect. The all-active preview would
   also admit Windows 11 MUNSLU-S2 (.2), whose existing external OpenSSH
   migration is unverified. It remains outside the selected scope. This policy
@@ -161,7 +168,7 @@
   before delivery resumes. Public Windows177/Linux183 remain unchanged. See
   [fleet receipt](docs/verification/2026-11-10-windows186-fleet-auto.md).
 
-- The primary Windows installer is `C:\endpoint-platform-wix-build\setup192-inbox-050b541\native-setup-build\releases\EndpointAgentSetup-3.2.192-x64.exe`, bound by `packaging/windows/initial-runtime-3.2.192.json`. Runtime source `050b541ff0783678ef34df804455ba7f602660a6`, native packaging `721b0ad9061d8120a186bd4424fbcdcf04ed55bd`. The served installer SHA-256 is `b2552b0c46b31d93821679fd41188dd7324e4830f98aee300a772eaa223239b9` and its timestamped Authenticode signature is Valid. Read [current-agent-release.json](docs/releases/current-agent-release.json), [Windows192](docs/releases/windows-3.2.192-setup.json) and [Linux183](docs/releases/linux-3.2.183-native.json) for the exact release bytes and qualification limits.
+- The Windows installer at the 11 November checkpoint was `C:\endpoint-platform-wix-build\setup192-inbox-050b541\native-setup-build\releases\EndpointAgentSetup-3.2.192-x64.exe`, bound by `packaging/windows/initial-runtime-3.2.192.json`. Runtime source `050b541ff0783678ef34df804455ba7f602660a6`, native packaging `721b0ad9061d8120a186bd4424fbcdcf04ed55bd`. The served installer SHA-256 is `b2552b0c46b31d93821679fd41188dd7324e4830f98aee300a772eaa223239b9` and its timestamped Authenticode signature is Valid. Read [current-agent-release.json](docs/releases/current-agent-release.json), [Windows192](docs/releases/windows-3.2.192-setup.json) and [Linux183](docs/releases/linux-3.2.183-native.json) for the exact release bytes and qualification limits.
 - Windows177 remains an immutable historical release with Support1.0.1 and the portable Microsoft10.4.0.0p1-Preview dependency. Policy12 previously delivered177 with native exit0 to the six online devices. Its old source qualifications, artifact and acceptance limits are recorded in [Windows177](docs/releases/windows-3.2.177-setup.json). Preserve historical installer bytes, device cards and failure receipts.
 - Native Linux183 is published at `/srv/endpoint-platform-distribution/alt/endpoint-alt-pilot-3.2.183-1/`, operator kit `C:/endpoint-platform-wix-build/linux178-native/kit183/endpoint-alt-pilot-3.2.183-1.tar.gz`, source `21fc543af8d4b8b24df83f29a27e4e2eeb86c268`, actual archive SHA `c5b552afa4aa27e4df73af0ce68be4ecc88729f30baf3a70e6f9d4c8c709a3f3`. Production provider `fd196e78b2c5cef00c86de79ca359147676f8b2f` uses additive49/50 only; staging `0b8ea9138011c1a4512737629d5a12b0269e4e7d` separately preserves Worktime51. Actual VM107 acceptance covers native0, same-card history/private4, modern full-wipe parent link, genuine user telemetry, expiry/revoke, manual disable through mixed online/offline rebind and root SSH with Core/updater/path stopped108.613629715seconds. See [receipt](docs/verification/2026-11-09-linux183-native-canary.md). Linux fleet rollout was not started, no global Linux enrollment campaign/network authority was created, the initial VM receipt alone does not qualify production Linux SSH; the subsequent explicit physical cohort below supplies separate acceptance. Use the native RPM coordinator, not Core-only OTA, to install privileged Support/helpers. Subsequent explicitly authorized physical105/190/210 acceptance is recorded in `docs/verification/2026-11-09-linux183-physical-cohort.md`: actual production root SSH with Core/updater stopped on each, accepted domain-user telemetry and preserved identity/domain state. The210 historical158 path required archival of an exact redundant production drop-in after canonical not-started recovery; do not generalize that administratively prepared continuation to unattended historical sources or arbitrary drop-ins. No automatic Linux fleet rollout is enabled. The historical156 kit, signatures and Core-only OTA remain immutable; the exact signed156 pair is separately registered for rollback. Historical178-182 candidates remain unqualified.
 - Core **3.2.163**, source `b23857849ad5b877e67d0de3c28d297f9ae5d507`, is the current Windows preparation bridge with signed client1.0.5. Its artifact is `C:\endpoint-platform-wix-build\setup-client-3.2.163-b238578\EndpointCore-3.2.163-b238578.zip`; see [`docs/releases/core-3.2.163-setup-client.json`](docs/releases/core-3.2.163-setup-client.json). It is not a primary installer or Linux release. Historical Core162/client1.0.4 artifacts and reports remain immutable. Foundation156 uses the exact compatible Core155 return, identifier `endpoint-windows-core-3.2.155-setup-source-725739f`, before full Setup158; other qualified profiles retain Core157. Never weaken Core157's Foundation157 minimum. Preserve all failed attempt receipts.

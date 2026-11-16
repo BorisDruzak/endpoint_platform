@@ -8,6 +8,10 @@
   "linux_kit_metadata_commit": "21fc543af8d4b8b24df83f29a27e4e2eeb86c268",
   "verified_code_and_tests_commit": "050b541ff0783678ef34df804455ba7f602660a6",
   "canonical_rules": "AGENTS.md#canonical-agent-release",
+  "primary_windows_release": {
+    "version": "3.2.205",
+    "record": "docs/releases/windows-3.2.205-production.json"
+  },
   "ubuntu_servers_197": {
     "package": "endpoint-agent-ubuntu",
     "version": "3.2.197-1ubuntu1",

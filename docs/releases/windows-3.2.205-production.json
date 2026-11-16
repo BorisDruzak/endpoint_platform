@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "version": "3.2.205",
+  "platform": "windows_amd64",
+  "status": "published_production",
+  "verified_utc": "2026-11-16T21:56:39.636164Z",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.205.json",
+  "setup": {
+    "filename": "EndpointAgentSetup-3.2.205-x64.exe",
+    "sha256": "e4acd9c00630b1c468a1b4d8ab1db07134d9160fa07b3cd3036f6c51692bef4a",
+    "size": 179164032,
+    "source_commit": "c9a46030b77109d7462651e934f0f798af685409",
+    "release_id": "32b867a5-e2b7-4177-80d6-91386f4b98a7",
+    "download_published": true,
+    "download_url": "https://endpoint.sosnadmin.local/api/admin/console/installer/releases/32b867a5-e2b7-4177-80d6-91386f4b98a7/download",
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+    "operator_path": "C:/endpoint-platform-wix-build/setup205-production-f0d1d7cf/verified-native-setup-build/releases/EndpointAgentSetup-3.2.205-x64.exe"
+  },
+  "msi": {
+    "filename": "EndpointAgent-3.2.205-x64.msi",
+    "sha256": "689e1d9dc0dcbd0e1943e98f27cfa88cc36fe99dbf9316e58e54d4292a1fc26f",
+    "size": 137297920,
+    "source_revision": "f0d1d7cf2f9b59052f35bd0ba0188f8e49cc9649",
+    "product_code": "{BB088838-672A-4C0C-860F-F0A683F3215C}",
+    "initial_runtime_tree_sha256": "7c21cf6a5a8ea7e7905b37e02b93f27c510ee2cff6becd4f6d439606fe68a882",
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776"
+  },
+  "full_setup_update": {
+    "release_id": "8d09e729-32a1-4620-9ad0-1fbd549a7d46",
+    "release_identifier": "endpoint-windows-full-setup-3.2.205-production",
+    "source_revision": "f0d1d7cf2f9b59052f35bd0ba0188f8e49cc9649",
+    "tray_sha256": "133f24b35bb86117e56f98171d3d42c127301b2d67aab1a3d34f9fa3fc272c2a",
+    "sensor_sha256": "79b2fa0005d7b354f2ac116416e412b360d3f9f504f0c30f6f90f1c24f88dab8",
+    "source_qualifications": [
+      {
+        "id": "cce0f07b-e921-424a-b93c-c34565c20301",
+        "source_foundation": "3.2.192",
+        "evidence_assignment_id": "a056d544-0a76-41d7-b46b-13c392d628c2",
+        "qualified_at": "2026-11-13T22:59:06.681274Z",
+        "expires_at": "2026-12-13T22:59:06.681274Z",
+        "evidence_code": "native0_sensor_source_verified"
+      }
+    ],
+    "policy": {
+      "id": "0ab7e6f8-7f3b-42b4-9b62-e0718dd6a3fc",
+      "revision": 21,
+      "enabled": false,
+      "scope": "all_active",
+      "max_parallel": 1,
+      "updated_at": "2026-11-16T03:51:53.069336Z"
+    },
+    "observed_assignments": {
+      "applied": 6,
+      "recovery_required": 1
+    }
+  },
+  "verification": "docs/verification/2026-11-14-stability-release-baseline.md"
+}

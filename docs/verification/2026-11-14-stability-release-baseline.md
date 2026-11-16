@@ -13,7 +13,7 @@
 
 ## Установочные артефакты
 
-- Реестр production для Windows Setup 3.2.205 указывает `f0d1d7cf2f9b59052f35bd0ba0188f8e49cc9649`. SHA-256 Setup EXE — `e4acd9c00630b1c468a1b4d8ab1db07134d9160fa07b3cd3036f6c51692bef4a`. SHA-256 MSI — `689e1d9dc0dcbd0e1943e98f27cfa88cc36fe99dbf9316e58e54d4292a1fc26f`. Значения прочитаны из реестра. Staging использует другой EXE, что отражено в [staging release](../releases/windows-3.2.205-staging.json). SHA `c9a46030` указывает на состояние рабочего дерева с отчётом о staging, его использовали как базу разработки.
+- В реестре [production Windows Setup 3.2.205](../releases/windows-3.2.205-production.json) EXE связан с `c9a46030b77109d7462651e934f0f798af685409`, MSI и артефакт обновления с `f0d1d7cf2f9b59052f35bd0ba0188f8e49cc9649`. SHA-256 Setup EXE — `e4acd9c00630b1c468a1b4d8ab1db07134d9160fa07b3cd3036f6c51692bef4a`. SHA-256 MSI — `689e1d9dc0dcbd0e1943e98f27cfa88cc36fe99dbf9316e58e54d4292a1fc26f`. Значения прочитаны из реестра. Staging использует другой EXE, что отражено в [staging release](../releases/windows-3.2.205-staging.json). SHA `c9a46030` указывает на состояние рабочего дерева с отчётом о staging, его использовали как базу разработки.
 - ALT native 3.2.183 — `21fc543af8d4b8b24df83f29a27e4e2eeb86c268`. Подписанные RPM, kit и manifest SHA-256 перечислены в [Linux native release](../releases/linux-3.2.183-native.json). Артефакты использованы как историческое свидетельство выпуска.
 
 ## Проверка и выпуск
