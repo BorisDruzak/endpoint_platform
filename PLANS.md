@@ -34,8 +34,13 @@ archive. The 0051 to 0054 migration preserved a synthetic native Setup
 hold and an unrequested Core owner. The archived provider cancelled the
 paused Core rollout through the authenticated API, replayed the same
 receipt, and preserved the separate Setup hold. Production release-space
-preflight returned exit 2 with 7,786,672,128 bytes free. GitHub Actions and
-publication remain open.
+preflight returned exit 2 with 7,786,672,128 bytes free. The later exact-source
+candidate `f0bd839ab4a3` passed 5304 Linux, 2903 Windows and 125 Console tests.
+Two server archives matched. The packaged API and worker ran on schema 0054.
+The worker emitted the release-volume warning and completed the next job.
+The 0051 migration and archived Core cancellation repeated with the separate
+Setup hold preserved. The production gate returned 2 with 7,608,045,568
+bytes free. GitHub Actions and publication remain open.
 STAB-01 source: WSS bounded FIFO and separate command task, fixed worker
 process with capability budgets, deadline admission and owned process-tree
 cleanup. HTTP pull remains sequential. Windows source fault injection covers
