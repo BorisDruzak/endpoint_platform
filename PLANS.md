@@ -71,6 +71,11 @@ and the archived worker warned on release-space pressure and completed
 the isolated environment was removed. Hosted CI and production release
 remain open. Production release-space preflight returned 2 at 7,551,926,272
 free bytes.
+The follow-up production storage inventory found 27 GiB unallocated in the
+existing guest volume group. An 8 GiB allocation passed the LVM test mode.
+The [storage preflight](docs/verification/2026-11-14-stability-release-baseline.md#резерв-места-для-следующего-выпуска-на-vm115)
+records the active rollback dependencies and the filesystem checks needed
+after a real expansion.
 STAB-01 source: WSS bounded FIFO and separate command task, fixed worker
 process with capability budgets, deadline admission and owned process-tree
 cleanup. HTTP pull remains sequential. Windows source fault injection covers
