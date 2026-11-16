@@ -17,11 +17,15 @@ failed=0
 for endpoint in ubuntu/noble debian/bookworm; do
   channel=${endpoint%/*}
   codename=${endpoint#*/}
+  case "$channel" in
+    ubuntu) channel_fingerprint=${ENDPOINT_APT_UBUNTU_FINGERPRINT:-$fingerprint} ;;
+    debian) channel_fingerprint=${ENDPOINT_APT_DEBIAN_FINGERPRINT:-$fingerprint} ;;
+  esac
   printf '%s\n' "$endpoint"
   if ! curl --fail --silent --show-error --max-time 30 --cacert "$ca" \
     --output "$index" "$base_url/$channel/dists/$codename/InRelease" ||
     ! python3 "$script_dir/build_ubuntu_apt_repository.py" --check "$index" \
-      --codename "$codename" --keyring "$keyring" --signing-fingerprint "$fingerprint"; then
+      --codename "$codename" --keyring "$keyring" --signing-fingerprint "$channel_fingerprint"; then
     printf '<3>Endpoint APT metadata check failed for %s\n' "$endpoint" >&2
     failed=1
   fi

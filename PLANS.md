@@ -510,7 +510,12 @@ for check failure, an inactive timer and a stale completion timestamp. A
 host- and tag-filtered action delivered problem and recovery to a loopback
 webhook. Central import, the real publisher's alert receipt, client trust
 transition and live publication remain open. All seven checked clients
-still pin the prior key.
+still pin the prior key. The expiry monitor now accepts a separate pinned
+fingerprint per suite through its optional systemd environment file. Real
+GnuPG and curl tests verified both switch orders, common-pin fallback and
+rejection of the other key in a shared keyring. The live indexes still
+verified under the prior key and returned the three-day warning during
+the read-only check. Production trust transition remains open.
 Release evidence requires an exact-source CI receipt before publication.
 STAB-15: the [release qualification matrix](docs/verification/2026-11-14-agent-release-qualification-matrix.md)
 records installed canary evidence by OS, exact source and signed artifact.

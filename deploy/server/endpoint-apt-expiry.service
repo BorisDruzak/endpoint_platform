@@ -5,6 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+EnvironmentFile=-/etc/default/endpoint-apt-expiry
 ExecStart=/bin/sh /opt/endpoint-apt-expiry/check_endpoint_apt_expiry.sh
 TimeoutStartSec=120s
 DynamicUser=yes
