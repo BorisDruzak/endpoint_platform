@@ -644,8 +644,12 @@ the same candidate. The old keyring rejected the successor on all eight.
 Permanent source, keyring and CA hashes matched before and after the probe.
 The OpenVPN pilot now uses the dual public keyring in the configured
 Signed-By path. Its installed APT accepted the live HTTPS index and the
-successor-signed fixture and downloaded the same DEB. The remaining
-consumers and live metadata publication remain open.
+successor-signed fixture and downloaded the same DEB. ACTI, Endpoint
+Platform, dirpost and pve1–pve3 then passed the same checks through their
+installed Signed-By paths. Seven of eight recurring consumers are ready.
+Registry Engine still has the former key. Its SSH account lacks
+noninteractive sudo and VM111 has no working guest agent. The single
+unattributed Noble request and live metadata publication remain open.
 Release evidence requires an exact-source CI receipt before publication.
 STAB-15: the [release qualification matrix](docs/verification/2026-11-14-agent-release-qualification-matrix.md)
 records installed canary evidence by OS, exact source and signed artifact.
