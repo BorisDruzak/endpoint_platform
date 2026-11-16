@@ -5,7 +5,7 @@ import ipaddress
 import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import event, select
@@ -142,7 +142,10 @@ async def test_no_pending_command_sends_nothing(
 
 
 @pytest.mark.asyncio
-async def test_idle_gateway_delivers_worker_request_without_heartbeat(session_provider, tmp_path, monkeypatch):
+@pytest.mark.parametrize("follow_up", [False, True])
+async def test_idle_gateway_delivers_worker_request_without_heartbeat(
+    session_provider, tmp_path, monkeypatch, follow_up,
+):
     initial_dispatch_done = asyncio.Event()
     deliver_next = CommandService.deliver_next
 
@@ -200,6 +203,14 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(session_pr
                 await db.commit()
 
             command = (await receive("command"))["command_id"]
+            follow_up_id = uuid4()
+            if follow_up:
+                async with session_provider() as db:
+                    db.add(ContextCollection(
+                        id=follow_up_id, device_id=device.id, profile="health_v1", requested_by="operator",
+                        idempotency_key="pending-after-start", status="requested", requested_at=now,
+                    ))
+                    await db.commit()
             await send(_envelope("command_ack", 2, {
                 "schema_version": "agent_command_ack_v1", "device_id": str(device.id),
                 "command_id": command, "status": "running", "acknowledged_at": now.isoformat(),
@@ -207,8 +218,15 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(session_pr
             assert (await receive("command_start"))["command_id"] == command
             await send(_result(device.id, command, 1))
             assert (await receive("result_ack"))["command_id"] == command
+            if follow_up:
+                next_command = await receive("command")
+                async with session_provider() as db:
+                    follow_up_collection = await db.get(ContextCollection, follow_up_id)
+                    assert str(follow_up_collection.command_id) == next_command["command_id"]
             async with session_provider() as db:
-                delivery = (await db.scalars(select(CommandDelivery))).one()
+                delivery = (await db.scalars(
+                    select(CommandDelivery).where(CommandDelivery.command_id == UUID(command))
+                )).one()
                 assert str(delivery.device_session_id) == handshake["session_id"]
                 assert len((await db.scalars(select(ContextSnapshot))).all()) == 1
         finally:

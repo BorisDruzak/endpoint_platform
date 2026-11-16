@@ -817,7 +817,13 @@ Reconnect result ACK was 2.15–2.27 s at p95 in the paged-worker runs.
 A separate 96-device TLS comparison with three fresh supported profiles
 confirmed 232–234 fewer SELECTs in the reconnect wave after combining the
 context refresh checks. Delivery and refresh p95 changed in both
-directions across pairs. Delivery and reconnect targets and
+directions across pairs. Gateway now reads the next frame immediately
+after granting command start. On 96-device reconnects, the preceding
+empty queue check had delayed entry into the result handler by
+1.24–1.33 s at p95. With the change the delay was 9.1–9.6 ms and
+total result ACK was 1.41–1.59 s. At 192 devices result ACK went from
+4.19 to 3.19 s at p95 in single runs. Pool acquisition accounts for
+most of the observed handler tail. Delivery and reconnect targets and
 production-scale qualification remain open.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)

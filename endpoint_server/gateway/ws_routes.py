@@ -24,6 +24,7 @@ from endpoint_contracts.gateway_ws import (
     AgentHelloEnvelopeV1,
     CommandAckEnvelopeV1,
     CommandResultEnvelopeV1,
+    CommandStartEnvelopeV1,
     EndpointPolicyAckEnvelopeV1,
     ErrorEnvelopeV1,
     GatewayHelloEnvelopeV1,
@@ -359,6 +360,10 @@ async def connect_agent(websocket: WebSocket) -> None:
                 )
                 if decision is not None:
                     await connection.send(decision)
+                    if isinstance(decision, CommandStartEnvelopeV1):
+                        # Read the running command's next frame before probing
+                        # for another command. Results and heartbeats still dispatch.
+                        continue
             elif isinstance(envelope, CommandResultEnvelopeV1):
                 acknowledgement = await command_service.record_result(
                     device_id=device_id,
