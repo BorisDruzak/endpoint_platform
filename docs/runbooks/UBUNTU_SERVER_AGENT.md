@@ -198,8 +198,23 @@ python tools/release/build_ubuntu_apt_repository.py \
 на копии индекса с новой подписью. Клиент с одним прежним ключом
 отклонит новый индекс.
 
-Перед публикацией файла, подписанного новым ключом, передайте
-`--successor-fingerprint` в дополнение к `--signing-fingerprint`.
+Подготовьте продление с обоими открытыми ключами в `--keyring` и
+закрытым ключом нового издателя в рабочем хранилище GnuPG.
+
+```bash
+python3 tools/release/build_ubuntu_apt_repository.py \
+  --prepare-renewal /mirror/endpoint/ubuntu --output /release/endpoint-apt/prepared \
+  --codename noble --keyring /release/endpoint-apt-transition.gpg \
+  --signing-fingerprint "$old_fingerprint" --successor-fingerprint "$new_fingerprint"
+```
+
+Команда проверяет текущий InRelease прежним ключом, подписывает
+продление новым и сохраняет результат в подкаталоге
+`noble/successor-<новый отпечаток>/<SHA-256 исходного InRelease>/`.
+Для канала Debian используйте `--codename bookworm` и его зеркало.
+
+При публикации продления также передайте `--successor-fingerprint`
+в дополнение к `--signing-fingerprint`.
 Первый параметр закрепляет новый ключ, второй закрепляет подпись
 текущего опубликованного индекса. Для этой проверки укажите keyring
 с обоими открытыми ключами. Команда сохраняет проверку исходного

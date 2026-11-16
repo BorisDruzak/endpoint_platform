@@ -468,8 +468,11 @@ ordinary APT still downloaded both expected packages. The prior
 signing key was absent from inspected keyrings. The operator authorized
 a replacement, and a protected local signer prepared date-only
 candidates for both channels. APT accepted old and new indexes with
-the dual public keyring. The publisher now supports an explicit
-successor fingerprint while verifying the original signature and hash.
+the dual public keyring. Preparation and publication both support an
+explicit successor fingerprint. A separate GnuPG and APT rehearsal
+covered Noble and Bookworm with only the successor's private key
+available during preparation. APT downloaded the original DEB bytes
+from both revisions with the dual public keyring.
 All seven confirmed clients still pin the prior key. Client trust
 transition, live publication and central alert delivery remain open.
 Release evidence requires an exact-source CI receipt before publication.
