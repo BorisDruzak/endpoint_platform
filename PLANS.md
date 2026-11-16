@@ -270,6 +270,12 @@ verified 19 additional private-venv trees and rechecked both earlier copies.
 The 21 trees occupy 2,374,709,248 bytes against an observed shortfall of
 2,365,140,992 bytes. They are still deployed. Storage and reference checks
 must be repeated before any retirement.
+On 16 November the standalone restore of `b9976195cf68` started the
+archived API and worker from its private venv and migrated a separate
+PostgreSQL to its own 0044 schema. The worker rebuilt an Activity rollup,
+and the API served health and the exact Console assets. All 21 off-volume
+copies were rehashed. The measured archive set exceeds the current
+space shortfall by only 1,892,352 bytes before any retirement.
 The deployment runbook now checks the actual release volume before preparing
 or extracting a release. The check works without selectors and exits 2 below
 10 GiB. On production it reported 8,384,782,336 bytes available and exited 2.
