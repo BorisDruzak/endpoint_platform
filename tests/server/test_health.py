@@ -533,7 +533,12 @@ async def test_worker_reports_context_lateness_only_after_commit(monkeypatch, ca
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await task
-    records = [record.message for record in caplog.records if "job=schedule_due_collections " in record.message]
+    records = [record.message for record in caplog.records
+               if record.message.startswith("worker_job job=schedule_due_collections ")]
+    starts = [record.message for record in caplog.records
+              if record.message.startswith("worker_job_started job=schedule_due_collections ")]
+    for start, completed in zip(starts[:2], records[:2], strict=True):
+        assert start.split()[2] == completed.split()[2]
     assert "data_backlog_age_seconds=unknown" in records[0]
     assert "safe_error=commit_outcome_unknown" in records[0]
     assert "data_backlog_age_seconds=240.000" in records[1]
@@ -623,6 +628,41 @@ async def test_worker_periodic_jobs_keep_cadence_after_a_slow_batch(monkeypatch)
         "schedule_due_collections": [10, 20],
         "retain_context_snapshots": [10, 20],
     }
+
+
+@pytest.mark.asyncio
+async def test_worker_records_attempt_before_database_checkout(caplog):
+    from endpoint_server import worker
+
+    checking_out = asyncio.Event()
+
+    @asynccontextmanager
+    async def provider():
+        checking_out.set()
+        await asyncio.Future()
+        yield
+
+    async def job(_session):
+        pytest.fail("A job cannot run before checkout returns")
+
+    jobs = worker.MaintenanceJobs(provider)
+    with caplog.at_level("INFO", logger=worker.__name__):
+        running = asyncio.create_task(jobs.run(
+            "expire_operations", job, due_at=asyncio.get_running_loop().time(),
+        ))
+        try:
+            async with asyncio.timeout(1):
+                await checking_out.wait()
+            records = [record.message for record in caplog.records]
+            assert len(records) == 1
+            assert records[0].startswith("worker_job_started job=expire_operations last_attempt=")
+            assert "last_success=none" in records[0]
+            assert "budget_seconds=15.0" in records[0]
+        finally:
+            running.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await running
+    assert not any(record.message.startswith("worker_job ") for record in caplog.records)
 
 
 @pytest.mark.asyncio

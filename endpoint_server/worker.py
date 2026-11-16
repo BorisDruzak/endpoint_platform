@@ -150,10 +150,18 @@ class MaintenanceJobs:
     ) -> None:
         loop = asyncio.get_running_loop()
         started = loop.time()
-        attempt_at = datetime.now(UTC)
+        attempt_at = datetime.now(UTC).isoformat()
         oldest_due = self.oldest_due.setdefault(name, due_at)
+        schedule_lag = max(0.0, started - oldest_due)
         budget = _JOB_BUDGETS.get(name, _DEFAULT_JOB_BUDGET_SECONDS)
         deadline = started + budget
+        last_success = self.last_success.get(name)
+        logger.info(
+            "worker_job_started job=%s last_attempt=%s last_success=%s "
+            "backlog_age_seconds=%.3f budget_seconds=%.1f",
+            name, attempt_at, last_success.isoformat() if last_success else "none",
+            schedule_lag, budget,
+        )
         error = "none"
         completed = 0
         backlog_age = None
@@ -198,8 +206,8 @@ class MaintenanceJobs:
             "worker_job job=%s last_attempt=%s last_success=%s duration_seconds=%.3f "
             "backlog_age_seconds=%.3f data_backlog_age_seconds=%s "
             "budget_seconds=%.1f committed_batches=%d safe_error=%s",
-            name, attempt_at.isoformat(), last_success.isoformat() if last_success else "none",
-            loop.time() - started, max(0.0, started - oldest_due),
+            name, attempt_at, last_success.isoformat() if last_success else "none",
+            loop.time() - started, schedule_lag,
             f"{backlog_age:.3f}" if backlog_age is not None else "unknown", budget, completed, error,
         )
 

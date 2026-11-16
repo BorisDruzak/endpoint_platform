@@ -562,8 +562,15 @@ Leave the staging services running as requested. Production is outside scope.
 
 ## Worker maintenance diagnostics
 
-Use `journalctl -u endpoint-platform-worker.service -g worker_job` to check
-each job. Successful and failed attempts include UTC attempt and last-success
+Use `journalctl -u endpoint-platform-worker.service -g 'worker_job(_started)? '`
+to check each job. The `worker_job_started` line is written before the
+database session is acquired. Match it to the `worker_job` line by job name
+and UTC `last_attempt`. A start without a corresponding result is an
+unfinished observation. Check the service invocation and the database before
+inferring an outcome. `last_success` is tracked within the current worker
+process. Consult earlier journal entries after a restart.
+
+Successful and failed attempts include UTC attempt and last-success
 timestamps, duration, committed batch count and a fixed error code. Backlog
 age is elapsed time from the oldest scheduled attempt still awaiting success.
 It measures worker schedule lag. `data_backlog_age_seconds` measures time past

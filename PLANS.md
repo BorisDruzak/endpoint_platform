@@ -173,6 +173,13 @@ independent connection verified that exactly one row was committed under
 an injected session exit fault. The log reported one batch and a
 67.500-second data backlog. The health suite passed 24 tests on Linux
 and 23 on Windows with the PostgreSQL-only case skipped.
+The worker now logs each attempt before opening its database session.
+Start and completion share the same job name and UTC attempt time, so an
+interruption can be identified even when no completion is emitted.
+On isolated Ubuntu a worker waiting for an occupied PostgreSQL pool was
+killed. Its start line was captured and no result line appeared for that
+attempt. The health suite passed 25 tests on Linux and 24 on Windows, where
+the PostgreSQL-only case was skipped.
 STAB-09 source: explicit Core transfer total/connect/idle
 timeouts with matching recovery-supervisor budget. On Windows the published
 Core 3.2.163 ZIP (22,905,610 bytes) passed loopback HTTPS download in 22.875 s
