@@ -19,6 +19,8 @@ import time
 import aiohttp
 import psutil
 
+from pc_agent.platform.windows.service_control import read_updater_service_status
+
 from .server_health import ROLES
 
 
@@ -103,11 +105,7 @@ class SystemProbe:
         return "windows" if os.name == "nt" else "linux"
 
     def windows_updater_status(self) -> str:
-        try:
-            state = psutil.win_service_get("EndpointAgentUpdater").status()
-        except (OSError, psutil.Error):
-            return "unknown"
-        return {"running": "active", "stopped": "inactive"}.get(state, "unknown")
+        return read_updater_service_status()
 
     def server_service_state(self, name: str) -> str:
         if os.name == "nt":

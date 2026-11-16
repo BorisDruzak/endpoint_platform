@@ -781,7 +781,12 @@ the agent's health sample. On installed ALT VM142, three real health samples
 showed the path watcher active, stopped and active again while the updater
 service stayed inactive. The Console API matched the native states and
 collection times, with all samples delivered on the same WSS session.
-The Windows SCM acceptance and live resolution of the five historical
+Installed Windows Setup 3.2.226 on VM143 reported unknown updater state
+while SCM showed Stopped/Manual. SCM denied status and configuration
+queries by LocalService, and the psutil lookup opened configuration before
+reading state. The source fix queries status only and grants that bit
+to the existing EndpointAgent virtual service SID during Setup. Acceptance
+with a newly signed Setup and live resolution of the five historical
 intents remain open.
 STAB-19: [local Gateway capacity rehearsal](docs/verification/2026-11-14-stab19-gateway-capacity.md)
 measured connection, replacement, command and health telemetry bursts on a

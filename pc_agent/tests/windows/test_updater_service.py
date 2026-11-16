@@ -1184,11 +1184,13 @@ def test_updater_start_acl_keeps_management_rights_without_granting_start_to_oth
     """Replacing the whole DACL with RP-only ACEs breaks administration and is unnecessary."""
     from pc_agent.platform.windows.service_control import updater_start_access_policy
 
-    policy = updater_start_access_policy(service_all_access=0xFFFF, service_start=0x10)
+    policy = updater_start_access_policy(
+        service_all_access=0xFFFF, service_start=0x10, service_query_status=0x04,
+    )
     assert policy == {
         "S-1-5-18": 0xFFFF,
         "S-1-5-32-544": 0xFFFF,
-        "NT SERVICE\\EndpointAgent": 0x10,
+        "NT SERVICE\\EndpointAgent": 0x14,
     }
 
 
