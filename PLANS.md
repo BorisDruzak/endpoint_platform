@@ -1104,6 +1104,11 @@ With the adjusted cadence, second-command p95 was 3.90–4.21 s
 and queue recovery improved by about 0.3 s in both pairs. First-command
 p95 increased slightly. Helpdesk application load and repeatable
 delivery under representative shared-host load remain open.
+The command delivery transaction now links a locked Context collection
+directly to the newly inserted command. In two paired 96-client PostgreSQL
+runs the change removed 384 SELECTs per 192 deliveries. Each run confirmed
+the same results, snapshots and active sessions. Result ACK p95 remained
+above one second in this loopback scenario.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
