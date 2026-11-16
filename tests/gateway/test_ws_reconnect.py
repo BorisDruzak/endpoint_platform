@@ -697,11 +697,11 @@ async def test_postgresql_heartbeat_and_handshake_lock_session_before_instance(r
 
     event.listen(engine.sync_engine, "before_cursor_execute", record_locks)
     try:
-        # Put heartbeat ahead of handshake at the session lock. Both requests
-        # use one instance, the case that deadlocks under the inverse order.
+        # Block heartbeat at its second lock. When it asks for the instance,
+        # it already owns the session row, regardless of query send order.
         async with reconnect_provider() as db:
-            await db.scalar(select(DeviceSession).where(
-                DeviceSession.id == old.session_id,
+            await db.scalar(select(DeviceInstance).where(
+                DeviceInstance.id == old.device_instance_id,
             ).with_for_update())
             heartbeat = asyncio.create_task(presence.record_heartbeat(
                 device_id=device.id, session_id=old.session_id,
@@ -713,7 +713,7 @@ async def test_postgresql_heartbeat_and_handshake_lock_session_before_instance(r
             replacement = None
             try:
                 async with asyncio.timeout(5):
-                    while ("heartbeat", "device_sessions") not in lock_order:
+                    while ("heartbeat", "device_instances") not in lock_order:
                         await asyncio.sleep(0.01)
                     replacement = asyncio.create_task(
                         _open_session(reconnect_provider, device.id, instance_id), name="handshake",
@@ -721,7 +721,7 @@ async def test_postgresql_heartbeat_and_handshake_lock_session_before_instance(r
                     while ("handshake", "device_sessions") not in lock_order:
                         await asyncio.sleep(0.01)
                     await db.commit()
-                    await asyncio.gather(heartbeat, replacement)
+                    _, current = await asyncio.gather(heartbeat, replacement)
             finally:
                 if replacement is not None and not replacement.done():
                     replacement.cancel()
@@ -736,6 +736,11 @@ async def test_postgresql_heartbeat_and_handshake_lock_session_before_instance(r
     assert [table for task, table in lock_order if task == "handshake"] == [
         "device_sessions", "device_instances",
     ]
+    async with reconnect_provider() as db:
+        replaced_session = await db.get(DeviceSession, old.session_id)
+        active_session = await db.get(DeviceSession, current.session_id)
+    assert replaced_session.closed_at is not None
+    assert active_session.closed_at is None
 
 
 @pytest.mark.asyncio
