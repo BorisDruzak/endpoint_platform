@@ -490,8 +490,13 @@ Bookworm with identical DEB hashes. The per-channel publisher environment
 now selects the successor for scheduled preparation. The Noble and Bookworm
 systemd timers signed both copies with only the new private key available.
 APT verified the downloads. Publication still requires the explicit successor.
-All seven confirmed clients still pin the prior key. Client trust
-transition, live publication and central alert delivery remain open.
+An isolated Zabbix 7.0.21 imported the exact template twice and received
+three active samples from Agent 2. It recorded problem and recovery events
+for check failure, an inactive timer and a stale completion timestamp. A
+host- and tag-filtered action delivered problem and recovery to a loopback
+webhook. Central import, the real publisher's alert receipt, client trust
+transition and live publication remain open. All seven checked clients
+still pin the prior key.
 Release evidence requires an exact-source CI receipt before publication.
 STAB-15: the [release qualification matrix](docs/verification/2026-11-14-agent-release-qualification-matrix.md)
 records installed canary evidence by OS, exact source and signed artifact.
