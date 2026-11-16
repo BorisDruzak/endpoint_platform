@@ -76,6 +76,16 @@ and retained that state after the worker timed out. In a separate
 Windows run, a Console-assigned policy was applied and acknowledged
 on the same WSS session while the worker remained suspended. The
 original collection succeeded after resuming the worker.
+The [native DNS receipt](docs/verification/2026-11-14-agent-release-qualification-matrix.md#системное-ожидание-dns-в-установленном-alt-core-stab-01)
+adds a real resolver stall on installed ALT 3.2.205-alt7. Three typed
+dns.resolve requests reached a loopback resolver that withheld answers.
+Gateway recorded a single failed result for each after 10.042–10.045 s
+from the delivery ACK. In the third run the same WSS session accepted
+heartbeat during the stalled call and then completed a healthy DNS request.
+Stopping the service during another resolver wait took 22.318 ms and reaped
+the owned worker. After restart PostgreSQL accepted one failed result and
+the local outbox emptied on ACK. The original resolver and Gateway were
+restored. Windows WMI and print spooler fault scenarios remain open.
 STAB-03 source: bounded Windows Core cancellation,
 suspended launch into an owned Job, confirmed tree teardown and updater
 stop proof. On isolated VM143, SCM stopped the frozen launcher under
