@@ -1169,9 +1169,15 @@ the sample. An isolated Helpdesk from installed staging source
 `473cdde4a70c` and schema 161 completed 90 authenticated HTTP requests
 across the queue, Studio catalog, service catalog and departments.
 At 3 requests/s the synthetic database measured 23.607 transactions/s.
-The application driver and counter profile are ready for the paired
-Gateway trial. Peak production mix and concurrent Gateway acceptance
-remain open.
+The paired Gateway trial then ran the same 96-client TLS fixture four
+times with Helpdesk on the same isolated PostgreSQL 16.15. The usual
+Helpdesk background ran in all four trials. Two trials added 510
+authenticated requests each at three per second and measured
+23.043–23.095 Helpdesk transactions/s. Under load, online delivery p95
+was 3.104–3.147 s, start and result ACK p95 stayed below 0.55 s in
+both connection groups, and the 42-command queue recovered in
+2.127–2.187 s. Each run preserved 128 snapshots and 96 active sessions.
+Peak production mix and larger-scale qualification remain open.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
