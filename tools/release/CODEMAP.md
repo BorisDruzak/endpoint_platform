@@ -22,6 +22,10 @@
 - `verify_server_release_payload.py`: operator-side, read-only comparison of a
   server archive's source payload with a deployed tree. Reports archive SHA-256,
   missing or different members and extra deployment paths.
+- `prepare_endpoint_apt_windows.ps1`: verifies live APT trees on the Linux
+  repository host and prepares date-only renewals with a Windows publisher.
+  The Linux helper verifies the exact draft and signed package hash chain.
+  `sign_endpoint_apt_release.ps1` keeps DPAPI and the private key on Windows.
 
 No Agent release archive, native package, selector or live server is a target of
 the server archive normalizer. Historical qualified bytes remain immutable.

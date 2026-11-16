@@ -154,6 +154,41 @@ def test_publish_renewal_replaces_only_metadata(renewal_for_publication, codenam
 
 
 @pytest.mark.parametrize("codename", ["noble", "bookworm"])
+def test_external_renewal_binds_off_host_signature_to_live_source(
+    renewal_for_publication, codename, tmp_path,
+):
+    from tools.release import prepare_external_apt_renewal as external
+
+    root, current, _, index, package, artifact, packages, now, keyring, original_signer = renewal_for_publication
+    original = current.read_bytes()
+    workspace = tmp_path / "request"
+    workspace.mkdir()
+    request = external.draft(root, workspace, keyring, original_signer, codename=codename, now=now)
+    assert request["source_sha256"] == hashlib.sha256(original).hexdigest()
+    candidate = workspace / "InRelease"
+    draft = workspace / "Release"
+    candidate.write_bytes(draft.read_bytes())
+
+    successor = "b" * 40
+    verified = external.verify(root, workspace, keyring, original_signer, successor, codename=codename, now=now)
+    assert verified == {
+        "source_sha256": request["source_sha256"],
+        "candidate_sha256": hashlib.sha256(candidate.read_bytes()).hexdigest(),
+        "valid_until": (now + timedelta(days=7)).isoformat(),
+    }
+    candidate.write_bytes(draft.read_bytes() + b"\n")
+    with pytest.raises(ValueError, match="draft"):
+        external.verify(root, workspace, keyring, original_signer, successor, codename=codename, now=now)
+
+    candidate.write_bytes(draft.read_bytes())
+    current.write_bytes(original + b"\n")
+    with pytest.raises(ValueError, match="source changed"):
+        external.verify(root, workspace, keyring, original_signer, successor, codename=codename, now=now)
+    assert index.read_bytes() == packages
+    assert package.read_bytes() == artifact
+
+
+@pytest.mark.parametrize("codename", ["noble", "bookworm"])
 def test_publish_renewal_requires_explicit_successor_for_new_signer(renewal_for_publication, codename, monkeypatch):
     root, current, candidate, index, package, artifact, packages, now, keyring, original_fingerprint = (
         renewal_for_publication
