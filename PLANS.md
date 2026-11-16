@@ -1208,10 +1208,12 @@ candidate selection to handler entry. Candidate selection took
 0.156–0.179 s p95. Result recording spent 0.743–0.870 s p95 acquiring
 a Gateway database connection. This supports separate controlled tests
 of dispatch scheduling and connection contention before changing either.
-A separate production reconstruction observed at most 38 devices in
-minute-level WSS presence samples and 73 scheduler requests per minute
-on 16 November. The concurrent production Helpdesk route mix and
-multi-day peak still need measurement.
+Five production working windows on 10–16 November showed a peak of
+39 distinct devices by recorded WSS intervals, 38 new WSS sessions in
+one minute and 73 scheduled requests in one minute. In the retained
+16 November Helpdesk proxy window, the four lab routes accounted for
+5 of 808 API requests. The synthetic Helpdesk workload therefore
+covers shared database contention with a different route mix.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
