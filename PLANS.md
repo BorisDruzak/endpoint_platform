@@ -1046,6 +1046,13 @@ verified replay after API restart, database interruption with the API
 running, worker restart and forced process or PostgreSQL exit. A separate
 local restore exercised API and worker from the recovered source,
 database and synthetic signed release.
+On Ubuntu 24.04.3, backend processes started from archive `fcad03de9ce5`
+behind a loopback Nginx TLS listener. The actual agent lifecycle with a
+synthetic collector retried after five seconds, opened a new WSS session
+and drained SQLite in 5.151–5.221 seconds from each of three faults.
+Each run invoked the collector once and retained one result and one snapshot.
+The archived worker created a request in 62.119 seconds after a forced
+restart with the default one-minute schedule and no duplicate request.
 
 The [production PBS receipt](docs/verification/2026-11-14-stab19-backup-restore.md#восстановление-production-vm115-из-pbs)
 records an external VM115 backup and a network-isolated restore to VM163.
