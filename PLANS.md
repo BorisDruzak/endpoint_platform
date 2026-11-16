@@ -88,6 +88,12 @@ schema 0055. API health and database checks passed, Console assets
 matched and the worker completed `rebuild_daily`. The hosted GitHub
 Actions receipt remains open. Production had 7,531,339,776 bytes free
 against the 10 GiB release requirement.
+Candidate `fd4a3802679a` passed the exact local Windows task (2,912
+passed, four skipped), Console (125 passed) and the isolated Linux
+workflow (5,325 passed, 722 skipped, two subtests). Two builds agreed
+on all 334 archive files. Migration 0055 and independent archive API
+and worker smoke passed. Hosted GitHub Actions and production release
+space remain open. Production had 7,518,490,624 bytes free.
 STAB-01 source: WSS bounded FIFO and separate command task, fixed worker
 process with capability budgets, deadline admission and owned process-tree
 cleanup. HTTP pull remains sequential. Windows source fault injection covers
