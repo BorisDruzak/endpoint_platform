@@ -36,7 +36,7 @@ const statuses: Record<string, string> = {
   failed: 'Ошибка', rolled_back: 'Откат выполнен',
 }
 const modes: Record<string, string> = { canary: 'Канареечное', bulk: 'Массовое', rollback: 'Откат' }
-const platforms: Record<string, string> = { windows_amd64: 'Windows', linux_amd64: 'ALT Linux' }
+const platforms: Record<string, string> = { windows_amd64: 'Windows', linux_amd64: 'Linux' }
 const connections = { online: 'В сети', offline: 'Нет свежей связи', unobserved: 'Связь ещё не наблюдалась' }
 
 function assignmentAge(seconds: number) {
@@ -47,6 +47,10 @@ function assignmentAge(seconds: number) {
 }
 
 function TargetAssignment({ target }: { target: Target }) {
+  const waitingForRequest = target.status === 'assigned'
+    && !target.requested_at && !target.scheduled_at && !target.terminal_at
+    && !target.report_status && !target.report_created_at
+
   return <div>
     <p>{statuses[target.status] ?? target.status}{target.safe_reason ? ` · ${target.safe_reason}` : ''}</p>
     <dl className="simple-facts" aria-label="Состояние назначения">
@@ -56,7 +60,7 @@ function TargetAssignment({ target }: { target: Target }) {
       {target.installation_removed && <><dt>Установка</dt><dd>Установка удалена</dd></>}
       <dt>Связь</dt><dd>{target.connection_state ? connections[target.connection_state] : 'Нет данных'}</dd>
       <dt>Последняя связь</dt><dd>{dateText(target.last_contact_at)}</dd>
-      {target.status === 'assigned' && <><dt>Ожидание</dt><dd>Запрос агента ещё не поступил</dd></>}
+      {waitingForRequest && <><dt>Ожидание</dt><dd>Запрос агента ещё не поступил</dd></>}
     </dl>
     <UpdateTimeline target={target} />
   </div>

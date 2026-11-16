@@ -64,9 +64,13 @@ describe('Русский интерфейс Console', () => {
   it('показывает этапы и безопасный последний отчёт без HTML и выдуманных дат', async () => {
     const hostile = '<img src=x onerror=alert(1)>'
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/api/admin/updates/rollouts?')) return jsonResponse({
+        data: [{ id: 'rollout-1', version: '3.2.83', mode: 'canary',
+          platform: 'linux_amd64', status: 'active', counts: {} }], total: 1,
+      })
       if (url.includes('/rollouts/rollout-1?')) return jsonResponse({
         id: 'rollout-1', version: '3.2.83', mode: 'canary', status: 'completed', counts: {},
-        created_at: null, started_at: null, completed_at: null, reason: null, targets_total: 2,
+        created_at: null, started_at: null, completed_at: null, reason: null, targets_total: 3,
         targets: [{ device_id: 'device-1', device_name: 'PC-REPORT', status: 'failed',
           assigned_at: '2026-10-03T08:00:00Z', requested_at: '', scheduled_at: null,
           updated_at: '2026-10-03T08:02:00Z', terminal_at: '2026-10-03T08:02:00Z',
@@ -76,18 +80,25 @@ describe('Русский интерфейс Console', () => {
           device_id: 'device-2', device_name: 'PC-WAITING', status: 'assigned',
           assignment_id: 'assignment-2', age_seconds: 18 * 86400, connection_state: 'offline',
           last_contact_at: '2026-10-01T08:03:00Z',
+        }, {
+          device_id: 'device-3', device_name: 'PC-REQUEST-SAVED', status: 'assigned',
+          requested_at: '2026-10-03T08:01:00Z',
         }],
       })
       return jsonResponse({ data: [], total: 0 })
     }))
     render(<MemoryRouter initialEntries={['/admin/updates?open=rollout-1']}><UpdatesPage canWrite={false} /></MemoryRouter>)
     const dialog = await screen.findByRole('dialog', { name: 'Развёртывание' })
-    expect(within(dialog).getAllByText('Запрошено')).toHaveLength(2)
-    expect(within(dialog).getAllByText('Запланировано')).toHaveLength(2)
-    expect(within(dialog).getAllByText('Последний отчёт')).toHaveLength(2)
+    expect(within(dialog).getAllByText('Запрошено')).toHaveLength(3)
+    expect(within(dialog).getAllByText('Запланировано')).toHaveLength(3)
+    expect(within(dialog).getAllByText('Последний отчёт')).toHaveLength(3)
     expect(within(dialog).getByText('Установка удалена')).toBeTruthy()
     expect(within(dialog).getByText('Нет свежей связи')).toBeTruthy()
-    expect(within(dialog).getByText('Запрос агента ещё не поступил')).toBeTruthy()
+    const waiting = within(dialog).getByRole('link', { name: 'PC-WAITING' }).closest('li')!
+    const requested = within(dialog).getByRole('link', { name: 'PC-REQUEST-SAVED' }).closest('li')!
+    expect(within(waiting).getByText('Запрос агента ещё не поступил')).toBeTruthy()
+    expect(within(requested).queryByText('Запрос агента ещё не поступил')).toBeNull()
+    expect(await screen.findByText('Активно · Linux')).toBeTruthy()
     expect(within(dialog).getByText('18 дн.')).toBeTruthy()
     expect(within(dialog).getByText('assignment-2')).toBeTruthy()
     expect(within(dialog).getByText('rollout-1')).toBeTruthy()
