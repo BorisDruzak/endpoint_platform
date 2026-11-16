@@ -26,24 +26,26 @@ async def _advisory_lock(session: AsyncSession, key: str) -> None:
         await session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": key})
 
 
-async def expire_overdue_collections(
-    session: AsyncSession, device_id: UUID, *, now: datetime, profile: str | None = None,
-) -> None:
-    """Terminate overdue ordinary work before refreshing or delivering it.
-
-    Endpoint Operations retain their own deadline/audit state machine. Results
-    already received or validated are left to ingestion rather than expired.
-    """
-    expired_at = _now(now)
+def overdue_collection_statement(device_id: UUID, *, now: datetime, profile: str | None = None):
+    """Select ordinary work whose expiry must be evaluated by the owner."""
     query = select(ContextCollection).where(
         ContextCollection.device_id == device_id,
         ContextCollection.operation_id.is_(None),
         ContextCollection.status.in_(("requested", "queued", "delivered", "collecting")),
         ContextCollection.expires_at.is_not(None),
-        ContextCollection.expires_at <= expired_at,
+        ContextCollection.expires_at <= now,
     )
     if profile is not None:
         query = query.where(ContextCollection.profile == profile)
+    return query
+
+
+async def expire_overdue_collections(
+    session: AsyncSession, device_id: UUID, *, now: datetime, profile: str | None = None,
+) -> None:
+    """Terminate overdue ordinary work; operations and received results have their own lifecycle."""
+    expired_at = _now(now)
+    query = overdue_collection_statement(device_id, now=expired_at, profile=profile)
     overdue = (await session.scalars(query.order_by(ContextCollection.id).with_for_update())).all()
     for collection in overdue:
         collection.status = "expired"

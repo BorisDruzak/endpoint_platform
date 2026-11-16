@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from endpoint_contracts.gateway_ws import COMMAND_JOURNAL_FEATURE, COMMAND_JOURNAL_HEADER, CommandEnvelopeV1
@@ -331,3 +331,55 @@ async def test_cancelled_dispatch_shutdown_releases_worker_lease(session_provide
     lease = app.state.gateway_worker_lease
     lease.acquire()
     lease.release()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("unexpected_profile", [False, True])
+async def test_empty_wss_delivery_uses_one_read(session_provider, unexpected_profile):
+    device = await seed_device(session_provider)
+    async with session_provider() as db:
+        if unexpected_profile:
+            db.add(ContextCollection(
+                device_id=device.id, profile="inventory_v1", requested_by="scheduler",
+                idempotency_key="unsupported-inventory", status="requested", requested_at=datetime.now(UTC),
+            ))
+            await db.commit()
+        engine = db.get_bind()
+
+    statements = []
+
+    def observe(_conn, _cursor, statement, _params, _context, _many):
+        statements.append(statement)
+
+    sent = []
+    event.listen(engine, "before_cursor_execute", observe)
+    try:
+        assert not await CommandService(session_provider).deliver_next(
+            device.id, uuid4(), sent.append, allowed_capabilities={"context.health.collect"},
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", observe)
+    assert sent == []
+    assert len(statements) == 1
+    assert "EXISTS" in statements[0]
+
+
+@pytest.mark.asyncio
+async def test_wss_delivery_expires_unsupported_collecting_request(session_provider):
+    device = await seed_device(session_provider)
+    collection_id = uuid4()
+    now = datetime.now(UTC)
+    async with session_provider() as db:
+        db.add(ContextCollection(
+            id=collection_id, device_id=device.id, profile="inventory_v1", requested_by="scheduler",
+            idempotency_key="expired-collecting", status="collecting",
+            requested_at=now - timedelta(minutes=2), expires_at=now - timedelta(seconds=1),
+        ))
+        await db.commit()
+
+    assert not await CommandService(session_provider).deliver_next(
+        device.id, uuid4(), [].append, allowed_capabilities={"context.health.collect"},
+    )
+    async with session_provider() as db:
+        collection = await db.get(ContextCollection, collection_id)
+        assert collection is not None and collection.status == "expired"

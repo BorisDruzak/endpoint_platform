@@ -32,7 +32,11 @@ from endpoint_contracts.gateway_ws import (
 )
 from endpoint_server.context.ingestion import ingest_context_result
 from endpoint_server.context.models import ContextCollection, ContextSnapshot
-from endpoint_server.context.repository import expire_overdue_collections, link_collection_command
+from endpoint_server.context.repository import (
+    expire_overdue_collections,
+    link_collection_command,
+    overdue_collection_statement,
+)
 from endpoint_server.context.scheduler import SCHEDULE_RULES
 from endpoint_server.context.service import ContextError
 from endpoint_server.audit.service import append_audit_event
@@ -61,6 +65,8 @@ from endpoint_server.modules.recipe_engine import (
 
 SendCommand = Callable[[CommandEnvelopeV1], Awaitable[None] | None]
 _TERMINAL_STATUSES = frozenset({"succeeded", "failed", "canceled", "expired"})
+_DELIVERABLE_COLLECTION_STATUSES = ("requested", "delivered")
+_ACTIVE_MODULE_STATUSES = ("queued", "delivered", "acknowledged", "running")
 _MAX_AGENT_CLOCK_SKEW = timedelta(minutes=5)
 _CAPABILITIES = {
     "baseline_v1": "context.baseline.collect",
@@ -169,9 +175,7 @@ async def _next_pending_module_command(
             .where(
                 EndpointOperation.device_id == device_id,
                 EndpointOperation.capability == "endpoint.module.recipe",
-                EndpointOperation.status.in_(
-                    ("queued", "delivered", "acknowledged", "running")
-                ),
+                EndpointOperation.status.in_(_ACTIVE_MODULE_STATUSES),
             )
             .order_by(EndpointOperation.created_at, EndpointOperation.id)
             .with_for_update(skip_locked=True)
@@ -766,7 +770,7 @@ async def next_pending_command(
             select(ContextCollection)
             .where(
                 ContextCollection.device_id == device_id,
-                ContextCollection.status.in_(("requested", "delivered")),
+                ContextCollection.status.in_(_DELIVERABLE_COLLECTION_STATUSES),
             )
             .order_by(ContextCollection.requested_at, ContextCollection.id)
             .with_for_update(skip_locked=True)
@@ -865,6 +869,26 @@ async def next_pending_command(
     return None
 
 
+async def _might_have_wss_work(
+    session, device_id: UUID, allowed_capabilities: AbstractSet[str] | None,
+) -> bool:
+    """Keep the idle path read-only; a hit goes through the normal locked dispatch."""
+    profiles = tuple(profile for profile, capability in _CAPABILITIES.items()
+                     if allowed_capabilities is None or capability in allowed_capabilities)
+    deliverable = select(ContextCollection.id).where(
+        ContextCollection.device_id == device_id,
+        ContextCollection.status.in_(_DELIVERABLE_COLLECTION_STATUSES),
+        ContextCollection.profile.in_(profiles),
+    )
+    module = select(EndpointOperation.id).where(
+        EndpointOperation.device_id == device_id,
+        EndpointOperation.capability == "endpoint.module.recipe",
+        EndpointOperation.status.in_(_ACTIVE_MODULE_STATUSES),
+    )
+    overdue = overdue_collection_statement(device_id, now=datetime.now(UTC))
+    return bool(await session.scalar(select(or_(deliverable.exists(), module.exists(), overdue.exists()))))
+
+
 class CommandService:
     def __init__(self, session_provider: SessionProvider) -> None:
         self._session_provider = session_provider
@@ -909,6 +933,8 @@ class CommandService:
         """Commit one delivery before exposing it to the network callback."""
         async with self._session_provider() as session:
             try:
+                if not await _might_have_wss_work(session, device_id, allowed_capabilities):
+                    return False
                 payload = await next_pending_command(
                     session,
                     device_id,
