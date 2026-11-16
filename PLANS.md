@@ -781,58 +781,39 @@ the agent's health sample. On installed ALT VM142, three real health samples
 showed the path watcher active, stopped and active again while the updater
 service stayed inactive. The Console API matched the native states and
 collection times, with all samples delivered on the same WSS session.
-Installed Windows Setup 3.2.226 on VM143 reported unknown updater state
-while SCM showed Stopped/Manual. SCM denied status and configuration
-queries by LocalService, and the psutil lookup opened configuration before
-reading state. The source fix queries status only and grants that bit
-to the existing EndpointAgent virtual service SID during Setup. Acceptance
-with a newly signed Setup and live resolution of the five historical
-intents remain open.
-STAB-19: [local Gateway capacity rehearsal](docs/verification/2026-11-14-stab19-gateway-capacity.md)
-measured connection, replacement, command and health telemetry bursts on a
-single Uvicorn process with PostgreSQL 16. The 192-device wave drained in
-10.398 seconds on replacement, with p95 result ACK 3.257 seconds.
-[Local recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
-verified same-instance result replay after API restart and tenant database
-disconnection with the API still running, plus worker recovery and restart.
-[Local backup restore](docs/verification/2026-11-14-stab19-backup-restore.md)
-recovered a signed synthetic release, database, secrets and artifact into
-an empty database and a separate API process from the recovered source archive.
-The local process-crash drill verified result replay after forced API exit
-before result submission and after commit, and after immediate PostgreSQL
-stop and WAL crash recovery with the API process still running. The Linux
-Nginx/TLS rehearsal held 32 devices for 125 seconds with the default worker
-tick and completed 64 health collections. The next isolated Linux rehearsal
-ran Nginx and split Gateway, worker and clients into separate processes.
-Both 32 and 96 synthetic agents held sessions for 125 seconds. Replacement
-drained in 1.770 and 5.016 seconds, with p95 result ACK 0.713 and 1.807
-seconds respectively. Registry and PostgreSQL agreed on the active owners.
-The proposed one-second ACK target held at 32 and was exceeded at 96.
-A repeat sampled the Gateway's default PostgreSQL pool. Both steps filled
-all 15 slots during replacement, in 63 of 104 and 177 of 297 samples. P95
-result ACK was 0.665 and 1.951 seconds. With 96 devices, paired lab runs
-with caps 15 and 30 each acquired 959 connections during replacement.
-P95 acquisition, including pre-ping, was 1.031 and 1.028 seconds. P95
-result ACK was 2.079 and 2.428 seconds. Both runs passed with one session
-owner per device. In a repeat, p95 SQL time during replacement was 12.5 ms
-at 15 slots and 27.0 ms at 30. P95 connection hold was 177.1 and 343.3 ms.
-Durable result recording now reuses the locked current session owner and
-keeps the previous-session lookup for reconnect replay. Regression tests
-proved the exact lookup count. A PostgreSQL/TLS repeat at 15 slots saved
-192 results with 97 fewer SELECTs during replacement and unchanged INSERT
-and UPDATE counts. P95 ACK still exceeded one second. Dedicated
-commit and pre-ping timings and reproducible latency improvements
-remain open. The production configuration was not changed.
-Production-scale qualification
-and restore from a verified external production copy remain open. The
-read-only backup inventory found local database dumps and no VM115 backups
-in the checked Proxmox storages.
-On 16 November an isolated Ubuntu restore started the API and worker from
-the same verified source archive. The worker rebuilt a rollup recovered
-from the dump. Acceptance took 4.737–4.839 seconds including both processes.
-Three API/PostgreSQL interruption scenarios passed. A fresh read-only
-production check found the same local dump, then 3 days and 19 hours old,
-and again found no VM115 copies in the nine checked Proxmox node/storage pairs.
+On VM143, signed Setup 3.2.237 upgraded 3.2.226 on Windows 10 and
+reported the stopped updater as fresh inactive via a native SCM status
+query. The agent service SID received SERVICE_QUERY_STATUS. The original
+identity, native lifecycle ACK and WSS on the same device were verified.
+The [native receipt](docs/verification/2026-11-14-stability-fleet-intents.md#нативная-приёмка-windows-setup-32237-на-vm143)
+covers this exact transition. Live resolution of the five historical intents
+remains open.
+STAB-19: The [Gateway capacity report](docs/verification/2026-11-14-stab19-gateway-capacity.md)
+covers 32-, 96- and 192-device rehearsals. At 32 devices, both
+acknowledgements met the proposed latency targets in the Linux TLS
+test. At 96, scheduled WSS dispatch and the idle queue probe reduced
+periodic result ACK. With deadlines persisted in the initial INSERT, the
+worker eliminated 480 UPDATE statements per cycle. Periodic delivery
+from requested_at still took 5.74–6.44 s at p95 and replacement delivery
+took 6.23–6.59 s. The next comparisons separate scheduling, dispatch
+and reconnect costs. Production-scale qualification remains open.
+
+[Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
+verified replay after API restart, database interruption with the API
+running, worker restart and forced process or PostgreSQL exit. A separate
+local restore exercised API and worker from the recovered source,
+database and synthetic signed release.
+
+The [production PBS receipt](docs/verification/2026-11-14-stab19-backup-restore.md#восстановление-production-vm115-из-pbs)
+records an external VM115 backup and a network-isolated restore to VM163.
+HTTPS, the worker's database connection, deployed files, the Windows
+artifact and the TLS certificate/key pair were verified in 434.14 s from
+the restore request. VM163 and its disk were removed. The daily VM115 job
+is enabled at 04:00 Asia/Yekaterinburg. On 16 November at 04:37 UTC its
+configuration and the two existing VM115 PBS archives were independently
+rechecked. The schedule targets daily recovery points. Achieved RPO
+still requires scheduled history and recovery of confirmed transactions.
+External release-signing inputs and restored SSO sign-in remain open.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
 
