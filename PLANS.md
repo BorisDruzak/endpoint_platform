@@ -854,7 +854,14 @@ fallback, as do devices that have yet to negotiate. Revision
 `0054_periodic_context_profiles` stores this additive device state.
 The corrected 96-client trial created 96 health requests and returned
 the full scheduled queue to zero in 2.371 s after reconnect began.
-Mixed-profile and shared-host load qualification remain open.
+Four TLS runs with mixed health and session profiles each completed
+128 eligible commands on 96 clients, with 42 queued during reconnect.
+The full queue recovered in 3.083–3.521 s. Two runs used a separate
+pgbench database in the same cluster at 47.42–47.75 transactions/s.
+Continuously connected delivery p95 was 4.22–4.40 s in control and
+4.08–5.64 s under background SQL. Both groups met the 1 s p95 targets
+for command start and result ACK. Helpdesk application load and
+repeatable delivery under representative shared-host load remain open.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
