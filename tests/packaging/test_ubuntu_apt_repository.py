@@ -260,6 +260,52 @@ def test_prepare_renewal_exports_candidate_without_changing_source(renewal_for_p
     assert current.with_name("Release").read_bytes() == original
 
 
+@pytest.mark.parametrize("codename", ["noble", "bookworm"])
+def test_prepare_successor_keeps_original_signature_check_and_legacy_candidate(
+    renewal_for_publication, codename, tmp_path, monkeypatch,
+):
+    root, current, _, index, package, artifact, packages, now, keyring, original_fingerprint = renewal_for_publication
+    original = current.read_bytes()
+    source_sha = hashlib.sha256(original).hexdigest()
+    output = tmp_path / "outgoing"
+    regular = apt.prepare_renewal(root, output, keyring, original_fingerprint, now=now, codename=codename)
+    regular_bytes = regular.read_bytes()
+    successor = "b" * 40
+    signers = []
+
+    def sign_release(release, signed, fingerprint):
+        signers.append(fingerprint.upper())
+        signed.write_bytes(release.read_bytes())
+
+    def verify_release(path, _keyring, fingerprint):
+        content = path.read_bytes()
+        required = original_fingerprint if content == original else successor
+        assert fingerprint.upper() == required.upper()
+        return path.read_text(encoding="utf-8")
+
+    monkeypatch.setattr(apt, "_sign_release", sign_release)
+    monkeypatch.setattr(apt, "_verified_release", verify_release)
+    candidate = apt.prepare_renewal(
+        root, output, keyring, original_fingerprint, now=now, codename=codename,
+        successor_fingerprint=successor,
+    )
+    assert candidate == output / codename / f"successor-{successor.upper()}" / source_sha / "InRelease"
+    assert apt.prepare_renewal(
+        root, output, keyring, original_fingerprint, now=now + timedelta(hours=1), codename=codename,
+        successor_fingerprint=successor.upper(),
+    ) == candidate
+    assert signers == [successor.upper()]
+    assert regular.read_bytes() == regular_bytes
+    assert current.read_bytes() == current.with_name("Release").read_bytes() == original
+    assert apt.publish_renewal(
+        root, candidate, source_sha, keyring, original_fingerprint, now=now, codename=codename,
+        successor_fingerprint=successor,
+    ) == now + timedelta(days=7)
+    assert current.read_bytes() == candidate.read_bytes()
+    assert index.read_bytes() == packages
+    assert package.read_bytes() == artifact
+
+
 @pytest.mark.parametrize("codename", ["noble"])
 def test_prepare_renewal_does_not_create_output_when_fresh(renewal_for_publication, codename, tmp_path):
     root, current, _, _, _, _, _, now, keyring, fingerprint = renewal_for_publication

@@ -200,17 +200,23 @@ def _verify_renewed_metadata(old: str, new: str, codename: str, now: datetime) -
 
 def prepare_renewal(
     root: Path, output: Path, keyring: Path, fingerprint: str, *,
-    now: datetime | None = None, codename: str = SUITE,
+    now: datetime | None = None, codename: str = SUITE, successor_fingerprint: str | None = None,
 ) -> Path | None:
-    """Prepare a signed renewal outside a read-only view of the published repository."""
+    """Verify the live signer and prepare a date-only renewal outside its repository."""
     now = (now or datetime.now(UTC)).astimezone(UTC).replace(microsecond=0)
     if codename not in REPOSITORIES:
         raise ValueError("unsupported APT codename")
+    signer = fingerprint if successor_fingerprint is None else successor_fingerprint.upper()
+    if not FINGERPRINT.fullmatch(signer):
+        raise ValueError("use the full OpenPGP signing-key fingerprint")
     suite = root / "dists" / codename
     source = suite / "InRelease"
     original = _read_inrelease(source)
     source_sha = hashlib.sha256(original).hexdigest()
-    candidate = output / codename / source_sha / "InRelease"
+    destination_root = output / codename
+    if signer.upper() != fingerprint.upper():
+        destination_root /= f"successor-{signer}"
+    candidate = destination_root / source_sha / "InRelease"
     if candidate.resolve().is_relative_to(root.resolve()):
         raise ValueError("renewal output must be outside the published repository")
 
@@ -232,7 +238,7 @@ def prepare_renewal(
             bundle = Path(scratch) / "renewal"
             bundle.mkdir()
             renewed = _updated_release(metadata, now, valid_until)
-            release, _ = _signed_release_files(bundle, renewed, keyring, fingerprint)
+            release, _ = _signed_release_files(bundle, renewed, keyring, signer)
             release.unlink()
             if _read_inrelease(source) != original:
                 raise ValueError("live InRelease changed during preparation")
@@ -241,7 +247,7 @@ def prepare_renewal(
             except OSError:
                 if not candidate.is_file():
                     raise
-    prepared = _verified_release(candidate, keyring, fingerprint)
+    prepared = _verified_release(candidate, keyring, signer)
     _verify_renewed_metadata(metadata, prepared, codename, now)
     return candidate
 
@@ -343,7 +349,7 @@ def main() -> None:
     parser.add_argument("--from-inrelease", type=Path, metavar="SIGNED_RENEWAL")
     parser.add_argument("--expected-inrelease-sha256", metavar="SHA256")
     parser.add_argument("--successor-fingerprint", metavar="OPENPGP_FINGERPRINT",
-                        help="verify the renewed index with this key during an explicit publisher transition")
+                        help="prepare or verify a renewal signed by this key during a publisher transition")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--keyring", type=Path)
     parser.add_argument("--codename", choices=REPOSITORIES, default=SUITE)
@@ -359,9 +365,10 @@ def main() -> None:
         )
         print(f"Published Valid-Until {expiry.isoformat()}")
         return
-    if any(value is not None for value in
-           (args.from_inrelease, args.expected_inrelease_sha256, args.successor_fingerprint)):
+    if args.from_inrelease is not None or args.expected_inrelease_sha256 is not None:
         parser.error("publication inputs require --publish-renewal")
+    if args.successor_fingerprint is not None and args.prepare_renewal is None:
+        parser.error("--successor-fingerprint requires --prepare-renewal or --publish-renewal")
     if args.deb:
         if args.output is None:
             parser.error("--deb requires --output")
@@ -374,6 +381,7 @@ def main() -> None:
             parser.error("--prepare-renewal requires --output")
         candidate = prepare_renewal(
             args.prepare_renewal, args.output, args.keyring, args.signing_fingerprint, codename=args.codename,
+            successor_fingerprint=args.successor_fingerprint,
         )
         if candidate is None:
             print("Verified repository: renewal not due")
