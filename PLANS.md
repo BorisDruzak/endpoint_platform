@@ -868,7 +868,15 @@ The server now recognizes 1.0.13 for explicit canaries when it reports
 both source versions in a fresh ready hello. SQLite tests reproduced the
 rejection before the change and passed afterward for a 3.2.237 source.
 Fleet admission and qualification still require the separately qualified
-observer set. Native delivery from an installed 1.0.13 is pending.
+observer set. With the fixed server on isolated PostgreSQL, the exact
+signed observer 1.0.13 installed with Setup 3.2.236 fetched and applied
+3.2.237 from an explicit Console assignment. Native exit was 0 and soak
+was 182.088 s with one active UserSensor. After reboot the same card
+accepted new WSS, genuine console UserSensor and fresh observer 1.0.13
+reports. The four identity files and registered MSI matched. The fleet
+qualification API returned 409 and persisted no qualification or policy.
+The temporary Windows VM, database, services and media were removed.
+Independent Support and production qualification for this pair remain open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
