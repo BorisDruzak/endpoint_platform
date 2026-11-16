@@ -18,6 +18,13 @@ the 10 GiB gate, and the volume group had 27.0 GiB unallocated. On the
 separate signed Windows Setup 3.2.236 source `57a86985b8be`, the full
 Windows gate passed and both installer hashes and signatures were verified.
 The GitHub Actions receipt and publication remain open.
+A later exact-source check on `bc5c779cd30b` reproduced the server
+archive and verified an archive-origin start on schema 0054. Windows
+passed 2903 tests and Console passed 125. The Linux gate found nine
+test fixtures using the current Device model on earlier schemas and
+one outdated updater import allowlist. The local Linux receipt
+records 5282 passed, 722 skipped and 10 failures. The release gate
+remains open on this revision.
 STAB-01 source: WSS bounded FIFO and separate command task, fixed worker
 process with capability budgets, deadline admission and owned process-tree
 cleanup. HTTP pull remains sequential. Windows source fault injection covers
