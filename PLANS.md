@@ -386,8 +386,12 @@ installed EXE matched the signed ZIP. Holding the start grant across
 a service restart produced one before-start failure and no snapshot.
 Holding the result ACK after an actual collection and restarting the
 service replayed the same result without a second snapshot. The ACK
-drained the SQLite outbox. A stop during native command execution
-remains open for these exact signed bytes.
+drained the SQLite outbox. A separate abrupt power cut after the
+installed Core started its owned command worker preserved one
+`AGENT_COMMAND_OUTCOME_UNKNOWN` result. The same device reconnected
+on the exact signed 3.2.238 and the ACK drained the outbox. The
+Gateway recorded one command frame, one result and no snapshot for
+that request.
 STAB-16 service recovery: Ubuntu 24.04 and Debian 12 package configuration
 routes restart through the distribution helper. An enabled failed service
 recovers, a manually stopped service stays stopped, and masks are respected.
