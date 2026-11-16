@@ -826,8 +826,16 @@ reported the stopped updater as fresh inactive via a native SCM status
 query. The agent service SID received SERVICE_QUERY_STATUS. The original
 identity, native lifecycle ACK and WSS on the same device were verified.
 The [native receipt](docs/verification/2026-11-14-stability-fleet-intents.md#нативная-приёмка-windows-setup-32237-на-vm143)
-covers this exact transition. Live resolution of the five historical intents
-remains open.
+covers this exact transition. A later read-only production snapshot still
+showed the same five unrequested and offline Linux assignments. A separate
+operator-assigned Windows 3.2.192-to-3.2.205 job reported native switching
+and is held in recovery_required. Its observer remains reachable, while
+the last Core WSS is stale. The provider has no accepted native exit proof
+or independent Support registration on that card. Native ownership is
+still held. Console now displays Linux as a platform and only labels an
+assigned row as waiting for its first request when its timeline and report
+have no later evidence. Chromium verified both cases at desktop and mobile
+widths. Production cancellation and the native hold diagnosis remain open.
 STAB-19: The [Gateway capacity report](docs/verification/2026-11-14-stab19-gateway-capacity.md)
 covers 32-, 96- and 192-device rehearsals. At 32 devices, both
 acknowledgements met the proposed latency targets in the Linux TLS
