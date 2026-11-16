@@ -8,6 +8,10 @@ execution. Overflow returns `AGENT_COMMAND_QUEUE_FULL`. HTTP pull waits for the
 current result before requesting the next command, including migration fallback.
 Commands that expire while queued are skipped and the server expires their
 operations. Connection teardown cancels execution and discards the in-memory queue.
+For negotiated journaling, a SQLite reservation remains until authorization
+and a durable local start. Recovery reports `AGENT_COMMAND_INTERRUPTED_BEFORE_START`
+for an open reservation. An interrupted durable start or a legacy unresolved
+record is reported as `AGENT_COMMAND_OUTCOME_UNKNOWN`.
 
 `runtime/command_worker.py` starts the fixed Core entrypoint for one allowlisted
 command over bounded stdin/stdout frames. It passes the local network policy,
@@ -662,7 +666,7 @@ silently discards installed packages after record 2048.
 | Context | `pc_agent/context_profiles/` | typed context collection and execution |
 | Modules | `pc_agent/modules/`, `pc_agent/module_manager.py` | managed module lifecycle |
 | Updates | `pc_agent/gateway_update_runtime.py`, `pc_agent/update_adapter.py` | immutable update selection and application |
-| Command journal | `pc_agent/runtime/local_state.py`, `pc_agent/runtime/lifecycle.py` | negotiated WSS execution deduplication and result replay until a matching acknowledgement |
+| Command journal | `pc_agent/runtime/local_state.py`, `pc_agent/runtime/lifecycle.py` | negotiated WSS start reservations, execution deduplication, and result replay until a matching acknowledgement |
 | Packaging | `packaging/alt/`, `packaging/windows/` | ALT RPM and Windows MSI artifacts |
 
 `platform/windows/staged_candidate_payload.py` prepares incoming Core bytes

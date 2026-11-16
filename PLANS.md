@@ -357,7 +357,12 @@ also completed a health command on the exact pre-journal Gateway
 baseline with a separate database at migration 0051. Installed Windows
 3.2.192 completed the same profile against the journal-enabled Gateway
 on VM142. Each combination produced one successful result.
-The additive SQLite table keeps the existing schema marker for Core rollback.
+The SQLite schema marker remains compatible with Core rollback. A separate
+start reservation distinguishes interruption before local execution from an
+uncertain executed command. Legacy running rows remain uncertain. The Windows
+process-exit trial confirmed both outcomes and prevented replay. Over real
+TLS and PostgreSQL, both reconnects produced one result and drained the outbox.
+Installed signed Core qualification for this change remains open.
 STAB-16 service recovery: Ubuntu 24.04 and Debian 12 package configuration
 routes restart through the distribution helper. An enabled failed service
 recovers, a manually stopped service stays stopped, and masks are respected.

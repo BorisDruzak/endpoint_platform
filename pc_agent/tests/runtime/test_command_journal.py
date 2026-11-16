@@ -31,6 +31,9 @@ async def test_command_journal_recovers_uncertain_start_and_persists_result(tmp_
     changed = command.model_copy(update={"parameters": {"changed": True}})
     with pytest.raises(local_state.LocalStateError, match="command identity"):
         await journal.begin(changed, now=now)
+    with pytest.raises(local_state.LocalStateError, match="matching reservation"):
+        await journal.mark_execution_started(changed)
+    await journal.mark_execution_started(command)
 
     restarted = local_state.CommandJournal(path)
     await restarted.recover_interrupted(now=now)
@@ -47,6 +50,47 @@ async def test_command_journal_recovers_uncertain_start_and_persists_result(tmp_
             (str(command.command_id),),
         ).fetchone()
     assert AgentResultV1.model_validate_json(stored) == result
+
+
+@pytest.mark.asyncio
+async def test_start_reservation_migration_preserves_legacy_running_and_rollback(tmp_path):
+    now = datetime.now(UTC)
+    path = tmp_path / "storage.db"
+    await local_state.migrate_local_state(path)
+    legacy = _command(now)
+    with sqlite3.connect(path) as connection:
+        connection.execute("DROP TABLE endpoint_command_start_reservations")
+        connection.execute(
+            "INSERT INTO endpoint_command_inbox VALUES (?, ?, ?, ?, 'running')",
+            (str(legacy.command_id), str(legacy.device_id), "legacy-digest", legacy.deadline_at.isoformat()),
+        )
+
+    await local_state.migrate_local_state(path)
+    journal = local_state.CommandJournal(path)
+    await journal.recover_interrupted(now=now)
+    (legacy_result,) = await journal.pending(legacy.device_id)
+    assert legacy_result.message == "AGENT_COMMAND_OUTCOME_UNKNOWN"
+
+    settled = _command(now)
+    reserved = _command(now)
+    assert await journal.begin(settled, now=now) == "execute"
+    assert await journal.begin(reserved, now=now) == "execute"
+    with sqlite3.connect(path) as connection:
+        # A rollback Core still uses the original inbox schema and can settle a reservation.
+        assert connection.execute("SELECT schema_version FROM endpoint_runtime_schema").fetchone() == (1,)
+        connection.execute(
+            "UPDATE endpoint_command_inbox SET state = 'completed' WHERE command_id = ?",
+            (str(settled.command_id),),
+        )
+
+    await local_state.migrate_local_state(path)
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT command_id FROM endpoint_command_start_reservations").fetchall() == [
+            (str(reserved.command_id),),
+        ]
+    await journal.recover_interrupted(now=now)
+    (result,) = await journal.pending(reserved.device_id)
+    assert result.message == "AGENT_COMMAND_INTERRUPTED_BEFORE_START"
 
 
 @pytest.mark.asyncio
@@ -163,6 +207,7 @@ async def test_connected_loop_recovers_unacknowledged_result_at_handshake(tmp_pa
     command = _command(datetime.now(UTC))
     journal = local_state.CommandJournal(path)
     assert await journal.begin(command, now=command.created_at) == "execute"
+    await journal.mark_execution_started(command)
     inbox = asyncio.Queue()
     sent = []
 
@@ -199,6 +244,45 @@ async def test_connected_loop_recovers_unacknowledged_result_at_handshake(tmp_pa
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+
+
+@pytest.mark.asyncio
+async def test_restart_distinguishes_disconnect_before_gateway_start(tmp_path):
+    from pc_agent.runtime.lifecycle import ConnectedCommands
+    from pc_agent.transport.base import GatewayRetryableError
+
+    path = tmp_path / "storage.db"
+    await local_state.migrate_local_state(path)
+    journal = local_state.CommandJournal(path)
+    command = _command(datetime.now(UTC))
+
+    async def send_ack(acknowledgement):
+        assert acknowledgement.status == "running"
+        raise GatewayRetryableError("connection lost while requesting permission")
+
+    async def execute(_):
+        pytest.fail("the handler must not run without permission")
+
+    async def send_result(_):
+        pytest.fail("the disconnected session must not send a result")
+
+    transport = SimpleNamespace(send_ack=send_ack, send_result=send_result)
+    state = ConnectedCommands(journal, transport, command.device_id)
+    with pytest.raises(GatewayRetryableError, match="connection lost"):
+        await state.execute(SimpleNamespace(execute=execute), command, None)
+
+    restarted = local_state.CommandJournal(path)
+    now = datetime.now(UTC)
+    await restarted.recover_interrupted(now=now)
+    (result,) = await restarted.pending(command.device_id)
+    assert result.message == "AGENT_COMMAND_INTERRUPTED_BEFORE_START"
+    assert result.status == "failed"
+    assert result.command_id == command.command_id
+    assert await restarted.begin(command, now=now) == "completed"
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT count(*) FROM endpoint_seen_commands").fetchone() == (0,)
+    await restarted.recover_interrupted(now=now)
+    assert await restarted.pending(command.device_id) == [result]
 
 
 @pytest.mark.asyncio

@@ -835,7 +835,12 @@ class ConnectedCommands:
                 await self.journal.reject_start(command)
                 return
             elif command.deadline_at > datetime.now(UTC):
-                result = await executor.execute(command)
+                try:
+                    await self.journal.mark_execution_started(command)
+                except LocalStateError as error:
+                    raise GatewayRetryableError("command start could not be persisted") from error
+                if command.deadline_at > datetime.now(UTC):
+                    result = await executor.execute(command)
         executed = result is not None
         if result is None:
             result = AgentResultV1(

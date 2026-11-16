@@ -80,6 +80,25 @@ async def migrate_local_state(path: Path) -> None:
                 )
                 """
             )
+            # Keep reservations separate so the rollback Core's positional
+            # inserts and schema marker stay compatible.
+            await connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS endpoint_command_start_reservations (
+                    command_id TEXT PRIMARY KEY
+                )
+                """
+            )
+            # A rollback Core can settle a row without consuming its reservation.
+            await connection.execute(
+                """
+                DELETE FROM endpoint_command_start_reservations WHERE NOT EXISTS (
+                    SELECT 1 FROM endpoint_command_inbox AS i
+                    WHERE i.command_id = endpoint_command_start_reservations.command_id
+                      AND i.state = 'running'
+                )
+                """
+            )
             await connection.commit()
         except BaseException:
             await connection.rollback()
@@ -129,7 +148,25 @@ class CommandJournal:
                 "INSERT INTO endpoint_command_inbox VALUES (?, ?, ?, ?, 'running')",
                 (*identity, digest, _utc(command.deadline_at)),
             )
+            await connection.execute(
+                "INSERT INTO endpoint_command_start_reservations VALUES (?)", identity[:1],
+            )
             return "execute"
+
+    async def mark_execution_started(self, command: AgentCommandV1) -> None:
+        """Durably cross the boundary beyond which execution may have an effect."""
+        async with self._write() as connection:
+            async with connection.execute(
+                """
+                DELETE FROM endpoint_command_start_reservations WHERE command_id = (
+                    SELECT command_id FROM endpoint_command_inbox
+                    WHERE command_id = ? AND device_id = ? AND digest = ? AND state = 'running'
+                )
+                """,
+                (str(command.command_id), str(command.device_id), _command_digest(command)),
+            ) as cursor:
+                if cursor.rowcount != 1:
+                    raise LocalStateError("command start has no matching reservation")
 
     async def cancel(self, device_id: UUID, command_id: UUID) -> None:
         # A cancel fences work that has not started. A started operation retains
@@ -200,18 +237,28 @@ class CommandJournal:
             ) as cursor:
                 if cursor.rowcount != 1:
                     raise LocalStateError("command denial has no matching reservation")
+            await connection.execute(
+                "DELETE FROM endpoint_command_start_reservations WHERE command_id = ?",
+                (str(command.command_id),),
+            )
 
     async def recover_interrupted(self, *, now: datetime) -> None:
         async with self._write() as connection:
             async with connection.execute(
-                "SELECT command_id, device_id FROM endpoint_command_inbox WHERE state = 'running'"
+                """
+                SELECT i.command_id, i.device_id, r.command_id IS NOT NULL
+                FROM endpoint_command_inbox AS i
+                LEFT JOIN endpoint_command_start_reservations AS r ON r.command_id = i.command_id
+                WHERE i.state = 'running'
+                """
             ) as cursor:
                 rows = await cursor.fetchall()
-            for command_id, device_id in rows:
+            for command_id, device_id, reserved in rows:
+                message = "AGENT_COMMAND_INTERRUPTED_BEFORE_START" if reserved else "AGENT_COMMAND_OUTCOME_UNKNOWN"
                 await _store_result(connection, AgentResultV1(
                     schema_version="agent_result_v1", command_id=UUID(command_id),
                     device_id=UUID(device_id), status="failed", completed_at=now,
-                    message="AGENT_COMMAND_OUTCOME_UNKNOWN",
+                    message=message,
                 ))
 
     async def pending(self, device_id: UUID, *, limit: int = 32) -> list[AgentResultV1]:
@@ -274,4 +321,7 @@ async def _store_result(connection, result: AgentResultV1) -> None:
         )
     await connection.execute(
         "UPDATE endpoint_command_inbox SET state = 'completed' WHERE command_id = ?", (command_id,)
+    )
+    await connection.execute(
+        "DELETE FROM endpoint_command_start_reservations WHERE command_id = ?", (command_id,)
     )
