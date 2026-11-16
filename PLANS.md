@@ -126,8 +126,10 @@ A separate Gateway canary drove actual download, durable handoff and one
 applied report. A combined canary recovered after power loss at selector commit.
 The frozen Core retried the same report key after the server committed the
 result and exited before sending HTTP 200. The original applied report
-remained the only database row for that operation. The pinned publisher's
-signed authorization remains open.
+remained the only database row for that operation. The power-loss and
+report replay scenarios used the lab trust overlay. The intact installed
+watcher later completed the Gateway path with the pinned publisher under
+STAB-11.
 STAB-05 source: durable operation journal before the watched pending rename;
 fault injection before/after publication preserved outcome reporting. VM142
 confirmed live watcher handoff, post-selector power-loss replay and applied
@@ -239,7 +241,16 @@ requires GnuPG. The lab-signed alt6 exposed a stale revision in the selector
 on same-agent-version upgrade. On VM142, alt7 refreshed that selector, passed
 the release manifest check, preserved enrollment state and reconnected to
 the loopback Gateway. Its installed watcher rejected a foreign-signed
-authorization before stopping Core.
+authorization before stopping Core. The
+[Gateway delivery receipt](docs/verification/2026-11-14-agent-release-qualification-matrix.md#доставка-через-gateway-со-штатной-подписью-stab-11)
+adds one real assignment to the intact RPM watcher with this same pinned key.
+Core requested and downloaded the exact archive via HTTPS, reconnected by
+WSS as 3.2.206 and delivered one applied report 5.517 seconds after requesting
+the update. The local return to 3.2.205 restored the selector byte-for-byte
+and preserved the enrollment and credential files. The Gateway kept the
+completed rollout and its original report. The native rollback generated a
+new WSS session and received HTTP 404 when attempting to report against that
+settled operation. The temporary authorization and test download were removed.
 STAB-12 source: the Windows Setup observer starts read-only preflight in an
 owned process job, bounds stdout during capture and stops on stderr. Windows
 PowerShell 5.1 verified repeated timeouts, output overflow and child cleanup
