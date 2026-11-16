@@ -860,8 +860,15 @@ The full queue recovered in 3.083–3.521 s. Two runs used a separate
 pgbench database in the same cluster at 47.42–47.75 transactions/s.
 Continuously connected delivery p95 was 4.22–4.40 s in control and
 4.08–5.64 s under background SQL. Both groups met the 1 s p95 targets
-for command start and result ACK. Helpdesk application load and
-repeatable delivery under representative shared-host load remain open.
+for command start and result ACK. A second four-run comparison
+measured the delay by command ordinal. The five slowest online
+deliveries in every run were second commands on the same socket.
+Gateway now counts successful scan and delivery work toward its
+one-second interval and waits a full second after a scan error.
+With the adjusted cadence, second-command p95 was 3.90–4.21 s
+and queue recovery improved by about 0.3 s in both pairs. First-command
+p95 increased slightly. Helpdesk application load and repeatable
+delivery under representative shared-host load remain open.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API

@@ -60,8 +60,11 @@ async def _deliver(
 async def run_scheduled_dispatch(registry: ConnectionRegistry, provider: SessionProvider) -> None:
     """Use one scan per cycle and bound the work that competes with socket reads."""
     service = CommandService(provider)
+    loop = asyncio.get_running_loop()
+    next_scan = loop.time() + _POLL_SECONDS
     while True:
-        await asyncio.sleep(_POLL_SECONDS)
+        await asyncio.sleep(max(0.0, next_scan - loop.time()))
+        next_scan = loop.time() + _POLL_SECONDS
         owners = {connection.device_id: connection for connection in await registry.connected()
                   if connection.ready_for_dispatch.is_set()}
         try:
@@ -71,6 +74,7 @@ async def run_scheduled_dispatch(registry: ConnectionRegistry, provider: Session
                 )
         except Exception as error:
             logger.warning("Scheduled Gateway scan failed error=%s", type(error).__name__)
+            next_scan = loop.time() + _POLL_SECONDS
             continue
 
         devices = iter(pending)

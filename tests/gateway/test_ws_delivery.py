@@ -319,6 +319,45 @@ async def test_scheduled_send_failure_replays_committed_delivery_on_reconnect(se
 
 
 @pytest.mark.asyncio
+async def test_scheduled_dispatch_counts_work_toward_next_scan_interval(monkeypatch):
+    from types import SimpleNamespace
+
+    from endpoint_server.gateway import scheduled_dispatch
+
+    now = 0.0
+    starts = []
+
+    async def sleep(delay):
+        nonlocal now
+        now += delay
+
+    class Registry:
+        async def connected(self):
+            nonlocal now
+            if len(starts) == 4:
+                raise asyncio.CancelledError
+            starts.append(now)
+            now += (0.25, 1.5, 2.0, 0.1)[len(starts) - 1]
+            return ()
+
+    async def scan(_service, _capabilities):
+        if len(starts) == 3:
+            raise TimeoutError
+        return ()
+
+    monkeypatch.setattr(CommandService, "scheduled_pending_devices", scan)
+    monkeypatch.setattr(scheduled_dispatch, "asyncio", SimpleNamespace(
+        get_running_loop=lambda: SimpleNamespace(time=lambda: now),
+        sleep=sleep,
+        timeout=asyncio.timeout,
+        gather=asyncio.gather,
+    ))
+    with pytest.raises(asyncio.CancelledError):
+        await scheduled_dispatch.run_scheduled_dispatch(Registry(), None)
+    assert starts == [1.0, 2.0, 3.5, 6.5]
+
+
+@pytest.mark.asyncio
 async def test_cancelled_dispatch_shutdown_releases_worker_lease(session_provider, tmp_path, monkeypatch):
     import endpoint_server.main as endpoint_main
 
