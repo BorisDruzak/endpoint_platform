@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import secrets
 import ssl
@@ -23,7 +24,11 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 import aiohttp
-from endpoint_contracts import AgentEnrollmentDeliveryV1, AgentEnrollmentRequestV1
+from endpoint_contracts import (
+    AgentEnrollmentDeliveryV1,
+    AgentEnrollmentRequestV1,
+    EnrollmentDeliveryProofV1,
+)
 from endpoint_contracts.identity import normalize_hardware_fingerprint
 from pydantic import ValidationError
 
@@ -42,6 +47,7 @@ SYSTEMD_CLAIM_CREDENTIAL_NAME = "endpoint-enrollment-claim"
 _TOKEN_LENGTH = 43
 _FINGERPRINT_CONTEXT = b"endpoint-agent-bootstrap-fingerprint-v1\0"
 _HANDOFF_SCHEMA_VERSION = "endpoint_claim_removal_request_v1"
+_LOGGER = logging.getLogger(__name__)
 PERMANENT_CREDENTIAL_PATH = Path("/var/lib/endpoint-agent/device-credential")
 ENROLLMENT_IDENTITY_PATH = Path("/var/lib/endpoint-agent/enrollment-identity.json")
 HANDOFF_REQUEST_PATH = Path("/var/lib/endpoint-agent/claim-removal-request.json")
@@ -65,6 +71,7 @@ class EnrollmentDelivery:
 
     device_id: UUID
     device_token: str = field(repr=False)
+    enrollment_receipt: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -152,6 +159,14 @@ class EnrollmentTransport(Protocol):
         request: dict[str, object],
     ) -> EnrollmentDelivery: ...
 
+    async def acknowledge_delivery(
+        self,
+        *,
+        endpoint_url: str,
+        ca_file: Path,
+        proof: EnrollmentDeliveryProofV1,
+    ) -> None: ...
+
 
 class ClaimRemovalHandoff(Protocol):
     def request_removal(
@@ -209,7 +224,30 @@ class HttpsEnrollmentTransport:
         return EnrollmentDelivery(
             device_id=delivery.device_id,
             device_token=delivery.device_token,
+            enrollment_receipt=delivery.enrollment_receipt,
         )
+
+    async def acknowledge_delivery(
+        self,
+        *,
+        endpoint_url: str,
+        ca_file: Path,
+        proof: EnrollmentDeliveryProofV1,
+    ) -> None:
+        try:
+            ssl_context = ssl.create_default_context(cafile=str(ca_file))
+            timeout = aiohttp.ClientTimeout(total=5)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(
+                    f"{endpoint_url.rstrip('/')}/agent/v1/enroll/ack",
+                    json=proof.model_dump(mode="json"),
+                    ssl=ssl_context,
+                    allow_redirects=False,
+                ) as response:
+                    if response.status != 204:
+                        raise EnrollmentTemporaryFailure()
+        except (aiohttp.ClientError, asyncio.TimeoutError, OSError, ssl.SSLError):
+            raise EnrollmentTemporaryFailure() from None
 
 
 class FileClaimRemovalHandoff:
@@ -396,6 +434,21 @@ async def bootstrap_enrollment(
         ).hexdigest(),
     ):
         return EnrollmentOutcome("handoff_pending", str(device_id))
+
+    if delivery.enrollment_receipt is not None:
+        proof = EnrollmentDeliveryProofV1(
+            schema_version="enrollment_delivery_proof_v1",
+            enrollment_receipt=delivery.enrollment_receipt,
+            hardware_fingerprint=hardware_fingerprint,
+        )
+        try:
+            await selected_transport.acknowledge_delivery(
+                endpoint_url=config.endpoint_url, ca_file=config.ca_file, proof=proof,
+            )
+        except EnrollmentTransportUnavailable:
+            # The verified credential remains usable. The Gateway expires
+            # any delivery envelope left by an unavailable acknowledgment.
+            _LOGGER.warning("Enrollment delivery acknowledgment unavailable")
     return EnrollmentOutcome("enrolled", str(device_id))
 
 

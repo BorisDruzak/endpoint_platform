@@ -208,6 +208,98 @@ async def test_success_persists_credential_and_identity_before_root_handoff(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("ack_status", [204, 503, 307])
+async def test_https_bootstrap_acknowledges_verified_delivery(
+    tmp_path: Path, ack_status: int,
+) -> None:
+    from dataclasses import replace
+    from datetime import UTC, datetime
+
+    from aiohttp import web
+
+    from pc_agent.tests.runtime.test_current_update_characterization import (
+        _loopback_artifact_tls,
+    )
+
+    server_tls, _ = _loopback_artifact_tls(tmp_path)
+    config = _config(tmp_path)
+    credentials_dir = _credential_dir(tmp_path)
+    delivery = _delivery()
+    receipt = "B" * 43
+    enroll_requests = []
+    acknowledgements = []
+    redirects = []
+
+    async def enroll(request):
+        body = await request.json()
+        enroll_requests.append((request.headers.get("Authorization"), body))
+        return web.json_response({
+            "schema_version": "agent_enrollment_delivery_v1",
+            "device_id": str(delivery.device_id),
+            "policy_id": "fixture-policy",
+            "policy": {},
+            "enrollment_receipt": receipt,
+            "device_token": delivery.device_token,
+            "issued_at": datetime.now(UTC).isoformat(),
+        }, status=201)
+
+    async def acknowledge(request):
+        acknowledgements.append((
+            await request.json(),
+            request.headers.get("Authorization"),
+            config.credential_path.read_bytes(),
+            config.identity_path.read_bytes(),
+            config.handoff_request_path.is_file(),
+        ))
+        if ack_status == 307:
+            raise web.HTTPTemporaryRedirect("/redirected")
+        return web.Response(status=ack_status)
+
+    async def redirected(request):
+        redirects.append(request.method)
+        return web.Response(status=204)
+
+    app = web.Application()
+    app.router.add_post("/agent/v1/enroll", enroll)
+    app.router.add_post("/agent/v1/enroll/ack", acknowledge)
+    app.router.add_post("/redirected", redirected)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    try:
+        await web.TCPSite(runner, "127.0.0.1", 0, ssl_context=server_tls).start()
+        port = runner.addresses[0][1]
+        config = replace(
+            config, endpoint_url=f"https://127.0.0.1:{port}", ca_file=tmp_path / "cert.pem",
+        )
+        result = await bootstrap_enrollment(
+            credentials_dir, config, probe=lambda: _FINGERPRINT
+        )
+        restarted = await bootstrap_enrollment(
+            credentials_dir, config, probe=lambda: pytest.fail("claim exchanged again")
+        )
+    finally:
+        await runner.cleanup()
+
+    assert result.status == "enrolled"
+    assert restarted.status == "already_enrolled"
+    assert len(enroll_requests) == 1 and enroll_requests[0][0] == f"Bearer {_CLAIM}"
+    assert acknowledgements, "Missing direct acknowledgment"
+    assert acknowledgements == [(
+        {
+            "schema_version": "enrollment_delivery_proof_v1",
+            "enrollment_receipt": receipt,
+            "hardware_fingerprint": enroll_requests[0][1]["hardware_fingerprint"],
+        },
+        None,
+        delivery.device_token.encode("ascii"),
+        enrollment_bootstrap.serialize_enrollment_identity(delivery.device_id),
+        True,
+    )]
+    assert redirects == []
+    assert receipt not in config.handoff_request_path.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
 async def test_temporary_gateway_outage_retries_a_fixed_budget_without_partial_credential(
     tmp_path: Path,
 ) -> None:
