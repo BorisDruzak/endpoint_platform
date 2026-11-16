@@ -104,6 +104,14 @@ report delivery after reconnect for a real Gateway assignment.
 STAB-06: serialized WSS ownership publication per device. Both reconnect permutations
 and heartbeat lock ordering verified on PostgreSQL 16. STAB-07: bounded
 notice/close with observable cleanup stages and concurrent server shutdown.
+The real WSS ASGI route now has a regression for blocking the old socket's
+notice and close. The replacement received `gateway_hello` while the old
+notice was blocked. Both timeouts were recorded, and the old route's exit
+left the replacement as the sole local and durable owner. The test rejected
+an injected serial-cleanup implementation on handshake ordering. The
+combined route, limits and reconnect suites passed 36 tests on Ubuntu
+with disposable PostgreSQL 16 and 33 on Windows. One SQLite case on
+Ubuntu and four PostgreSQL-only cases on Windows were skipped.
 STAB-08 source: per-job execution deadlines and PostgreSQL lock/statement
 budgets, bounded rollback, redacted attempt/last-success/lag logging and
 conservative commit uncertainty. PostgreSQL row-lock regression verified.

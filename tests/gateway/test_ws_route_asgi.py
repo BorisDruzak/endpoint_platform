@@ -2,17 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from threading import Event
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from starlette.websockets import WebSocketDisconnect
 
 from endpoint_contracts.gateway_ws import COMMAND_JOURNAL_FEATURE, COMMAND_JOURNAL_HEADER
 from endpoint_server.context.models import ContextCollection
-from endpoint_server.db.models import Command
+from endpoint_server.db.models import Command, DeviceSession
 from endpoint_server.main import create_app
 
 from .conftest import (
@@ -43,11 +46,84 @@ def _hello_envelope(device_id, capabilities: list[str]) -> dict[str, object]:
     }
 
 
+def test_replacement_hello_precedes_stalled_asgi_notice_and_close(
+    gateway_route_harness, caplog,
+):
+    provider = gateway_route_harness.provider
+    device = asyncio.run(seed_device(provider))
+    hello = _hello_envelope(device.id, ["agent.status.read"])
+    app = create_app(gateway_route_harness.settings, provider)
+    peer_app = FixedWebSocketPeerApp(app)
+    close_cancelled = Event()
+    stages = []
+
+    @app.get("/_test/registered-session")
+    async def registered_session():
+        connection = await app.state.gateway_connection_registry.get(device.id)
+        return str(connection.session_id) if connection is not None else None
+
+    async def stall_until_gateway_timeout():
+        await asyncio.sleep(3)
+        pytest.fail("The Gateway did not cancel the stalled ASGI operation")
+
+    async def with_stalled_old_socket(scope, receive, send):
+        old_peer = (b"x-test-stall-cleanup", b"yes") in scope.get("headers", ())
+
+        async def observe_send(message):
+            kind = None
+            if message["type"] == "websocket.send":
+                kind = json.loads(message["text"])["kind"]
+            if old_peer and kind == "server_shutdown_notice":
+                stages.append("notice_started")
+                try:
+                    await stall_until_gateway_timeout()
+                finally:
+                    stages.append("notice_cancelled")
+            if old_peer and message["type"] == "websocket.close" and message["code"] == 4001:
+                try:
+                    await stall_until_gateway_timeout()
+                finally:
+                    close_cancelled.set()
+            if not old_peer and kind == "gateway_hello":
+                stages.append("replacement_hello")
+            await send(message)
+
+        await peer_app(scope, receive, observe_send)
+
+    async def durable_sessions():
+        async with provider() as session:
+            rows = await session.scalars(select(DeviceSession).where(
+                DeviceSession.device_id == device.id,
+            ))
+            return {str(row.id): row.closed_at for row in rows}
+
+    with TestClient(with_stalled_old_socket) as client:
+        headers = {**_headers(), "X-Test-Stall-Cleanup": "yes"}
+        with client.websocket_connect("/agent/v1/connect", headers=_headers()) as new_socket:
+            with client.websocket_connect("/agent/v1/connect", headers=headers) as old_socket:
+                old_socket.send_json(hello)
+                old_session = old_socket.receive_json()["payload"]["session_id"]
+                new_socket.send_json(hello)
+                replacement = new_socket.receive_json()
+                assert replacement["kind"] == "gateway_hello"
+                new_session = replacement["payload"]["session_id"]
+                assert new_session != old_session
+                assert close_cancelled.wait(5), "Old socket close did not reach its deadline"
+                current = asyncio.run(durable_sessions())
+                assert set(current) == {old_session, new_session}
+                assert current[old_session] is not None
+                assert current[new_session] is None
+            assert client.get("/_test/registered-session").json() == new_session
+
+    assert stages == ["notice_started", "replacement_hello", "notice_cancelled"]
+    assert "reason=session_replaced stage=notice error=TimeoutError" in caplog.text
+    assert "reason=session_replaced stage=close error=TimeoutError" in caplog.text
+
+
 @pytest.mark.parametrize("existing", [False, True])
 def test_authenticated_hello_persists_foundation_and_heartbeat_only_changes_core(
     gateway_route_harness, existing,
 ):
-    from sqlalchemy import select
     from endpoint_server.db.models import DeviceInstance
     provider = gateway_route_harness.provider
     device = asyncio.run(seed_device(provider))
