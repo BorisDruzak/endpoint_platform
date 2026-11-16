@@ -834,6 +834,13 @@ devices. The 96-client TLS comparison counted 96 fewer authentication
 SELECTs per wave, with reconnect result ACK at 1.43–1.46 s p95.
 Delivery and reconnect targets and production-scale qualification
 remain open.
+A four-run paired TLS trial on 96 clients bounded the opening WSS
+database stages at eight over the same 5+10 pool. Reconnect start and
+result ACK both met 1 s at p95 with the lab limit. Delivery exceeded
+5 s in both configurations, and effects on hello and full wave time
+changed direction across pairs. The limit remains a lab parameter.
+Next measure delivery and queue recovery in a longer mixed workload
+with periodic commands, heartbeat, telemetry and reconnects.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
