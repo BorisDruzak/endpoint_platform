@@ -36,5 +36,12 @@ async def test_worktime_worker_disabled_and_failed_queue_do_not_affect_retention
     with caplog.at_level("INFO", logger="endpoint_server.worker"):
         await _run_worktime_maintenance(provider, enabled=True)
     assert events == ["open", "queue", "rollback", "open", "retention", "commit"]
-    assert "data_backlog_age_seconds=unknown" in caplog.records[-2].message
-    assert "data_backlog_age_seconds=60.000" in caplog.records[-1].message
+    completed = [
+        record.message for record in caplog.records
+        if record.name == "endpoint_server.worker" and record.message.startswith("worker_job job=")
+    ]
+    generation_log, retention_log = completed
+    assert generation_log.startswith("worker_job job=generate_due_requests ")
+    assert "data_backlog_age_seconds=unknown" in generation_log
+    assert retention_log.startswith("worker_job job=retain_worktime ")
+    assert "data_backlog_age_seconds=60.000" in retention_log
