@@ -248,6 +248,7 @@ async def connect_agent(websocket: WebSocket) -> None:
                 device_id=device_id,
                 hello=first.payload,
                 source_address=str(authenticated.source_address),
+                effective_capabilities=effective_capabilities,
             )
             connection = GatewayConnection(
                 device_id=device_id,

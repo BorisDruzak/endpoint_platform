@@ -152,12 +152,39 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0053_activity_dirty_since"]
+    assert script.get_heads() == ["0054_periodic_context_profiles"]
+    assert script.get_revision("0054_periodic_context_profiles").down_revision == "0053_activity_dirty_since"
     assert script.get_revision("0053_activity_dirty_since").down_revision == "0052_inventory_installation"
     assert script.get_revision("0052_inventory_installation").down_revision == "0051_staging_linux_worktime"
     merge = script.get_revision("0051_staging_linux_worktime")
     assert merge.is_merge_point
     assert merge.down_revision == ("0050_linux_enrollment_binding", "0044_worktime_helpdesk")
+
+
+def test_periodic_context_profile_migration_preserves_unknown_and_empty(empty_database_url: str):
+    config = _alembic_config(empty_database_url)
+    plain_url = make_url(empty_database_url).set(drivername="postgresql").render_as_string(hide_password=False)
+    command.upgrade(config, "0053_activity_dirty_since")
+    insert_device = "INSERT INTO devices (id, device_identifier) VALUES ('%s', '%s')"
+    legacy_id, known_id = uuid4(), uuid4()
+    asyncio.run(_execute(plain_url, insert_device % (legacy_id, "legacy-context")))
+    command.upgrade(config, "0054_periodic_context_profiles")
+    asyncio.run(_execute(plain_url, insert_device % (known_id, "known-context")))
+    asyncio.run(_execute(plain_url,
+        "UPDATE devices SET scheduled_context_profiles = '[]' "
+        f"WHERE id = '{known_id}'"))
+    rows = asyncio.run(_fetch(plain_url,
+        "SELECT device_identifier, scheduled_context_profiles::text AS profiles "
+        "FROM devices ORDER BY device_identifier"))
+    assert [(row["device_identifier"], row["profiles"]) for row in rows] == [
+        ("known-context", "[]"), ("legacy-context", None),
+    ]
+    command.downgrade(config, "0053_activity_dirty_since")
+    rows = asyncio.run(_fetch(plain_url, "SELECT id FROM devices"))
+    assert {row["id"] for row in rows} == {legacy_id, known_id}
+    command.upgrade(config, "0054_periodic_context_profiles")
+    rows = asyncio.run(_fetch(plain_url, "SELECT scheduled_context_profiles FROM devices"))
+    assert len(rows) == 2 and all(row["scheduled_context_profiles"] is None for row in rows)
 
 
 def test_candidate_visibility_migration_preserves_legacy_default_and_roundtrip(update_migration_database_urls):

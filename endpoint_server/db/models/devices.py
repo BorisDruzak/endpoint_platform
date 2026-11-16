@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    JSON,
     String,
     UniqueConstraint,
     desc,
@@ -28,6 +29,7 @@ class Device(OwnershipRecord, Base):
     )
     display_name: Mapped[str | None] = mapped_column(String(256))
     retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scheduled_context_profiles: Mapped[list[str] | None] = mapped_column(JSON(none_as_null=True))
 
 
 class DeviceCredential(OwnershipRecord, Base):

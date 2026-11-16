@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
@@ -12,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from endpoint_contracts import AgentHeartbeatV1, AgentHelloV1
 from endpoint_server.audit.service import append_audit_event
+from endpoint_server.context.scheduler import SCHEDULE_RULES
 from endpoint_server.db.models import Device, DeviceInstance, DeviceSession
 from endpoint_server.db.session import SessionProvider
 
@@ -43,6 +45,7 @@ async def record_http_pull_presence(
     device_id: UUID,
     source_address: str,
     observed_at: datetime | None = None,
+    command_poll: bool = False,
 ) -> None:
     """Refresh a dedicated fallback session from an authenticated pull request."""
     try:
@@ -54,9 +57,13 @@ async def record_http_pull_presence(
         select(Device)
         .where(Device.id == device_id, Device.retired_at.is_(None))
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if device is None:
         raise PresenceRejected("gateway device is unavailable")
+    if command_poll:
+        # HTTP command polls have no capability handshake.
+        device.scheduled_context_profiles = None
     identifier = f"http-pull-{device_id.hex}"
     pull_session = await session.scalar(
         select(DeviceSession)
@@ -96,6 +103,7 @@ class PresenceService:
         device_id: UUID,
         hello: AgentHelloV1,
         source_address: str,
+        effective_capabilities: Collection[str] | None = None,
         observed_at: datetime | None = None,
     ) -> GatewayPresence:
         if hello.device_id != device_id:
@@ -177,6 +185,11 @@ class PresenceService:
                     source_address=canonical_source,
                 )
                 session.add(gateway_session)
+                if effective_capabilities is not None:
+                    device.scheduled_context_profiles = [
+                        rule.profile for rule in SCHEDULE_RULES
+                        if rule.capability in effective_capabilities
+                    ]
                 await self._audit(
                     session,
                     device_id=device_id,

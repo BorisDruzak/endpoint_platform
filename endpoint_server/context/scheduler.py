@@ -20,6 +20,7 @@ class ContextScheduleRule:
     """One server-owned periodic profile rule."""
 
     profile: str
+    capability: str
     interval: timedelta
 
 
@@ -31,11 +32,11 @@ class ContextScheduleBatch:
 
 
 SCHEDULE_RULES: tuple[ContextScheduleRule, ...] = (
-    ContextScheduleRule("baseline_v1", timedelta(hours=24)),
-    ContextScheduleRule("health_v1", timedelta(minutes=5)),
-    ContextScheduleRule("network_v1", timedelta(minutes=15)),
-    ContextScheduleRule("inventory_v1", timedelta(hours=24)),
-    ContextScheduleRule("session_v1", timedelta(minutes=5)),
+    ContextScheduleRule("baseline_v1", "context.baseline.collect", timedelta(hours=24)),
+    ContextScheduleRule("health_v1", "context.health.collect", timedelta(minutes=5)),
+    ContextScheduleRule("network_v1", "context.network.collect", timedelta(minutes=15)),
+    ContextScheduleRule("inventory_v1", "context.inventory.collect", timedelta(hours=24)),
+    ContextScheduleRule("session_v1", "context.session.collect", timedelta(minutes=5)),
 )
 """The complete periodic allowlist; diagnostic_v1 is deliberately absent."""
 
@@ -157,14 +158,20 @@ async def schedule_due_collections_with_backlog(
     for device_id in device_ids:
         from endpoint_server.installation_lifecycle.service import removed
         device = await session.scalar(
-            select(Device).where(Device.id == device_id, Device.retired_at.is_(None)).with_for_update()
+            select(Device)
+            .where(Device.id == device_id, Device.retired_at.is_(None))
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
         if device is None:
             continue
         await _expire_overdue_scheduled_collections(session, now=scheduled_at, device_id=device.id)
         if await removed(session, device.id):
             continue
+        profiles = device.scheduled_context_profiles
         for rule in SCHEDULE_RULES:
+            if profiles is not None and rule.profile not in profiles:
+                continue
             await _advisory_lock(
                 session, f"context.schedule:{device.id}:{rule.profile}"
             )

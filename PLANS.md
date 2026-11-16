@@ -847,9 +847,14 @@ delivery p95 was 3.46–4.03 s. Each wave acknowledged command start and
 results within 1 s p95 in both groups. The database contained 288
 health snapshots and 755 confirmed Power events, with 64 result
 replays and no extra snapshots. The worker also queued 96 session
-collections for clients without that capability. Next verify how
-the worker can use accepted capabilities while preserving legacy and
-offline scheduling, then measure the full eligible queue.
+collections for clients without that capability. Gateway now persists
+the accepted periodic profiles for use by the worker and offline
+devices. An authenticated HTTP command poll selects the legacy
+fallback, as do devices that have yet to negotiate. Revision
+`0054_periodic_context_profiles` stores this additive device state.
+The corrected 96-client trial created 96 health requests and returned
+the full scheduled queue to zero in 2.371 s after reconnect began.
+Mixed-profile and shared-host load qualification remain open.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API

@@ -18,13 +18,26 @@ URLs, local paths and tracebacks are not safe service output.
 | `baseline_v1` | `context.baseline.collect` | Periodic, at most every 24 hours. |
 | `health_v1` | `context.health.collect` | Periodic, at most every 5 minutes. |
 | `network_v1` | `context.network.collect` | Periodic, at most every 15 minutes. |
+| `inventory_v1` | `context.inventory.collect` | Periodic, at most every 24 hours. |
+| `session_v1` | `context.session.collect` | Periodic, at most every 5 minutes. |
 | `diagnostic_v1` | `context.diagnostic.collect` | Manual only with a bounded reason; not exposed by the safe service API. |
 
 No caller may select a module, method, arbitrary probe, command or shell
 argument. Collector failures use stable bounded warning/result codes. The
-server scheduler creates only the first three profiles, locks one active
-collection per device/profile, and gives periodic requests an interval-bounded
-expiry for offline devices.
+server scheduler locks one active collection per device/profile and gives
+periodic requests an interval-bounded expiry for offline devices.
+
+Gateway records the periodic profiles from the last authenticated WSS
+capability negotiation. The worker uses that list for offline
+devices as well. An empty list means the device supports no periodic
+profiles. Records that predate capability tracking and devices using
+HTTP command pull have an unknown profile set and use the fixed
+periodic rules. An accepted next-command poll returns the device to
+that fallback. Existing scheduled requests retain their normal expiry.
+
+Apply schema revision `0054_periodic_context_profiles` before
+starting Gateway and worker with this code. The nullable column
+leaves existing devices in the unknown state until a negotiation.
 
 ## Service access
 

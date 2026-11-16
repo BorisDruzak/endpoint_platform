@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from threading import Event
 from uuid import uuid4
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -15,6 +16,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from endpoint_contracts.gateway_ws import COMMAND_JOURNAL_FEATURE, COMMAND_JOURNAL_HEADER
 from endpoint_server.context.models import ContextCollection
+from endpoint_server.context.scheduler import schedule_due_collections
 from endpoint_server.db.models import Command, DeviceSession
 from endpoint_server.main import create_app
 
@@ -44,6 +46,47 @@ def _hello_envelope(device_id, capabilities: list[str]) -> dict[str, object]:
         "sequence": 0,
         "payload": hello,
     }
+
+
+def test_periodic_context_uses_latest_wss_profiles_while_device_is_offline(
+    gateway_route_harness: GatewayRouteHarness,
+) -> None:
+    provider = gateway_route_harness.provider
+    device = asyncio.run(seed_device(provider))
+    app = create_app(gateway_route_harness.settings, provider)
+    now = datetime.now(UTC)
+
+    async def schedule(at):
+        async with provider() as session:
+            created = await schedule_due_collections(session, now=at)
+            rows = (await session.execute(select(
+                ContextCollection.profile, ContextCollection.status,
+            ).where(ContextCollection.requested_by == "scheduler"))).all()
+            await session.commit()
+            return created, set(rows)
+
+    with TestClient(FixedWebSocketPeerApp(app)) as client:
+        with client.websocket_connect("/agent/v1/connect", headers=_headers()) as socket:
+            socket.send_json(_hello_envelope(device.id, ["context.health.collect", "context.diagnostic.collect"]))
+            assert socket.receive_json()["kind"] == "gateway_hello"
+        assert asyncio.run(schedule(now)) == (1, {("health_v1", "requested")})
+
+        with client.websocket_connect("/agent/v1/connect", headers=_headers()) as socket:
+            socket.send_json(_hello_envelope(device.id, ["agent.status.read"]))
+            assert socket.receive_json()["kind"] == "gateway_hello"
+        assert asyncio.run(schedule(now + timedelta(minutes=6))) == (0, {("health_v1", "expired")})
+
+        async def pull():
+            transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 54321))
+            async with httpx.AsyncClient(transport=transport, base_url="https://test") as http:
+                return await http.get("/agent/v1/gateway/commands/next", headers=_headers())
+
+        assert asyncio.run(pull()).status_code == 204
+        created, rows = asyncio.run(schedule(now + timedelta(minutes=7)))
+        assert created == 5
+        assert {profile for profile, state in rows if state == "requested"} == {
+            "baseline_v1", "health_v1", "network_v1", "inventory_v1", "session_v1",
+        }
 
 
 def test_replacement_hello_precedes_stalled_asgi_notice_and_close(

@@ -71,17 +71,13 @@ _DELIVERABLE_COLLECTION_STATUSES = ("requested", "delivered")
 _ACTIVE_MODULE_STATUSES = ("queued", "delivered", "acknowledged", "running")
 _MAX_AGENT_CLOCK_SKEW = timedelta(minutes=5)
 _CAPABILITIES = {
-    "baseline_v1": "context.baseline.collect",
-    "health_v1": "context.health.collect",
-    "network_v1": "context.network.collect",
+    **{rule.profile: rule.capability for rule in SCHEDULE_RULES},
     "diagnostic_v1": "context.diagnostic.collect",
-    "inventory_v1": "context.inventory.collect",
-    "session_v1": "context.session.collect",
 }
 
 
 _SCHEDULED_PROFILES = frozenset(rule.profile for rule in SCHEDULE_RULES)
-_SCHEDULED_CAPABILITIES = frozenset(_CAPABILITIES[profile] for profile in _SCHEDULED_PROFILES)
+_SCHEDULED_CAPABILITIES = frozenset(rule.capability for rule in SCHEDULE_RULES)
 
 
 class CommandStateRejected(ValueError):
