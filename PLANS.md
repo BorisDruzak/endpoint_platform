@@ -814,8 +814,11 @@ resumes from the last confirmed page after a failed commit. In paired
 96-device runs, 32–39 commands reached clients before the final commit.
 Periodic delivery p95 was 4.82–5.47 s and only one run met the 5 s target.
 Reconnect result ACK was 2.15–2.27 s at p95 in the paged-worker runs.
-Delivery and reconnect targets and production-scale qualification remain
-open.
+A separate 96-device TLS comparison with three fresh supported profiles
+confirmed 232–234 fewer SELECTs in the reconnect wave after combining the
+context refresh checks. Delivery and refresh p95 changed in both
+directions across pairs. Delivery and reconnect targets and
+production-scale qualification remain open.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
