@@ -35,6 +35,7 @@ from endpoint_server.activity.analytics_store import (
 )
 from endpoint_server.setup_updates.preparation import advance_preparations, setup_preparation_backlog_age
 from endpoint_server.setup_updates.scheduler import FleetScheduleBatch, schedule_one_with_backlog
+from tools.release.inventory_deployments import read_deployed_release_space
 
 
 logger = logging.getLogger(__name__)
@@ -136,6 +137,24 @@ async def _report_artifact_disk_pressure(root: Path) -> None:
     logger.log(logging.WARNING if low else logging.INFO,
         "artifact_disk status=%s free_bytes=%d capacity_bytes=%d",
         "low" if low else "ok", usage.free, usage.total)
+
+
+async def _report_release_disk_pressure(source_root: Path) -> None:
+    try:
+        async with asyncio.timeout(3):
+            space = await asyncio.to_thread(read_deployed_release_space, source_root)
+    except (OSError, RuntimeError, ValueError, TimeoutError):
+        logger.warning("release_disk status=unavailable")
+        return
+    if space is None:
+        return
+    ready = space["release_space_ready"]
+    logger.log(
+        logging.INFO if ready else logging.WARNING,
+        "release_disk status=%s free_bytes=%d capacity_bytes=%d minimum_free_bytes=%d",
+        "ok" if ready else "low", space["volume_free_bytes"], space["volume_total_bytes"],
+        space["minimum_free_bytes"],
+    )
 
 
 class MaintenanceJobs:
@@ -277,6 +296,7 @@ async def run_worker(
         while True:
             if loop.time() >= next_disk_check:
                 await _report_artifact_disk_pressure(settings.artifact_root)
+                await _report_release_disk_pressure(Path(__file__).parent.parent)
                 next_disk_check = loop.time() + 900.0
             await jobs.run("cleanup_expired_retry_envelopes", lambda session: cleanup_expired_retry_envelopes(
                 session, request_id=f"server_{uuid4().hex}",

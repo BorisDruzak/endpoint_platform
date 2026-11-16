@@ -40,6 +40,20 @@ def _volume_space(root: Path) -> dict[str, int | bool]:
     }
 
 
+def read_release_space(root: Path) -> dict[str, int | bool]:
+    root = root.absolute()
+    _release_root_details(root)
+    return _volume_space(root)
+
+
+def read_deployed_release_space(source_root: Path) -> dict[str, int | bool] | None:
+    """Check release volume space when running from a versioned deployment."""
+    release = source_root.resolve()
+    if release.parent.name == "releases" and _RELEASE_NAME.fullmatch(release.name):
+        return read_release_space(release.parent)
+    return None
+
+
 def _identity(details: os.stat_result) -> tuple:
     return details.st_dev, details.st_ino, details.st_mtime_ns, details.st_size
 
@@ -297,9 +311,7 @@ def main() -> None:
     args = parser.parse_args()
     try:
         if args.check_release_space:
-            root = args.releases_root.absolute()
-            _release_root_details(root)
-            inventory = _volume_space(root)
+            inventory = read_release_space(args.releases_root)
         else:
             inventory = read_inventory(
                 args.releases_root, args.current, args.previous_release,

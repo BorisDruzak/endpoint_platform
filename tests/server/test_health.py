@@ -323,6 +323,56 @@ async def test_worker_artifact_disk_pressure_is_read_only_and_redacted(
     assert release.read_bytes() == b"release"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("free_gib, expected", [(8, "low"), (10, "ok"), (None, "unavailable")])
+async def test_deployed_worker_reports_the_release_gate_at_startup(
+    monkeypatch, caplog, tmp_path, free_gib, expected,
+):
+    import logging
+    import shutil
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    from endpoint_server import worker
+
+    releases = tmp_path / "releases"
+    package = releases / "endpoint-platform-0123456789ab" / "endpoint_server"
+    package.mkdir(parents=True)
+    monkeypatch.setattr(worker, "__file__", str(package / "worker.py"))
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    measured = []
+    gib = 1024**3
+
+    def disk_usage(path):
+        measured.append(path)
+        if path == releases and free_gib is None:
+            raise OSError("private mount diagnostic")
+        free = 20 if path == artifacts else free_gib
+        return SimpleNamespace(total=100 * gib, used=(100 - free) * gib, free=free * gib)
+
+    async def stop_after_startup(*_args, **_kwargs):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(shutil, "disk_usage", disk_usage)
+    monkeypatch.setattr(worker.MaintenanceJobs, "run", stop_after_startup)
+    with caplog.at_level(logging.INFO, logger=worker.__name__):
+        with pytest.raises(asyncio.CancelledError):
+            await run_worker(replace(_settings(), artifact_root=artifacts), WorkerSessionProvider())
+
+    assert measured == [artifacts, releases]
+    assert "artifact_disk status=ok" in caplog.text
+    records = [record for record in caplog.records if record.message.startswith("release_disk ")]
+    assert len(records) == 1
+    assert f"status={expected}" in records[0].message
+    assert records[0].levelno == (logging.INFO if expected == "ok" else logging.WARNING)
+    if free_gib is not None:
+        assert f"free_bytes={free_gib * gib}" in records[0].message
+        assert f"minimum_free_bytes={10 * gib}" in records[0].message
+    assert str(tmp_path) not in caplog.text
+    assert "private mount diagnostic" not in caplog.text
+
+
 def test_worker_module_fails_closed_when_runtime_settings_are_missing() -> None:
     """An executable worker module must load settings instead of exiting idle."""
     environment = dict(os.environ)
@@ -655,6 +705,7 @@ async def test_worker_periodic_jobs_keep_cadence_after_a_slow_batch(monkeypatch)
     monkeypatch.setattr(worker, "asyncio", SimpleNamespace(get_running_loop=lambda: clock, sleep=sleep))
     monkeypatch.setattr(worker.MaintenanceJobs, "run", run_job)
     monkeypatch.setattr(worker, "_report_artifact_disk_pressure", disk_check)
+    monkeypatch.setattr(worker, "_report_release_disk_pressure", disk_check)
     with pytest.raises(asyncio.CancelledError):
         await run_worker(
             _settings(), WorkerSessionProvider(), cleanup_interval_seconds=10,
