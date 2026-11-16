@@ -375,7 +375,12 @@ start reservation distinguishes interruption before local execution from an
 uncertain executed command. Legacy running rows remain uncertain. The Windows
 process-exit trial confirmed both outcomes and prevented replay. Over real
 TLS and PostgreSQL, both reconnects produced one result and drained the outbox.
-Installed signed Core qualification for this change remains open.
+Lab Core 3.2.238 brings the start reservation into the signed 3.2.237
+Windows baseline and requires Foundation 3.2.237. The archive verifier
+checked all 119 files. Cold extraction ran `--print-version` and verified
+the Authenticode signature and RFC 3161 timestamp. Source tests passed
+310 cases with eight skips. Installed upgrade and live interruption
+trials for these exact bytes remain open.
 STAB-16 service recovery: Ubuntu 24.04 and Debian 12 package configuration
 routes restart through the distribution helper. An enabled failed service
 recovers, a manually stopped service stays stopped, and masks are respected.
