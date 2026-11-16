@@ -983,9 +983,16 @@ artifact and the TLS certificate/key pair were verified in 434.14 s from
 the restore request. VM163 and its disk were removed. The daily VM115 job
 is enabled at 04:00 Asia/Yekaterinburg. On 16 November at 04:37 UTC its
 configuration and the two existing VM115 PBS archives were independently
-rechecked. The schedule targets daily recovery points. Achieved RPO
-still requires scheduled history and recovery of confirmed transactions.
-External release-signing inputs and restored SSO sign-in remain open.
+rechecked. The first scheduler-created archive was also restored without
+network hardware. HTTPS, the worker connection, the deployed manifest,
+Setup 3.2.205 and TLS passed in 454.08 s, including a restart to correct
+the order of the guest-only Nginx loopback binding. Five witnessed rows
+before the snapshot matched and five later rows were absent. The latest
+matched row was created 31.26 s before the snapshot. The clone and its
+disk were removed. Achieved daily RPO still requires regular scheduled
+history and transaction evidence. Restored Worktime advertises the login
+option and denies anonymous access. External release-signing inputs and
+restored SSO sign-in remain open.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
 
