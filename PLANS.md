@@ -41,6 +41,14 @@ The worker emitted the release-volume warning and completed the next job.
 The 0051 migration and archived Core cancellation repeated with the separate
 Setup hold preserved. The production gate returned 2 with 7,608,045,568
 bytes free. GitHub Actions and publication remain open.
+Candidate `fcad03de9ce5` passed 5319 Linux tests and two subtests,
+2904 Windows tests from a CRLF checkout, and 125 Console tests. Its test
+checks native launch ordering through the PowerShell AST for both LF and
+CRLF. Two archives matched. The 0051-to-0054 rehearsal preserved the
+Setup hold. The archived API repeated the Core cancellation check and
+the archived worker logged the release-space warning and kept running.
+Production had 7,578,681,344 bytes free and the release preflight exited 2.
+GitHub Actions has no receipt for this SHA.
 STAB-01 source: WSS bounded FIFO and separate command task, fixed worker
 process with capability budgets, deadline admission and owned process-tree
 cleanup. HTTP pull remains sequential. Windows source fault injection covers
