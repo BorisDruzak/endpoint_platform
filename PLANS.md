@@ -544,7 +544,14 @@ fingerprint per suite through its optional systemd environment file. Real
 GnuPG and curl tests verified both switch orders, common-pin fallback and
 rejection of the other key in a shared keyring. The live indexes still
 verified under the prior key and returned the three-day warning during
-the read-only check. Production trust transition remains open.
+the read-only check. Nginx logs for a fourteen-day window identified eight
+recurring consumers, including the Noble PostgreSQL host dirpost.
+One request from the OPNsense address remains unattributed. Native APT
+on all eight hosts accepted their live HTTPS source. With scratch lists
+and a dual keyring it accepted both pinned Release revisions and resolved
+the same candidate. The old keyring rejected the successor on all eight.
+Permanent source, keyring and CA hashes matched before and after the probe.
+Production trust transition remains open.
 Release evidence requires an exact-source CI receipt before publication.
 STAB-15: the [release qualification matrix](docs/verification/2026-11-14-agent-release-qualification-matrix.md)
 records installed canary evidence by OS, exact source and signed artifact.
