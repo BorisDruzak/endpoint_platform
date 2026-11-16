@@ -258,6 +258,8 @@ async def connect_agent(websocket: WebSocket) -> None:
                 protocol_features=frozenset(first.payload.protocol_features),
             )
             previous = await registry.publish(connection)
+            if previous is not None and previous.session_id in presence.replaced_session_ids:
+                previous.session_closed_by_replacement.set()
             published = True
         if previous is not None:
             replaced_socket_cleanup = asyncio.create_task(registry.close_replaced(previous))
@@ -482,11 +484,12 @@ async def connect_agent(websocket: WebSocket) -> None:
                     device_id,
                     presence.session_id,
                 )
-                await presence_service.close_session(
-                    device_id=device_id,
-                    session_id=presence.session_id,
-                    reason=close_reason,
-                )
+                if connection is None or not connection.session_closed_by_replacement.is_set():
+                    await presence_service.close_session(
+                        device_id=device_id,
+                        session_id=presence.session_id,
+                        reason=close_reason,
+                    )
         finally:
             if replaced_socket_cleanup is not None:
                 await asyncio.shield(replaced_socket_cleanup)

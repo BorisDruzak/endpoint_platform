@@ -554,7 +554,10 @@ async def reconnect_provider(request, session_provider):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("reverse", [False, True])
-async def test_concurrent_handshake_preserves_database_owner(reconnect_provider, monkeypatch, reverse):
+@pytest.mark.parametrize("previous_already_closed", [False, True])
+async def test_concurrent_handshake_preserves_database_owner(
+    reconnect_provider, monkeypatch, reverse, previous_already_closed,
+):
     session_provider = reconnect_provider
     import asyncio
     import json
@@ -569,7 +572,9 @@ async def test_concurrent_handshake_preserves_database_owner(reconnect_provider,
     release = asyncio.Event()
     second_waiting = asyncio.Event()
     opens = []
+    closes = []
     original_open = PresenceService.open_session
+    original_close = PresenceService.close_session
 
     class ObservedLock(asyncio.Lock):
         async def acquire(self):
@@ -591,8 +596,13 @@ async def test_concurrent_handshake_preserves_database_owner(reconnect_provider,
     async def no_connect_refresh(*_args):
         return 0
 
+    async def observe_close(self, **kwargs):
+        closes.append(kwargs["session_id"])
+        await original_close(self, **kwargs)
+
     monkeypatch.setattr("endpoint_server.gateway.ws_routes.queue_connect_refreshes", no_connect_refresh)
     monkeypatch.setattr(PresenceService, "open_session", paused_open)
+    monkeypatch.setattr(PresenceService, "close_session", observe_close)
 
     class Socket(FakeGatewaySocket):
         def __post_init__(self):
@@ -634,6 +644,13 @@ async def test_concurrent_handshake_preserves_database_owner(reconnect_provider,
             tasks.append(asyncio.create_task(connect_agent(second)))
             await second_waiting.wait()
             assert len(opens) == 1
+            if previous_already_closed:
+                await original_close(
+                    PresenceService(session_provider),
+                    device_id=device.id,
+                    session_id=opens[0].session_id,
+                    reason="another_transaction",
+                )
             release.set()
             await second.hello_sent.wait()
             live = await registry.get(device.id)
@@ -652,6 +669,8 @@ async def test_concurrent_handshake_preserves_database_owner(reconnect_provider,
             socket.inbound.put_nowait({"type": "websocket.disconnect"})
         async with asyncio.timeout(5):
             await asyncio.gather(*tasks)
+    expected_closes = opens if previous_already_closed else opens[1:]
+    assert closes == [presence.session_id for presence in expected_closes]
 
 
 @pytest.mark.asyncio

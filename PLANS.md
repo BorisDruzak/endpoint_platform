@@ -805,8 +805,11 @@ cases reproduced the deadlock on the baseline and passed with the change.
 Three TLS rehearsals at 96 devices passed with zero PostgreSQL deadlocks
 during load. Periodic delivery still took 5.80–6.13 s at p95. Start and
 result acknowledgements met one second in the periodic wave and exceeded
-it on reconnect. The next step is to reduce worker and Gateway queue
-latency under reconnect load. Production-scale qualification remains open.
+it on reconnect. Gateway now skips the replaced socket's close query when
+the committed replacement transaction confirms closure of that session.
+At 96 devices this eliminated 96 redundant closes in each fixed run.
+Reconnect result ACK improved to 1.65–1.89 s at p95. Delivery and
+reconnect latency targets and production-scale qualification remain open.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API

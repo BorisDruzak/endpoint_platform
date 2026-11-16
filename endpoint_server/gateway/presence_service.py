@@ -27,6 +27,7 @@ class PresenceRejected(ValueError):
 class GatewayPresence:
     session_id: UUID
     device_instance_id: UUID
+    replaced_session_ids: frozenset[UUID] = frozenset()
 
 
 def _utc(value: datetime | None = None) -> datetime:
@@ -188,6 +189,7 @@ class PresenceService:
                 return GatewayPresence(
                     session_id=gateway_session.id,
                     device_instance_id=instance.id,
+                    replaced_session_ids=frozenset(active.id for active in active_sessions),
                 )
             except Exception:
                 await session.rollback()
