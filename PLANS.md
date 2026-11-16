@@ -369,6 +369,9 @@ signatures. An isolated failure test produced error-priority journal entries
 for both suites and exit 1. Ordinary APT accepted both live suites with the
 existing CA and signed-by keyring in a temporary lists directory. Production
 publisher ownership, alert delivery to the publisher and live renewal remain open.
+On 16 November Agent 2 exposed the pilot service result, last completion and
+timer state, and reported an isolated unit failure. The Zabbix 7.0 template
+monitors all three values. Central import and delivery verification remain open.
 The [STAB-17 rehearsal](docs/verification/2026-11-16-stab17-apt-renewal-rehearsal.md)
 verified the signatures and SHA-256 chain for both live indexes and all eight
 published DEBs. The scheduled pilot check exited 0. Ordinary APT accepted
