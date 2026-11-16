@@ -1214,6 +1214,12 @@ one minute and 73 scheduled requests in one minute. In the retained
 16 November Helpdesk proxy window, the four lab routes accounted for
 5 of 808 API requests. The synthetic Helpdesk workload therefore
 covers shared database contention with a different route mix.
+On the 192-client fixture under the same synthetic Helpdesk load,
+two paired trials compared Gateway limits of 15 and 30 in reverse order.
+Limit 30 increased online delivery p95 by 1.391–1.930 s and result ACK
+p95 after reconnect by 0.348–0.518 s. SQL execution and database
+checkout p95 both increased. The tested default of 15 remains the
+basis for isolating the delay around scheduled delivery.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
