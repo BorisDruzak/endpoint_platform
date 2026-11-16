@@ -333,6 +333,60 @@ async def test_scheduled_send_failure_replays_committed_delivery_on_reconnect(se
 
 
 @pytest.mark.asyncio
+async def test_scheduled_scan_discovers_new_work_during_a_slow_delivery(session_provider, monkeypatch):
+    from endpoint_server.gateway import scheduled_dispatch
+    from endpoint_server.gateway.connection_registry import ConnectionRegistry, GatewayConnection
+
+    first, second = [await seed_device(session_provider, token=uuid4().hex) for _ in range(2)]
+    registry = ConnectionRegistry()
+    first_started = asyncio.Event()
+    second_started = asyncio.Event()
+    blocked = asyncio.Event()
+    cancelled_devices = set()
+    first_calls = 0
+
+    async def request_for(device):
+        async with session_provider() as db:
+            db.add(ContextCollection(
+                device_id=device.id, profile="health_v1", requested_by="scheduler",
+                idempotency_key="scan-during-delivery", status="requested", requested_at=datetime.now(UTC),
+            ))
+            await db.commit()
+        connection = GatewayConnection(
+            device.id, uuid4(), object(), effective_capabilities=frozenset({"context.health.collect"}),
+        )
+        connection.ready_for_dispatch.set()
+        await registry.publish(connection)
+
+    async def deliver(_service, _registry, connection):
+        nonlocal first_calls
+        if connection.device_id == first.id:
+            first_calls += 1
+            first_started.set()
+        else:
+            second_started.set()
+        try:
+            await blocked.wait()
+        finally:
+            cancelled_devices.add(connection.device_id)
+
+    monkeypatch.setattr(scheduled_dispatch, "_POLL_SECONDS", 0.01)
+    monkeypatch.setattr(scheduled_dispatch, "_deliver", deliver)
+    await request_for(first)
+    task = asyncio.create_task(scheduled_dispatch.run_scheduled_dispatch(registry, session_provider))
+    try:
+        await asyncio.wait_for(first_started.wait(), timeout=2)
+        await request_for(second)
+        await asyncio.wait_for(second_started.wait(), timeout=2)
+        assert first_calls == 1
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert cancelled_devices == {first.id, second.id}
+
+
+@pytest.mark.asyncio
 async def test_scheduled_dispatch_counts_work_toward_next_scan_interval(monkeypatch):
     from types import SimpleNamespace
 
@@ -364,7 +418,8 @@ async def test_scheduled_dispatch_counts_work_toward_next_scan_interval(monkeypa
         get_running_loop=lambda: SimpleNamespace(time=lambda: now),
         sleep=sleep,
         timeout=asyncio.timeout,
-        gather=asyncio.gather,
+        Event=asyncio.Event,
+        TaskGroup=asyncio.TaskGroup,
     ))
     with pytest.raises(asyncio.CancelledError):
         await scheduled_dispatch.run_scheduled_dispatch(Registry(), None)
