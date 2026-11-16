@@ -152,7 +152,8 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0054_periodic_context_profiles"]
+    assert script.get_heads() == ["0055_command_delivery_lookup"]
+    assert script.get_revision("0055_command_delivery_lookup").down_revision == "0054_periodic_context_profiles"
     assert script.get_revision("0054_periodic_context_profiles").down_revision == "0053_activity_dirty_since"
     assert script.get_revision("0053_activity_dirty_since").down_revision == "0052_inventory_installation"
     assert script.get_revision("0052_inventory_installation").down_revision == "0051_staging_linux_worktime"
@@ -185,6 +186,42 @@ def test_periodic_context_profile_migration_preserves_unknown_and_empty(empty_da
     command.upgrade(config, "0054_periodic_context_profiles")
     rows = asyncio.run(_fetch(plain_url, "SELECT scheduled_context_profiles FROM devices"))
     assert len(rows) == 2 and all(row["scheduled_context_profiles"] is None for row in rows)
+
+
+def test_command_delivery_index_round_trip_preserves_rows(empty_database_url: str) -> None:
+    config = _alembic_config(empty_database_url)
+    plain_url = make_url(empty_database_url).set(drivername="postgresql").render_as_string(hide_password=False)
+    command.upgrade(config, "0054_periodic_context_profiles")
+    device_id, command_id = uuid4(), uuid4()
+    first_delivery, second_delivery = uuid4(), uuid4()
+    asyncio.run(_execute(plain_url, f"""
+        INSERT INTO devices (id, device_identifier) VALUES ('{device_id}', 'legacy-command-device');
+        INSERT INTO commands (id, command_identifier, device_id, command_kind, status)
+            VALUES ('{command_id}', 'legacy-command', '{device_id}', 'context.health.collect', 'delivered');
+        INSERT INTO command_deliveries (id, command_id, delivery_identifier, status) VALUES
+            ('{first_delivery}', '{command_id}', 'first-delivery', 'delivered'),
+            ('{second_delivery}', '{command_id}', 'second-delivery', 'acknowledged');
+        """))
+    row_query = "SELECT id, command_id, status FROM command_deliveries ORDER BY delivery_identifier"
+    index_query = """
+        SELECT indisvalid, indisunique, indnkeyatts, pg_get_indexdef(indexrelid, 1, true) AS indexed_column
+        FROM pg_index
+        WHERE indrelid = 'command_deliveries'::regclass
+          AND indexrelid = to_regclass('ix_command_deliveries_command_id')
+    """
+    expected_rows = [
+        (first_delivery, command_id, "delivered"),
+        (second_delivery, command_id, "acknowledged"),
+    ]
+
+    command.upgrade(config, "head")
+    indexes = asyncio.run(_fetch(plain_url, index_query))
+    assert [tuple(row) for row in indexes] == [(True, False, 1, "command_id")]
+    assert [tuple(row) for row in asyncio.run(_fetch(plain_url, row_query))] == expected_rows
+
+    command.downgrade(config, "0054_periodic_context_profiles")
+    assert not asyncio.run(_fetch(plain_url, index_query))
+    assert [tuple(row) for row in asyncio.run(_fetch(plain_url, row_query))] == expected_rows
 
 
 def test_candidate_visibility_migration_preserves_legacy_default_and_roundtrip(update_migration_database_urls):

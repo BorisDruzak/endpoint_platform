@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, String
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from endpoint_server.db.base import Base
@@ -27,6 +27,7 @@ class Command(OwnershipRecord, Base):
 
 class CommandDelivery(OwnershipRecord, Base):
     __tablename__ = "command_deliveries"
+    __table_args__ = (Index("ix_command_deliveries_command_id", "command_id"),)
 
     command_id: Mapped[UUID] = mapped_column(
         ForeignKey("commands.id", ondelete="CASCADE"), nullable=False
