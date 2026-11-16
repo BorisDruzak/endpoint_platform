@@ -16,6 +16,8 @@ from uuid import uuid4
 import aiohttp
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import AsyncAdaptedQueuePool
 import uvicorn
 
 from endpoint_server.context.models import ContextCollection, ContextSnapshot
@@ -115,6 +117,32 @@ async def _process(role, scratch, database_url, artifacts):
             pytest.fail(f"{role} exited {process.returncode}. Log: {log_path}")
 
 
+class _MeasuredPool(AsyncAdaptedQueuePool):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.acquisitions = []
+        self.checkout_errors = 0
+
+    def connect(self):
+        started = perf_counter()
+        try:
+            connection = super().connect()
+        except Exception:
+            self.checkout_errors += 1
+            raise
+        finished = perf_counter()
+        self.acquisitions.append((finished, finished - started))
+        return connection
+
+
+class _MeasuredSessionProvider(AsyncSessionProvider):
+    def __init__(self, database_url, max_overflow):
+        self.engine = create_async_engine(
+            database_url, pool_pre_ping=True, poolclass=_MeasuredPool, max_overflow=max_overflow,
+        )
+        self.session_factory = async_sessionmaker(self.engine, expire_on_commit=False)
+
+
 async def _sample_gateway(pool, samples):
     while True:
         started = perf_counter()
@@ -123,17 +151,19 @@ async def _sample_gateway(pool, samples):
         samples.append((sampled, max(0, sampled - started - .01), pool.checkedout(), pool.overflow()))
 
 
-def _pool_window(samples, started_at, finished_at):
+def _pool_window(samples, acquisitions, capacity, started_at, finished_at):
     window = [(checked_out, overflow) for sampled_at, _, checked_out, overflow in samples
               if started_at <= sampled_at <= finished_at]
     if not window:
         return None
+    checkout = [duration for finished, duration in acquisitions if started_at <= finished <= finished_at]
     return {
         "samples": len(window),
         "checked_out_peak": max(count for count, _ in window),
         "overflow_peak": max(0, max(overflow for _, overflow in window)),
-        # AsyncSessionProvider uses the SQLAlchemy default max_overflow of 10.
-        "at_capacity_samples": sum(count >= 15 for count, _ in window),
+        "at_capacity_samples": sum(count >= capacity for count, _ in window),
+        "connection_acquisitions": len(checkout),
+        "connection_acquire": _metrics(checkout) if checkout else None,
     }
 
 
@@ -150,9 +180,12 @@ async def _run_child(role):
         return
     if role != "gateway":
         raise ValueError("unexpected TLS rehearsal process role")
-    app = create_app(settings)
-    pool = app.state.session_provider.engine.pool
-    assert pool.size() == 5, "update the pool capacity used by the sampler"
+    max_overflow = int(os.getenv("ENDPOINT_STABILITY_TLS_POOL_OVERFLOW", "10"))
+    assert max_overflow in {10, 25}
+    provider = _MeasuredSessionProvider(settings.database_url, max_overflow)
+    app = create_app(settings, provider)
+    pool = provider.engine.pool
+    capacity = pool.size() + max_overflow
     samples = []
 
     @app.get("/_stability_metrics")
@@ -161,7 +194,9 @@ async def _run_child(role):
             "pid": os.getpid(),
             "lag": _metrics([sample[1] for sample in samples]) if samples else None,
             "owners": app.state.gateway_connection_registry.connection_count,
-            "pool": _pool_window(samples, started_at, finished_at)
+            "pool_capacity": capacity,
+            "pool_checkout_errors": pool.checkout_errors,
+            "pool": _pool_window(samples, pool.acquisitions, capacity, started_at, finished_at)
             if started_at is not None and finished_at is not None else None,
         }
 
@@ -263,7 +298,8 @@ async def test_gateway_tls_with_worker(update_service_provider, update_service_d
         for phase, (started_at, finished_at) in windows.items():
             metrics = await _gateway_metrics(client, started_at=started_at, finished_at=finished_at)
             assert metrics["owners"] == len(ids)
-            assert metrics["pool"] is not None
+            assert metrics["pool_checkout_errors"] == 0
+            assert metrics["pool"] and metrics["pool"]["connection_acquisitions"] > 0
             pool_metrics[phase] = metrics["pool"]
         async with provider() as db:
             assert await db.scalar(select(func.count()).select_from(ContextSnapshot).where(
@@ -278,7 +314,7 @@ async def test_gateway_tls_with_worker(update_service_provider, update_service_d
             "hello": hello_metrics, "replacement_hello": replacement_metrics,
             "worker_wave": _phase_metrics(first_results),
             "replacement_wave": _phase_metrics(second_results), "gateway_lag": metrics["lag"],
-            "gateway_pool": pool_metrics,
+            "gateway_pool_capacity": metrics["pool_capacity"], "gateway_pool": pool_metrics,
             "gateway_pid": gateway.pid, "worker_pid": worker.pid, "client_pid": os.getpid(),
         }), flush=True)
 

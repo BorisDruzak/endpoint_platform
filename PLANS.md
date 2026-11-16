@@ -755,8 +755,12 @@ seconds respectively. Registry and PostgreSQL agreed on the active owners.
 The proposed one-second ACK target held at 32 and was exceeded at 96.
 A repeat sampled the Gateway's default PostgreSQL pool. Both steps filled
 all 15 slots during replacement, in 63 of 104 and 177 of 297 samples. P95
-result ACK was 0.665 and 1.951 seconds. Connection acquisition timing is
-still needed to separate pool wait from query and processing time.
+result ACK was 0.665 and 1.951 seconds. With 96 devices, paired lab runs
+with caps 15 and 30 each acquired 959 connections during replacement.
+P95 acquisition, including pre-ping, was 1.031 and 1.028 seconds. P95
+result ACK was 2.079 and 2.428 seconds. Both runs passed with one session
+owner per device. Repeat runs and separate query and transaction timings
+remain open. The production configuration was not changed.
 Production-scale qualification
 and restore from a verified external production copy remain open. The
 read-only backup inventory found local database dumps and no VM115 backups
