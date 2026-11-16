@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, event, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from endpoint_contracts import (
@@ -1961,6 +1961,51 @@ async def test_mismatched_diagnostic_reason_rolls_back_without_result_ack(
         assert (
             await session.scalar(select(func.count()).select_from(ContextSnapshot)) == 0
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reconnected", [False, True])
+async def test_durable_result_reuses_verified_session_owner(
+    session_provider: async_sessionmaker[AsyncSession],
+    reconnected: bool,
+) -> None:
+    device = await seed_device(session_provider)
+    await _seed_operation(session_provider, device_id=device.id)
+    instance_id = uuid4()
+    delivery_owner = await _open_session(session_provider, device_id=device.id, instance_id=instance_id)
+    delivery = await _deliver_operation(
+        session_provider, device_id=device.id, session_id=delivery_owner.session_id,
+    )
+    result_owner = delivery_owner
+    if reconnected:
+        result_owner = await _open_session(session_provider, device_id=device.id, instance_id=instance_id)
+    result = _diagnostic_result(command_id=delivery.payload.command_id, device_id=device.id)
+    engine = session_provider.kw["bind"].sync_engine
+    owner_lookups = 0
+
+    def count_owner_lookups(_conn, _cursor, statement, _parameters, _context, _many):
+        nonlocal owner_lookups
+        if " ".join(statement.split()).startswith(
+            "SELECT device_sessions.device_instance_id FROM device_sessions "
+        ):
+            owner_lookups += 1
+
+    event.listen(engine, "before_cursor_execute", count_owner_lookups)
+    try:
+        ack = await CommandService(session_provider).record_result(
+            device_id=device.id,
+            device_instance_id=result_owner.device_instance_id,
+            session_id=result_owner.session_id,
+            result_sequence=1,
+            result=result,
+            durable_replay=True,
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", count_owner_lookups)
+
+    assert ack.payload.command_id == delivery.payload.command_id
+    assert ack.payload.result_sequence == 1
+    assert owner_lookups == int(reconnected)
 
 
 @pytest.mark.asyncio

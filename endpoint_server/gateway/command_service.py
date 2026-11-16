@@ -1098,10 +1098,14 @@ class CommandService:
                 )
                 same_instance_delivery = False
                 if durable_replay:
-                    if delivery is not None and delivery.device_session_id is not None:
+                    delivery_session_id = delivery.device_session_id if delivery is not None else None
+                    # The locked current session already proves its device and instance.
+                    if delivery_session_id == gateway_session.id:
+                        same_instance_delivery = True
+                    elif delivery_session_id is not None:
                         owner = await session.scalar(
                             select(DeviceSession.device_instance_id).where(
-                                DeviceSession.id == delivery.device_session_id,
+                                DeviceSession.id == delivery_session_id,
                                 DeviceSession.device_id == device_id,
                             )
                         )
