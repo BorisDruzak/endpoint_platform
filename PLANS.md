@@ -1293,6 +1293,13 @@ before the start handler. In the seven slowest acknowledgements,
 Power ingestion and the immediately following command probe occupied
 the interval before the handler on the same socket. After the
 handler returned, response p95 was 0.4 ms.
+Gateway now reads one frame during Power processing on sessions with the
+command journal. When a running acknowledgement is already buffered, it
+processes the acknowledgement before the next delivery probe. Power
+commit remains before its ACK. In the same 39-device workload, paired
+start permission p95 fell from 1.361 to 0.698 s and from 1.219 to
+0.859 s. All four runs preserved history and completed the 73 snapshots
+and 103 Power events. The exact candidate awaits a 192-client repeat.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
