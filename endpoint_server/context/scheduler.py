@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
-from sqlalchemy import select, text
+from sqlalchemy import case, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from endpoint_server.db.models import Device
@@ -87,6 +88,34 @@ async def _expire_overdue_scheduled_collections(
         collection.failure_code = "schedule_expired"
 
 
+async def _schedule_history(
+    session: AsyncSession, device_id: UUID, profile: str,
+) -> tuple[bool, datetime | None]:
+    history = select(ContextCollection.requested_at).where(
+        ContextCollection.device_id == device_id,
+        ContextCollection.profile == profile,
+    )
+    active = (
+        history.where(ContextCollection.status.in_(_ACTIVE_STATUSES))
+        .order_by(ContextCollection.requested_at, ContextCollection.id)
+        .limit(1)
+        .with_for_update(skip_locked=True)
+        .cte()
+    )
+    has_active = select(active.c.requested_at).exists()
+    latest = (
+        history.order_by(ContextCollection.requested_at.desc(), ContextCollection.id.desc())
+        .limit(1)
+        .with_for_update(skip_locked=True)
+        .scalar_subquery()
+    )
+    # Use the same active probe for both outputs and only read history if it is empty.
+    found_active, latest_requested_at = (
+        await session.execute(select(has_active, case((has_active, None), else_=latest)))
+    ).one()
+    return found_active, latest_requested_at
+
+
 async def schedule_due_collections(
     session: AsyncSession,
     *,
@@ -123,33 +152,14 @@ async def schedule_due_collections_with_backlog(
             await _advisory_lock(
                 session, f"context.schedule:{device.id}:{rule.profile}"
             )
-            active = await session.scalar(
-                select(ContextCollection)
-                .where(
-                    ContextCollection.device_id == device.id,
-                    ContextCollection.profile == rule.profile,
-                    ContextCollection.status.in_(_ACTIVE_STATUSES),
-                )
-                .order_by(ContextCollection.requested_at, ContextCollection.id)
-                .with_for_update(skip_locked=True)
-            )
-            if active is not None:
+            active, last_requested_at = await _schedule_history(session, device.id, rule.profile)
+            if active:
                 continue
-            latest = await session.scalar(
-                select(ContextCollection)
-                .where(
-                    ContextCollection.device_id == device.id,
-                    ContextCollection.profile == rule.profile,
-                )
-                .order_by(ContextCollection.requested_at.desc(), ContextCollection.id.desc())
-                .limit(1)
-                .with_for_update(skip_locked=True)
-            )
             overdue = (
-                scheduled_at - _utc(latest.requested_at) - rule.interval
-                if latest is not None else scheduled_at - _utc(device.created_at)
+                scheduled_at - _utc(last_requested_at) - rule.interval
+                if last_requested_at is not None else scheduled_at - _utc(device.created_at)
             )
-            if latest is not None and overdue < timedelta(0):
+            if last_requested_at is not None and overdue < timedelta(0):
                 continue
             bucket = int(scheduled_at.timestamp() // rule.interval.total_seconds())
             _, inserted = await request_collection_outcome(

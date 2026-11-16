@@ -9,11 +9,13 @@ from uuid import uuid4
 import pytest
 import pytest_asyncio
 from sqlalchemy import event, select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from endpoint_server.context.models import ContextCollection
 from endpoint_server.context.scheduler import schedule_due_collections
 from endpoint_server.db.models import Command, CommandResult, Device
+from tests.server.test_update_postgresql import update_service_database_url, update_service_provider
 
 
 NOW = datetime(2026, 7, 29, 12, 0, tzinfo=UTC)
@@ -148,3 +150,69 @@ async def test_scheduler_measures_lateness_for_work_it_actually_enqueues(session
     assert (observed.created, observed.oldest_due_age_seconds) == (3, 240)
     repeated = await schedule_due_collections_with_backlog(session, now=NOW)
     assert (repeated.created, repeated.oldest_due_age_seconds) == (0, 0)
+
+
+@pytest.mark.asyncio
+async def test_scheduler_reads_active_work_and_latest_history_together(session):
+    device = Device(device_identifier="scheduler-single-history-read", created_at=NOW)
+    session.add(device)
+    await session.flush()
+    await _completed_collection(session, device_id=device.id, profile="baseline_v1", completed_at=NOW)
+    session.add(ContextCollection(
+        device_id=device.id, profile="baseline_v1", requested_by="operator",
+        idempotency_key="older-active", status="collecting", requested_at=NOW - timedelta(days=2),
+    ))
+    await _completed_collection(
+        session, device_id=device.id, profile="health_v1", completed_at=NOW - timedelta(minutes=6),
+    )
+    await _completed_collection(session, device_id=device.id, profile="session_v1", completed_at=NOW)
+    statements = []
+
+    def observe(_connection, _cursor, statement, _parameters, _context, _many):
+        if "ORDER BY context_collections.requested_at" in statement:
+            statements.append(statement)
+
+    engine = session.get_bind()
+    event.listen(engine, "before_cursor_execute", observe)
+    try:
+        assert await schedule_due_collections(session, now=NOW) == 3
+    finally:
+        event.remove(engine, "before_cursor_execute", observe)
+
+    assert len(statements) == 5
+    profiles = await session.scalars(select(ContextCollection.profile).where(ContextCollection.requested_by == "scheduler"))
+    assert set(profiles) == {"health_v1", "network_v1", "inventory_v1"}
+
+
+@pytest.mark.asyncio
+async def test_scheduler_locks_active_row_without_locking_history(update_service_provider):
+    provider = update_service_provider
+    async with provider() as seed:
+        device = Device(device_identifier="scheduler-locked-active", created_at=NOW)
+        seed.add(device)
+        await seed.flush()
+        active_id, history_id = uuid4(), uuid4()
+        seed.add_all([
+            ContextCollection(
+                id=active_id, device_id=device.id, profile="baseline_v1",
+                requested_by="operator", idempotency_key="active",
+                requested_at=NOW - timedelta(days=3), status="collecting",
+            ),
+            ContextCollection(
+                id=history_id, device_id=device.id, profile="baseline_v1",
+                requested_by="operator", idempotency_key="history",
+                requested_at=NOW - timedelta(days=2), status="completed",
+            ),
+        ])
+        await seed.commit()
+
+    def lock(collection_id):
+        return select(ContextCollection).where(ContextCollection.id == collection_id).with_for_update(nowait=True)
+
+    async with provider() as scheduler:
+        assert await schedule_due_collections(scheduler, now=NOW) == 4
+        async with provider() as observer:
+            assert (await observer.scalar(lock(history_id))).id == history_id
+            with pytest.raises(DBAPIError) as rejected:
+                await observer.scalar(lock(active_id))
+            assert rejected.value.orig.sqlstate == "55P03"

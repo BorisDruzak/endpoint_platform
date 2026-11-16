@@ -795,8 +795,13 @@ test. At 96, scheduled WSS dispatch and the idle queue probe reduced
 periodic result ACK. With deadlines persisted in the initial INSERT, the
 worker eliminated 480 UPDATE statements per cycle. Periodic delivery
 from requested_at still took 5.74–6.44 s at p95 and replacement delivery
-took 6.23–6.59 s. The next comparisons separate scheduling, dispatch
-and reconnect costs. Production-scale qualification remains open.
+took 6.23–6.59 s. Combining the active and historical collection reads
+saved another 480 SQL round trips per worker cycle. At 96 devices,
+both the baseline and the changed scheduler exposed a PostgreSQL deadlock
+between command and collection row locks during WSS replacement.
+The next step is a common lock order and a PostgreSQL concurrency
+regression, followed by the same TLS rehearsal. Production-scale
+qualification remains open.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
