@@ -25,7 +25,7 @@ from endpoint_server.main import create_app
 from endpoint_server.worker import run_worker
 from tests.gateway.conftest import gateway_settings, seed_device
 from tests.gateway.test_stability_capacity import (
-    _connect, _grant, _heartbeat, _lag, _metrics, _result, _send_result,
+    _connect, _grant, _heartbeat, _metrics, _result, _send_result,
 )
 from tests.server.test_update_postgresql import update_service_database_url, update_service_provider
 
@@ -115,6 +115,28 @@ async def _process(role, scratch, database_url, artifacts):
             pytest.fail(f"{role} exited {process.returncode}. Log: {log_path}")
 
 
+async def _sample_gateway(pool, samples):
+    while True:
+        started = perf_counter()
+        await asyncio.sleep(.01)
+        sampled = perf_counter()
+        samples.append((sampled, max(0, sampled - started - .01), pool.checkedout(), pool.overflow()))
+
+
+def _pool_window(samples, started_at, finished_at):
+    window = [(checked_out, overflow) for sampled_at, _, checked_out, overflow in samples
+              if started_at <= sampled_at <= finished_at]
+    if not window:
+        return None
+    return {
+        "samples": len(window),
+        "checked_out_peak": max(count for count, _ in window),
+        "overflow_peak": max(0, max(overflow for _, overflow in window)),
+        # AsyncSessionProvider uses the SQLAlchemy default max_overflow of 10.
+        "at_capacity_samples": sum(count >= 15 for count, _ in window),
+    }
+
+
 async def _run_child(role):
     settings = _settings(
         os.environ["ENDPOINT_STABILITY_TLS_DATABASE"], Path(os.environ["ENDPOINT_STABILITY_TLS_ARTIFACTS"]),
@@ -129,16 +151,21 @@ async def _run_child(role):
     if role != "gateway":
         raise ValueError("unexpected TLS rehearsal process role")
     app = create_app(settings)
-    lag = []
+    pool = app.state.session_provider.engine.pool
+    assert pool.size() == 5, "update the pool capacity used by the sampler"
+    samples = []
 
     @app.get("/_stability_metrics")
-    async def stability_metrics():
+    async def stability_metrics(started_at: float | None = None, finished_at: float | None = None):
         return {
-            "pid": os.getpid(), "lag": _metrics(lag) if lag else None,
+            "pid": os.getpid(),
+            "lag": _metrics([sample[1] for sample in samples]) if samples else None,
             "owners": app.state.gateway_connection_registry.connection_count,
+            "pool": _pool_window(samples, started_at, finished_at)
+            if started_at is not None and finished_at is not None else None,
         }
 
-    sampler = asyncio.create_task(_lag(lag))
+    sampler = asyncio.create_task(_sample_gateway(pool, samples))
     try:
         await uvicorn.Server(uvicorn.Config(
             app, host="127.0.0.1", port=18081, ws="wsproto", proxy_headers=False,
@@ -149,8 +176,8 @@ async def _run_child(role):
         await asyncio.gather(sampler, return_exceptions=True)
 
 
-async def _gateway_metrics(client):
-    async with client.get("http://127.0.0.1:18081/_stability_metrics") as response:
+async def _gateway_metrics(client, **window):
+    async with client.get("http://127.0.0.1:18081/_stability_metrics", params=window) as response:
         response.raise_for_status()
         return await response.json()
 
@@ -184,18 +211,24 @@ async def test_gateway_tls_with_worker(update_service_provider, update_service_d
                 except aiohttp.ClientConnectionError:
                     await asyncio.sleep(.05)
         assert metrics["pid"] == gateway.pid and metrics["pid"] != os.getpid()
+        hello_started = perf_counter()
         first, hello_metrics = await _open_all(client, stack, origin, devices)
         start = perf_counter()
         worker = await stack.enter_async_context(_process("worker", tmp_path, update_service_database_url, artifacts))
         assert worker.pid not in {gateway.pid, os.getpid()}
-        for interval in (30, 60, 90):
+        for interval in (30, 60):
             await asyncio.sleep(max(0, start + interval - perf_counter()))
             await asyncio.gather(*(_heartbeat(ws, device_id, 10 + interval)
                                    for (ws, _), device_id in zip(first, ids, strict=True)))
+        await asyncio.sleep(max(0, start + 90 - perf_counter()))
+        worker_wave_started = perf_counter()
+        await asyncio.gather(*(_heartbeat(ws, device_id, 100)
+                               for (ws, _), device_id in zip(first, ids, strict=True)))
         first_results = await asyncio.gather(*(
             _complete(connection, device_id, 1000, started_at=start)
             for connection, device_id in zip(first, ids, strict=True)
         ))
+        worker_wave_finished = perf_counter()
         async with provider() as db:
             health = await db.scalar(select(func.count()).select_from(ContextCollection).where(
                 ContextCollection.device_id.in_(ids), ContextCollection.profile == "health_v1",
@@ -215,13 +248,23 @@ async def test_gateway_tls_with_worker(update_service_provider, update_service_d
             _complete(connection, device_id, 1001, started_at=replacement_started)
             for connection, device_id in zip(second, ids, strict=True)
         ))
-        replacement_seconds = perf_counter() - replacement_started
+        replacement_finished = perf_counter()
+        replacement_seconds = replacement_finished - replacement_started
         await asyncio.sleep(max(0, start + 125 - perf_counter()))
         await asyncio.gather(*(_heartbeat(ws, device_id, 1010)
                                for (ws, _), device_id in zip(second, ids, strict=True)))
         assert worker.returncode is None
-        metrics = await _gateway_metrics(client)
-        assert metrics["owners"] == len(ids)
+        windows = {
+            "hello": (hello_started, start),
+            "worker_wave": (worker_wave_started, worker_wave_finished),
+            "replacement": (replacement_started, replacement_finished),
+        }
+        pool_metrics = {}
+        for phase, (started_at, finished_at) in windows.items():
+            metrics = await _gateway_metrics(client, started_at=started_at, finished_at=finished_at)
+            assert metrics["owners"] == len(ids)
+            assert metrics["pool"] is not None
+            pool_metrics[phase] = metrics["pool"]
         async with provider() as db:
             assert await db.scalar(select(func.count()).select_from(ContextSnapshot).where(
                 ContextSnapshot.device_id.in_(ids), ContextSnapshot.profile == "health_v1",
@@ -235,6 +278,7 @@ async def test_gateway_tls_with_worker(update_service_provider, update_service_d
             "hello": hello_metrics, "replacement_hello": replacement_metrics,
             "worker_wave": _phase_metrics(first_results),
             "replacement_wave": _phase_metrics(second_results), "gateway_lag": metrics["lag"],
+            "gateway_pool": pool_metrics,
             "gateway_pid": gateway.pid, "worker_pid": worker.pid, "client_pid": os.getpid(),
         }), flush=True)
 

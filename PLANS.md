@@ -753,6 +753,10 @@ Both 32 and 96 synthetic agents held sessions for 125 seconds. Replacement
 drained in 1.770 and 5.016 seconds, with p95 result ACK 0.713 and 1.807
 seconds respectively. Registry and PostgreSQL agreed on the active owners.
 The proposed one-second ACK target held at 32 and was exceeded at 96.
+A repeat sampled the Gateway's default PostgreSQL pool. Both steps filled
+all 15 slots during replacement, in 63 of 104 and 177 of 297 samples. P95
+result ACK was 0.665 and 1.951 seconds. Connection acquisition timing is
+still needed to separate pool wait from query and processing time.
 Production-scale qualification
 and restore from a verified external production copy remain open. The
 read-only backup inventory found local database dumps and no VM115 backups
