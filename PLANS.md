@@ -318,7 +318,12 @@ without cleanup and a concurrent check during an active transfer. The ordinary
 check now also reclaims this scratch space when the server has no recommendation.
 Both paths use the transfer lock and update mutex. NTFS subprocess tests cover
 idle and assigned checks, active transfers, and preservation of historical ZIPs
-and hardlinked files. Installed-artifact acceptance of the idle path is pending.
+and hardlinked files. Installed Core 3.2.241 on Foundation 3.2.239 reclaimed
+both scratch files left by a killed lock-owning test writer on the next
+regular check. Gateway returned HTTP 204 and the agent kept its PID and WSS
+session. The two unclassified control files retained their hashes. The
+[native receipt](docs/verification/2026-11-14-agent-release-qualification-matrix.md#очистка-прерванной-загрузки-core-32241-без-нового-назначения)
+records both disposable VM attempts and their cleanup.
 An unconsumed, durable publication record allows recovery to retire the exact
 attempt ZIP left between ZIP promotion and pending publication. Recovery
 validates the digest and preserves changed bytes or active handoffs.
