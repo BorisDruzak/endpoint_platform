@@ -82,8 +82,12 @@ matched and all 334 packaged files were checked against Git or the
 Console build. A local PostgreSQL 16.15 rehearsal migrated 0051 to
 0055, preserved synthetic Activity, recoverable Setup ownership, the
 unrequested Core intent and both existing deliveries, and verified the
-new index. The full Linux gate, archive-origin start and hosted receipt
-for this source remain open.
+new index. The isolated Linux run passed 5,323 tests and two subtests,
+with 722 skips. API and worker started from the verified archive on
+schema 0055. API health and database checks passed, Console assets
+matched and the worker completed `rebuild_daily`. The hosted GitHub
+Actions receipt remains open. Production had 7,531,339,776 bytes free
+against the 10 GiB release requirement.
 STAB-01 source: WSS bounded FIFO and separate command task, fixed worker
 process with capability budgets, deadline admission and owned process-tree
 cleanup. HTTP pull remains sequential. Windows source fault injection covers
