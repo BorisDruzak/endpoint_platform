@@ -1064,13 +1064,19 @@ The [native receipt](docs/verification/2026-11-14-stability-fleet-intents.md#Ð½Ð
 covers this exact transition. A later read-only production snapshot still
 showed the same five unrequested and offline Linux assignments. A separate
 operator-assigned Windows 3.2.192-to-3.2.205 job reported native switching
-and is held in recovery_required. Its observer remains reachable, while
-the last Core WSS is stale. The provider has no accepted native exit proof
-or independent Support registration on that card. Native ownership is
+and is held in recovery_required. The observer last reported at
+12:13:17 UTC on 16 November, and the last Core WSS is stale. The
+provider has no accepted native exit proof or independent Support
+registration on that card. Native ownership is
 still held. Console now displays Linux as a platform and only labels an
 assigned row as waiting for its first request when its timeline and report
 have no later evidence. Chromium verified both cases at desktop and mobile
-widths. Production cancellation and the native hold diagnosis remain open.
+widths. The held device was identified as A2-OOG-N from accepted inventory
+and matching DNS. Its Windows management ports were unreachable from the
+operator and provider hosts. The signed 1.0.8 reference keeps the native
+exit in the local job and can report the hold without a proof. A bounded,
+read-only local collector passed its fixture checks. Production
+cancellation and the collection of the device's job record remain open.
 STAB-19: The [Gateway capacity report](docs/verification/2026-11-14-stab19-gateway-capacity.md)
 covers 32-, 96- and 192-device rehearsals. At 32 devices, both
 acknowledgements met the proposed latency targets in the Linux TLS
