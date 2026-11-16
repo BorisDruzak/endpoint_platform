@@ -1220,6 +1220,22 @@ Limit 30 increased online delivery p95 by 1.391–1.930 s and result ACK
 p95 after reconnect by 0.348–0.518 s. SQL execution and database
 checkout p95 both increased. The tested default of 15 remains the
 basis for isolating the delay around scheduled delivery.
+At limit 15 the 250 ms scan interval reduced online delivery p95
+to 5.285–5.441 s in two paired runs, still above the 5 s target.
+Empty polls rose from 115–116 to 456–458 per run. A regression using
+the real scheduled selection reproduced the scan blocked by an
+in-flight delivery. Gateway now scans independently at 1 s with up
+to eight deliveries and at most one pending scheduled delivery per
+ready device. The Python 3.12 Gateway, architecture and Context suites
+passed 466 tests with 25 skips.
+A separate Linux/TLS run of that source reconstructed the observed
+production peaks from separate windows. It completed all 73 snapshots
+after 38 of 39 devices reconnected and accepted 103 Power facts within
+2.045 s between the first and last ACK. The synthesized Helpdesk run
+matched the relative frequencies of 10 successful GET routes at
+31 requests/min. Queue recovery took 3.644 s and reconnect result
+ACK p95 was 0.611 s. Reconnect start p95 was 1.208 s against 1 s.
+The exact change still needs a paired test at 192 clients.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
