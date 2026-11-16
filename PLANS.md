@@ -649,7 +649,12 @@ Platform, dirpost and pve1–pve3 then passed the same checks through their
 installed Signed-By paths. Seven of eight recurring consumers are ready.
 Registry Engine still has the former key. Its SSH account lacks
 noninteractive sudo and VM111 has no working guest agent. The single
-unattributed Noble request and live metadata publication remain open.
+unattributed Noble request remains open. Bookworm renewed through
+2026-11-23T08:19:13Z under the successor. All three Proxmox clients
+accepted it over production HTTPS and downloaded the exact published DEB.
+The OpenVPN monitor pins Bookworm to the successor and still warns about
+the current Noble expiry. Noble publication, scheduled production signing
+and central alert delivery remain open.
 Release evidence requires an exact-source CI receipt before publication.
 STAB-15: the [release qualification matrix](docs/verification/2026-11-14-agent-release-qualification-matrix.md)
 records installed canary evidence by OS, exact source and signed artifact.
