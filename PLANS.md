@@ -1265,6 +1265,12 @@ in every database. With the same dispatcher and Helpdesk workload,
 ACK p95 by 0.260–0.534 s in both pairs. The indexed runs still had
 5.943–6.054 s delivery p95 and 1.512–1.634 s reconnect start p95.
 The 256 new snapshots and all pre-existing deliveries were verified.
+With both dispatchers on schema 0055 and the same 258,478-row history,
+independent scanning reduced online delivery p95 by 59–83 ms. All four
+runs exceeded the 5 s delivery and 1 s reconnect start and result
+targets. Reconnect start moved in opposite directions. Result ACK p95
+rose by 6.5–203.2 ms in both pairs. The isolated comparison preserved all
+history and verified all 256 snapshots per run.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
