@@ -326,9 +326,15 @@ This applies after local acceptance and after the acknowledged failure or
 rollback. Six Windows regressions used a live NTFS handle without delete
 sharing and distinguished unchanged files, changed bytes and interruption
 after unlink. The wider Windows recovery suite passed 414 tests with one
-skip. Frozen installed artifacts still need a build and native verification
-of this change. Historical
-Core caches, scratch files from writers without the lock and archives tied to
+skip. Installed lab Setup 3.2.239 and its native updater applied the signed
+Core 3.2.240 through the regular HTTPS path on Windows 10 VM136. While an
+independent handle denied delete sharing, the exact archive and deferred
+retirement record remained visible after acceptance. The next idle retry
+removed both 6.61 seconds after release of the handle. The same device
+accepted Core 3.2.240 on Foundation 3.2.239 and retained all four private
+files. The native run covers successful acceptance; failure and rollback
+remain source-tested. VM136 and its isolated provider state were removed.
+Historical Core caches, scratch files from writers without the lock and archives tied to
 quarantined handoff records remain open, along with server deployment releases
 and retirement of catalog artifacts. The server archive ships both storage
 inventory commands. The deployment report measures release directories and
