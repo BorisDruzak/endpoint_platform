@@ -852,7 +852,7 @@ async def next_pending_command(
         )
         session.add(command)
         await session.flush()
-        await link_collection_command(session, collection.id, command.id)
+        link_collection_command(collection, command)
         collection.status = "delivered"
         if operation is not None:
             operation.command_id = command.id

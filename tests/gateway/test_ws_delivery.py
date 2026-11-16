@@ -102,26 +102,40 @@ async def test_command_is_committed_before_websocket_send(
             )
         )
         await session.commit()
+        engine = session.get_bind()
 
     observed: list[CommandEnvelopeV1] = []
+    link_reads: list[str] = []
+
+    def observe_link_reads(_conn, _cursor, statement, _params, _context, _many):
+        sql = " ".join(statement.lower().split())
+        if sql.startswith("select ") and (
+            "from context_collections where context_collections.id =" in sql
+            or "from commands where commands.id =" in sql
+        ):
+            link_reads.append(sql)
 
     async def send(envelope: CommandEnvelopeV1) -> None:
         async with session_provider() as inspection:
             commands = (await inspection.scalars(select(Command))).all()
             deliveries = (await inspection.scalars(select(CommandDelivery))).all()
+            collection = (await inspection.scalars(select(ContextCollection))).one()
         assert len(commands) == 1
         assert len(deliveries) == 1
+        assert collection.command_id == commands[0].id == deliveries[0].command_id == envelope.payload.command_id
+        assert collection.status == "delivered"
         assert deliveries[0].device_session_id == session_id
         observed.append(envelope)
 
-    delivered = await CommandService(session_provider).deliver_next(
-        device.id,
-        session_id,
-        send,
-    )
+    event.listen(engine, "before_cursor_execute", observe_link_reads)
+    try:
+        delivered = await CommandService(session_provider).deliver_next(device.id, session_id, send)
+    finally:
+        event.remove(engine, "before_cursor_execute", observe_link_reads)
 
     assert delivered
     assert observed[0].payload.device_id == device.id
+    assert link_reads == []
 
 
 @pytest.mark.asyncio

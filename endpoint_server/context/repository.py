@@ -132,21 +132,10 @@ async def request_collection_outcome(
     return collection, True
 
 
-async def link_collection_command(
-    session: AsyncSession, collection_id: UUID | str, command_id: UUID | str
-) -> ContextCollection:
-    """Bind a requested collection to one device-bound command before delivery."""
-    collection = await session.scalar(
-        select(ContextCollection).where(ContextCollection.id == require_uuid(collection_id, "collection id")).with_for_update()
-    )
-    command = await session.scalar(
-        select(Command).where(Command.id == require_uuid(command_id, "command id")).with_for_update()
-    )
-    if collection is None or command is None:
-        raise ContextNotFound("collection or command was not found")
+def link_collection_command(collection: ContextCollection, command: Command) -> None:
+    """Bind a locked collection to a command inserted in the same transaction."""
     if collection.device_id != command.device_id:
         raise ContextConflict("context command belongs to another device")
     if collection.command_id not in (None, command.id):
         raise ContextConflict("collection is already linked to another command")
     collection.command_id = command.id
-    return collection
