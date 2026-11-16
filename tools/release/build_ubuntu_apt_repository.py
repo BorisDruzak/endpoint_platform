@@ -183,13 +183,16 @@ def _without_release_dates(metadata: str) -> str:
     return re.sub(r"^(Date|Valid-Until): .+$", r"\1:", metadata, flags=re.MULTILINE)
 
 
-def _verify_renewed_metadata(old: str, new: str, codename: str, now: datetime) -> datetime:
+def _verify_renewed_metadata(
+    old: str, new: str, codename: str, now: datetime, *, allow_expired: bool = False,
+) -> datetime:
     old_date, old_expiry = _release_dates(old, codename)
     new_date, new_expiry = _release_dates(new, codename)
     if (
         new_date <= old_date
         or new_date > now + timedelta(seconds=10)
-        or new_expiry <= max(old_expiry, now)
+        or new_expiry <= old_expiry
+        or (not allow_expired and new_expiry <= now)
         or new_expiry - new_date != VALIDITY
     ):
         raise ValueError("unexpected APT renewal dates")
@@ -216,8 +219,8 @@ def prepare_renewal(
     destination_root = output / codename
     if signer.upper() != fingerprint.upper():
         destination_root /= f"successor-{signer}"
-    candidate = destination_root / source_sha / "InRelease"
-    if candidate.resolve().is_relative_to(root.resolve()):
+    destination_root /= source_sha
+    if destination_root.resolve().is_relative_to(root.resolve()):
         raise ValueError("renewal output must be outside the published repository")
 
     with TemporaryDirectory(prefix="endpoint-apt-original-") as temporary:
@@ -231,25 +234,34 @@ def prepare_renewal(
     if valid_until is None:
         return None
 
-    destination = candidate.parent
-    if not destination.exists():
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        with TemporaryDirectory(prefix=".apt-prepare-", dir=destination.parent) as scratch:
-            bundle = Path(scratch) / "renewal"
-            bundle.mkdir()
-            renewed = _updated_release(metadata, now, valid_until)
-            release, _ = _signed_release_files(bundle, renewed, keyring, signer)
-            release.unlink()
-            if _read_inrelease(source) != original:
-                raise ValueError("live InRelease changed during preparation")
-            try:
-                bundle.rename(destination)
-            except OSError:
-                if not candidate.is_file():
-                    raise
-    prepared = _verified_release(candidate, keyring, signer)
-    _verify_renewed_metadata(metadata, prepared, codename, now)
-    return candidate
+    destination = destination_root
+    previous = metadata
+    while True:
+        candidate = destination / "InRelease"
+        if candidate.resolve().is_relative_to(root.resolve()):
+            raise ValueError("renewal output must be outside the published repository")
+        if not destination.exists():
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with TemporaryDirectory(prefix=".apt-prepare-", dir=destination.parent) as scratch:
+                bundle = Path(scratch) / "renewal"
+                bundle.mkdir()
+                renewed = _updated_release(metadata, now, valid_until)
+                release, _ = _signed_release_files(bundle, renewed, keyring, signer)
+                release.unlink()
+                if _read_inrelease(source) != original:
+                    raise ValueError("live InRelease changed during preparation")
+                try:
+                    bundle.rename(destination)
+                except OSError:
+                    if not candidate.is_file():
+                        raise
+        prepared = _verified_release(candidate, keyring, signer)
+        expires = _verify_renewed_metadata(previous, prepared, codename, now, allow_expired=True)
+        if expires > now:
+            return candidate
+        # An expired candidate stays intact for audit and any publisher holding its path.
+        previous = prepared
+        destination = destination_root / f"after-{expires:%Y%m%dT%H%M%SZ}"
 
 
 def publish_renewal(

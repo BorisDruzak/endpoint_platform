@@ -306,6 +306,49 @@ def test_prepare_successor_keeps_original_signature_check_and_legacy_candidate(
     assert package.read_bytes() == artifact
 
 
+@pytest.mark.parametrize("codename, successor", [("noble", None), ("bookworm", "B" * 40)])
+def test_prepare_renewal_recovers_expired_candidates_without_replacing_them(
+    renewal_for_publication, codename, successor, tmp_path,
+):
+    root, current, _, index, package, artifact, packages, now, keyring, fingerprint = renewal_for_publication
+    output = tmp_path / "outgoing"
+    original = current.read_bytes()
+    source_sha = hashlib.sha256(original).hexdigest()
+
+    def prepare(at):
+        return apt.prepare_renewal(
+            root, output, keyring, fingerprint, now=at, codename=codename, successor_fingerprint=successor,
+        )
+
+    first = prepare(now)
+    first_bytes = first.read_bytes()
+    second_at = now + timedelta(days=7)
+    second = prepare(second_at)
+    second_bytes = second.read_bytes()
+    third_at = second_at + timedelta(days=9)
+    third = prepare(third_at)
+
+    assert len({first, second, third}) == 3
+    assert prepare(second_at + timedelta(hours=1)) == second
+    assert prepare(third_at + timedelta(hours=1)) == third
+    assert first.read_bytes() == first_bytes
+    assert second.read_bytes() == second_bytes
+    assert current.read_bytes() == current.with_name("Release").read_bytes() == original
+    with pytest.raises(ValueError, match="unexpected APT renewal dates"):
+        apt.publish_renewal(
+            root, second, source_sha, keyring, fingerprint,
+            now=third_at, codename=codename, successor_fingerprint=successor,
+        )
+    assert current.read_bytes() == original
+    assert apt.publish_renewal(
+        root, third, source_sha, keyring, fingerprint,
+        now=third_at, codename=codename, successor_fingerprint=successor,
+    ) == third_at + timedelta(days=7)
+    assert current.read_bytes() == third.read_bytes()
+    assert index.read_bytes() == packages
+    assert package.read_bytes() == artifact
+
+
 @pytest.mark.parametrize("codename", ["noble"])
 def test_prepare_renewal_does_not_create_output_when_fresh(renewal_for_publication, codename, tmp_path):
     root, current, _, _, _, _, _, now, keyring, fingerprint = renewal_for_publication

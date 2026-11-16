@@ -472,7 +472,11 @@ the dual public keyring. Preparation and publication both support an
 explicit successor fingerprint. A separate GnuPG and APT rehearsal
 covered Noble and Bookworm with only the successor's private key
 available during preparation. APT downloaded the original DEB bytes
-from both revisions with the dual public keyring.
+from both revisions with the dual public keyring. If a prepared index
+expires before publication, the publisher now prepares a new candidate
+for the unchanged source and preserves the previous file. Real APT
+rejected expired candidates and accepted the replacements for Noble and
+Bookworm with identical DEB hashes.
 All seven confirmed clients still pin the prior key. Client trust
 transition, live publication and central alert delivery remain open.
 Release evidence requires an exact-source CI receipt before publication.
