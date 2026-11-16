@@ -655,6 +655,10 @@ accepted it over production HTTPS and downloaded the exact published DEB.
 The OpenVPN monitor pins Bookworm to the successor and still warns about
 the current Noble expiry. Noble publication, scheduled production signing
 and central alert delivery remain open.
+A one-shot Windows Task Scheduler run used the protected publisher key
+with a cold GnuPG agent. Linux verified the signature and exact Release
+bytes. The test task was removed. Recurring mirror preparation and
+publication ownership remain open.
 Release evidence requires an exact-source CI receipt before publication.
 STAB-15: the [release qualification matrix](docs/verification/2026-11-14-agent-release-qualification-matrix.md)
 records installed canary evidence by OS, exact source and signed artifact.
