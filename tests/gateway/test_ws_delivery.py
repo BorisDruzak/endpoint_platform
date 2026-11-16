@@ -14,7 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from endpoint_contracts.gateway_ws import COMMAND_JOURNAL_FEATURE, COMMAND_JOURNAL_HEADER, CommandEnvelopeV1
 from endpoint_server.context.models import ContextCollection, ContextSnapshot
 from endpoint_server.db.models import Command, CommandDelivery, DeviceSession
+from endpoint_contracts.power_events import POWER_EVENTS_FEATURE
+from endpoint_server.gateway import ws_routes
 from endpoint_server.gateway.command_service import CommandService
+from endpoint_server.power.models import PowerSourceState
 
 from endpoint_server.main import create_app
 
@@ -156,20 +159,42 @@ async def test_no_pending_command_sends_nothing(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("follow_up", [False, True])
+@pytest.mark.parametrize(
+    ("follow_up", "power_start"),
+    [(False, None), (True, None), (True, "queued"), (True, "not_yet_sent")],
+    ids=["single", "follow-up", "start-ready-during-power", "start-after-power-probe"],
+)
 async def test_idle_gateway_delivers_worker_request_without_heartbeat(
-    session_provider, tmp_path, monkeypatch, follow_up,
+    session_provider, tmp_path, monkeypatch, follow_up, power_start,
 ):
     initial_dispatch_done = asyncio.Event()
+    finish_power = asyncio.Event()
+    post_power_probe = asyncio.Event()
+    socket_task = None
     deliver_next = CommandService.deliver_next
+    commit_power = ws_routes.commit_and_ack_power_events
 
-    async def observe_initial_dispatch(service, *args, **kwargs):
+    async def observe_power(*args, **kwargs):
+        nonlocal socket_task
+        socket_task = asyncio.current_task()
+        await commit_power(*args, **kwargs)
+        await finish_power.wait()
+
+    async def observe_dispatch(service, *args, **kwargs):
+        if asyncio.current_task() is socket_task:
+            post_power_probe.set()
         delivered = await deliver_next(service, *args, **kwargs)
         if not delivered:
             initial_dispatch_done.set()
         return delivered
 
-    monkeypatch.setattr(CommandService, "deliver_next", observe_initial_dispatch)
+    monkeypatch.setattr(CommandService, "deliver_next", observe_dispatch)
+    if power_start:
+        monkeypatch.setattr(ws_routes, "commit_and_ack_power_events", observe_power)
+        async with session_provider() as db:
+            connection = await db.connection()
+            await connection.run_sync(lambda sync: PowerSourceState.__table__.create(sync))
+            await db.commit()
     token = uuid4().hex
     device = await seed_device(session_provider, token=token)
     settings = replace(
@@ -198,7 +223,10 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(
         return envelope["payload"]
 
     hello = agent_hello(device.id, instance_id=uuid4())
-    hello.update(capabilities=["context.health.collect"], protocol_features=[COMMAND_JOURNAL_FEATURE])
+    features = [COMMAND_JOURNAL_FEATURE]
+    if power_start:
+        features.append(POWER_EVENTS_FEATURE)
+    hello.update(capabilities=["context.health.collect"], protocol_features=features)
     async with app.router.lifespan_context(app):
         task = asyncio.create_task(app(scope, inbound.get, outbound.put))
         try:
@@ -222,14 +250,35 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(
                 async with session_provider() as db:
                     db.add(ContextCollection(
                         id=follow_up_id, device_id=device.id, profile="health_v1", requested_by="operator",
-                        idempotency_key="pending-after-start", status="requested", requested_at=now,
+                        idempotency_key="pending-after-start", status="requested", requested_at=datetime.now(UTC),
                     ))
                     await db.commit()
+            if power_start:
+                batch_id = str(uuid4())
+                await send(_envelope("power_event_batch", 1, {
+                    "schema_version": "power_event_batch_v1",
+                    "batch_id": batch_id,
+                    "events": [],
+                    "source_status": {
+                        "schema_version": "power_source_status_v1",
+                        "source": "systemd-journal",
+                        "availability": "UNAVAILABLE",
+                        "reported_at": now.isoformat(),
+                        "loss_count": 2,
+                    },
+                }))
+                assert (await receive("power_event_ack"))["batch_id"] == batch_id
+            if power_start == "not_yet_sent":
+                finish_power.set()
+                await asyncio.wait_for(post_power_probe.wait(), timeout=4)
             await send(_envelope("command_ack", 2, {
                 "schema_version": "agent_command_ack_v1", "device_id": str(device.id),
                 "command_id": command, "status": "running", "acknowledged_at": now.isoformat(),
             }))
+            finish_power.set()
             assert (await receive("command_start"))["command_id"] == command
+            if power_start == "queued":
+                assert not post_power_probe.is_set()
             await send(_result(device.id, command, 1))
             assert (await receive("result_ack"))["command_id"] == command
             if follow_up:
@@ -244,6 +293,7 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(
                 assert str(delivery.device_session_id) == handshake["session_id"]
                 assert len((await db.scalars(select(ContextSnapshot))).all()) == 1
         finally:
+            finish_power.set()
             await inbound.put({"type": "websocket.disconnect", "code": 1000})
             await asyncio.wait_for(task, timeout=5)
 

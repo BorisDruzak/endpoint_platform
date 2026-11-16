@@ -67,6 +67,7 @@ from .connection_registry import (
 )
 from .presence_service import GatewayPresence, PresenceRejected, PresenceService
 from .protocol import (
+    AgentEnvelope,
     GatewayProtocolError,
     receive_agent_envelope,
     send_envelope,
@@ -198,20 +199,18 @@ async def connect_agent(websocket: WebSocket) -> None:
     presence: GatewayPresence | None = None
     connection: GatewayConnection | None = None
     published = False
+    prefetched: asyncio.Task[AgentEnvelope] | None = None
     replaced_socket_cleanup: asyncio.Task[None] | None = None
     registry = websocket.app.state.gateway_connection_registry
     close_reason = "disconnected"
     device_id = authenticated.principal.device.id
     presence_service = PresenceService(websocket.app.state.session_provider)
     command_service = CommandService(websocket.app.state.session_provider)
+    receive = partial(
+        receive_agent_envelope, websocket, maximum_message_bytes=MAXIMUM_MESSAGE_BYTES,
+    )
     try:
-        first = await asyncio.wait_for(
-            receive_agent_envelope(
-                websocket,
-                maximum_message_bytes=MAXIMUM_MESSAGE_BYTES,
-            ),
-            timeout=_HEARTBEAT_TIMEOUT_SECONDS,
-        )
+        first = await asyncio.wait_for(receive(), timeout=_HEARTBEAT_TIMEOUT_SECONDS)
         if not isinstance(first, AgentHelloEnvelopeV1):
             raise GatewayProtocolError(1008, "agent_hello_required")
         validate_agent_hello(authenticated, first.payload)
@@ -328,12 +327,10 @@ async def connect_agent(websocket: WebSocket) -> None:
 
         while True:
             envelope = await asyncio.wait_for(
-                receive_agent_envelope(
-                    websocket,
-                    maximum_message_bytes=MAXIMUM_MESSAGE_BYTES,
-                ),
+                prefetched if prefetched is not None else receive(),
                 timeout=_HEARTBEAT_TIMEOUT_SECONDS,
             )
+            prefetched = None
             if await registry.get(device_id) is not connection:
                 return
             if isinstance(envelope, HeartbeatEnvelopeV1):
@@ -418,10 +415,21 @@ async def connect_agent(websocket: WebSocket) -> None:
             elif isinstance(envelope, PowerEventBatchEnvelopeV1):
                 if POWER_EVENTS_FEATURE not in connection.protocol_features:
                     raise GatewayProtocolError(1008, 'power_events_disabled')
+                if COMMAND_JOURNAL_FEATURE in connection.protocol_features:
+                    prefetched = asyncio.create_task(receive())
                 await commit_and_ack_power_events(
                     websocket.app.state.session_provider,
                     device_id, envelope.payload, sequence=envelope.sequence, send=connection.send,
                 )
+                # A waiting start request owns the next receive turn. Power
+                # ACK stays after commit and all frames are handled in order.
+                if (
+                    prefetched is not None and prefetched.done()
+                    and not prefetched.cancelled() and prefetched.exception() is None
+                ):
+                    waiting = prefetched.result()
+                    if isinstance(waiting, CommandAckEnvelopeV1) and waiting.payload.status == "running":
+                        continue
             elif isinstance(envelope, SecurityEventBatchEnvelopeV1):
                 if (
                     not websocket.app.state.settings.endpoint_policy_enabled
@@ -485,6 +493,9 @@ async def connect_agent(websocket: WebSocket) -> None:
         await websocket.close(code=1011)
     finally:
         try:
+            if prefetched is not None:
+                prefetched.cancel()
+                await asyncio.gather(prefetched, return_exceptions=True)
             if presence is not None:
                 await registry.unregister(
                     device_id,
