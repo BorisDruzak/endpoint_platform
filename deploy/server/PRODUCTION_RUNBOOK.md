@@ -615,4 +615,7 @@ single job's batch loop. PostgreSQL transaction-local lock and statement
 timeouts bound database waits. Rollback has a three-second grace.
 `commit_outcome_unknown` means the worker stopped that batch sequence without
 retrying the same transaction. The next scheduled attempt reads the current
-database state. `/healthz` retains its API and database availability contract.
+database state. `session_cleanup_error` after a confirmed commit stops the
+batch sequence and includes that batch and its available queue age in the
+log. `last_success` still refers to the last completed job without errors.
+`/healthz` retains its API and database availability contract.

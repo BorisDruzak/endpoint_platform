@@ -767,6 +767,37 @@ async def test_worker_postgresql_reports_lock_timeout_and_rolls_back_without_blo
 
 
 @pytest.mark.asyncio
+async def test_worker_counts_confirmed_batch_when_session_cleanup_fails(caplog):
+    from endpoint_server import worker
+
+    commits = 0
+
+    class Session:
+        async def commit(self):
+            nonlocal commits
+            commits += 1
+
+    @asynccontextmanager
+    async def provider():
+        yield Session()
+        raise OSError("private cleanup detail")
+
+    async def job(_session):
+        return worker.FleetScheduleBatch(True, 67.5)
+
+    jobs = worker.MaintenanceJobs(provider)
+    await jobs.run(
+        "schedule_fleet", job, due_at=asyncio.get_running_loop().time(), batches=16,
+        committed_backlog=worker._committed_batch_backlog_age,
+    )
+    assert commits == 1
+    assert "committed_batches=1 safe_error=session_cleanup_error" in caplog.text
+    assert "data_backlog_age_seconds=67.500" in caplog.text
+    assert "private cleanup detail" not in caplog.text
+    assert jobs.last_success == {}
+
+
+@pytest.mark.asyncio
 async def test_worker_does_not_log_driver_details_or_retry_ambiguous_commit(caplog):
     from endpoint_server import worker
 

@@ -91,7 +91,7 @@ async def _run_transactional_job(
                     raise
     except Exception as error:
         if committed:
-            raise MaintenanceFailure("session_cleanup_error") from error
+            raise _CommittedSessionCleanupFailure(result) from error
         if committing:
             raise MaintenanceFailure("commit_outcome_unknown") from error
         if isinstance(error, TimeoutError):
@@ -106,6 +106,12 @@ async def _run_transactional_job(
 
 class MaintenanceFailure(Exception):
     """Only fixed codes from the worker wrapper may enter diagnostics."""
+
+
+class _CommittedSessionCleanupFailure(MaintenanceFailure):
+    def __init__(self, result: object) -> None:
+        super().__init__("session_cleanup_error")
+        self.result = result
 
 
 def _committed_batch_backlog_age(result: object) -> float | None:
@@ -160,18 +166,26 @@ class MaintenanceJobs:
                 backlog_sampled = True
             return await job(session)
 
+        def record_committed_batch(result: object) -> None:
+            nonlocal completed, backlog_age
+            completed += 1
+            if committed_backlog is not None:
+                sample = committed_backlog(result)
+                if sample is not None:
+                    backlog_age = sample if backlog_age is None else max(backlog_age, sample)
+
         task = measure_then_run if measure_backlog is not None else job
         try:
             for _ in range(batches):
                 remaining = deadline - loop.time()
                 if remaining <= 0:
                     raise MaintenanceFailure("job_timeout")
-                result = await _run_transactional_job(self.provider, task, budget=remaining)
-                completed += 1
-                if committed_backlog is not None:
-                    sample = committed_backlog(result)
-                    if sample is not None:
-                        backlog_age = sample if backlog_age is None else max(backlog_age, sample)
+                try:
+                    result = await _run_transactional_job(self.provider, task, budget=remaining)
+                except _CommittedSessionCleanupFailure as failure:
+                    record_committed_batch(failure.result)
+                    raise
+                record_committed_batch(result)
                 if not continue_if(result):
                     break
             self.last_success[name] = datetime.now(UTC)

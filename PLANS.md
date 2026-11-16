@@ -164,6 +164,15 @@ and Context committed that tick. The next minute's tick deleted the row
 after unlock and reported 361.779 s of backlog age. Both transient units
 and their temporary database were removed. The staging worker kept
 the same PID and start time. Production deployment remains open.
+When PostgreSQL has confirmed a commit, a later session cleanup failure
+now reports that batch and its measured backlog. The worker logs
+`session_cleanup_error`, stops the batch sequence and preserves the
+last fully successful attempt. Unconfirmed commits keep the separate
+`commit_outcome_unknown` outcome. On disposable PostgreSQL 16 an
+independent connection verified that exactly one row was committed under
+an injected session exit fault. The log reported one batch and a
+67.500-second data backlog. The health suite passed 24 tests on Linux
+and 23 on Windows with the PostgreSQL-only case skipped.
 STAB-09 source: explicit Core transfer total/connect/idle
 timeouts with matching recovery-supervisor budget. On Windows the published
 Core 3.2.163 ZIP (22,905,610 bytes) passed loopback HTTPS download in 22.875 s
