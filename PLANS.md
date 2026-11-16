@@ -1235,7 +1235,19 @@ after 38 of 39 devices reconnected and accepted 103 Power facts within
 matched the relative frequencies of 10 successful GET routes at
 31 requests/min. Queue recovery took 3.644 s and reconnect result
 ACK p95 was 0.611 s. Reconnect start p95 was 1.208 s against 1 s.
-The exact change still needs a paired test at 192 clients.
+A paired Linux/TLS test at 192 clients verified the independent
+dispatcher against the baseline. Reconnect result ACK p95 rose by
+0.307–0.811 s in both pairs. Online delivery p95 moved in opposite
+directions and exceeded 5 s in all four runs. The two slower
+reconnect ACK stages were database checkout and time outside the
+start handler. The source change remains a candidate.
+A production plan showed a sequential scan for CommandDelivery lookups
+by command ID on 258,528 rows. Migration 0055 adds a nonunique index.
+On 258,478 synthetic PostgreSQL rows it replaced the sequential scan
+with an index scan and reduced P95 for 24 locked lookup samples from
+21.594 ms to 0.064 ms. The migration round trip preserved delivery
+rows and the Gateway and migration suites passed 222 tests.
+The index still needs a paired Gateway run with retained history.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
