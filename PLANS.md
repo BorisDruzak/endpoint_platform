@@ -379,8 +379,15 @@ Lab Core 3.2.238 brings the start reservation into the signed 3.2.237
 Windows baseline and requires Foundation 3.2.237. The archive verifier
 checked all 119 files. Cold extraction ran `--print-version` and verified
 the Authenticode signature and RFC 3161 timestamp. Source tests passed
-310 cases with eight skips. Installed upgrade and live interruption
-trials for these exact bytes remain open.
+310 cases with eight skips. A stock Windows 10 guest installed Setup
+3.2.237 and received Core 3.2.238 through the regular HTTPS updater.
+The same device reconnected with unchanged private files and the
+installed EXE matched the signed ZIP. Holding the start grant across
+a service restart produced one before-start failure and no snapshot.
+Holding the result ACK after an actual collection and restarting the
+service replayed the same result without a second snapshot. The ACK
+drained the SQLite outbox. A stop during native command execution
+remains open for these exact signed bytes.
 STAB-16 service recovery: Ubuntu 24.04 and Debian 12 package configuration
 routes restart through the distribution helper. An enabled failed service
 recovers, a manually stopped service stays stopped, and masks are respected.
