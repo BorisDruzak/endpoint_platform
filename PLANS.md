@@ -777,8 +777,12 @@ inspected, paused and cancelled a five-target rollout matching that state
 through the canonical API. An exact retry returned the same receipt.
 The health profile now carries the Windows updater
 service state and separate ALT service and path states. Console dates them from
-the agent's health sample. Installed native acceptance and live resolution
-of the five historical intents remain open.
+the agent's health sample. On installed ALT VM142, three real health samples
+showed the path watcher active, stopped and active again while the updater
+service stayed inactive. The Console API matched the native states and
+collection times, with all samples delivered on the same WSS session.
+The Windows SCM acceptance and live resolution of the five historical
+intents remain open.
 STAB-19: [local Gateway capacity rehearsal](docs/verification/2026-11-14-stab19-gateway-capacity.md)
 measured connection, replacement, command and health telemetry bursts on a
 single Uvicorn process with PostgreSQL 16. The 192-device wave drained in
