@@ -486,7 +486,10 @@ from both revisions with the dual public keyring. If a prepared index
 expires before publication, the publisher now prepares a new candidate
 for the unchanged source and preserves the previous file. Real APT
 rejected expired candidates and accepted the replacements for Noble and
-Bookworm with identical DEB hashes.
+Bookworm with identical DEB hashes. The per-channel publisher environment
+now selects the successor for scheduled preparation. The Noble and Bookworm
+systemd timers signed both copies with only the new private key available.
+APT verified the downloads. Publication still requires the explicit successor.
 All seven confirmed clients still pin the prior key. Client trust
 transition, live publication and central alert delivery remain open.
 Release evidence requires an exact-source CI receipt before publication.

@@ -3,6 +3,7 @@ Description=Prepare signed Endpoint APT renewal for %i
 
 [Service]
 Type=oneshot
+Environment=ENDPOINT_APT_SUCCESSOR_FINGERPRINT=
 EnvironmentFile=%h/.config/endpoint-apt-publisher/%i.env
 UMask=0077
 NoNewPrivileges=yes

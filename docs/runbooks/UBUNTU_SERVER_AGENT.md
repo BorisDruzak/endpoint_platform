@@ -246,6 +246,18 @@ GNUPGHOME=/path/to/approved/publisher-keyring
 для этого канала. Сверьте запуск от учётной записи издателя до
 включения таймеров.
 
+При смене ключа укажите в файле канала
+`ENDPOINT_APT_SUCCESSOR_FINGERPRINT` с полным отпечатком нового
+издателя. Оставьте в `ENDPOINT_APT_FINGERPRINT` отпечаток
+действующего InRelease. Укажите оба открытых ключа в
+`ENDPOINT_APT_KEYRING` и хранилище с новым закрытым ключом в
+`GNUPGHOME`. Явный `--successor-fingerprint` имеет приоритет
+при ручной подготовке. При публикации передайте его явно.
+
+После подтверждённой публикации нового индекса обновите зеркало,
+укажите новый отпечаток в `ENDPOINT_APT_FINGERPRINT` и удалите
+`ENDPOINT_APT_SUCCESSOR_FINGERPRINT` из файла канала.
+
 ```sh
 systemctl --user daemon-reload
 systemctl --user start endpoint-apt-prepare-renewal@noble.service endpoint-apt-prepare-renewal@bookworm.service

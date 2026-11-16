@@ -6,6 +6,7 @@ import argparse
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime, parsedate_to_datetime
 import hashlib
+import os
 from pathlib import Path
 import re
 import shutil
@@ -391,9 +392,12 @@ def main() -> None:
     if args.prepare_renewal is not None:
         if args.output is None:
             parser.error("--prepare-renewal requires --output")
+        successor = args.successor_fingerprint
+        if successor is None:
+            successor = os.environ.get("ENDPOINT_APT_SUCCESSOR_FINGERPRINT") or None
         candidate = prepare_renewal(
             args.prepare_renewal, args.output, args.keyring, args.signing_fingerprint, codename=args.codename,
-            successor_fingerprint=args.successor_fingerprint,
+            successor_fingerprint=successor,
         )
         if candidate is None:
             print("Verified repository: renewal not due")

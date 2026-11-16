@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 import hashlib
+import sys
 
 import pytest
 
@@ -360,3 +361,49 @@ def test_prepare_renewal_does_not_create_output_when_fresh(renewal_for_publicati
     ) is None
     assert not output.exists()
     assert current.read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "environment, explicit, expected",
+    [(None, None, None), ("", None, None), ("B" * 40, None, "B" * 40), ("B" * 40, "C" * 40, "C" * 40)],
+)
+def test_prepare_cli_selects_the_publisher_successor(tmp_path, monkeypatch, environment, explicit, expected):
+    name = "ENDPOINT_APT_SUCCESSOR_FINGERPRINT"
+    if environment is None:
+        monkeypatch.delenv(name, raising=False)
+    else:
+        monkeypatch.setenv(name, environment)
+    root, output, keyring = (tmp_path / path for path in ("mirror", "prepared", "pubkeys.gpg"))
+    original = "A" * 40
+    arguments = [
+        "build_ubuntu_apt_repository.py", "--prepare-renewal", str(root), "--output", str(output),
+        "--keyring", str(keyring), "--codename", "bookworm", "--signing-fingerprint", original,
+    ]
+    if explicit is not None:
+        arguments.extend(["--successor-fingerprint", explicit])
+    monkeypatch.setattr(sys, "argv", arguments)
+    calls = []
+
+    def prepare(repository, destination, trusted_keys, fingerprint, *, codename, successor_fingerprint):
+        calls.append((repository, destination, trusted_keys, fingerprint, codename, successor_fingerprint))
+
+    monkeypatch.setattr(apt, "prepare_renewal", prepare)
+    apt.main()
+    assert calls == [(root, output, keyring, original, "bookworm", expected)]
+
+
+def test_publish_cli_requires_explicit_successor_even_with_publisher_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("ENDPOINT_APT_SUCCESSOR_FINGERPRINT", "B" * 40)
+    root = tmp_path / "mirror"
+    monkeypatch.setattr(sys, "argv", [
+        "build_ubuntu_apt_repository.py", "--publish-renewal", str(root),
+        "--from-inrelease", str(tmp_path / "candidate"), "--expected-inrelease-sha256", "d" * 64,
+        "--keyring", str(tmp_path / "pubkeys.gpg"), "--signing-fingerprint", "A" * 40,
+    ])
+
+    def publish(*args, successor_fingerprint, **_kwargs):
+        assert successor_fingerprint is None
+        return datetime(2026, 11, 20, tzinfo=UTC)
+
+    monkeypatch.setattr(apt, "publish_renewal", publish)
+    apt.main()
