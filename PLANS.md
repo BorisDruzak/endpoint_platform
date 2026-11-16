@@ -314,6 +314,13 @@ space shortfall by only 1,892,352 bytes before any retirement.
 The deployment runbook now checks the actual release volume before preparing
 or extracting a release. The check works without selectors and exits 2 below
 10 GiB. On production it reported 8,384,782,336 bytes available and exited 2.
+A later inventory found 7,978,934,272 bytes free. Ten additional private-venv
+trees were restored in tmpfs and copied off-volume with verified hashes.
+All 31 archived trees retain their measured allocation and lack references
+from deployment selectors, running processes and other recognized releases.
+Their combined 3,424,309,248 bytes yield a projected 665,825,280 bytes of
+headroom over the threshold. Production still has the same deployed trees.
+The ext4 root volume group has 27 GiB of unallocated capacity.
 STAB-02 foundation: local SQLite records a command ID, device, payload digest,
 and start before execution, then commits completion and outbox together.
 Interrupted starts recover as unknown outcomes. Negotiated WSS sessions
