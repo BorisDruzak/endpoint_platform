@@ -1282,6 +1282,17 @@ changed its limit from eight to four concurrent deliveries. Online delivery
 p95 increased by 0.983–3.269 s in both pairs. Reconnect start and result
 ACK improved, with all runs still over the 1 s targets. Four is excluded
 from this capacity profile and the candidate keeps eight.
+At the observed production peaks combined into one workload, an indexed
+39-client comparison completed 73 snapshots and acknowledged all 103
+Power events on each of four runs. The queue recovered in 3.667–3.734 s.
+Reconnect result ACK p95 stayed below 1 s, and start permission p95
+exceeded 1 s in all four runs. Only two deliveries per run were to an
+already connected device.
+One instrumented repeat recorded start p95 of 1.140 s and 0.752 s
+before the start handler. In the seven slowest acknowledgements,
+Power ingestion and the immediately following command probe occupied
+the interval before the handler on the same socket. After the
+handler returned, response p95 was 0.4 ms.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
