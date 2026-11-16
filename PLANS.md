@@ -59,9 +59,18 @@ only reached a client-side statement callback when the test launched
 the replacement. The regression now holds the instance row so the
 heartbeat owns the session before replacement starts. The changed test
 passed 20 independent PostgreSQL runs and the reconnect and delivery
-suite passed 32 tests with one skip. The full gate for `761dae0b58c0`,
-archive startup smoke and hosted CI remain open. Production release-space
-preflight returned 2 at 7,553,687,552 free bytes.
+suite passed 32 tests with one skip.
+Exact source `761dae0b58c0` then passed the full local Linux and Windows
+workflow tasks and all 125 Console tests. The Linux pass recorded 5,319
+tests and two subtests, and Windows recorded 2,912 tests. The 0051 to 0054
+rehearsal retained the synthetic Setup and Core owners and Activity data.
+Two server archives matched and each of the 333 payload files matched
+the previous candidate. The archived API served health and Console assets,
+and the archived worker warned on release-space pressure and completed
+`rebuild_daily`. Staging kept the same service PIDs and start times;
+the isolated environment was removed. Hosted CI and production release
+remain open. Production release-space preflight returned 2 at 7,551,926,272
+free bytes.
 STAB-01 source: WSS bounded FIFO and separate command task, fixed worker
 process with capability budgets, deadline admission and owned process-tree
 cleanup. HTTP pull remains sequential. Windows source fault injection covers
