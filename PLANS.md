@@ -646,22 +646,24 @@ The OpenVPN pilot now uses the dual public keyring in the configured
 Signed-By path. Its installed APT accepted the live HTTPS index and the
 successor-signed fixture and downloaded the same DEB. ACTI, Endpoint
 Platform, dirpost and pve1–pve3 then passed the same checks through their
-installed Signed-By paths. Seven of eight recurring consumers are ready.
-Registry Engine still has the former key. Its SSH account lacks
-noninteractive sudo and VM111 has no working guest agent. The single
-unattributed Noble request remains open. Bookworm renewed through
+installed Signed-By paths. Registry Engine then installed the same
+transition keyring via its configured root SSH key and passed both
+checks. The nonrecurring Noble request from OPNsense matched an earlier
+audit download by timestamp and URL. Bookworm renewed through
 2026-11-23T08:19:13Z under the successor. All three Proxmox clients
 accepted it over production HTTPS and downloaded the exact published DEB.
-The OpenVPN monitor pins Bookworm to the successor and still warns about
-the current Noble expiry. Noble publication, scheduled production signing
-and central alert delivery remain open.
+Noble renewed through 2026-11-23T19:13:09Z under the same key. All five
+known Noble clients accepted it via production HTTPS and downloaded the
+exact DEB. The OpenVPN expiry unit verified both suites under the new
+pin and exited successfully. Central alert delivery remains open.
 A one-shot Windows Task Scheduler run used the protected publisher key
 with a cold GnuPG agent. Linux verified the signature and exact Release
 bytes. The test task was removed. The Windows preparation task now runs
 at publisher sign-in and every six hours in the interactive session.
 The first run verified both live trees and produced a Noble candidate
-accepted by APT on OpenVPN. The task only prepares. Operation without
-an interactive session and Noble publication remain open.
+accepted by APT on OpenVPN. Its first timed run reused the candidate.
+After publication an explicit run verified both current indexes under the
+successor. Operation without an interactive session remains open.
 Release evidence requires an exact-source CI receipt before publication.
 STAB-15: the [release qualification matrix](docs/verification/2026-11-14-agent-release-qualification-matrix.md)
 records installed canary evidence by OS, exact source and signed artifact.
