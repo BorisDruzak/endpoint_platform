@@ -220,7 +220,15 @@ with the normal 20 s control request timeout. SHA-256 and the CRCs of all
 123 archive entries matched. The HTTPS regression with a synthetic ZIP
 verified the configured 15 s idle cutoff and removal of the partial file.
 The combined transfer, recovery and supervisor run passed 84 tests with one
-POSIX-only skip. STAB-10 source: streaming ALT archive limits, pre-stop
+POSIX-only skip. The
+[installed Windows canary](docs/verification/2026-11-14-agent-release-qualification-matrix.md#медленная-https-загрузка-windows-core-stab-09)
+used the signed 22,268,756-byte Core 3.2.238 ZIP. The running 3.2.237
+agent disconnected after 14.999 s of inactivity and removed the partial
+file. Its regular retry downloaded the full ZIP in 26.947 s with the same
+process and no Range request. Gateway confirmed one applied result and a
+new WSS session on the same device. Foundation and four private files
+matched the source. The disposable VM and its provider resources were removed.
+STAB-10 source: streaming ALT archive limits, pre-stop
 staging/state capacity checks and bounded extraction. ALT VM107 passed 48
 installer tests and the isolated systemd recovery harness, including preflight
 rejection with the same Core PID and selector. The 180-second unit budget
