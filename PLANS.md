@@ -1037,6 +1037,12 @@ code rejected the observer, and the new code qualified exact Setup
 and the database contained no fleet policy. Temporary databases and ISO
 were removed. Independent Support and production qualification for this
 pair remain open.
+Laboratory cleanup removed 12 unreferenced ISO volumes belonging to the
+already deleted VM137, VM138 and VM145. Copies were hash-verified on the
+operator workstation. Proxmox still shows VM142 running and seven stopped
+fixtures. The VM157 disk is based on a VM154 snapshot, and the VM154
+disk is based on a VM148 snapshot. The retained sources and fault
+snapshots support the remaining qualification cases.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
