@@ -402,8 +402,13 @@ one 204 after the credential files were verified. The systemd service then
 sent one authenticated hello and a heartbeat to the loopback TLS peer.
 The persistent unit hit the known 226/NAMESPACE restriction and required
 a temporary LXC namespace override. The original package was restored and
-the container stopped. Acceptance on a full Debian VM with the stock unit
-and production publication remain open.
+the container stopped. The same DEB then enrolled through the actual
+Gateway on a network-isolated Debian 12 VM with the stock systemd profile.
+Gateway returned 201/204 once, and PostgreSQL retained one delivery audit
+and no retry envelope. The installed unit sent a heartbeat on initial startup and after
+reboot on the same device with the original credentials, origin and CA.
+The temporary VM, disk and three test ISOs were removed. Production
+publication and corresponding Ubuntu and Proxmox verification remain open.
 Ubuntu VM138 built the exact Core in an isolated dependency path and exercised
 upgrade, failed-service repair, manual stop, masking, rollback, offline
 reinstall, and reboot with a local TLS peer. One rollback startup failed in
