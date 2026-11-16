@@ -22,9 +22,13 @@ A later exact-source check on `bc5c779cd30b` reproduced the server
 archive and verified an archive-origin start on schema 0054. Windows
 passed 2903 tests and Console passed 125. The Linux gate found nine
 test fixtures using the current Device model on earlier schemas and
-one outdated updater import allowlist. The local Linux receipt
-records 5282 passed, 722 skipped and 10 failures. The release gate
-remains open on this revision.
+one outdated updater import allowlist. After correcting the test
+fixtures and allowlist, exact source `286cbc082d63` passed the full
+isolated Linux and Windows workflow tasks and the Console tests.
+The 0051 to 0054 rehearsal preserved the Activity rows and the
+legacy device's unknown profile state. The two server archives
+matched byte for byte, and the packaged API and Console served
+from the new archive. GitHub Actions and publication remain open.
 STAB-01 source: WSS bounded FIFO and separate command task, fixed worker
 process with capability budgets, deadline admission and owned process-tree
 cleanup. HTTP pull remains sequential. Windows source fault injection covers
