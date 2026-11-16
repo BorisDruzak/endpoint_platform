@@ -675,7 +675,13 @@ at publisher sign-in and every six hours in the interactive session.
 The first run verified both live trees and produced a Noble candidate
 accepted by APT on OpenVPN. Its first timed run reused the candidate.
 After publication an explicit run verified both current indexes under the
-successor. Operation without an interactive session remains open.
+successor.
+Two one-shot S4U tasks completed in Windows Session 0 with the publisher
+still signed in. The first round-tripped a synthetic CurrentUser DPAPI
+fixture and connected to the repository host over SSH. The second used
+the production signing script for a saved Noble Release. Linux gpgv
+verified the pinned publisher and exact Release bytes. Both probes were
+removed. A run after owner sign-out remains open.
 Release evidence requires an exact-source CI receipt before publication.
 STAB-15: the [release qualification matrix](docs/verification/2026-11-14-agent-release-qualification-matrix.md)
 records installed canary evidence by OS, exact source and signed artifact.
