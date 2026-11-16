@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import MetaData, select, text
+from sqlalchemy import MetaData, event, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -18,15 +19,17 @@ from endpoint_server.db.models import (
     Command,
     CommandDelivery,
     CommandResult,
+    Device,
     DeviceInstance,
     DeviceSession,
 )
-from endpoint_server.gateway.command_service import CommandService, CommandStateRejected
+from endpoint_server.gateway.command_service import CommandService, CommandStateRejected, next_pending_command
 from endpoint_server.gateway.connection_registry import (
     ConnectionRegistry,
     GatewayConnection,
 )
 from endpoint_server.gateway.presence_service import PresenceService
+from tests.server.test_update_postgresql import update_service_database_url, update_service_provider
 
 from .conftest import _GATEWAY_TABLES, agent_hello, seed_device
 
@@ -714,3 +717,87 @@ async def test_postgresql_heartbeat_and_handshake_lock_session_before_instance(r
     assert [table for task, table in lock_order if task == "handshake"] == [
         "device_sessions", "device_instances",
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("message", ["start", "result"])
+async def test_postgresql_replay_and_feedback_do_not_deadlock(update_service_provider, message):
+    provider = update_service_provider
+    device = await seed_device(provider, token=uuid4().hex)
+    instance_id = uuid4()
+    presence = await _open_session(provider, device.id, instance_id)
+    now = datetime.now(UTC)
+    collection_id = uuid4()
+    async with provider() as session:
+        session.add(ContextCollection(
+            id=collection_id, device_id=device.id, profile="health_v1", requested_by="operator",
+            idempotency_key="same-device-replay", status="requested", requested_at=now,
+        ))
+        await session.commit()
+
+    service = CommandService(provider)
+    assert await service.deliver_next(device.id, presence.session_id, lambda _: None)
+    replacement = await _open_session(provider, device.id, instance_id)
+    delivered = []
+    assert await service.deliver_next(device.id, replacement.session_id, delivered.append)
+    command_id = delivered[0].payload.command_id
+    if message == "start":
+        feedback = service.record_ack(
+            device_id=device.id, session_id=replacement.session_id, start_permission=True,
+            acknowledgement=AgentCommandAckV1(
+                schema_version="agent_command_ack_v1", command_id=command_id,
+                device_id=device.id, status="running", acknowledged_at=now,
+            ),
+        )
+    else:
+        feedback = service.record_result(
+            device_id=device.id, device_instance_id=replacement.device_instance_id,
+            session_id=replacement.session_id, result_sequence=1, durable_replay=True,
+            result=AgentResultV1(
+                schema_version="agent_result_v1", command_id=command_id, device_id=device.id,
+                status="failed", result_items=[], message="collection failed", completed_at=now,
+            ),
+        )
+
+    waiting = asyncio.Event()
+    task = None
+    engine = provider.engine.sync_engine
+
+    def observe(_connection, _cursor, statement, *_):
+        if asyncio.current_task() is task and statement.rstrip().endswith("FOR UPDATE"):
+            if "FROM devices" in statement or "FROM context_collections" in statement:
+                waiting.set()
+
+    event.listen(engine, "before_cursor_execute", observe)
+    try:
+        async with asyncio.timeout(10):
+            async with provider() as dispatch:
+                # Pause the delivery transaction with its parent and collection
+                # locks held, just before it tries to claim the existing command.
+                await dispatch.scalar(select(Device.id).where(Device.id == device.id).with_for_update())
+                await dispatch.scalar(
+                    select(ContextCollection.id).where(ContextCollection.id == collection_id).with_for_update()
+                )
+                task = asyncio.create_task(feedback)
+                await waiting.wait()
+                replay = await next_pending_command(dispatch, device.id, transport="gateway_wss")
+                assert replay.command_id == command_id
+                await dispatch.commit()
+            receipt = await task
+    finally:
+        event.remove(engine, "before_cursor_execute", observe)
+        if task is not None:
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        else:
+            feedback.close()
+
+    assert receipt.kind == ("command_start" if message == "start" else "result_ack")
+    assert receipt.payload.command_id == command_id
+    async with provider() as session:
+        command = await session.get(Command, command_id)
+        collection = await session.get(ContextCollection, collection_id)
+        assert (command.status, collection.status) == (
+            ("running", "collecting") if message == "start" else ("failed", "failed")
+        )

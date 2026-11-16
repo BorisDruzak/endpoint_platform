@@ -11,6 +11,7 @@ from typing import AbstractSet
 from uuid import UUID, uuid4
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from endpoint_contracts import (
     AgentCommandAckV1,
@@ -44,6 +45,7 @@ from endpoint_server.db.models import (
     Command,
     CommandDelivery,
     CommandResult,
+    Device,
     DeviceInstance,
     DeviceSession,
     EndpointOperation,
@@ -738,6 +740,12 @@ def _safe_operation_result(
     )
 
 
+async def _lock_command_device(session: AsyncSession, device_id: UUID) -> None:
+    # Serialize delivery and feedback with the same parent lock before either
+    # path locks a command or collection. Both HTTP pull and WSS use this row.
+    await session.scalar(select(Device.id).where(Device.id == device_id).with_for_update())
+
+
 async def next_pending_command(
     session,
     device_id: UUID,
@@ -748,9 +756,7 @@ async def next_pending_command(
 ) -> GatewayCommandV1 | None:
     """Replay only unacknowledged deliveries before creating a new command."""
     from endpoint_server.installation_lifecycle.service import removed
-    # Serialize native removal against dispatch. Preserve queued/manual records.
-    from endpoint_server.db.models import Device
-    await session.scalar(select(Device).where(Device.id == device_id).with_for_update())
+    await _lock_command_device(session, device_id)
     if await removed(session, device_id):
         return None
     if transport not in {"http_pull", "gateway_wss"}:
@@ -998,6 +1004,7 @@ class CommandService:
             raise CommandStateRejected("acknowledgement status is not actionable")
         async with self._session_provider() as session:
             try:
+                await _lock_command_device(session, device_id)
                 gateway_session = await session.scalar(
                     select(DeviceSession)
                     .where(
@@ -1122,6 +1129,7 @@ class CommandService:
         payload_digest = result_payload_digest(result)
         async with self._session_provider() as session:
             try:
+                await _lock_command_device(session, device_id)
                 gateway_session = await session.scalar(
                     select(DeviceSession)
                     .where(
