@@ -164,9 +164,17 @@ class WindowsOnlineUpdateRuntime:
                 flush_directory(self._paths.updates_root)
             elif not self._has_update_recovery_state():
                 retry_deferred_core_downloads(self._paths)
-                if self._prepared_download_present():
-                    with own_core_download(self._paths):
-                        self._retire_prepared_download()
+                prepared = self._prepared_download_present()
+                try:
+                    if prepared or self._paths.downloads_root.is_dir():
+                        with own_core_download(self._paths):
+                            if prepared:
+                                self._retire_prepared_download()
+                            retire_interrupted_core_downloads(self._paths)
+                except (OSError, ValueError, UpdateInProgress):
+                    if prepared:
+                        # The publication record must be resolved before another transfer.
+                        raise
         if pending is not None:
             if not await self._adapter.record_scheduled_handoff(
                 pending["operation_id"], assigned_version=pending["version"], rollback_version=current,

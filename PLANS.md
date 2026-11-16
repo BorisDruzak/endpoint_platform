@@ -314,8 +314,12 @@ A visible pending record retains its ZIP across a failed final flush.
 Before disk admission, an exclusive online-transfer file lock and the update
 mutex allow bounded retirement of abandoned staging and HTTP temporary files
 from the lock-aware writer. Windows source tests cover a real subprocess exit
-without cleanup and a concurrent check during an active transfer. An
-unconsumed, durable publication record allows recovery to retire the exact
+without cleanup and a concurrent check during an active transfer. The ordinary
+check now also reclaims this scratch space when the server has no recommendation.
+Both paths use the transfer lock and update mutex. NTFS subprocess tests cover
+idle and assigned checks, active transfers, and preservation of historical ZIPs
+and hardlinked files. Installed-artifact acceptance of the idle path is pending.
+An unconsumed, durable publication record allows recovery to retire the exact
 attempt ZIP left between ZIP promotion and pending publication. Recovery
 validates the digest and preserves changed bytes or active handoffs.
 Terminal Core cache cleanup now records the exact archive identity when

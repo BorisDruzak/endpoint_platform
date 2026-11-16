@@ -93,7 +93,8 @@ async def test_restart_reclaims_only_archive_with_unconsumed_publication_record(
 
 
 @pytest.mark.asyncio
-async def test_interrupted_download_is_reclaimed_before_next_disk_check(tmp_path, monkeypatch):
+@pytest.mark.parametrize("recommendation", ["idle", "assigned"])
+async def test_interrupted_download_is_reclaimed_on_next_check(tmp_path, monkeypatch, recommendation):
     import os
     import shutil
     import subprocess
@@ -149,15 +150,17 @@ with own_core_download(paths):
         destination.write_bytes(payload)
         return item.sha256, item.size
 
-    runtime = WindowsOnlineUpdateRuntime(adapter=_Adapter(item), paths=paths, acl=_Acl(), download=download)
-    assert (await runtime.run_once()).status == "scheduled"
+    adapter = _Adapter(item if recommendation == "assigned" else None)
+    runtime = WindowsOnlineUpdateRuntime(adapter=adapter, paths=paths, acl=_Acl(), download=download)
+    assert (await runtime.run_once()).status == ("scheduled" if recommendation == "assigned" else "idle")
     assert not staging.exists() and not partial.exists()
     for path in (canonical, linked, historical):
         assert path.read_bytes() == b"previous bytes"
 
 
 @pytest.mark.asyncio
-async def test_overlapping_checks_preserve_active_download(tmp_path):
+@pytest.mark.parametrize("recommendation", ["idle", "assigned"])
+async def test_overlapping_checks_preserve_active_download(tmp_path, recommendation):
     import asyncio
     from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateRuntime
     from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
@@ -184,11 +187,12 @@ async def test_overlapping_checks_preserve_active_download(tmp_path):
         pytest.fail("a second downloader entered the active transfer")
 
     first = WindowsOnlineUpdateRuntime(adapter=_Adapter(item), paths=paths, acl=_Acl(), download=active_download)
-    second = WindowsOnlineUpdateRuntime(adapter=_Adapter(item), paths=paths, acl=_Acl(), download=competing_download)
+    adapter = _Adapter(item if recommendation == "assigned" else None)
+    second = WindowsOnlineUpdateRuntime(adapter=adapter, paths=paths, acl=_Acl(), download=competing_download)
     active = asyncio.create_task(first.run_once())
     try:
         await asyncio.wait_for(started.wait(), timeout=5)
-        assert (await second.run_once()).status == "update_in_progress"
+        assert (await second.run_once()).status == ("update_in_progress" if recommendation == "assigned" else "idle")
     finally:
         release.set()
         assert (await active).status == "scheduled"
