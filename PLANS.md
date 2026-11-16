@@ -76,6 +76,14 @@ existing guest volume group. An 8 GiB allocation passed the LVM test mode.
 The [storage preflight](docs/verification/2026-11-14-stability-release-baseline.md#резерв-места-для-следующего-выпуска-на-vm115)
 records the active rollback dependencies and the filesystem checks needed
 after a real expansion.
+Candidate `46d7cde3d63f` passed the exact local Windows workflow task
+(2,912 tests, four skips) and all 125 Console tests. Two server builds
+matched and all 334 packaged files were checked against Git or the
+Console build. A local PostgreSQL 16.15 rehearsal migrated 0051 to
+0055, preserved synthetic Activity, recoverable Setup ownership, the
+unrequested Core intent and both existing deliveries, and verified the
+new index. The full Linux gate, archive-origin start and hosted receipt
+for this source remain open.
 STAB-01 source: WSS bounded FIFO and separate command task, fixed worker
 process with capability budgets, deadline admission and owned process-tree
 cleanup. HTTP pull remains sequential. Windows source fault injection covers
