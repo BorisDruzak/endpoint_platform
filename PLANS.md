@@ -853,7 +853,17 @@ accepted five context profiles, and acknowledged one installed event at
 sequence 1. An orderly reboot preserved the card, the credential, all
 four identity files and the exact LocalPackage hash, and opened a new WSS
 session. The campaign, clone and scratch database were cleaned up.
-Other interruption boundaries and production qualification remain open.
+The exact production Windows Setup 3.2.205 ran on a disposable Windows 10
+19045 VM against the production provider restored from PBS, with an isolated
+database and a one-use registration. Its stock Setup Client 1.0.11 fetched
+and applied signed 3.2.237 after a single-device Console assignment. Native
+exit was 0, soak was 181.306 s, and all four identity files and the registered
+MSI hash survived reboot. Core and Foundation 3.2.237 appeared on a new WSS
+session on the same device, and Setup Client 1.0.13 reported ready. The
+temporary Windows VM, provider VM, disks, test media and management network
+were removed. This unattended test had no UserSensor session. Independent
+Support for the pair, other interruption boundaries and production
+qualification remain open.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,
