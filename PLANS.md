@@ -1113,6 +1113,13 @@ directly to the newly inserted command. In two paired 96-client PostgreSQL
 runs the change removed 384 SELECTs per 192 deliveries. Each run confirmed
 the same results, snapshots and active sessions. Result ACK p95 remained
 above one second in this loopback scenario.
+Linux TLS pairs on the same candidate removed 256 SELECTs per 128
+successful deliveries with about 47–48 pgbench transactions per second.
+The two candidate runs recovered queued work in 2.958 and 3.143 seconds.
+Start and result ACK p95 stayed below one second. Online delivery moved
+in opposite directions across pairs. An evening production counter sample
+measured 8.90–9.30 transactions per second for the active Helpdesk
+database. A representative Helpdesk application workload remains open.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
