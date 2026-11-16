@@ -839,8 +839,17 @@ database stages at eight over the same 5+10 pool. Reconnect start and
 result ACK both met 1 s at p95 with the lab limit. Delivery exceeded
 5 s in both configurations, and effects on hello and full wave time
 changed direction across pairs. The limit remains a lab parameter.
-Next measure delivery and queue recovery in a longer mixed workload
-with periodic commands, heartbeat, telemetry and reconnects.
+The 731.585 s mixed trial used 96 clients with staggered heartbeat
+and Power, three scheduler waves, and a different 32-client reconnect
+group per wave. The health queue returned to zero in 2.204–3.406 s
+from reconnect start. For the 64 continuously connected clients,
+delivery p95 was 3.46–4.03 s. Each wave acknowledged command start and
+results within 1 s p95 in both groups. The database contained 288
+health snapshots and 755 confirmed Power events, with 64 result
+replays and no extra snapshots. The worker also queued 96 session
+collections for clients without that capability. Next verify how
+the worker can use accepted capabilities while preserving legacy and
+offline scheduling, then measure the full eligible queue.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
