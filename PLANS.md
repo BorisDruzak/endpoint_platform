@@ -729,7 +729,12 @@ device overview dates WSS Core, observer-reported Foundation, Setup Observer,
 corroborated UserSensor and Support telemetry separately. It distinguishes
 Support telemetry from the operator's SSH attestation. Paused bulk Core
 rollouts with entirely unrequested assignments can be cancelled through an
-audited, replayable action. The health profile now carries the Windows updater
+audited, replayable action. On 16 November the five production intents were
+still unrequested in an active rollout after 20 days. The installed provider
+lacks the bulk cancellation routes. On the lab PostgreSQL, an operator
+inspected, paused and cancelled a five-target rollout matching that state
+through the canonical API. An exact retry returned the same receipt.
+The health profile now carries the Windows updater
 service state and separate ALT service and path states. Console dates them from
 the agent's health sample. Installed native acceptance and live resolution
 of the five historical intents remain open.

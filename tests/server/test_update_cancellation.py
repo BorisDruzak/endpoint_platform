@@ -18,7 +18,7 @@ from sqlalchemy.exc import DBAPIError
 
 from endpoint_server.auth.admin_sessions import issue_admin_session
 from endpoint_server.config import Settings
-from endpoint_server.db.models import AdminUser, AuditEvent, Device, UpdateBuild, UpdateReport, UpdateRollout, UpdateTarget
+from endpoint_server.db.models import AdminUser, AuditEvent, Device, DeviceSession, UpdateBuild, UpdateReport, UpdateRollout, UpdateTarget
 from endpoint_server.main import create_app
 from endpoint_server.updates.service import create_rollout, pause_rollout, register_build
 from endpoint_server.updates.errors import UpdateStateError
@@ -126,6 +126,93 @@ async def test_bulk_unrequested_cancellation_revalidates_membership_and_replays(
     if changed is None:
         replay = await case["client"].post(path(case, "cancel-unrequested"), json=body)
         assert replay.status_code == 200 and replay.json() == response.json()
+
+
+async def test_operator_can_inspect_pause_and_cancel_five_stale_linux_targets(cancellation_case):
+    case = cancellation_case
+    client = case["client"]
+    assigned_at = datetime.now(UTC) - timedelta(days=20)
+    last_contact = assigned_at - timedelta(days=5)
+    reason = "Synthetic retired Linux Core distribution"
+    rollout_id = uuid4()
+    target_ids = {uuid4() for _ in range(5)}
+    async with case["provider"]() as session:
+        session.add(UpdateRollout(
+            id=rollout_id,
+            rollout_identifier=uuid4().hex,
+            build_id=case["ids"]["build"],
+            mode="bulk",
+            status="active",
+            started_at=assigned_at,
+            reason=reason,
+        ))
+        for target_id in target_ids:
+            device_id = uuid4()
+            session.add(Device(id=device_id, device_identifier=uuid4().hex))
+            session.add(DeviceSession(
+                id=uuid4(),
+                device_id=device_id,
+                session_identifier=uuid4().hex,
+                created_at=last_contact,
+                last_seen_at=last_contact,
+                closed_at=last_contact + timedelta(minutes=1),
+                expires_at=last_contact + timedelta(minutes=2),
+            ))
+            session.add(UpdateTarget(
+                id=target_id,
+                rollout_id=rollout_id,
+                device_id=device_id,
+                target_identifier=uuid4().hex,
+                operation_id=str(uuid4()),
+                status="assigned",
+                assigned_at=assigned_at,
+                safe_reason=reason,
+            ))
+        await session.commit()
+
+    base = f"/api/admin/updates/rollouts/{rollout_id}"
+    detail = await client.get(base)
+    assert detail.status_code == 200, detail.text
+    rollout = detail.json()
+    assert (rollout["id"], rollout["platform"], rollout["status"]) == (
+        str(rollout_id), "linux_amd64", "active"
+    )
+    assert rollout["counts"] == {"assigned": 5}
+    assert {target["assignment_id"] for target in rollout["targets"]} == set(map(str, target_ids))
+    for target in rollout["targets"]:
+        assert target["connection_state"] == "offline"
+        assert target["age_seconds"] >= 20 * 86400
+        assert datetime.fromisoformat(target["last_contact_at"]) == last_contact
+        assert target["safe_reason"] == reason
+        assert target["requested_at"] is target["scheduled_at"] is target["report_status"] is None
+
+    preview_url = f"{base}/unrequested-cancellation-context"
+    active_preview = await client.get(preview_url)
+    assert active_preview.status_code == 409, active_preview.text
+    pause = await client.post(f"{base}/pause")
+    assert pause.status_code == 200 and pause.json()["status"] == "paused", pause.text
+    preview = await client.get(preview_url)
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["target_count"] == 5
+    body = {"expected": preview.json(), "cancellation_id": str(uuid4())}
+    cancel_url = f"{base}/cancel-unrequested"
+    receipt = await client.post(cancel_url, json=body)
+    assert receipt.status_code == 200 and receipt.json()["target_count"] == 5, receipt.text
+    replay = await client.post(cancel_url, json=body)
+    assert replay.status_code == 200 and replay.json() == receipt.json(), replay.text
+    final = await client.get(base)
+    assert final.status_code == 200, final.text
+    assert final.json()["status"] == "cancelled"
+    assert final.json()["counts"] == {"cancelled": 5}
+    assert {target["assignment_id"] for target in final.json()["targets"]} == set(map(str, target_ids))
+    async with case["provider"]() as session:
+        events = await session.scalar(select(func.count()).select_from(AuditEvent).where(
+            AuditEvent.action == "updates.bulk_rollout_cancelled",
+            AuditEvent.object_identifier == str(rollout_id),
+        ))
+        unrelated = await session.get(UpdateTarget, case["ids"]["target"])
+        assert unrelated.status == "assigned"
+    assert events == 1
 
 
 @pytest.mark.parametrize("target_status", ["assigned", "requested", "scheduled"])
