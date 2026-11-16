@@ -1582,3 +1582,28 @@ PostgreSQL. Для проверки профиля production нужно вос�
 `C:/endpoint-platform-wix-build/stab19-shared-192-pool-20261117`
 связывает SQL, агрегаты PostgreSQL и агрегаты Nginx.
 SHA-256 — `14fe18601dc1b3470fca1e7a2dc11188264888585a26987f089f883dd5fc3a31`.
+
+#### Наиболее частые маршруты Helpdesk 16 ноября
+
+Точные статические маршруты собраны из регистрации
+`server/routes.py` коммита `473cdde4a70cfd44fa9e0f57eccc054ceacb31ac`.
+С этим списком совпали 799 из 808 API-запросов рабочего окна.
+Для окна 10:09–13:00 UTC после старта процесса Helpdesk из релиза
+этого коммита совпали 112 из 112 записей. Журнал обрабатывался на
+сервере. Квитанция содержит только имена маршрутов из списка и
+агрегаты по статусам.
+
+| Частые маршруты за полное окно | Запросы | Ответы 2xx |
+| --- | ---: | ---: |
+| `GET /api/health` | 310 | 309 |
+| `GET /api/web/notifications/unread_count` | 252 | 234 |
+| `GET /api/web/admin/registry` | 43 | 27 |
+| `GET /api/web/session/capabilities` | 27 | 27 |
+| `GET /api/web/requester/bootstrap` | 26 | 26 |
+| `GET /api/web/admin/registry/audience-groups` | 24 | 17 |
+| `GET /api/web/session/me` | 22 | 22 |
+| `GET /api/web/session/registration-options` | 18 | 18 |
+| `POST /api/web/session/registration-inventory-search` | 12 | 12 |
+
+`production-helpdesk-static-routes.json` сохранён в том же каталоге.
+SHA-256 — `634957897901292e129dc0334d59f2d15cf2e5a3a9fd5151f375f8cfa302336a`.
