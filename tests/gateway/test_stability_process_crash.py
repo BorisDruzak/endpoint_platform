@@ -38,8 +38,10 @@ def _pg_tool(tool, *args):
 
 
 async def _start_db(data, port, log_path):
+    # All rehearsal clients use TCP, so a private cluster needs no system socket.
     await asyncio.to_thread(_pg_tool, "pg_ctl", "-D", data, "-l", log_path,
-                            "-o", f"-h 127.0.0.1 -p {port}", "-w", "-t", "20", "start")
+                            "-o", f"-h 127.0.0.1 -p {port} -c unix_socket_directories=",
+                            "-w", "-t", "20", "start")
 
 
 async def _stop_db(data, mode):

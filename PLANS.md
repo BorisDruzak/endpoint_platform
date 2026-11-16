@@ -802,6 +802,12 @@ Production-scale qualification
 and restore from a verified external production copy remain open. The
 read-only backup inventory found local database dumps and no VM115 backups
 in the checked Proxmox storages.
+On 16 November an isolated Ubuntu restore started the API and worker from
+the same verified source archive. The worker rebuilt a rollup recovered
+from the dump. Acceptance took 4.737–4.839 seconds including both processes.
+Three API/PostgreSQL interruption scenarios passed. A fresh read-only
+production check found the same local dump, then 3 days and 19 hours old,
+and again found no VM115 copies in the nine checked Proxmox node/storage pairs.
 
 ## SSO + WorkTime staged implementation (2026-10-27)
 

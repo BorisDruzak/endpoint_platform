@@ -23,9 +23,10 @@ import aiohttp
 import asyncpg
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.engine import make_url
 
+from endpoint_server.activity.analytics_models import ActivityDaily
 from endpoint_server.auth.admin_sessions import issue_admin_session
 from endpoint_server.context.models import ContextCollection, ContextSnapshot
 from endpoint_server.db.models import AdminUser, CommandResult, UpdateTarget
@@ -33,11 +34,11 @@ from endpoint_server.db.session import AsyncSessionProvider
 from endpoint_server.updates.service import create_rollout, register_build
 from tests.gateway.conftest import PEPPER, gateway_settings, seed_device
 from tests.gateway.test_stability_capacity import _connect, _grant, _receive, _result, _send_result
-from tests.gateway.test_stability_recovery import _api
 from tests.server.test_update_postgresql import update_service_database_url, update_service_provider
 
 
-_RESTORED_API = """
+_RESTORED_ENTRY_POINT = """
+import asyncio
 import ipaddress
 import os
 from pathlib import Path
@@ -46,11 +47,12 @@ import uvicorn
 
 from endpoint_server.config import Settings
 from endpoint_server.main import create_app
+from endpoint_server.worker import run_worker
 
 root = Path(os.environ["ENDPOINT_RESTORE_ROOT"])
 identity = root / "identity"
 loopback = (ipaddress.ip_network("127.0.0.0/8"),)
-app = create_app(Settings(
+settings = Settings(
     database_url=os.environ["ENDPOINT_RESTORE_DATABASE_URL"],
     public_base_url="https://endpoint.sosnadmin.local",
     artifact_root=root / "artifacts",
@@ -58,34 +60,30 @@ app = create_app(Settings(
     service_token_pepper=(identity / "service-pepper").read_bytes(),
     session_secret=(identity / "session-secret").read_bytes(),
     allowed_agent_cidrs=loopback, allowed_admin_cidrs=loopback, trusted_proxy_cidrs=loopback,
-))
-uvicorn.run(app, host="127.0.0.1", port=int(os.environ["ENDPOINT_RESTORE_API_PORT"]),
-            ws="websockets", proxy_headers=False, workers=1,
-            log_level="info", timeout_graceful_shutdown=5)
+)
+if os.environ["ENDPOINT_RESTORE_ROLE"] == "worker":
+    asyncio.run(run_worker(settings))
+else:
+    uvicorn.run(create_app(settings), host="127.0.0.1",
+                port=int(os.environ["ENDPOINT_RESTORE_API_PORT"]),
+                ws="wsproto", proxy_headers=False, workers=1,
+                log_level="info", timeout_graceful_shutdown=5)
 """
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
 @asynccontextmanager
-async def _restored_api(root, database_url, *, application=None, port=0):
+async def _restored_process(root, database_url, *, role, application=None, port=0):
     env = {**os.environ, "ENDPOINT_RESTORE_DATABASE_URL": database_url,
-           "ENDPOINT_RESTORE_API_PORT": str(port), "ENDPOINT_RESTORE_ROOT": str(root), "PYTHONPATH": ""}
+           "ENDPOINT_RESTORE_ROLE": role, "ENDPOINT_RESTORE_API_PORT": str(port),
+           "ENDPOINT_RESTORE_ROOT": str(root), "PYTHONPATH": ""}
     process = await asyncio.create_subprocess_exec(
-        sys.executable, "-u", "-c", _RESTORED_API, cwd=application or root / "application", env=env,
+        sys.executable, "-u", "-c", _RESTORED_ENTRY_POINT, cwd=application or root / "application", env=env,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
     )
     try:
-        async with asyncio.timeout(15):
-            startup = []
-            while line := await process.stdout.readline():
-                startup.append(line.decode(errors="replace"))
-                bound = re.search(rb"Uvicorn running on http://127\.0\.0\.1:(\d+)", line)
-                if bound is not None:
-                    break
-            else:
-                pytest.fail("Restored API exited during startup: " + "".join(startup))
-        yield f"http://127.0.0.1:{bound[1].decode()}", process
+        yield process
     finally:
         if process.returncode is None:
             if os.name == "nt":
@@ -97,6 +95,20 @@ async def _restored_api(root, database_url, *, application=None, port=0):
             except TimeoutError:
                 process.kill()
                 await process.wait()
+
+
+@asynccontextmanager
+async def _restored_api(root, database_url, *, application=None, port=0):
+    async with _restored_process(root, database_url, role="api", application=application, port=port) as process:
+        async with asyncio.timeout(15):
+            startup = []
+            while line := await process.stdout.readline():
+                startup.append(line.decode(errors="replace"))
+                if bound := re.search(rb"Uvicorn running on http://127\.0\.0\.1:(\d+)", line):
+                    break
+            else:
+                pytest.fail("Restored API exited during startup: " + "".join(startup))
+        yield f"http://127.0.0.1:{bound[1].decode()}", process
 
 
 def _digest(path):
@@ -164,7 +176,14 @@ async def test_restore_signed_release_and_resume(update_service_provider, update
     version = f"4.5.{uuid4().int % 1_000_000}"
     artifact_route = f"/agent/v1/updates/artifacts/{release_name}"
     now = datetime.now(UTC)
+    rollup_id = uuid4()
     async with source() as db:
+        schema = await db.scalar(text("SELECT version_num FROM alembic_version"))
+        db.add(ActivityDaily(
+            id=rollup_id, user_key="restore-activity", timezone="UTC",
+            day=(now - timedelta(days=1)).date(), dirty=True, dirty_since=now,
+            updated_at=now, payload={"restore_pending": True},
+        ))
         admin = AdminUser(username=uuid4().hex, password_digest="fixture-only", scopes=["updates:write"])
         db.add(admin)
         await db.flush()
@@ -187,7 +206,7 @@ async def test_restore_signed_release_and_resume(update_service_provider, update
         ))
         await db.commit()
     async with aiohttp.ClientSession(trust_env=False) as client:
-        async with _api(settings, source) as base, AsyncExitStack() as stack:
+        async with _restored_api(workspace, source_url, application=_REPOSITORY_ROOT) as (base, _), AsyncExitStack() as stack:
             ws = await _connect(client, stack, f"{base}/agent/v1/connect", device.id, instance, device_token)
             command_id = (await _receive(ws, "command"))["command_id"]
             await _grant(ws, device.id, command_id)
@@ -209,7 +228,7 @@ async def test_restore_signed_release_and_resume(update_service_provider, update
         str(path.relative_to(workspace).as_posix()): _digest(path)
         for path in workspace.rglob("*") if path.is_file() and path.parent != identity
     }
-    manifest = json.dumps({"revision": revision, "schema": "0053_activity_dirty_since",
+    manifest = json.dumps({"revision": revision, "schema": schema,
                            "files": release_files}, sort_keys=True).encode()
     workspace.joinpath("release.json").write_bytes(manifest)
     workspace.joinpath("release.sig").write_bytes(signing.sign(manifest))
@@ -240,16 +259,38 @@ async def test_restore_signed_release_and_resume(update_service_provider, update
                                 restored / "endpoint.dump")
         provider = AsyncSessionProvider(destination_url)
         try:
-            async with _restored_api(restored, destination_url) as (base, _):
+            async with AsyncExitStack() as stack:
+                async with provider() as db:
+                    pending = await db.get(ActivityDaily, rollup_id)
+                    assert pending is not None and pending.dirty and pending.payload == {"restore_pending": True}
+                base, api = await stack.enter_async_context(_restored_api(restored, destination_url))
+                worker = await stack.enter_async_context(_restored_process(restored, destination_url, role="worker"))
+                assert api.pid != worker.pid
                 await _verify_restored_service(provider, base, device.id, instance, device_token, frame,
                     issued.token, admin_name, artifact_route, operation_id,
                     release_files[f"artifacts/{artifact.name}"], after.id, metadata["schema"])
+                await _verify_restored_worker(provider, worker, rollup_id)
                 accepted_at = perf_counter()
         finally:
             await provider.close()
         print(json.dumps({"restore_seconds": round(accepted_at - restore_started, 3),
                           "backup_to_loss_marker_seconds": round((loss_at - captured_at).total_seconds(), 3),
                           "release_revision": revision, "schema": metadata["schema"]}), flush=True)
+
+
+async def _verify_restored_worker(provider, worker, rollup_id):
+    async with asyncio.timeout(15):
+        while True:
+            if worker.returncode is not None:
+                pytest.fail("Restored worker exited: " + (await worker.stdout.read()).decode(errors="replace"))
+            async with provider() as db:
+                row = await db.get(ActivityDaily, rollup_id)
+                assert row is not None
+                if not row.dirty:
+                    assert row.dirty_since is None
+                    assert "restore_pending" not in row.payload
+                    return
+            await asyncio.sleep(.05)
 
 
 async def _verify_restored_service(provider, base, device_id, instance, device_token, frame,
