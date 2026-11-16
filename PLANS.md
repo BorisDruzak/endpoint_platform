@@ -864,6 +864,11 @@ temporary Windows VM, provider VM, disks, test media and management network
 were removed. This unattended test had no UserSensor session. Independent
 Support for the pair, other interruption boundaries and production
 qualification remain open.
+The server now recognizes 1.0.13 for explicit canaries when it reports
+both source versions in a fresh ready hello. SQLite tests reproduced the
+rejection before the change and passed afterward for a 3.2.237 source.
+Fleet admission and qualification still require the separately qualified
+observer set. Native delivery from an installed 1.0.13 is pending.
 STAB-18: [read-only production review](docs/verification/2026-11-14-stability-fleet-intents.md)
 identified five aged, unrequested Core intents in one Linux bulk rollout.
 The rollout detail shows assignment age and ownership, connection freshness,

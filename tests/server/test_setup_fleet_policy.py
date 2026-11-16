@@ -69,31 +69,42 @@ async def test_companion_fixed_observer_keeps_existing_native_qualification_gate
 
 
 @pytest.mark.parametrize('location', ['source', 'presence'])
-async def test_unqualified_observer_cannot_supply_native_qualification(db, fleet, location):
+@pytest.mark.parametrize('client_version', ['1.0.9', '1.0.13'])
+async def test_unqualified_observer_cannot_supply_native_qualification(db, fleet, location, client_version):
     from endpoint_server.setup_updates.models import SetupClientPresence
     job, _ = await qualification_evidence(db, fleet)
     if location == 'source':
-        job.source_client_version = '1.0.9'
+        job.source_client_version = client_version
     else:
         presence = await db.scalar(select(SetupClientPresence).where(SetupClientPresence.device_id == job.device_id))
-        presence.client_version = '1.0.9'
+        presence.client_version = client_version
     with pytest.raises(SetupConflict):
         await qualify_release(db, fleet[1].id, job.id,
             actor='test-admin', request_id='unqualified-observer', now=NOW)
 
 
-async def test_candidate_observer_accepts_an_explicit_setup_assignment(db, fleet):
+@pytest.mark.parametrize(('client_version', 'source', 'target'), [
+    ('1.0.10', '3.2.165', '3.2.167'),
+    ('1.0.13', '3.2.237', '3.2.238'),
+])
+async def test_candidate_observer_accepts_an_explicit_setup_assignment(db, fleet, client_version, source, target):
     from endpoint_server.setup_updates.preparation import request_setup
     from endpoint_server.setup_updates.service import record_presence
-    device, release, *_ = fleet
-    await record_presence(db, device.id, dict(client_version='1.0.10', ready=True,
-        foundation_version='3.2.156', core_version='3.2.156'), now=NOW)
+    device, release, _, instance = fleet
+    release.version = target
+    instance.agent_version = instance.launcher_version = source
+    qualification = await db.scalar(select(SetupFleetQualification).where(SetupFleetQualification.release_id == release.id))
+    qualification.source_foundation = source
+    await record_presence(db, device.id, dict(client_version=client_version, ready=True,
+        foundation_version=source, core_version=source), now=NOW)
+    assert (await decision(db, fleet)).code == 'waiting_setup_client'
     with pytest.raises(SetupConflict):
         await request_setup(db, device.id, release.id, 'Automatic compatibility check',
             actor='test-admin', request_id='automatic-observer', now=NOW)
     job = await request_setup(db, device.id, release.id, 'Observer compatibility canary',
         actor='test-admin', request_id='candidate-observer', now=NOW, explicit_observer=True)
-    assert job.source_client_version == '1.0.10'
+    assert job.source_client_version == client_version
+    assert job.source_foundation_version == job.source_core_version == source
 
 
 async def test_fleet_requires_exact_authenticated_platform_and_fresh_open_wss(db, fleet):
