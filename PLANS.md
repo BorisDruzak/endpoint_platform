@@ -759,7 +759,14 @@ result ACK was 0.665 and 1.951 seconds. With 96 devices, paired lab runs
 with caps 15 and 30 each acquired 959 connections during replacement.
 P95 acquisition, including pre-ping, was 1.031 and 1.028 seconds. P95
 result ACK was 2.079 and 2.428 seconds. Both runs passed with one session
-owner per device. Repeat runs and separate query and transaction timings
+owner per device. In a repeat, p95 SQL time during replacement was 12.5 ms
+at 15 slots and 27.0 ms at 30. P95 connection hold was 177.1 and 343.3 ms.
+Durable result recording now reuses the locked current session owner and
+keeps the previous-session lookup for reconnect replay. Regression tests
+proved the exact lookup count. A PostgreSQL/TLS repeat at 15 slots saved
+192 results with 97 fewer SELECTs during replacement and unchanged INSERT
+and UPDATE counts. P95 ACK still exceeded one second. Dedicated
+commit and pre-ping timings and reproducible latency improvements
 remain open. The production configuration was not changed.
 Production-scale qualification
 and restore from a verified external production copy remain open. The

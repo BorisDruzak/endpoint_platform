@@ -1,6 +1,7 @@
 """Opt-in sustained Gateway rehearsal through a loopback HTTPS proxy."""
 
 import asyncio
+from collections import Counter
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -15,7 +16,7 @@ from uuid import uuid4
 
 import aiohttp
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import AsyncAdaptedQueuePool
 import uvicorn
@@ -141,6 +142,34 @@ class _MeasuredSessionProvider(AsyncSessionProvider):
             database_url, pool_pre_ping=True, poolclass=_MeasuredPool, max_overflow=max_overflow,
         )
         self.session_factory = async_sessionmaker(self.engine, expire_on_commit=False)
+        self.connection_holds = []
+        self.statement_timings = []
+        engine = self.engine.sync_engine
+
+        @event.listens_for(engine, "checkout")
+        def checkout(_connection, record, _proxy):
+            record.info["stab19_checkout_started"] = perf_counter()
+
+        @event.listens_for(engine, "checkin")
+        def checkin(_connection, record):
+            started = record.info.pop("stab19_checkout_started", None)
+            record.info.pop("stab19_queries", None)
+            if started is not None:
+                finished = perf_counter()
+                self.connection_holds.append((finished, finished - started))
+
+        @event.listens_for(engine, "before_cursor_execute")
+        def before_cursor_execute(conn, _cursor, _statement, _parameters, _context, _many):
+            conn.info.setdefault("stab19_queries", []).append(perf_counter())
+
+        @event.listens_for(engine, "after_cursor_execute")
+        def after_cursor_execute(conn, _cursor, statement, _parameters, _context, _many):
+            finished = perf_counter()
+            elapsed = finished - conn.info["stab19_queries"].pop()
+            verb = statement.lstrip().split(None, 1)[0].upper() if statement.strip() else ""
+            if verb not in {"SELECT", "INSERT", "UPDATE", "DELETE"}:
+                verb = "OTHER"
+            self.statement_timings.append((finished, elapsed, verb))
 
 
 async def _sample_gateway(pool, samples):
@@ -151,12 +180,16 @@ async def _sample_gateway(pool, samples):
         samples.append((sampled, max(0, sampled - started - .01), pool.checkedout(), pool.overflow()))
 
 
-def _pool_window(samples, acquisitions, capacity, started_at, finished_at):
+def _pool_window(samples, provider, capacity, started_at, finished_at):
     window = [(checked_out, overflow) for sampled_at, _, checked_out, overflow in samples
               if started_at <= sampled_at <= finished_at]
     if not window:
         return None
-    checkout = [duration for finished, duration in acquisitions if started_at <= finished <= finished_at]
+    pool = provider.engine.pool
+    checkout = [duration for finished, duration in pool.acquisitions if started_at <= finished <= finished_at]
+    holds = [duration for finished, duration in provider.connection_holds if started_at <= finished <= finished_at]
+    statements = [(duration, verb) for finished, duration, verb in provider.statement_timings
+                  if started_at <= finished <= finished_at]
     return {
         "samples": len(window),
         "checked_out_peak": max(count for count, _ in window),
@@ -164,6 +197,10 @@ def _pool_window(samples, acquisitions, capacity, started_at, finished_at):
         "at_capacity_samples": sum(count >= capacity for count, _ in window),
         "connection_acquisitions": len(checkout),
         "connection_acquire": _metrics(checkout) if checkout else None,
+        "connection_returns": len(holds),
+        "connection_hold": _metrics(holds) if holds else None,
+        "sql_statements": dict(Counter(verb for _, verb in statements)),
+        "sql_execute": _metrics([duration for duration, _ in statements]) if statements else None,
     }
 
 
@@ -196,7 +233,7 @@ async def _run_child(role):
             "owners": app.state.gateway_connection_registry.connection_count,
             "pool_capacity": capacity,
             "pool_checkout_errors": pool.checkout_errors,
-            "pool": _pool_window(samples, pool.acquisitions, capacity, started_at, finished_at)
+            "pool": _pool_window(samples, provider, capacity, started_at, finished_at)
             if started_at is not None and finished_at is not None else None,
         }
 
@@ -300,6 +337,7 @@ async def test_gateway_tls_with_worker(update_service_provider, update_service_d
             assert metrics["owners"] == len(ids)
             assert metrics["pool_checkout_errors"] == 0
             assert metrics["pool"] and metrics["pool"]["connection_acquisitions"] > 0
+            assert metrics["pool"]["connection_hold"] and metrics["pool"]["sql_execute"]
             pool_metrics[phase] = metrics["pool"]
         async with provider() as db:
             assert await db.scalar(select(func.count()).select_from(ContextSnapshot).where(
