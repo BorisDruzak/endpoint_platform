@@ -1189,7 +1189,19 @@ authenticated requests each at three per second and measured
 was 3.104–3.147 s, start and result ACK p95 stayed below 0.55 s in
 both connection groups, and the 42-command queue recovered in
 2.127–2.187 s. Each run preserved 128 snapshots and 96 active sessions.
-Peak production mix and larger-scale qualification remain open.
+The next pair doubled the fixture to 192 WSS clients on the same
+isolated PostgreSQL. Both runs completed 256 commands and snapshots,
+including 85 queued commands after 64 reconnects. The loaded window
+covered the full Gateway run with 555 HTTP requests at 3/s and measured
+23.177 Helpdesk transactions/s. Online delivery p95 exceeded the 5 s
+target in both trials (5.636 s control, 6.252 s with Helpdesk). Online
+start and result ACKs exceeded the 1 s target under load, and
+reconnecting clients exceeded it in both trials. Event-loop p99 was
+8.3–8.5 ms and the queue returned to zero within 6.027 s. The widest
+online delivery stage was from commit to the delivery handler.
+This single pair establishes a missed capacity target under the tested
+workload. Peak production mix, repeat measurements and the cause of
+the commit-to-handler delay still need verification.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
