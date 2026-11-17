@@ -476,8 +476,17 @@ has SHA-256 `3f13b965ff952d66c85ba2722293b257ea2b9142d5dbb97366ae19e37d4bfa89`.
 Signed lab Core 3.2.242 now carries the cache rotation in
 `b6c2d0a8755e`. The Windows build branch passed 312 targeted tests with one
 skip. The timestamped EXE and 119-member archive passed verification with
-minimum Foundation 3.2.239. The local archive is ready for isolated
-installation and service acceptance.
+minimum Foundation 3.2.239. An isolated clean Windows 10 clone installed
+Foundation 3.2.239 with native exit 0 and applied Core 3.2.242 over the
+regular HTTPS updater. The same device and four private files matched.
+With 16 changed fixture ZIPs and one matching ZIP, the first idle check
+saved its position at receipt 16. The next check, 324.436 s later, retired
+the matching ZIP and its receipt. The other 16 ZIPs and receipts retained
+their hashes. The Core PID and WSS session remained stable across both
+checks after one controlled service start. VM136, its disk and both ISO
+files were removed along with the dedicated database and provider services.
+The live witness is in the
+[release qualification matrix](docs/verification/2026-11-14-agent-release-qualification-matrix.md#штатная-очистка-отложенных-zip-на-установленном-core-32242).
 Historical Core caches, scratch files from writers without the lock and archives tied to
 quarantined handoff records remain open, along with server deployment releases
 and retirement of catalog artifacts. The server archive ships both storage
