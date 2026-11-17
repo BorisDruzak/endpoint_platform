@@ -332,3 +332,32 @@ VM115 остались в PBS. Production API и worker сохранили PID
 | `permanent-restore-receipt.json` | `07da925fd96c2f6443b83347aa9ae0d37e7be76f3425e29892fe659c5007f048` |
 | `qga-freeze-receipt.txt` | `b6ffac9d708887c20b7743cd39b99c1ac7c9263f86d89df962e86271a2be91d1` |
 | `cleanup.txt` | `55b22c4e2c33aac528d48f314474b69f38c0617b371f903ca924fe05944ce1dc` |
+
+## Включение QEMU Guest Agent на VM115
+
+17 ноября после проверки восстановления и заморозки на VM163
+на production VM115 установлены два пакета Ubuntu из той же
+проверенной пары. Для `qemu-guest-agent`
+`1:8.2.2+ds-0ubuntu1.18` и `liburing2` `2.5-1build1`
+перед установкой сверены SHA-256 и версии. Симуляция APT
+показала две установки без обновлений и удалений. После
+установки `dpkg --audit` вернул пустой результат.
+
+QGA запущен и отвечает на `qm agent 115 ping` через существующий
+канал virtio. `fsfreeze-status` вернул `thawed`. Служба
+`qemu-guest-agent.service` имеет тип установки `static`,
+запрос на её запуск привязан к устройству через `SYSTEMD_WANTS`.
+
+Проверены PID и время старта Endpoint API, worker, Helpdesk Server,
+Helpdesk Control, обоих кластеров PostgreSQL и Nginx. Значения
+между началом и концом операции совпали. HTTPS с исходным CA
+вернул `database=ok`. Все три архива VM115 присутствуют в PBS.
+Временный каталог установки удалён.
+
+Следующий запуск `backup-endpoint-vm115` запланирован на 18 ноября
+04:00 по Екатеринбургу. Факт заморозки в штатной задаче
+предстоит подтвердить по журналу этого запуска.
+
+Квитанция `vm115-qga-receipt.json` в
+`C:/endpoint-platform-wix-build/stab19-vm115-qga-enable-20261117`
+имеет SHA-256 `807ca82517e55f3ec28c8867b8e61a175429e96e4c97edfc80e2278755963489`.
