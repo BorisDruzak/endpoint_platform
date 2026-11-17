@@ -518,6 +518,15 @@ The 04:25 UTC production inventory found all 41 trees without
 protected references and no unreadable PIDs. Exact allocation still
 matched the verified archives at 4,402,864,128 bytes. With
 7,521,411,072 bytes free the calculated margin is 1,186,856,960 bytes.
+At 06:02 UTC the 10 GiB gate was short by 3,224,940,544 bytes.
+A minimum-count assessment selected 30 of the 41 restore-tested
+trees, all with rehashed off-volume archives and no protected or
+incoming release references. A filesystem pass found 3,320,852,480
+allocated bytes in the subset, no blocks shared through hard links
+outside it and no incoming links from the nine unclassified entries.
+The conditional margin at the observed free space is 95,911,936 bytes.
+The [restore inventory](docs/verification/2026-11-15-server-release-restore-inventory.md#оценка-минимального-набора-для-освобождения-места)
+records the selection and filesystem evidence.
 The deployed worker now reports `release_disk` at startup and at the
 existing 15-minute interval. It shares the deploy gate's 10 GiB threshold
 and reports the artifact volume separately. The archived worker on Ubuntu
