@@ -23,6 +23,7 @@ from sqlalchemy.schema import CreateIndex
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from endpoint_contracts.capabilities import MODULE_CAPABILITY_REGISTRY
+from endpoint_server.context.models import ContextCollection
 from endpoint_server.db.models import DeviceSession, EndpointOperation
 from endpoint_server.modules.execution_routes import _project_module_operation
 from tests.server.test_update_postgresql import update_migration_database_urls
@@ -152,7 +153,8 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0055_command_delivery_lookup"]
+    assert script.get_heads() == ["0056_context_collection_history"]
+    assert script.get_revision("0056_context_collection_history").down_revision == "0055_command_delivery_lookup"
     assert script.get_revision("0055_command_delivery_lookup").down_revision == "0054_periodic_context_profiles"
     assert script.get_revision("0054_periodic_context_profiles").down_revision == "0053_activity_dirty_since"
     assert script.get_revision("0053_activity_dirty_since").down_revision == "0052_inventory_installation"
@@ -222,6 +224,52 @@ def test_command_delivery_index_round_trip_preserves_rows(empty_database_url: st
     command.downgrade(config, "0054_periodic_context_profiles")
     assert not asyncio.run(_fetch(plain_url, index_query))
     assert [tuple(row) for row in asyncio.run(_fetch(plain_url, row_query))] == expected_rows
+
+
+def test_context_collection_history_index_order_matches_model() -> None:
+    index, = (
+        index for index in ContextCollection.__table__.indexes
+        if index.name == "ix_context_collections_device_profile_requested"
+    )
+    ddl = str(CreateIndex(index).compile(dialect=postgresql.dialect()))
+    assert ddl == (
+        "CREATE INDEX ix_context_collections_device_profile_requested ON context_collections "
+        "(device_id, profile, requested_at DESC, id DESC)"
+    )
+
+
+def test_context_collection_history_index_round_trip_preserves_rows(empty_database_url: str) -> None:
+    config = _alembic_config(empty_database_url)
+    plain_url = make_url(empty_database_url).set(drivername="postgresql").render_as_string(hide_password=False)
+    command.upgrade(config, "0055_command_delivery_lookup")
+    device_id = uuid4()
+    asyncio.run(_execute(plain_url, f"""
+        INSERT INTO devices (id, device_identifier) VALUES ('{device_id}', 'context-history-device');
+        INSERT INTO context_collections (id, device_id, profile, requested_by, idempotency_key, status, requested_at)
+        VALUES
+            ('{uuid4()}', '{device_id}', 'health_v1', 'scheduler', 'completed', 'completed', '2026-01-01 00:00:00+00'),
+            ('{uuid4()}', '{device_id}', 'health_v1', 'scheduler', 'requested', 'requested', '2026-01-01 00:00:00+00');
+    """))
+    rows_query = "SELECT to_jsonb(collection)::text FROM context_collections AS collection ORDER BY id"
+    original = asyncio.run(_fetch(plain_url, rows_query))
+    assert len(original) == 2
+    index_query = """
+        SELECT indisvalid, indisunique, indnkeyatts, pg_get_indexdef(indexrelid) AS definition
+        FROM pg_index
+        WHERE indrelid = 'context_collections'::regclass
+          AND indexrelid = to_regclass('ix_context_collections_device_profile_requested')
+    """
+    assert not asyncio.run(_fetch(plain_url, index_query))
+
+    command.upgrade(config, "head")
+    index, = asyncio.run(_fetch(plain_url, index_query))
+    assert (index["indisvalid"], index["indisunique"], index["indnkeyatts"]) == (True, False, 4)
+    assert index["definition"].endswith("(device_id, profile, requested_at DESC, id DESC)")
+    assert asyncio.run(_fetch(plain_url, rows_query)) == original
+
+    command.downgrade(config, "0055_command_delivery_lookup")
+    assert not asyncio.run(_fetch(plain_url, index_query))
+    assert asyncio.run(_fetch(plain_url, rows_query)) == original
 
 
 def test_candidate_visibility_migration_preserves_legacy_default_and_roundtrip(update_migration_database_urls):
