@@ -1761,6 +1761,16 @@ passed. The original staging services retained their states, and temporary
 services, listeners, and evidence directories were removed. The exact
 GitHub Actions run, production release space, and the 5 s SLO remain open.
 
+The paired 192-client rerun held the fixture, eight dispatch workers,
+15 database slots, and pinned Helpdesk workload constant across the
+direct parent and candidate. Both service snapshots matched across
+both arms and both fixtures were removed. Result-only empty dispatch
+fell from 658 to 140 and their worker time from 74.482 to 34.195 s.
+Baseline online p95 was 5.547/4.905/5.418 s and candidate p95 was
+4.698/5.322/5.367 s. All reconnect ACK p95 values stayed below 1 s.
+The candidate's slowest chains still wait 1.042–1.220 s for the
+first dispatch worker. The delivery target in all waves remains open.
+
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
 running, worker restart and forced process or PostgreSQL exit. A separate
