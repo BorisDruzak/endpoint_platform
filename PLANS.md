@@ -1659,9 +1659,12 @@ removing one SELECT and the owner UPDATE for newly created Context
 deliveries. Existing replays still read the delivery under lock.
 The combined local set passed 670 tests with 35 skips. The staging
 preflight passed 35 tests with one SQLite lock-case skip. The exact
-192-client comparison at the default worker and pool limits is active.
+192-client comparison recorded 768 initial INSERTs and 768 fewer
+SELECTs in delivery transactions. Online p95 was 5.095–5.574 s.
+Reconnect ACK p95 stayed below 1 s. The capacity fixture was removed.
 Windows passed 2,920 tests with four skips, Console passed 125, and
-both exact-source archives matched.
+both exact-source archives matched. The isolated full Ubuntu gate has
+started on `068b1322c367`. Archive smoke follows the test suite.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
