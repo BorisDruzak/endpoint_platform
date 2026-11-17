@@ -1629,7 +1629,12 @@ reconnect ACKs stayed under 1 s. The sampled tail consists of second
 commands awaiting the previous result ACK and then a dispatch worker.
 Windows passed 2,917 tests with four skips.
 Console passed 125 tests on a two-worker repeat after one pagination failure.
-Both exact-source server archives matched.
+Both exact-source server archives matched. A separate 192-client run
+paired both commands on each device. The first worker wait averaged
+1.280–1.503 s in the nine slowest chains per wave, and the second
+averaged 1.094–1.489 s. Reconnect ACK p95 stayed below 1 s and online
+p95 remained 5.549–5.916 s. The next isolated comparison uses ten
+dispatch workers with the same 15-slot pool.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
