@@ -579,3 +579,13 @@ SHA-256. Срок Bookworm заканчивается 23 ноября в 08:19:1
 `scheduled-witness.json` в
 `C:/endpoint-platform-wix-build/stab17-windows-publisher-20261117/scheduled-20261117T011807Z`
 имеет SHA-256 `1e6b96b870592b173ac47fc658db6c868d3a992f914266e33c0735d85c7e6532`.
+
+В 07:18:07 UTC штатный триггер снова запустил `EndpointAptPrepareRenewal`.
+События 107, 201 и 102 подтвердили запуск и завершение. Результат 0,
+пропущенных запусков 0. Издатель проверил Noble и Bookworm.
+Независимые загрузки по HTTPS совпали с хешами в журнале задачи.
+Следующий триггер запланирован на 13:18:06 UTC в сеансе издателя.
+
+`scheduled-witness.json` в
+`C:/endpoint-platform-wix-build/stab17-windows-publisher-20261117/scheduled-20261117T071807Z`
+имеет SHA-256 `0d65e9af2febf198bdd25ad50cedab6a9ca6dac669daf8d16bfeb63b96246c17`.

@@ -776,6 +776,9 @@ removed. A run after owner sign-out remains open.
 The 01:18 UTC timed run after publication exited 0 and verified both
 live indexes as fresh. Task Scheduler events confirm the time trigger
 and action completion. Independent HTTPS downloads matched both hashes.
+The 07:18 UTC repeat also exited 0 with no missed runs. Both current
+index hashes were independently checked over HTTPS. The next trigger
+is 13:18 UTC in the interactive publisher session.
 Release evidence requires an exact-source CI receipt before publication.
 STAB-15: the [release qualification matrix](docs/verification/2026-11-14-agent-release-qualification-matrix.md)
 records installed canary evidence by OS, exact source and signed artifact.
