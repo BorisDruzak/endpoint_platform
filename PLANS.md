@@ -1799,6 +1799,22 @@ worker-seconds over 139 attempts. Two of three online p95 waves met 5 s
 and both reconnect ACKs met 1 s throughout. The isolated environment
 passed cleanup.
 
+Gateway `252a074d08f6` excludes a Context command already delivered
+to the current WSS session from the result work hint. Commands belonging to
+a prior session and queued work still request dispatch. The regression
+failed for an already-sent command before the change and all four ownership
+cases passed after it. The local suite passed 881 tests with 44 skips.
+At 192 clients, result-only empty probes fell from 139 to 48 and worker time
+from 32.206 to 9.795 s. Online p95 was 5.180/4.857/5.443 s and reconnect
+ACK p95 stayed below 1 s in all waves. Both service projections matched.
+Windows passed 2,920 tests with four skips, Console passed 125, and two
+server archives matched. Ubuntu passed 5,346 tests and two subtests with
+722 skips. The first archive smoke stopped at a stale expected digest in
+the fixture. After correcting that input, a separate smoke passed API,
+assets, migration, worker startup and the low-space warning. The receipt
+keeps the failed first attempt. Temporary services and directories were
+removed. The 5 s delivery target, hosted CI and production space remain open.
+
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
 running, worker restart and forced process or PostgreSQL exit. A separate
