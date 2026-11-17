@@ -1332,6 +1332,14 @@ preserved the original rows. Online delivery and reconnect start moved
 in opposite directions in the two pairs, and reconnect result ACK p95
 rose by 170.2 and 310.4 ms. All four runs exceeded the delivery, start
 and result ACK targets at this load.
+An ABBA repeat on the same 0056 source compared one-second and
+250 ms scan intervals at 192 clients with both histories present.
+The shorter interval reduced online delivery p95 by 453–1,056 ms,
+reconnect start by 625–938 ms and reconnect result ACK by 80–217 ms.
+It added 426–550 SELECTs. The largest observed online delay reduction
+was for second commands on the same socket between commit and handler.
+All four runs verified 256 snapshots and retained both histories.
+The 250 ms trials still exceeded the three latency targets.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
