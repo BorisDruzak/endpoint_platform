@@ -493,7 +493,15 @@ handoff. The publication slot is then available for the next download. NTFS
 tests covered a changed hash, changed size, active handoff, hard link and
 conflicting retained evidence. On `a947ff580473` the full Windows gate passed
 2,920 tests with four skips. Signed lab Core 3.2.243 from `94b47a90b5af`
-passed the archive and bytecode checks and awaits native acceptance.
+passed archive and bytecode checks. A clean Windows 10 clone applied
+Core 3.2.243 after installing Foundation 3.2.239. After a controlled
+service stop, the lab staged a same-size changed ZIP for the exact
+3.2.244 assignment. Installed 3.2.243 preserved the rejected ZIP and
+record by digest, freed the publication slot and applied the signed
+3.2.244 ZIP through the same assignment. The receipt confirms the same
+device and four private files. VM136, its disk, both ISOs and temporary
+database were removed. See the
+[native prepared download receipt](docs/verification/2026-11-14-agent-release-qualification-matrix.md#нативная-приёмка-восстановления-подготовки-и-повторной-загрузки).
 Historical Core caches, scratch files from writers without the lock and archives tied to
 quarantined handoff records remain open, along with server deployment releases
 and retirement of catalog artifacts. The server archive ships both storage
