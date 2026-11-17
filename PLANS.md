@@ -1675,7 +1675,13 @@ avoids a standalone module lookup for Context delivery with no active
 module. The local suite passed 697 tests with 36 skips. The staging
 preflight passed 36 tests with one SQLite lock case skipped. Its PostgreSQL
 test confirmed that a module committed while delivery waited for the Device
-lock retained priority. The 192-client comparison is active.
+lock retained priority. At 192 clients, delivery transactions recorded
+4,608 SELECTs against the previous 5,376, with zero standalone module
+queries. All 768 results and 512 snapshots were verified. Online p95 was
+4.990–5.396 s and reconnect ACK p95 remained below 1 s. The fixture was
+removed. Windows passed 2,920 tests with four skips, Console passed 125,
+and two exact-source archives matched. The Ubuntu gate on the same source
+is active.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
