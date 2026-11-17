@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import UUID
@@ -104,6 +105,9 @@ class ConnectionRegistry:
         self._max_connections = max_connections
         self._connections: dict[UUID, GatewayConnection] = {}
         self._lock = asyncio.Lock()
+        self._dispatch_pending: dict[UUID, tuple[GatewayConnection, bool]] = {}
+        self._dispatch_running: set[UUID] = set()
+        self._dispatch_ready = asyncio.Event()
         # Bound opening bursts against the shared database pool.
         self.handshake_db_slots = asyncio.BoundedSemaphore(8)
         # Fixed-size stripes bound memory even during bursts of new device IDs.
@@ -132,6 +136,8 @@ class ConnectionRegistry:
             previous = self._connections.get(connection.device_id)
             self._require_capacity(connection.device_id)
             self._connections[connection.device_id] = connection
+            if previous is not None and previous is not connection:
+                self._dispatch_pending.pop(connection.device_id, None)
         if previous is not None and previous.session_id != connection.session_id:
             return previous
         return None
@@ -147,6 +153,7 @@ class ConnectionRegistry:
             current = self._connections.get(device_id)
             if current is not None and current.session_id == session_id:
                 del self._connections[device_id]
+                self._dispatch_pending.pop(device_id, None)
 
     async def get(self, device_id: UUID) -> GatewayConnection | None:
         """Return a metadata snapshot for one active connection."""
@@ -158,10 +165,58 @@ class ConnectionRegistry:
         async with self._lock:
             return tuple(self._connections.values())
 
+    def dispatch_in_progress(self, device_id: UUID) -> bool:
+        return device_id in self._dispatch_running
+
+    async def request_dispatch(self, connection: GatewayConnection) -> None:
+        """Coalesce activity into one pending request for its current owner."""
+        device_id = connection.device_id
+        async with self._lock:
+            if self._connections.get(device_id) is connection and connection.ready_for_dispatch.is_set():
+                self._dispatch_pending[device_id] = (connection, True)
+                if device_id not in self._dispatch_running:
+                    self._dispatch_ready.set()
+
+    async def refresh_scheduled_dispatch(self, candidates: Iterable[GatewayConnection]) -> None:
+        async with self._lock:
+            scheduled = {
+                owner.device_id: owner for owner in candidates
+                if self._connections.get(owner.device_id) is owner and owner.ready_for_dispatch.is_set()
+                and owner.device_id not in self._dispatch_running
+            }
+            # A periodic snapshot can remove obsolete scan results. A socket
+            # request can also represent operator work, so keep it until served.
+            self._dispatch_pending = {
+                device_id: (owner, from_socket) for device_id, (owner, from_socket) in self._dispatch_pending.items()
+                if from_socket or device_id in scheduled
+            }
+            for device_id, owner in scheduled.items():
+                self._dispatch_pending.setdefault(device_id, (owner, False))
+            if scheduled:
+                self._dispatch_ready.set()
+
+    async def next_dispatch(self) -> GatewayConnection:
+        while True:
+            await self._dispatch_ready.wait()
+            async with self._lock:
+                for device_id, (owner, _) in self._dispatch_pending.items():
+                    if device_id not in self._dispatch_running:
+                        del self._dispatch_pending[device_id]
+                        self._dispatch_running.add(device_id)
+                        return owner
+                self._dispatch_ready.clear()
+
+    async def finish_dispatch(self, device_id: UUID) -> None:
+        async with self._lock:
+            self._dispatch_running.remove(device_id)
+            if device_id in self._dispatch_pending:
+                self._dispatch_ready.set()
+
     async def shutdown_all(self) -> None:
         async with self._lock:
             connections = tuple(self._connections.values())
             self._connections.clear()
+            self._dispatch_pending.clear()
         await asyncio.gather(*(
             self._shutdown(connection, "server_shutdown", 1001)
             for connection in connections

@@ -452,13 +452,7 @@ async def connect_agent(websocket: WebSocket) -> None:
                     pass
             else:
                 raise GatewayProtocolError(1008, "unexpected_message")
-            await command_service.deliver_next(
-                device_id,
-                presence.session_id,
-                connection.send,
-                allowed_capabilities=frozenset(effective_capabilities),
-                agent_platform=first.payload.platform,
-            )
+            await registry.request_dispatch(connection)
     except WebSocketDisconnect:
         pass
     except TimeoutError:

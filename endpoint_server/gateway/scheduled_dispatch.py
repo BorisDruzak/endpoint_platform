@@ -1,11 +1,9 @@
-"""Dispatch worker-scheduled context work to idle Gateway sockets."""
+"""Dispatch command work requested by Gateway sockets and the Context scheduler."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from collections import OrderedDict
-from uuid import UUID
 
 from endpoint_contracts.gateway_ws import CommandEnvelopeV1
 from endpoint_server.db.session import SessionProvider
@@ -66,22 +64,13 @@ async def run_scheduled_dispatch(registry: ConnectionRegistry, provider: Session
     """Scan on its own cadence while a bounded set of workers delivers commands."""
     service = CommandService(provider)
     loop = asyncio.get_running_loop()
-    pending: OrderedDict[UUID, GatewayConnection] = OrderedDict()
-    running: set[UUID] = set()
-    ready = asyncio.Event()
-
     async def drain() -> None:
         while True:
-            await ready.wait()
-            while pending:
-                device_id, connection = pending.popitem(last=False)
-                running.add(device_id)
-                if not pending:
-                    ready.clear()
-                try:
-                    await _deliver(service, registry, connection)
-                finally:
-                    running.remove(device_id)
+            connection = await registry.next_dispatch()
+            try:
+                await _deliver(service, registry, connection)
+            finally:
+                await registry.finish_dispatch(connection.device_id)
 
     async with asyncio.TaskGroup() as workers:
         for _ in range(_MAX_CONCURRENT_DELIVERIES):
@@ -92,7 +81,7 @@ async def run_scheduled_dispatch(registry: ConnectionRegistry, provider: Session
             next_scan = loop.time() + _POLL_SECONDS
             owners = {
                 connection.device_id: connection for connection in await registry.connected()
-                if connection.ready_for_dispatch.is_set() and connection.device_id not in running
+                if connection.ready_for_dispatch.is_set() and not registry.dispatch_in_progress(connection.device_id)
             }
             try:
                 async with asyncio.timeout(_QUERY_SECONDS):
@@ -104,13 +93,4 @@ async def run_scheduled_dispatch(registry: ConnectionRegistry, provider: Session
                 next_scan = loop.time() + _POLL_SECONDS
                 continue
 
-            # Refresh from the bounded registry and skip devices that started while
-            # PostgreSQL was selecting candidates.
-            pending.clear()
-            pending.update(
-                (device_id, owners[device_id]) for device_id in candidates if device_id not in running
-            )
-            if pending:
-                ready.set()
-            else:
-                ready.clear()
+            await registry.refresh_scheduled_dispatch(owners[device_id] for device_id in candidates)

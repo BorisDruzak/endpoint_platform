@@ -170,19 +170,19 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(
     initial_dispatch_done = asyncio.Event()
     finish_power = asyncio.Event()
     post_power_probe = asyncio.Event()
-    socket_task = None
+    finish_post_power_probe = asyncio.Event()
     deliver_next = CommandService.deliver_next
     commit_power = ws_routes.commit_and_ack_power_events
 
     async def observe_power(*args, **kwargs):
-        nonlocal socket_task
-        socket_task = asyncio.current_task()
         await commit_power(*args, **kwargs)
         await finish_power.wait()
 
     async def observe_dispatch(service, *args, **kwargs):
-        if asyncio.current_task() is socket_task:
+        if power_start and finish_power.is_set():
             post_power_probe.set()
+            if power_start == "not_yet_sent":
+                await finish_post_power_probe.wait()
         delivered = await deliver_next(service, *args, **kwargs)
         if not delivered:
             initial_dispatch_done.set()
@@ -281,6 +281,7 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(
                 assert not post_power_probe.is_set()
             await send(_result(device.id, command, 1))
             assert (await receive("result_ack"))["command_id"] == command
+            finish_post_power_probe.set()
             if follow_up:
                 next_command = await receive("command")
                 async with session_provider() as db:
@@ -294,6 +295,7 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(
                 assert len((await db.scalars(select(ContextSnapshot))).all()) == 1
         finally:
             finish_power.set()
+            finish_post_power_probe.set()
             await inbound.put({"type": "websocket.disconnect", "code": 1000})
             await asyncio.wait_for(task, timeout=5)
 
@@ -437,10 +439,47 @@ async def test_scheduled_scan_discovers_new_work_during_a_slow_delivery(session_
 
 
 @pytest.mark.asyncio
+async def test_dispatch_coalesces_activity_and_retires_replaced_requests():
+    from endpoint_server.gateway.connection_registry import ConnectionRegistry, GatewayConnection
+
+    registry = ConnectionRegistry(max_connections=2)
+    owner = GatewayConnection(uuid4(), uuid4(), object())
+    another = GatewayConnection(uuid4(), uuid4(), object())
+    for connection in (owner, another):
+        await registry.publish(connection)
+        connection.ready_for_dispatch.set()
+
+    await registry.request_dispatch(owner)
+    assert await asyncio.wait_for(registry.next_dispatch(), timeout=1) is owner
+    await registry.request_dispatch(owner)
+    await registry.request_dispatch(owner)
+    await registry.refresh_scheduled_dispatch((another,))
+    assert await asyncio.wait_for(registry.next_dispatch(), timeout=1) is another
+    await registry.finish_dispatch(another.device_id)
+    await registry.refresh_scheduled_dispatch(())
+    await registry.finish_dispatch(owner.device_id)
+
+    assert await asyncio.wait_for(registry.next_dispatch(), timeout=1) is owner
+    await registry.request_dispatch(owner)
+    replacement = GatewayConnection(owner.device_id, uuid4(), object())
+    replacement.ready_for_dispatch.set()
+    assert await registry.publish(replacement) is owner
+    await registry.request_dispatch(owner)
+    await registry.finish_dispatch(owner.device_id)
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(registry.next_dispatch(), timeout=0.02)
+
+    await registry.request_dispatch(replacement)
+    assert await asyncio.wait_for(registry.next_dispatch(), timeout=1) is replacement
+    await registry.finish_dispatch(replacement.device_id)
+
+
+@pytest.mark.asyncio
 async def test_scheduled_dispatch_counts_work_toward_next_scan_interval(monkeypatch):
     from types import SimpleNamespace
 
     from endpoint_server.gateway import scheduled_dispatch
+    from endpoint_server.gateway.connection_registry import ConnectionRegistry
 
     now = 0.0
     starts = []
@@ -449,7 +488,7 @@ async def test_scheduled_dispatch_counts_work_toward_next_scan_interval(monkeypa
         nonlocal now
         now += delay
 
-    class Registry:
+    class Registry(ConnectionRegistry):
         async def connected(self):
             nonlocal now
             if len(starts) == 4:
