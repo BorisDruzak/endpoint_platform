@@ -137,6 +137,13 @@ smoke again. The local evidence record links Linux, Windows, Console,
 the paired archives and migration proof. The production preflight
 returned 2 at 7,522,914,304 free bytes. GitHub Actions returned no run
 for this SHA.
+The local workflow on Gateway `f236040a28f9` passed 5,330 Linux
+tests, two subtests and 722 skips. The 0051 to 0056 migration and
+archive smoke passed. One evidence record binds the Linux workflow,
+2,915 Windows tests, 125 Console tests, byte-identical archives and
+the three sustained load trials to that source. The production gate
+returned 2 with 7,508,058,112 bytes free. GitHub Actions returned no
+run for this SHA.
 STAB-01 source: WSS bounded FIFO and separate command task, fixed worker
 process with capability budgets, deadline admission and owned process-tree
 cleanup. HTTP pull remains sequential. Windows source fault injection covers
@@ -1515,8 +1522,8 @@ suites passed 106. The corrected 144-client fixture verified delivery,
 ACK, durable replay and both histories. Reconnect start p95 was
 0.552, 0.566 and 0.576 s. Online delivery p95 was 4.247–4.885 s.
 The Windows workflow task passed 2,915 tests with four skips, Console
-passed 125, and both exact-source server archives matched. Full Linux
-release workflow, hosted CI and production publication remain open.
+passed 125, and both exact-source server archives matched. The STAB-14
+baseline records the Linux workflow. Hosted CI and publication remain open.
 The same candidate completed the sustained 168-client trial with
 672 unique results, 448 snapshots, 112 replays and both histories
 verified. All three waves met the 1 s reconnect start and result

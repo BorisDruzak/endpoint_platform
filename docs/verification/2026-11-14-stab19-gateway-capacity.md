@@ -2911,7 +2911,7 @@ SHA-256 — `8441e92ade2e474325421344e02eceeb2ae4ab0613cc2c1733df4187c482fc72`.
 в `C:/endpoint-platform-wix-build/stab19-wss-dispatch-worker-sustained-144-20261117/server-release`.
 SHA-256 `candidate-artifacts.json` —
 `c637e46730b23044ec20408f916fee2e8541e3776acf2aa2d508ff77a6dbdc2d`.
-Для допуска ещё нужны полный Linux workflow и hosted CI.
+Полный Linux workflow записан в отчёте STAB-14. Hosted CI остаётся открытым.
 В 05:48 UTC на томе production было 7 513 903 104 свободных байта
 при пороге 10 GiB.
 
