@@ -163,7 +163,7 @@ class WindowsOnlineUpdateRuntime:
                 # consume it, including after a failed publication flush.
                 flush_directory(self._paths.updates_root)
             elif not self._has_update_recovery_state():
-                retry_deferred_core_downloads(self._paths)
+                retry_deferred_core_downloads(self._paths, protect=self._acl.protect_update_path)
                 prepared = self._prepared_download_present()
                 try:
                     if prepared or self._paths.downloads_root.is_dir():

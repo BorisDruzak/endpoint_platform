@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from collections.abc import Callable
 from contextlib import contextmanager
 import hashlib
@@ -31,6 +32,7 @@ _OPERATION = r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
 _RETIREMENT = re.compile(rf"\.core-retire-(?P<operation>{_OPERATION})\.json")
 _RETIREMENT_FIELDS = frozenset(("version", "operation_id", "artifact_path", "sha256", "size"))
 _RETIREMENT_LIMIT = 4096
+_RETIREMENT_CURSOR = ".core-retirement-cursor.json"
 _SHARING_ERRORS = {32, 33}  # ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION
 
 
@@ -194,45 +196,68 @@ def retire_update_download(
         return False
 
 
-def retry_deferred_core_downloads(paths: WindowsUpdatePaths) -> None:
-    """Retry verified terminal cache cleanup with no active update under the mutex."""
+def retry_deferred_core_downloads(
+    paths: WindowsUpdatePaths, *, protect: Callable[[Path], None],
+) -> None:
+    """Retry a bounded set of terminal archives without starving later receipts."""
     root = paths.updates_root
+    cursor_path = root / _RETIREMENT_CURSOR
     try:
         _check_directories(root)
         _assert_cache_security(root)
+        with os.scandir(root) as entries:
+            names = sorted(
+                entry.name for entry in islice(entries, _SCAN_LIMIT) if _RETIREMENT.fullmatch(entry.name)
+            )
+        if not names:
+            return
+        try:
+            cursor = _read_state(cursor_path, _RETIREMENT_LIMIT)
+        except (OSError, ValueError, WindowsAclError):
+            cursor = None
+        if not isinstance(cursor, str) or _RETIREMENT.fullmatch(cursor) is None:
+            cursor = ""
+        offset = bisect_right(names, cursor)
         attempts = 0
         bytes_left = MAX_ARTIFACT_BYTES
-        with os.scandir(root) as entries:
-            for entry in islice(entries, _SCAN_LIMIT):
-                match = _RETIREMENT.fullmatch(entry.name)
-                if match is None:
+        last = cursor
+        for name in names[offset:] + names[:offset]:
+            previous, last = last, name
+            receipt = root / name
+            try:
+                metadata = _read_state(receipt, _RETIREMENT_LIMIT)
+                if (not isinstance(metadata, dict) or metadata.keys() != _RETIREMENT_FIELDS
+                        or metadata["operation_id"] != _RETIREMENT.fullmatch(name)["operation"]):
                     continue
-                receipt = Path(entry.path)
-                try:
-                    metadata = _read_state(receipt, _RETIREMENT_LIMIT)
-                    if (not isinstance(metadata, dict) or metadata.keys() != _RETIREMENT_FIELDS
-                            or metadata["operation_id"] != match["operation"]):
-                        continue
-                    artifact = _download_path(paths, metadata)
-                    if artifact is None or metadata["size"] > bytes_left:
-                        continue
-                    _checked_path(artifact, root)
-                    _assert_cache_security(artifact.parent)
-                    attempts += 1
-                    try:
-                        artifact.lstat()
-                    except FileNotFoundError:
-                        # Finish the archive barrier after an interrupted retry.
-                        flush_directory(artifact.parent)
-                        retired = True
-                    else:
-                        bytes_left -= metadata["size"]
-                        retired = retire_update_download(paths, metadata, assert_security=_assert_cache_security)
-                    if retired:
-                        durable_unlink(receipt, trusted_root=root, missing_ok=True)
-                except (OSError, ValueError, WindowsAclError):
-                    pass
-                if attempts >= _DELETE_LIMIT:
+                artifact = _download_path(paths, metadata)
+                if artifact is None:
+                    continue
+                if metadata["size"] > bytes_left:
+                    # Give this receipt a full byte budget on the next check.
+                    last = previous
                     break
-    except (OSError, ValueError):
+                _checked_path(artifact, root)
+                _assert_cache_security(artifact.parent)
+                attempts += 1
+                try:
+                    artifact.lstat()
+                except FileNotFoundError:
+                    # Finish the archive barrier after an interrupted retry.
+                    flush_directory(artifact.parent)
+                    retired = True
+                else:
+                    bytes_left -= metadata["size"]
+                    retired = retire_update_download(paths, metadata, assert_security=_assert_cache_security)
+                if retired:
+                    durable_unlink(receipt, trusted_root=root, missing_ok=True)
+            except (OSError, ValueError, WindowsAclError):
+                pass
+            if attempts >= _DELETE_LIMIT:
+                break
+        else:
+            return
+        if last != cursor:
+            write_json_atomic(cursor_path, last, trusted_root=root, max_bytes=_RETIREMENT_LIMIT, protect=protect)
+    except (OSError, ValueError, WindowsAclError):
+        # Cursor persistence is best effort. Receipts remain the cleanup authority.
         return

@@ -709,6 +709,61 @@ async def test_terminal_core_zip_is_retried_after_a_sharing_violation(tmp_path, 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("limit", ["attempts", "bytes"])
+async def test_deferred_cache_retries_advance_past_retained_archives(tmp_path, monkeypatch, limit):
+    from contextlib import contextmanager
+
+    from pc_agent.platform.windows import update_download_retention as retention
+
+    rig = Rig(tmp_path, monkeypatch)
+    monkeypatch.setattr(rig, "get", lambda *_, **__: Response(204))
+    root = rig.paths.updates_root
+    rig.paths.downloads_root.mkdir(parents=True, exist_ok=True)
+    expected = b"original archive"
+    retained = b"modified archive"
+    receipts = []
+    archives = []
+    for index in range(1, 4):
+        operation = f"00000000-0000-4000-8000-{index:012x}"
+        archive = rig.paths.downloads_root / f"build-3.2.5-{operation}.zip"
+        archive.write_bytes(retained if index < 3 else expected)
+        receipt = root / f".core-retire-{operation}.json"
+        receipt.write_text(json.dumps({
+            "version": "3.2.5", "operation_id": operation, "artifact_path": str(archive),
+            "sha256": hashlib.sha256(expected).hexdigest(), "size": len(expected),
+        }))
+        archives.append(archive)
+        receipts.append(receipt)
+
+    scandir = os.scandir
+
+    @contextmanager
+    def ordered_scandir(path):
+        with scandir(path) as entries:
+            yield iter(sorted(entries, key=lambda entry: entry.name)) if path == root else entries
+
+    monkeypatch.setattr(retention.os, "scandir", ordered_scandir)
+    if limit == "attempts":
+        monkeypatch.setattr(retention, "_DELETE_LIMIT", 2)
+    else:
+        monkeypatch.setattr(retention, "MAX_ARTIFACT_BYTES", 2 * len(expected))
+    original_receipts = [path.read_bytes() for path in receipts[:2]]
+
+    assert (await rig.online().run_once()).status == "idle"
+    assert all(path.exists() for path in archives + receipts)
+    assert (await rig.online().run_once()).status == "idle"
+    assert not archives[2].exists() and not receipts[2].exists()
+    assert [path.read_bytes() for path in archives[:2]] == [retained, retained]
+    assert [path.read_bytes() for path in receipts[:2]] == original_receipts
+
+    archives[0].write_bytes(expected)
+    assert (await rig.online().run_once()).status == "idle"
+    assert not archives[0].exists() and not receipts[0].exists()
+    assert archives[1].read_bytes() == retained
+    assert receipts[1].read_bytes() == original_receipts[1]
+
+
+@pytest.mark.asyncio
 async def test_terminal_cleanup_preserves_attempt_changed_during_post(tmp_path, monkeypatch):
     rig = Rig(tmp_path, monkeypatch)
     await failed_candidate(rig)
