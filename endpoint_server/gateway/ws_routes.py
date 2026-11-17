@@ -369,15 +369,19 @@ async def connect_agent(websocket: WebSocket) -> None:
                         # for another command. Results and heartbeats still dispatch.
                         continue
             elif isinstance(envelope, CommandResultEnvelopeV1):
-                acknowledgement = await command_service.record_result(
+                acknowledgement, has_work = await command_service.record_result_with_work_hint(
                     device_id=device_id,
                     device_instance_id=presence.device_instance_id,
                     session_id=presence.session_id,
                     result_sequence=envelope.sequence,
                     result=envelope.payload,
                     durable_replay=COMMAND_JOURNAL_FEATURE in connection.protocol_features,
+                    allowed_capabilities=connection.effective_capabilities,
                 )
                 await connection.send(acknowledgement)
+                if not has_work:
+                    # The periodic scan will find work committed after the lookup.
+                    continue
             elif isinstance(envelope, EndpointPolicyAckEnvelopeV1):
                 if not websocket.app.state.settings.endpoint_policy_enabled:
                     raise GatewayProtocolError(1008, "policy_disabled")

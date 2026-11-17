@@ -1182,11 +1182,44 @@ class CommandService:
         result: AgentResultV1,
         durable_replay: bool = False,
     ) -> ResultAckEnvelopeV1:
+        acknowledgement, _ = await self.record_result_with_work_hint(
+            device_id=device_id,
+            device_instance_id=device_instance_id,
+            session_id=session_id,
+            result_sequence=result_sequence,
+            result=result,
+            durable_replay=durable_replay,
+            allowed_capabilities=None,
+        )
+        return acknowledgement
+
+    async def record_result_with_work_hint(
+        self,
+        *,
+        device_id: UUID,
+        device_instance_id: UUID,
+        session_id: UUID,
+        result_sequence: int,
+        result: AgentResultV1,
+        allowed_capabilities: AbstractSet[str] | None,
+        durable_replay: bool = False,
+    ) -> tuple[ResultAckEnvelopeV1, bool]:
+        """Return the committed result ACK and whether WSS delivery should check for work."""
         if result_sequence < 0:
             raise CommandStateRejected("result sequence must be non-negative")
         if result.device_id != device_id or result.status not in _TERMINAL_STATUSES:
             raise CommandStateRejected("terminal result does not match session")
         payload_digest = result_payload_digest(result)
+        acknowledgement = ResultAckEnvelopeV1(
+            schema_version="gateway_ws_envelope_v1",
+            kind="result_ack",
+            sequence=result_sequence,
+            payload=ResultAckV1(
+                schema_version="result_ack_v1",
+                command_id=result.command_id,
+                result_sequence=result_sequence,
+            ),
+        )
         async with self._session_provider() as session:
             try:
                 await _lock_command_device(session, device_id)
@@ -1208,13 +1241,21 @@ class CommandService:
                     )
                     .with_for_update()
                 )
-                command = await session.scalar(
+                command_lookup = (
                     select(Command)
                     .where(
                         Command.id == result.command_id, Command.device_id == device_id
                     )
                     .with_for_update()
                 )
+                if allowed_capabilities is None:
+                    command = await session.scalar(command_lookup)
+                    has_work = True
+                else:
+                    row = (await session.execute(command_lookup.add_columns(
+                        wss_work_available(device_id, allowed_capabilities),
+                    ))).one_or_none()
+                    command, has_work = (None, True) if row is None else row
                 if gateway_session is None or instance is None or command is None:
                     raise CommandStateRejected("result ownership is unavailable")
 
@@ -1247,12 +1288,7 @@ class CommandService:
                         # Receipt lets the journal settle a late delivery. It
                         # does not publish a result or change server expiry.
                         await session.rollback()
-                        return ResultAckEnvelopeV1(
-                            schema_version="gateway_ws_envelope_v1", kind="result_ack",
-                            sequence=result_sequence,
-                            payload=ResultAckV1(schema_version="result_ack_v1",
-                                command_id=result.command_id, result_sequence=result_sequence),
-                        )
+                        return acknowledgement, True
                 module_relation = await resolve_module_step_relation(session, command)
                 if module_relation is not None:
                     step, module_operation = module_relation
@@ -1271,16 +1307,8 @@ class CommandService:
                         same_instance_delivery=same_instance_delivery,
                     )
                     await session.commit()
-                    return ResultAckEnvelopeV1(
-                        schema_version="gateway_ws_envelope_v1",
-                        kind="result_ack",
-                        sequence=result_sequence,
-                        payload=ResultAckV1(
-                            schema_version="result_ack_v1",
-                            command_id=result.command_id,
-                            result_sequence=result_sequence,
-                        ),
-                    )
+                    # A result can make the next step of a module runnable.
+                    return acknowledgement, True
                 collection, operation = await resolve_command_context_relation(
                     session,
                     command,
@@ -1469,16 +1497,7 @@ class CommandService:
                 await session.rollback()
                 raise
 
-        return ResultAckEnvelopeV1(
-            schema_version="gateway_ws_envelope_v1",
-            kind="result_ack",
-            sequence=result_sequence,
-            payload=ResultAckV1(
-                schema_version="result_ack_v1",
-                command_id=result.command_id,
-                result_sequence=result_sequence,
-            ),
-        )
+        return acknowledgement, has_work
 
 
 def _deny_start(

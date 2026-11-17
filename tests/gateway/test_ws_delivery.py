@@ -17,6 +17,7 @@ from endpoint_server.db.models import Command, CommandDelivery, DeviceSession
 from endpoint_contracts.power_events import POWER_EVENTS_FEATURE
 from endpoint_server.gateway import ws_routes
 from endpoint_server.gateway.command_service import CommandService, CommandStateRejected
+from endpoint_server.gateway.connection_registry import ConnectionRegistry
 from endpoint_server.power.models import PowerSourceState
 
 from endpoint_server.main import create_app
@@ -193,11 +194,17 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(
     initial_dispatch_done = asyncio.Event()
     heartbeat_done = asyncio.Event()
     socket_requests = []
+    result_ack_sent = asyncio.Event()
+    reading_after_result = asyncio.Event()
+    result_dispatch = []
     finish_power = asyncio.Event()
     post_power_probe = asyncio.Event()
     finish_post_power_probe = asyncio.Event()
     deliver_next = CommandService.deliver_next
     commit_power = ws_routes.commit_and_ack_power_events
+    scheduled_pending_devices = CommandService.scheduled_pending_devices
+    request_dispatch = ConnectionRegistry.request_dispatch
+    scan_enabled = True
 
     async def observe_power(*args, **kwargs):
         await commit_power(*args, **kwargs)
@@ -213,25 +220,31 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(
             initial_dispatch_done.set()
         return delivered
 
+    async def observe_request(registry, connection):
+        socket_requests.append(connection.session_id)
+        if result_ack_sent.is_set():
+            result_dispatch.append(connection.session_id)
+        await request_dispatch(registry, connection)
+
+    async def scan(service, capabilities):
+        if scan_enabled:
+            return await scheduled_pending_devices(service, capabilities)
+        return ()
+
     monkeypatch.setattr(CommandService, "deliver_next", observe_dispatch)
+    monkeypatch.setattr(CommandService, "scheduled_pending_devices", scan)
+    monkeypatch.setattr(ConnectionRegistry, "request_dispatch", observe_request)
     if requester == "operator":
-        from endpoint_server.gateway.connection_registry import ConnectionRegistry
         from endpoint_server.gateway.presence_service import PresenceService
 
         record_heartbeat = PresenceService.record_heartbeat
-        request_dispatch = ConnectionRegistry.request_dispatch
 
         async def observe_heartbeat(presence, **kwargs):
             result = await record_heartbeat(presence, **kwargs)
             heartbeat_done.set()
             return result
 
-        async def observe_request(registry, connection):
-            socket_requests.append(connection.session_id)
-            await request_dispatch(registry, connection)
-
         monkeypatch.setattr(PresenceService, "record_heartbeat", observe_heartbeat)
-        monkeypatch.setattr(ConnectionRegistry, "request_dispatch", observe_request)
     if power_start:
         monkeypatch.setattr(ws_routes, "commit_and_ack_power_events", observe_power)
         async with session_provider() as db:
@@ -258,6 +271,16 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(
     async def send(frame):
         await inbound.put({"type": "websocket.receive", "text": json.dumps(frame)})
 
+    async def receive_from_agent():
+        if result_ack_sent.is_set():
+            reading_after_result.set()
+        return await inbound.get()
+
+    async def send_to_agent(frame):
+        if frame["type"] == "websocket.send" and json.loads(frame["text"])["kind"] == "result_ack":
+            result_ack_sent.set()
+        await outbound.put(frame)
+
     async def receive(kind):
         frame = await asyncio.wait_for(outbound.get(), timeout=4)
         assert frame["type"] == "websocket.send", frame
@@ -271,7 +294,7 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(
         features.append(POWER_EVENTS_FEATURE)
     hello.update(capabilities=["context.health.collect"], protocol_features=features)
     async with app.router.lifespan_context(app):
-        task = asyncio.create_task(app(scope, inbound.get, outbound.put))
+        task = asyncio.create_task(app(scope, receive_from_agent, send_to_agent))
         try:
             await inbound.put({"type": "websocket.connect"})
             assert (await asyncio.wait_for(outbound.get(), timeout=4))["type"] == "websocket.accept"
@@ -295,6 +318,8 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(
                 await db.commit()
 
             command = (await receive("command"))["command_id"]
+            if power_start is None:
+                scan_enabled = False
             follow_up_id = uuid4()
             if follow_up:
                 async with session_provider() as db:
@@ -350,7 +375,11 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(
                 assert (await receive("result_ack"))["command_id"] == command
             finally:
                 event.remove(engine, "before_cursor_execute", observe_feedback)
+            if power_start is None:
+                await asyncio.wait_for(reading_after_result.wait(), timeout=4)
+                assert result_dispatch == ([UUID(handshake["session_id"])] if follow_up else [])
             assert sum("from commands where commands.id =" in sql for sql in feedback_reads) == 1
+            assert any("exists" in sql and "from commands where commands.id =" in sql for sql in feedback_reads)
             assert sum("from context_collections where context_collections.command_id =" in sql for sql in feedback_reads) == 1
             assert not any("from command_results where command_results.id =" in sql for sql in feedback_reads)
             assert not any("from context_collections where context_collections.command_result_id =" in sql for sql in feedback_reads)
