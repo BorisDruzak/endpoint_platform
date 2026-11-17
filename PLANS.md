@@ -1390,6 +1390,17 @@ Reconnect start was 1.022 and 0.845 s. Last hello took 0.100–0.724 s
 longer under the limit, and queue recovery improved by about 0.33 s.
 All four runs verified 224 snapshots and both histories. This is
 evidence for the tested lab limit on a mixed production-shaped load.
+Gateway `2b2297228baa` now limits concurrent WSS opening database stages
+to eight per process. Regression tests cover cancellation and admission
+while other sockets wait for hello. Four 168-client TLS runs at the
+default 1 s scan interval preserved 224 snapshots and both histories.
+With the limit, online delivery p95 was 4.618–4.662 s and reconnect
+start and result ACK both met 1 s p95 in each pair. Result handler
+connection acquisition p95 declined from 715–806 ms to 375–463 ms.
+Gateway, Context and Architecture passed 469 Windows and 483 PostgreSQL
+tests. The exact Windows workflow task passed 2,912 tests with four
+skips. The 192-client and sustained mixed trials remain open for this
+candidate.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
