@@ -110,9 +110,12 @@ async def test_command_is_committed_before_websocket_send(
 
     observed: list[CommandEnvelopeV1] = []
     redundant_sql: list[str] = []
+    device_selection_sql: list[str] = []
 
     def observe_sql(_conn, _cursor, statement, _params, _context, _many):
         sql = " ".join(statement.lower().split())
+        if sql.startswith(("select devices.id from devices ", "select (exists (select context_collections.id")):
+            device_selection_sql.append(sql)
         if sql.startswith("select ") and (
             "from context_collections where context_collections.id =" in sql
             or "from commands where commands.id =" in sql
@@ -158,6 +161,9 @@ async def test_command_is_committed_before_websocket_send(
             assert collection.status == "requested"
             assert collection.command_id is None
     assert redundant_sql == []
+    assert len(device_selection_sql) == 1
+    assert device_selection_sql[0].startswith("select devices.id from devices ")
+    assert "exists (select context_collections.id" in device_selection_sql[0]
 
 
 @pytest.mark.asyncio

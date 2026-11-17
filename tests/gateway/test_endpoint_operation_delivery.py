@@ -31,6 +31,7 @@ from endpoint_server.db.models import (
     Command,
     CommandDelivery,
     CommandResult,
+    Device,
     EndpointOperation,
     ModuleDefinition,
     ModuleOperationStep,
@@ -489,6 +490,18 @@ async def test_idle_gateway_discovers_new_operation(session_provider, kind):
 @pytest.mark.parametrize("kind", ["diagnostic", "module"])
 async def test_postgresql_idle_gateway_discovers_new_operation(update_service_provider, kind):
     await _assert_idle_gateway_discovers_operation(update_service_provider, kind)
+
+
+@pytest.mark.asyncio
+async def test_postgresql_empty_delivery_ignores_locked_device(update_service_provider):
+    provider = update_service_provider
+    device = await seed_device(provider, token=uuid4().hex)
+    sent = []
+    async with provider() as locker:
+        assert await locker.get(Device, device.id, with_for_update=True) is not None
+        async with asyncio.timeout(3):
+            assert not await CommandService(provider).deliver_next(device.id, uuid4(), sent.append)
+    assert sent == []
 
 
 @pytest.mark.asyncio
