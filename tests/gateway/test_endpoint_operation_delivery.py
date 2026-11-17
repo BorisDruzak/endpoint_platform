@@ -438,7 +438,7 @@ async def _assert_idle_gateway_discovers_operation(session_provider, kind):
     from endpoint_server.gateway.connection_registry import ConnectionRegistry, GatewayConnection
     from endpoint_server.gateway.scheduled_dispatch import run_scheduled_dispatch
 
-    device = await seed_device(session_provider)
+    device = await seed_device(session_provider, token=uuid4().hex)
     presence = await _open_session(
         session_provider, device_id=device.id, capabilities=capabilities,
     )
