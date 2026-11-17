@@ -180,7 +180,7 @@ async def test_scheduler_pages_by_device_and_retries_a_rolled_back_page(session)
 
 
 @pytest.mark.asyncio
-async def test_scheduler_reads_active_work_and_latest_history_together(session):
+async def test_scheduler_reads_all_profile_histories_in_one_query_per_device(session):
     device = Device(device_identifier="scheduler-single-history-read", created_at=NOW)
     session.add(device)
     await session.flush()
@@ -206,7 +206,7 @@ async def test_scheduler_reads_active_work_and_latest_history_together(session):
     finally:
         event.remove(engine, "before_cursor_execute", observe)
 
-    assert len(statements) == 5
+    assert len(statements) == 1
     profiles = await session.scalars(select(ContextCollection.profile).where(ContextCollection.requested_by == "scheduler"))
     assert set(profiles) == {"health_v1", "network_v1", "inventory_v1"}
 

@@ -6,8 +6,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import case, select, text
+from sqlalchemy import case, literal, select, text, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import Select
 
 from endpoint_server.db.models import Device
 
@@ -90,9 +91,9 @@ async def _expire_overdue_scheduled_collections(
         collection.failure_code = "schedule_expired"
 
 
-async def _schedule_history(
-    session: AsyncSession, device_id: UUID, profile: str,
-) -> tuple[bool, datetime | None]:
+def _schedule_history_probe(
+    device_id: UUID, profile: str,
+) -> Select[tuple[str, bool, datetime | None]]:
     history = select(ContextCollection.requested_at).where(
         ContextCollection.device_id == device_id,
         ContextCollection.profile == profile,
@@ -112,10 +113,18 @@ async def _schedule_history(
         .scalar_subquery()
     )
     # Use the same active probe for both outputs and only read history if it is empty.
-    found_active, latest_requested_at = (
-        await session.execute(select(has_active, case((has_active, None), else_=latest)))
-    ).one()
-    return found_active, latest_requested_at
+    return select(literal(profile), has_active, case((has_active, None), else_=latest))
+
+
+async def _schedule_history(
+    session: AsyncSession, device_id: UUID, rules: tuple[ContextScheduleRule, ...],
+) -> dict[str, tuple[bool, datetime | None]]:
+    # Each branch retains its own ordered and bounded row locks.
+    probes = union_all(*(_schedule_history_probe(device_id, rule.profile) for rule in rules))
+    return {
+        profile: (active, last_requested_at)
+        for profile, active, last_requested_at in await session.execute(probes)
+    }
 
 
 async def schedule_due_collections(
@@ -169,13 +178,16 @@ async def schedule_due_collections_with_backlog(
         if await removed(session, device.id):
             continue
         profiles = device.scheduled_context_profiles
-        for rule in SCHEDULE_RULES:
-            if profiles is not None and rule.profile not in profiles:
-                continue
+        rules = tuple(rule for rule in SCHEDULE_RULES if profiles is None or rule.profile in profiles)
+        if not rules:
+            continue
+        for rule in rules:
             await _advisory_lock(
                 session, f"context.schedule:{device.id}:{rule.profile}"
             )
-            active, last_requested_at = await _schedule_history(session, device.id, rule.profile)
+        history = await _schedule_history(session, device.id, rules)
+        for rule in rules:
+            active, last_requested_at = history[rule.profile]
             if active:
                 continue
             overdue = (
