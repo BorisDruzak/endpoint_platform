@@ -172,6 +172,8 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(
     session_provider, tmp_path, monkeypatch, follow_up, power_start, requester,
 ):
     initial_dispatch_done = asyncio.Event()
+    heartbeat_done = asyncio.Event()
+    socket_requests = []
     finish_power = asyncio.Event()
     post_power_probe = asyncio.Event()
     finish_post_power_probe = asyncio.Event()
@@ -193,6 +195,24 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(
         return delivered
 
     monkeypatch.setattr(CommandService, "deliver_next", observe_dispatch)
+    if requester == "operator":
+        from endpoint_server.gateway.connection_registry import ConnectionRegistry
+        from endpoint_server.gateway.presence_service import PresenceService
+
+        record_heartbeat = PresenceService.record_heartbeat
+        request_dispatch = ConnectionRegistry.request_dispatch
+
+        async def observe_heartbeat(presence, **kwargs):
+            result = await record_heartbeat(presence, **kwargs)
+            heartbeat_done.set()
+            return result
+
+        async def observe_request(registry, connection):
+            socket_requests.append(connection.session_id)
+            await request_dispatch(registry, connection)
+
+        monkeypatch.setattr(PresenceService, "record_heartbeat", observe_heartbeat)
+        monkeypatch.setattr(ConnectionRegistry, "request_dispatch", observe_request)
     if power_start:
         monkeypatch.setattr(ws_routes, "commit_and_ack_power_events", observe_power)
         async with session_provider() as db:
@@ -240,6 +260,13 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(
             handshake = await receive("gateway_hello")
             await asyncio.wait_for(initial_dispatch_done.wait(), timeout=4)
             now = datetime.now(UTC)
+            if requester == "operator":
+                await send(_envelope("heartbeat", 1, {
+                    "schema_version": "agent_heartbeat_v1", "device_id": str(device.id),
+                    "platform": "linux", "agent_version": hello["agent_version"], "reported_at": now.isoformat(),
+                }))
+                await asyncio.wait_for(heartbeat_done.wait(), timeout=4)
+                assert socket_requests == []
             async with session_provider() as db:
                 db.add(ContextCollection(
                     device_id=device.id, profile="health_v1", requested_by=requester,
@@ -762,7 +789,17 @@ async def test_empty_wss_delivery_uses_one_read(session_provider, unexpected_pro
 
 @pytest.mark.asyncio
 async def test_wss_delivery_expires_unsupported_collecting_request(session_provider):
+    from endpoint_contracts import AgentHeartbeatV1, AgentHelloV1
+    from endpoint_server.gateway.command_service import wss_work_available
+    from endpoint_server.gateway.presence_service import PresenceService
+
     device = await seed_device(session_provider)
+    presence = PresenceService(session_provider)
+    connected = await presence.open_session(
+        device_id=device.id,
+        hello=AgentHelloV1.model_validate(agent_hello(device.id, instance_id=uuid4())),
+        source_address="192.168.101.20",
+    )
     collection_id = uuid4()
     now = datetime.now(UTC)
     async with session_provider() as db:
@@ -773,8 +810,18 @@ async def test_wss_delivery_expires_unsupported_collecting_request(session_provi
         ))
         await db.commit()
 
+    supported = {"context.health.collect"}
+    assert await presence.record_heartbeat(
+        device_id=device.id,
+        session_id=connected.session_id,
+        heartbeat=AgentHeartbeatV1(
+            schema_version="agent_heartbeat_v1", device_id=device.id,
+            platform="linux", agent_version="4.0.0", reported_at=now,
+        ),
+        work_available=wss_work_available(device.id, supported),
+    )
     assert not await CommandService(session_provider).deliver_next(
-        device.id, uuid4(), [].append, allowed_capabilities={"context.health.collect"},
+        device.id, connected.session_id, [].append, allowed_capabilities=supported,
     )
     async with session_provider() as db:
         collection = await db.get(ContextCollection, collection_id)

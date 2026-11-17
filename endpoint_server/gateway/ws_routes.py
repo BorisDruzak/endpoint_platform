@@ -60,7 +60,7 @@ from endpoint_server.policy.service import resolve_effective_policy
 
 from .telemetry import ingest_optional_report
 
-from .command_service import CommandService, CommandStateRejected
+from .command_service import CommandService, CommandStateRejected, wss_work_available
 from .connection_registry import (
     GatewayConnection,
     RegistryCapacityExceeded,
@@ -337,10 +337,11 @@ async def connect_agent(websocket: WebSocket) -> None:
             if await registry.get(device_id) is not connection:
                 return
             if isinstance(envelope, HeartbeatEnvelopeV1):
-                await presence_service.record_heartbeat(
+                has_work = await presence_service.record_heartbeat(
                     device_id=device_id,
                     session_id=presence.session_id,
                     heartbeat=envelope.payload,
+                    work_available=wss_work_available(device_id, connection.effective_capabilities),
                 )
                 if websocket.app.state.settings.endpoint_policy_enabled:
                     async with websocket.app.state.session_provider() as session:
@@ -352,6 +353,8 @@ async def connect_agent(websocket: WebSocket) -> None:
                         await session.commit()
                     if changed_policy is not None:
                         await connection.send(changed_policy)
+                if not has_work:
+                    continue
             elif isinstance(envelope, CommandAckEnvelopeV1):
                 decision = await command_service.record_ack(
                     device_id=device_id,

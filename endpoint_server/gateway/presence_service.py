@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from endpoint_contracts import AgentHeartbeatV1, AgentHelloV1
@@ -215,23 +215,26 @@ class PresenceService:
         session_id: UUID,
         heartbeat: AgentHeartbeatV1,
         observed_at: datetime | None = None,
-    ) -> None:
+        work_available: ColumnElement[bool] | None = None,
+    ) -> bool:
         if heartbeat.device_id != device_id:
             raise PresenceRejected("heartbeat device does not match session")
         now = _utc(observed_at)
         async with self._session_provider() as session:
             try:
-                gateway_session = await session.scalar(
-                    select(DeviceSession)
+                command_work = work_available if work_available is not None else literal(False)
+                row = (await session.execute(
+                    select(DeviceSession, command_work)
                     .where(
                         DeviceSession.id == session_id,
                         DeviceSession.device_id == device_id,
                         DeviceSession.closed_at.is_(None),
                     )
                     .with_for_update()
-                )
-                if gateway_session is None:
+                )).first()
+                if row is None:
                     raise PresenceRejected("gateway session is not active")
+                gateway_session, has_work = row
                 instance = await session.scalar(
                     select(DeviceInstance)
                     .where(
@@ -247,6 +250,7 @@ class PresenceService:
                 instance.last_seen_at = now
                 instance.agent_version = heartbeat.agent_version
                 await session.commit()
+                return bool(has_work)
             except Exception:
                 await session.rollback()
                 raise

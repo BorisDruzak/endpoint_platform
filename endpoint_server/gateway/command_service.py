@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from typing import AbstractSet
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, case, func, or_, select, union_all
+from sqlalchemy import ColumnElement, and_, case, func, or_, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -874,10 +874,10 @@ async def next_pending_command(
     return None
 
 
-async def _might_have_wss_work(
-    session, device_id: UUID, allowed_capabilities: AbstractSet[str] | None,
-) -> bool:
-    """Keep the idle path read-only; a hit goes through the normal locked dispatch."""
+def wss_work_available(
+    device_id: UUID, allowed_capabilities: AbstractSet[str] | None,
+) -> ColumnElement[bool]:
+    """Probe for possible work before entering the locked dispatch path."""
     profiles = tuple(profile for profile, capability in _CAPABILITIES.items()
                      if allowed_capabilities is None or capability in allowed_capabilities)
     deliverable = select(ContextCollection.id).where(
@@ -891,7 +891,7 @@ async def _might_have_wss_work(
         EndpointOperation.status.in_(_ACTIVE_MODULE_STATUSES),
     )
     overdue = overdue_collection_statement(device_id, now=datetime.now(UTC))
-    return bool(await session.scalar(select(or_(deliverable.exists(), module.exists(), overdue.exists()))))
+    return or_(deliverable.exists(), module.exists(), overdue.exists())
 
 
 class CommandService:
@@ -972,7 +972,7 @@ class CommandService:
         """Commit one delivery before exposing it to the network callback."""
         async with self._session_provider() as session:
             try:
-                if not await _might_have_wss_work(session, device_id, allowed_capabilities):
+                if not await session.scalar(select(wss_work_available(device_id, allowed_capabilities))):
                     return False
                 payload = await next_pending_command(
                     session,

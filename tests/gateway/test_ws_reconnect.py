@@ -23,7 +23,7 @@ from endpoint_server.db.models import (
     DeviceInstance,
     DeviceSession,
 )
-from endpoint_server.gateway.command_service import CommandService, CommandStateRejected, next_pending_command
+from endpoint_server.gateway.command_service import CommandService, CommandStateRejected, next_pending_command, wss_work_available
 from endpoint_server.gateway.connection_registry import (
     ConnectionRegistry,
     GatewayConnection,
@@ -705,6 +705,7 @@ async def test_postgresql_heartbeat_and_handshake_lock_session_before_instance(r
             ).with_for_update())
             heartbeat = asyncio.create_task(presence.record_heartbeat(
                 device_id=device.id, session_id=old.session_id,
+                work_available=wss_work_available(device.id, frozenset({"context.health.collect"})),
                 heartbeat=AgentHeartbeatV1(
                     schema_version="agent_heartbeat_v1", device_id=device.id,
                     platform="linux", agent_version="4.0.0", reported_at=datetime.now(UTC),
@@ -721,7 +722,8 @@ async def test_postgresql_heartbeat_and_handshake_lock_session_before_instance(r
                     while ("handshake", "device_sessions") not in lock_order:
                         await asyncio.sleep(0.01)
                     await db.commit()
-                    _, current = await asyncio.gather(heartbeat, replacement)
+                    has_work, current = await asyncio.gather(heartbeat, replacement)
+                    assert not has_work
             finally:
                 if replacement is not None and not replacement.done():
                     replacement.cancel()
