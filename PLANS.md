@@ -1651,8 +1651,17 @@ averaged 1.094–1.489 s. Reconnect ACK p95 stayed below 1 s and online
 p95 remained 5.549–5.916 s. Ten dispatch workers at the same 15-slot
 database cap shortened the first queue wait in all waves. Online p95
 was 5.058–5.827 s. Database checkout p95 rose from 192 to 237 ms, and
-reconnect ACK p95 remained below 1 s. The next isolated run keeps ten
-workers and 15 total slots, all retained in the pool between bursts.
+reconnect ACK p95 remained below 1 s. Retaining all 15 database slots
+reduced physical opens from 123 to 15. Checkout p95 was 243 ms and
+online delivery p95 was 5.179–6.259 s. The next candidate
+`068b1322c367` binds the initial WSS delivery owner in the INSERT,
+removing one SELECT and the owner UPDATE for newly created Context
+deliveries. Existing replays still read the delivery under lock.
+The combined local set passed 670 tests with 35 skips. The staging
+preflight passed 35 tests with one SQLite lock-case skip. The exact
+192-client comparison at the default worker and pool limits is active.
+Windows passed 2,920 tests with four skips, Console passed 125, and
+both exact-source archives matched.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
