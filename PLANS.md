@@ -1405,8 +1405,11 @@ start and result ACK both met 1 s p95 in each pair. Result handler
 connection acquisition p95 declined from 715–806 ms to 375–463 ms.
 Gateway, Context and Architecture passed 469 Windows and 483 PostgreSQL
 tests. The exact Windows workflow task passed 2,912 tests with four
-skips. The 192-client and sustained mixed trials remain open for this
-candidate.
+skips. At 192 clients the same 1 s scan and opening limit reduced
+online delivery p95 to 5.981–6.056 s, above the 5 s target. Reconnect
+result ACK met 1 s in both trials, and start ACK took 0.945 and 1.066 s.
+All four runs preserved 256 snapshots and both histories. The
+sustained mixed trial at 168 clients remains open.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
