@@ -1375,6 +1375,13 @@ to 192 lock queries and a 57–341 ms shorter worker cycle. All four kept
 both histories and completed the same 256 snapshots. Delivery, reconnect
 start and result ACK changed in opposite directions across pairs, and
 both candidate runs exceeded the three latency targets.
+An ABBA load bracket on `f3ce2c93ec61` ran 144, 168, 168 and 144
+clients with the same database histories, pool and 250 ms lab interval.
+Both 144-client runs met the online and reconnect result targets, but
+reconnect start p95 was 1.070–1.136 s. Both 168-client runs missed the
+two reconnect ACK targets. For the nine slowest reconnect start
+requests the median connection-acquisition share was 25–40% at 144
+and 90.3–91.3% at 168. All snapshots and preserved history were verified.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
