@@ -61,12 +61,19 @@ def _now(value: datetime | None) -> datetime:
     return timestamp.astimezone(UTC)
 
 
-async def _advisory_lock(session: AsyncSession, key: str) -> None:
-    """Serialize an absent active row on PostgreSQL without weakening SQLite tests."""
+async def _lock_schedule_profiles(
+    session: AsyncSession, device_id: UUID, rules: tuple[ContextScheduleRule, ...],
+) -> None:
+    """Serialize absent active rows on PostgreSQL."""
     if session.get_bind().dialect.name == "postgresql":
+        # Evaluate the lock calls in rule order, with the existing per-profile keys.
         await session.execute(
-            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-            {"key": key},
+            text(
+                "SELECT pg_advisory_xact_lock(hashtextextended(lock_key, 0)) "
+                "FROM unnest(CAST(:keys AS text[])) WITH ORDINALITY AS locks(lock_key, lock_order) "
+                "ORDER BY lock_order"
+            ),
+            {"keys": [f"context.schedule:{device_id}:{rule.profile}" for rule in rules]},
         )
 
 
@@ -181,10 +188,7 @@ async def schedule_due_collections_with_backlog(
         rules = tuple(rule for rule in SCHEDULE_RULES if profiles is None or rule.profile in profiles)
         if not rules:
             continue
-        for rule in rules:
-            await _advisory_lock(
-                session, f"context.schedule:{device.id}:{rule.profile}"
-            )
+        await _lock_schedule_profiles(session, device.id, rules)
         history = await _schedule_history(session, device.id, rules)
         for rule in rules:
             active, last_requested_at = history[rule.profile]

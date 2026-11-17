@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
@@ -243,3 +244,63 @@ async def test_scheduler_locks_active_row_without_locking_history(update_service
             with pytest.raises(DBAPIError) as rejected:
                 await observer.scalar(lock(active_id))
             assert rejected.value.orig.sqlstate == "55P03"
+
+
+@pytest.mark.asyncio
+async def test_scheduler_locks_profiles_in_order_in_one_statement(update_service_provider):
+    provider = update_service_provider
+    device_id = UUID(int=(1 << 128) - 1)
+    async with provider() as seed:
+        seed.add(Device(
+            id=device_id,
+            device_identifier="scheduler-advisory-order",
+            scheduled_context_profiles=["session_v1", "health_v1", "baseline_v1"],
+        ))
+        await seed.commit()
+
+    lock = text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))")
+    try_lock = text("SELECT pg_try_advisory_xact_lock(hashtextextended(:key, 0))")
+    baseline, health, session_key = (
+        f"context.schedule:{device_id}:{profile}" for profile in ("baseline_v1", "health_v1", "session_v1")
+    )
+    waiter_pid = asyncio.get_running_loop().create_future()
+    statements = []
+
+    async def schedule():
+        async with provider() as scheduler:
+            pid = await scheduler.scalar(text("SELECT pg_backend_pid()"))
+            engine = scheduler.get_bind()
+
+            def record(_connection, _cursor, statement, parameters, _context, _many):
+                if statement.startswith("SELECT pg_advisory_xact_lock") and "context.schedule:" in str(parameters):
+                    statements.append(statement)
+
+            event.listen(engine, "before_cursor_execute", record)
+            try:
+                waiter_pid.set_result(pid)
+                batch = await schedule_due_collections_with_backlog(
+                    scheduler, now=NOW, after_device_id=UUID(int=device_id.int - 1), page_size=1,
+                )
+                return batch.created
+            finally:
+                event.remove(engine, "before_cursor_execute", record)
+
+    async with provider() as blocker:
+        await blocker.execute(lock, {"key": health})
+        pending = asyncio.create_task(schedule())
+        try:
+            pid = await asyncio.wait_for(waiter_pid, 5)
+            async with provider() as observer, asyncio.timeout(5):
+                waiting = text("SELECT EXISTS (SELECT 1 FROM pg_locks WHERE pid=:pid "
+                               "AND locktype='advisory' AND NOT granted)")
+                while not await observer.scalar(waiting, {"pid": pid}):
+                    await asyncio.sleep(0.01)
+                assert not await observer.scalar(try_lock, {"key": baseline})
+                assert await observer.scalar(try_lock, {"key": session_key})
+            await blocker.commit()
+            assert await asyncio.wait_for(pending, 5) == 3
+        finally:
+            if not pending.done():
+                pending.cancel()
+                await asyncio.gather(pending, return_exceptions=True)
+    assert len(statements) == 1
