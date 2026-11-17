@@ -1411,7 +1411,12 @@ skips. At 192 clients the same 1 s scan and opening limit reduced
 online delivery p95 to 5.981–6.056 s, above the 5 s target. Reconnect
 result ACK met 1 s in both trials, and start ACK took 0.945 and 1.066 s.
 All four runs preserved 256 snapshots and both histories. The
-sustained mixed trial at 168 clients remains open.
+first sustained 168-client trial drained three 224-command waves.
+Waves two and three exceeded the 5 s online delivery and 1 s
+reconnect ACK targets. The final harness assertion incorrectly
+expected zero replays across all three waves. The trial observed
+112 acknowledged replays. The repeat verifies them together with
+the exact stored snapshots and both histories.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
