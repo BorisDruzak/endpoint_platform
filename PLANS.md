@@ -1570,8 +1570,12 @@ waves measured 192 Device row reads per wave. Online p95 was 5.952–6.513 s,
 above the 5 s target, and all reconnect ACK p95 values stayed below 1 s.
 Candidate `b95a48d915a8` removes four duplicate SELECTs while accepting a fresh
 WSS context result with an existing collection. The expanded local set passed
-666 tests with 32 skips. An isolated 192-client run is active with per-result
-SQL counts and the same overload thresholds.
+666 tests with 32 skips. At 192 clients the result handler used no reselects
+for the newly inserted result or collection by result ID. Online p95 improved
+to 5.441–5.824 s in three waves. The 5 s target is still open. Candidate
+`2e426fa436a2` locks the command and open session in one acknowledgement
+query while still checking the durable delivery owner. Four ASGI scenarios
+passed and the isolated Ubuntu exact-source workflow is active.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
