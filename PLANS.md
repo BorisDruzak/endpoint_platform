@@ -519,6 +519,10 @@ Three historical ZIPs still need source verification. At 14:28 UTC the
 volume had 7,250,735,104 free bytes. The earlier 30-tree estimate is short
 by 165,830,656 bytes at that reading. Previous block measurements imply
 32 trees before revalidation.
+At 14:56 UTC all 32 trees were remeasured and their off-volume archive
+hashes matched. No selected tree had a protected root, incoming release
+dependency, nested filesystem, or hard link outside the set. The
+conditional margin was 30,519,296 bytes. The trees remain in place.
 The next production observation found five directories with direct references.
 The release-commit marker names `5c3eb383e776`. Support Exporter runs from
 `ed643cddf0f5`, and API, worker and Exporter map dependencies from
