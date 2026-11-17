@@ -1781,6 +1781,15 @@ fell to 0.052–0.172 s. The ordinary queue stays in use. Both environments
 passed correctness checks and cleanup. The third-wave interval was about
 360 s for priority and 300 s for the earlier FIFO trial.
 
+The next 192-client run measured the existing delivery worker without
+changing the dispatch order. For the 23 slowest scan-origin deliveries,
+mean in-worker time was 587.376 ms: 457.102 for pool acquisition and
+112.113 for cursor execution. Across all 768 deliveries, the respective
+means were 239.314, 147.799 and 72.529 ms. Pool acquisition includes
+checkout wait, pre-ping, and new connections. The 5 s online p95 target
+held in one of three waves. Both reconnect ACKs stayed within 1 s. The
+fixture passed completeness checks and was removed.
+
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
 running, worker restart and forced process or PostgreSQL exit. A separate
