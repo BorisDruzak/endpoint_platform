@@ -1609,7 +1609,15 @@ scan to new operator Context requests, diagnostics and eligible queued
 module steps. It keeps device capability, deadline and step ordering checks.
 The 669-test local set passed with 35 skips. The 31-test combined preflight
 on `e7093e62b706` passed, including diagnostic and module discovery on
-PostgreSQL 16. The 192-client run with per-wave worker occupancy is active.
+PostgreSQL 16. The 192-client run finished at 5.375–5.641 s online p95.
+Empty socket probes occupied 1.61–2.28 of eight workers during those windows.
+Candidate `bf2fd44c49fe` reads possible command work from the heartbeat
+session query and skips empty heartbeat wakeups. A focused 669-test local
+set passed with 35 skips. PostgreSQL preflight passed 33 tests with one
+SQLite lock-test skip. The 192-client comparison is active. Windows passed
+2,917 tests with four skips.
+Console passed 125 tests on a two-worker repeat after one pagination failure.
+Both exact-source server archives matched.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
