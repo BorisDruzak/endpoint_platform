@@ -831,6 +831,10 @@ Native APT on Noble and Bookworm accepted the keyring from HTTPS and
 downloaded the original DEB bytes. The runbook and current release record
 point to the transition artifact. Signing after owner sign-out and
 central alert delivery remain open.
+The OpenVPN expiry timer now verifies each current index with the keyring
+downloaded from its public HTTPS channel, in addition to its local trust.
+Signed fixtures covered an obsolete or missing download. The installed
+systemd unit verified both channels with the existing pins and schedule.
 Release evidence requires an exact-source CI receipt before publication.
 STAB-15: the [release qualification matrix](docs/verification/2026-11-14-agent-release-qualification-matrix.md)
 records installed canary evidence by OS, exact source and signed artifact.
