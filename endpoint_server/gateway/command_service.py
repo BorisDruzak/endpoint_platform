@@ -31,7 +31,7 @@ from endpoint_contracts.gateway_ws import (
     ResultAckEnvelopeV1,
     ResultAckV1,
 )
-from endpoint_server.context.ingestion import ingest_context_result
+from endpoint_server.context.ingestion import ingest_context_result, ingest_new_context_result
 from endpoint_server.context.models import ContextCollection, ContextSnapshot
 from endpoint_server.context.repository import (
     expire_overdue_collections,
@@ -1275,12 +1275,14 @@ class CommandService:
                     session.add(stored)
                     await session.flush()
                     if command.command_kind.startswith("context."):
-                        ingested_collection = await ingest_context_result(
-                            session,
-                            stored.id,
-                            accepted_result,
-                            now=accepted_at,
-                        )
+                        if collection is None:
+                            ingested_collection = await ingest_context_result(
+                                session, stored.id, accepted_result, now=accepted_at,
+                            )
+                        else:
+                            ingested_collection = await ingest_new_context_result(
+                                session, stored, command, collection, accepted_result, now=accepted_at,
+                            )
                         if operation is not None and (
                             ingested_collection.id != collection.id
                             or ingested_collection.operation_id != operation.id

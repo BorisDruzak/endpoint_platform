@@ -279,8 +279,24 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(
             assert (await receive("command_start"))["command_id"] == command
             if power_start == "queued":
                 assert not post_power_probe.is_set()
-            await send(_result(device.id, command, 1))
-            assert (await receive("result_ack"))["command_id"] == command
+            result_reads = []
+
+            def observe_result(_connection, _cursor, statement, *_):
+                if asyncio.current_task() is task and statement.lstrip().startswith("SELECT"):
+                    result_reads.append(" ".join(statement.lower().split()))
+
+            async with session_provider() as db:
+                engine = db.get_bind()
+            event.listen(engine, "before_cursor_execute", observe_result)
+            try:
+                await send(_result(device.id, command, 1))
+                assert (await receive("result_ack"))["command_id"] == command
+            finally:
+                event.remove(engine, "before_cursor_execute", observe_result)
+            assert sum("from commands where commands.id =" in sql for sql in result_reads) == 1
+            assert sum("from context_collections where context_collections.command_id =" in sql for sql in result_reads) == 1
+            assert not any("from command_results where command_results.id =" in sql for sql in result_reads)
+            assert not any("from context_collections where context_collections.command_result_id =" in sql for sql in result_reads)
             finish_post_power_probe.set()
             if follow_up:
                 next_command = await receive("command")
