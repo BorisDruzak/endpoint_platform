@@ -121,6 +121,8 @@ async def test_command_is_committed_before_websocket_send(
             redundant_sql.append(sql)
         if sql.startswith("update command_deliveries "):
             redundant_sql.append(sql)
+        if sql.startswith("select endpoint_operations.") and "from endpoint_operations" in sql:
+            redundant_sql.append(sql)
 
     async def send(envelope: CommandEnvelopeV1) -> None:
         async with session_provider() as inspection:

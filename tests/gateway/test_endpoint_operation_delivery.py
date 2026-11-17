@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
-from sqlalchemy import delete, event, func, select
+from sqlalchemy import delete, event, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from endpoint_contracts import (
@@ -108,6 +108,7 @@ async def _seed_module_operation(
     device_id: UUID,
     version_state: str = "published",
     execution_mode: str = "published",
+    before_commit=None,
 ) -> EndpointOperation:
     recipe = EndpointRecipeModuleSpecV1.model_validate(
         {
@@ -176,6 +177,8 @@ async def _seed_module_operation(
             execution_mode=execution_mode,
         )
         assert created is True
+        if before_commit is not None:
+            await before_commit(session)
         await session.commit()
         return operation
 
@@ -486,6 +489,59 @@ async def test_idle_gateway_discovers_new_operation(session_provider, kind):
 @pytest.mark.parametrize("kind", ["diagnostic", "module"])
 async def test_postgresql_idle_gateway_discovers_new_operation(update_service_provider, kind):
     await _assert_idle_gateway_discovers_operation(update_service_provider, kind)
+
+
+@pytest.mark.asyncio
+async def test_postgresql_delivery_checks_module_after_waiting_for_device_lock(update_service_provider):
+    provider = update_service_provider
+    device = await seed_device(provider, token=uuid4().hex)
+    capabilities = ["context.health.collect", "dns.resolve", "network.ping"]
+    connection = await _open_session(provider, device_id=device.id, capabilities=capabilities)
+    async with provider() as session:
+        session.add(ContextCollection(
+            device_id=device.id, profile="health_v1", requested_by="operator",
+            idempotency_key="ordinary-while-module-commits", status="requested", requested_at=datetime.now(UTC),
+        ))
+        await session.commit()
+
+    inserted, release_writer = asyncio.Event(), asyncio.Event()
+    writer_pid = None
+
+    async def wait_to_commit(session):
+        nonlocal writer_pid
+        writer_pid = await session.scalar(text("SELECT pg_backend_pid()"))
+        inserted.set()
+        await release_writer.wait()
+
+    writer = asyncio.create_task(_seed_module_operation(
+        provider, device_id=device.id, before_commit=wait_to_commit,
+    ))
+    delivery = None
+    try:
+        async with asyncio.timeout(8):
+            await inserted.wait()
+            sent = []
+            delivery = asyncio.create_task(CommandService(provider).deliver_next(
+                device.id, connection.session_id, sent.append,
+                allowed_capabilities=frozenset(capabilities), agent_platform="linux_amd64",
+            ))
+            async with provider() as observer:
+                while not await observer.scalar(text(
+                    "SELECT EXISTS (SELECT 1 FROM pg_stat_activity "
+                    "WHERE :writer_pid = ANY(pg_blocking_pids(pid)))"
+                ), {"writer_pid": writer_pid}):
+                    await asyncio.sleep(0.01)
+            release_writer.set()
+            module = await writer
+            assert await delivery is True
+        assert [item.payload.capability for item in sent] == ["dns.resolve"]
+        assert sent[0].payload.correlation.request_id == module.id
+    finally:
+        for task in (writer, delivery):
+            if task is not None:
+                if not task.done():
+                    task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
 
 
 @pytest.mark.asyncio

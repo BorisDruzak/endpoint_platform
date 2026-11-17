@@ -14,8 +14,12 @@ class InstallationConflict(ValueError):
     pass
 
 
+def installation_state_statement(device_id):
+    return select(InstallationState.state).where(InstallationState.device_id == device_id)
+
+
 async def removed(session, device_id):
-    return await session.scalar(select(InstallationState.state).where(InstallationState.device_id == device_id)) == 'removed'
+    return await session.scalar(installation_state_statement(device_id)) == 'removed'
 
 
 async def support_snapshot(session, projection, credential_id):

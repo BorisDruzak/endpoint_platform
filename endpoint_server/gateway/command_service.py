@@ -164,6 +164,14 @@ def _module_step_payload(
     )
 
 
+def _active_module_operations(device_id: UUID):
+    return select(EndpointOperation).where(
+        EndpointOperation.device_id == device_id,
+        EndpointOperation.capability == "endpoint.module.recipe",
+        EndpointOperation.status.in_(_ACTIVE_MODULE_STATUSES),
+    )
+
+
 async def _next_pending_module_command(
     session,
     device_id: UUID,
@@ -173,12 +181,7 @@ async def _next_pending_module_command(
     """Materialize at most one WSS-only child command for a module parent."""
     operations = (
         await session.scalars(
-            select(EndpointOperation)
-            .where(
-                EndpointOperation.device_id == device_id,
-                EndpointOperation.capability == "endpoint.module.recipe",
-                EndpointOperation.status.in_(_ACTIVE_MODULE_STATUSES),
-            )
+            _active_module_operations(device_id)
             .order_by(EndpointOperation.created_at, EndpointOperation.id)
             .with_for_update(skip_locked=True)
         )
@@ -779,14 +782,25 @@ async def _next_pending_command(
     transport: str,
     agent_platform: str | None,
 ) -> _PendingCommand | None:
-    from endpoint_server.installation_lifecycle.service import removed
+    from endpoint_server.installation_lifecycle.service import installation_state_statement, removed
     await _lock_command_device(session, device_id)
-    if await removed(session, device_id):
+    has_module_work = False
+    if transport == "gateway_wss":
+        # Use a fresh statement after the device lock. A module insert can
+        # commit while that lock waits on its foreign-key check.
+        state, has_module_work = (await session.execute(select(
+            installation_state_statement(device_id).scalar_subquery(),
+            _active_module_operations(device_id).with_only_columns(EndpointOperation.id).exists(),
+        ))).one()
+        installation_removed = state == "removed"
+    else:
+        installation_removed = await removed(session, device_id)
+    if installation_removed:
         return None
     if transport not in {"http_pull", "gateway_wss"}:
         raise ValueError("unsupported gateway transport")
     await expire_overdue_collections(session, device_id, now=datetime.now(UTC))
-    if transport == "gateway_wss":
+    if has_module_work:
         module_payload = await _next_pending_module_command(
             session,
             device_id,
@@ -903,11 +917,7 @@ def wss_work_available(
         ContextCollection.status.in_(_DELIVERABLE_COLLECTION_STATUSES),
         ContextCollection.profile.in_(profiles),
     )
-    module = select(EndpointOperation.id).where(
-        EndpointOperation.device_id == device_id,
-        EndpointOperation.capability == "endpoint.module.recipe",
-        EndpointOperation.status.in_(_ACTIVE_MODULE_STATUSES),
-    )
+    module = _active_module_operations(device_id).with_only_columns(EndpointOperation.id)
     overdue = overdue_collection_statement(device_id, now=datetime.now(UTC))
     return or_(deliverable.exists(), module.exists(), overdue.exists())
 
