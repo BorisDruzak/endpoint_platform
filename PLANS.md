@@ -1452,6 +1452,13 @@ by the dispatcher, p95 wait in its queue was 3.478 s and the work
 probe excluding checkout was 18.6 ms. The 12 second online commands
 sent by the dispatcher entered that queue 4.285 s after commit at
 p95. The trial verified all 256 snapshots and both histories.
+Four 192-client runs on the same limited Gateway compared 1 s and
+250 ms scans. The faster cadence improved delivery by 383–535 ms
+and issued 428–610 more SELECTs. Delivery stayed above 5 s. Reconnect
+start ACK changed by −146 and +519 ms across pairs. All four runs
+verified 256 snapshots, both histories, and cleanup. A separate
+sustained trial at 144 clients measures the next lower capacity point
+with the default 1 s interval.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
