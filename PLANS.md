@@ -473,6 +473,11 @@ verification. It grants no deletion authority. Source `b14b97fc39ae` passed
 four skips. No new installed release was exercised.
 `C:/endpoint-platform-wix-build/stab13-deferred-retirement-rotation-20261117/windows-workflow-receipt.json`
 has SHA-256 `3f13b965ff952d66c85ba2722293b257ea2b9142d5dbb97366ae19e37d4bfa89`.
+Signed lab Core 3.2.242 now carries the cache rotation in
+`b6c2d0a8755e`. The Windows build branch passed 312 targeted tests with one
+skip. The timestamped EXE and 119-member archive passed verification with
+minimum Foundation 3.2.239. The local archive is ready for isolated
+installation and service acceptance.
 Historical Core caches, scratch files from writers without the lock and archives tied to
 quarantined handoff records remain open, along with server deployment releases
 and retirement of catalog artifacts. The server archive ships both storage
