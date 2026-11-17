@@ -113,7 +113,7 @@ async def _seed_module_operation(
     recipe = EndpointRecipeModuleSpecV1.model_validate(
         {
             "schema_version": "endpoint_recipe_module_v1",
-            "module_key": "network.dnsping",
+            "module_key": f"network.dnsping{uuid4().hex}",
             "supported_platforms": ["linux_amd64"],
             "inputs": [{"name": "target", "value_type": "string"}],
             "steps": [
@@ -513,35 +513,28 @@ async def test_postgresql_delivery_checks_module_after_waiting_for_device_lock(u
         inserted.set()
         await release_writer.wait()
 
-    writer = asyncio.create_task(_seed_module_operation(
-        provider, device_id=device.id, before_commit=wait_to_commit,
-    ))
-    delivery = None
-    try:
-        async with asyncio.timeout(8):
-            await inserted.wait()
-            sent = []
-            delivery = asyncio.create_task(CommandService(provider).deliver_next(
-                device.id, connection.session_id, sent.append,
-                allowed_capabilities=frozenset(capabilities), agent_platform="linux_amd64",
-            ))
-            async with provider() as observer:
-                while not await observer.scalar(text(
-                    "SELECT EXISTS (SELECT 1 FROM pg_stat_activity "
-                    "WHERE :writer_pid = ANY(pg_blocking_pids(pid)))"
-                ), {"writer_pid": writer_pid}):
-                    await asyncio.sleep(0.01)
-            release_writer.set()
-            module = await writer
-            assert await delivery is True
-        assert [item.payload.capability for item in sent] == ["dns.resolve"]
-        assert sent[0].payload.correlation.request_id == module.id
-    finally:
-        for task in (writer, delivery):
-            if task is not None:
-                if not task.done():
-                    task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
+    sent = []
+    async with asyncio.timeout(8), asyncio.TaskGroup() as tasks:
+        writer = tasks.create_task(_seed_module_operation(
+            provider, device_id=device.id, before_commit=wait_to_commit,
+        ))
+        await inserted.wait()
+        delivery = tasks.create_task(CommandService(provider).deliver_next(
+            device.id, connection.session_id, sent.append,
+            allowed_capabilities=frozenset(capabilities), agent_platform="linux_amd64",
+        ))
+        async with provider() as observer:
+            while not await observer.scalar(text(
+                "SELECT EXISTS (SELECT 1 FROM pg_stat_activity "
+                "WHERE :writer_pid = ANY(pg_blocking_pids(pid)))"
+            ), {"writer_pid": writer_pid}):
+                await observer.rollback()
+                await asyncio.sleep(0.01)
+        release_writer.set()
+        module = await writer
+        assert await delivery is True
+    assert [item.payload.capability for item in sent] == ["dns.resolve"]
+    assert sent[0].payload.correlation.request_id == module.id
 
 
 @pytest.mark.asyncio
