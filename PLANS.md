@@ -1597,10 +1597,11 @@ and three PostgreSQL ownership cases passed. The full Ubuntu run passed
 one-second client watchdog. The targeted PostgreSQL repeat with a five-second
 test watchdog passed all 64 cancellation cases, including a replay before the
 new owner released its Device lock. The archive smoke also passed. The full
-Ubuntu repeat is active on exact revision `fd1c606b229a`. Its two
-server archives matched and contain the same 335 payload files as
-`2e426fa436a2`. Windows passed 2,917 checks with four skips and Console
-passed 125 checks. In the 192-client acknowledgement run online p95 remained
+Ubuntu repeat passed 5,334 tests and two subtests with 722 skips on exact
+revision `fd1c606b229a`. Migration and archive smoke also passed. Its two
+archives matched and contain the same 335 payload files as `2e426fa436a2`.
+Windows passed 2,917 checks with four skips and Console passed 125 checks.
+In the 192-client acknowledgement run online p95 remained
 5.060–6.093 s. The combined command/session read executed once per start.
 The run counted 6,563 empty socket-triggered worker probes with 99.047
 worker-seconds in total. The next diagnostic will compare empty worker
