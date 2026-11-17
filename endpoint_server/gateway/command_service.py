@@ -6,6 +6,7 @@ import inspect
 import hashlib
 import json
 from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import AbstractSet
 from uuid import UUID, uuid4
@@ -754,6 +755,30 @@ async def next_pending_command(
     agent_platform: str | None = None,
 ) -> GatewayCommandV1 | None:
     """Replay only unacknowledged deliveries before creating a new command."""
+    pending = await _next_pending_command(
+        session, device_id, allowed_capabilities, transport=transport, agent_platform=agent_platform,
+    )
+    if pending is None:
+        return None
+    if pending.new_delivery is not None:
+        session.add(pending.new_delivery)
+    return pending.payload
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingCommand:
+    payload: GatewayCommandV1
+    new_delivery: CommandDelivery | None = None
+
+
+async def _next_pending_command(
+    session: AsyncSession,
+    device_id: UUID,
+    allowed_capabilities: AbstractSet[str] | None = None,
+    *,
+    transport: str,
+    agent_platform: str | None,
+) -> _PendingCommand | None:
     from endpoint_server.installation_lifecycle.service import removed
     await _lock_command_device(session, device_id)
     if await removed(session, device_id):
@@ -769,7 +794,7 @@ async def next_pending_command(
             agent_platform,
         )
         if module_payload is not None:
-            return module_payload
+            return _PendingCommand(module_payload)
     collections = (
         await session.scalars(
             select(ContextCollection)
@@ -823,12 +848,7 @@ async def next_pending_command(
                         raise CommandStateRejected("command timing is unavailable")
                     command.expires_at = created_at + timedelta(minutes=15)
                     await session.flush()
-                return _command_payload(
-                    command,
-                    collection,
-                    capability,
-                    operation,
-                )
+                return _PendingCommand(_command_payload(command, collection, capability, operation))
             continue
         if operation is not None and await expire_operation_if_due(
             session,
@@ -860,17 +880,15 @@ async def next_pending_command(
         if operation is not None:
             operation.command_id = command.id
             operation.status = "delivered"
-        session.add(
-            CommandDelivery(
-                id=uuid4(),
-                command_id=command.id,
-                device_session_id=None,
-                delivery_identifier=f"delivery-{command.id.hex}",
-                status="delivered",
-                acknowledged_at=None,
-            )
+        delivery = CommandDelivery(
+            id=uuid4(),
+            command_id=command.id,
+            device_session_id=None,
+            delivery_identifier=f"delivery-{command.id.hex}",
+            status="delivered",
+            acknowledged_at=None,
         )
-        return _command_payload(command, collection, capability, operation)
+        return _PendingCommand(_command_payload(command, collection, capability, operation), delivery)
     return None
 
 
@@ -974,23 +992,26 @@ class CommandService:
             try:
                 if not await session.scalar(select(wss_work_available(device_id, allowed_capabilities))):
                     return False
-                payload = await next_pending_command(
+                pending = await _next_pending_command(
                     session,
                     device_id,
                     allowed_capabilities,
                     transport="gateway_wss",
                     agent_platform=agent_platform,
                 )
-                if payload is None:
+                if pending is None:
                     await session.commit()
                     return False
-                delivery = await session.scalar(
-                    select(CommandDelivery)
-                    .where(CommandDelivery.command_id == payload.command_id)
-                    .with_for_update()
-                )
+                payload = pending.payload
+                delivery = pending.new_delivery
                 if delivery is None:
-                    raise CommandStateRejected("command delivery is unavailable")
+                    delivery = await session.scalar(
+                        select(CommandDelivery)
+                        .where(CommandDelivery.command_id == payload.command_id)
+                        .with_for_update()
+                    )
+                    if delivery is None:
+                        raise CommandStateRejected("command delivery is unavailable")
                 gateway_session = await session.scalar(
                     select(DeviceSession).where(
                         DeviceSession.id == session_id,
@@ -1007,6 +1028,8 @@ class CommandService:
                     await session.commit()
                     return False
                 delivery.device_session_id = session_id
+                if pending.new_delivery is not None:
+                    session.add(delivery)
                 await session.commit()
             except Exception:
                 await session.rollback()

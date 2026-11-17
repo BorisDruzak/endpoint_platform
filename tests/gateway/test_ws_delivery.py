@@ -16,7 +16,7 @@ from endpoint_server.context.models import ContextCollection, ContextSnapshot
 from endpoint_server.db.models import Command, CommandDelivery, DeviceSession
 from endpoint_contracts.power_events import POWER_EVENTS_FEATURE
 from endpoint_server.gateway import ws_routes
-from endpoint_server.gateway.command_service import CommandService
+from endpoint_server.gateway.command_service import CommandService, CommandStateRejected
 from endpoint_server.power.models import PowerSourceState
 
 from endpoint_server.main import create_app
@@ -74,8 +74,9 @@ async def test_expired_collection_cannot_block_delivery_of_fresh_work(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("session_open", [True, False], ids=["open", "closed"])
 async def test_command_is_committed_before_websocket_send(
-    session_provider: async_sessionmaker[AsyncSession],
+    session_provider: async_sessionmaker[AsyncSession], session_open: bool,
 ) -> None:
     device = await seed_device(session_provider)
     now = datetime.now(UTC)
@@ -89,7 +90,7 @@ async def test_command_is_committed_before_websocket_send(
                     device_instance_id=None,
                     session_identifier=f"gateway-{session_id.hex}",
                     expires_at=now + timedelta(minutes=2),
-                    closed_at=None,
+                    closed_at=None if session_open else now,
                     last_seen_at=now,
                     source_address="192.168.101.20",
                 ),
@@ -108,15 +109,18 @@ async def test_command_is_committed_before_websocket_send(
         engine = session.get_bind()
 
     observed: list[CommandEnvelopeV1] = []
-    link_reads: list[str] = []
+    redundant_sql: list[str] = []
 
-    def observe_link_reads(_conn, _cursor, statement, _params, _context, _many):
+    def observe_sql(_conn, _cursor, statement, _params, _context, _many):
         sql = " ".join(statement.lower().split())
         if sql.startswith("select ") and (
             "from context_collections where context_collections.id =" in sql
             or "from commands where commands.id =" in sql
+            or "from command_deliveries where command_deliveries.command_id =" in sql
         ):
-            link_reads.append(sql)
+            redundant_sql.append(sql)
+        if sql.startswith("update command_deliveries "):
+            redundant_sql.append(sql)
 
     async def send(envelope: CommandEnvelopeV1) -> None:
         async with session_provider() as inspection:
@@ -130,15 +134,28 @@ async def test_command_is_committed_before_websocket_send(
         assert deliveries[0].device_session_id == session_id
         observed.append(envelope)
 
-    event.listen(engine, "before_cursor_execute", observe_link_reads)
+    event.listen(engine, "before_cursor_execute", observe_sql)
     try:
-        delivered = await CommandService(session_provider).deliver_next(device.id, session_id, send)
+        service = CommandService(session_provider)
+        if session_open:
+            assert await service.deliver_next(device.id, session_id, send)
+        else:
+            with pytest.raises(CommandStateRejected, match="gateway session is unavailable"):
+                await service.deliver_next(device.id, session_id, send)
     finally:
-        event.remove(engine, "before_cursor_execute", observe_link_reads)
+        event.remove(engine, "before_cursor_execute", observe_sql)
 
-    assert delivered
-    assert observed[0].payload.device_id == device.id
-    assert link_reads == []
+    if session_open:
+        assert observed[0].payload.device_id == device.id
+    else:
+        assert observed == []
+        async with session_provider() as inspection:
+            assert (await inspection.scalars(select(Command))).all() == []
+            assert (await inspection.scalars(select(CommandDelivery))).all() == []
+            collection = (await inspection.scalars(select(ContextCollection))).one()
+            assert collection.status == "requested"
+            assert collection.command_id is None
+    assert redundant_sql == []
 
 
 @pytest.mark.asyncio
