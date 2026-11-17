@@ -90,9 +90,11 @@ class GatewayConnection:
         default_factory=asyncio.Event, compare=False, repr=False,
     )
 
-    async def send(self, envelope: object) -> None:
-        """Serialize control and command writes on one active WebSocket."""
+    async def send(self, envelope: object, *, owner_registry: ConnectionRegistry | None = None) -> None:
+        """Serialize writes and check required ownership after acquiring the send lock."""
         async with self.send_lock:
+            if owner_registry is not None and await owner_registry.get(self.device_id) is not self:
+                return
             await self.websocket.send_json(envelope.model_dump(mode="json"))  # type: ignore[attr-defined]
 
 

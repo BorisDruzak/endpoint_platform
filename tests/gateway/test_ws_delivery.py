@@ -385,6 +385,71 @@ async def test_scheduled_send_failure_replays_committed_delivery_on_reconnect(se
 
 
 @pytest.mark.asyncio
+async def test_scheduled_delivery_waiting_to_send_checks_replacement_owner(session_provider):
+    from endpoint_contracts import AgentHelloV1
+    from endpoint_server.gateway.connection_registry import ConnectionRegistry, GatewayConnection
+    from endpoint_server.gateway.presence_service import PresenceService
+    from endpoint_server.gateway.scheduled_dispatch import _deliver
+
+    device = await seed_device(session_provider)
+    hello = AgentHelloV1.model_validate(agent_hello(device.id, instance_id=uuid4()))
+    presence = PresenceService(session_provider)
+    first = await presence.open_session(device_id=device.id, hello=hello, source_address="192.168.101.20")
+    async with session_provider() as db:
+        db.add(ContextCollection(
+            device_id=device.id, profile="health_v1", requested_by="scheduler",
+            idempotency_key="replace-during-send", status="requested", requested_at=datetime.now(UTC),
+        ))
+        await db.commit()
+
+    waiting_to_send = asyncio.Event()
+
+    class SendLock(asyncio.Lock):
+        async def acquire(self):
+            if self.locked():
+                waiting_to_send.set()
+            return await super().acquire()
+
+    class Socket:
+        def __init__(self):
+            self.commands = []
+
+        async def send_json(self, payload):
+            self.commands.append(payload)
+
+    capabilities = frozenset({"context.health.collect"})
+    registry = ConnectionRegistry()
+    old_socket = Socket()
+    old = GatewayConnection(
+        device.id, first.session_id, old_socket, effective_capabilities=capabilities, send_lock=SendLock(),
+    )
+    old.ready_for_dispatch.set()
+    await registry.publish(old)
+    service = CommandService(session_provider)
+    async with asyncio.TaskGroup() as tasks:
+        async with old.send_lock:
+            tasks.create_task(_deliver(service, registry, old))
+            await asyncio.wait_for(waiting_to_send.wait(), timeout=2)
+            replacement = await presence.open_session(
+                device_id=device.id, hello=hello, source_address="192.168.101.20",
+            )
+            new_socket = Socket()
+            new = GatewayConnection(device.id, replacement.session_id, new_socket, effective_capabilities=capabilities)
+            new.ready_for_dispatch.set()
+            assert await registry.publish(new) is old
+
+    assert old_socket.commands == []
+    async with session_provider() as db:
+        committed = (await db.scalars(select(CommandDelivery))).one()
+        assert committed.device_session_id == first.session_id
+    await _deliver(service, registry, new)
+    assert [frame["payload"]["command_id"] for frame in new_socket.commands] == [str(committed.command_id)]
+    async with session_provider() as db:
+        replayed = (await db.scalars(select(CommandDelivery))).one()
+        assert replayed.id == committed.id and replayed.device_session_id == replacement.session_id
+
+
+@pytest.mark.asyncio
 async def test_scheduled_scan_discovers_new_work_during_a_slow_delivery(session_provider, monkeypatch):
     from endpoint_server.gateway import scheduled_dispatch
     from endpoint_server.gateway.connection_registry import ConnectionRegistry, GatewayConnection

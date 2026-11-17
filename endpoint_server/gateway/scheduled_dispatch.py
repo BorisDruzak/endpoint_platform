@@ -43,10 +43,8 @@ async def _deliver(
         return
 
     async def send(envelope: CommandEnvelopeV1) -> None:
-        if await registry.get(connection.device_id) is not connection:
-            return
         async with asyncio.timeout(_SEND_SECONDS):
-            await connection.send(envelope)
+            await connection.send(envelope, owner_registry=registry)
 
     try:
         async with asyncio.timeout(_DELIVERY_SECONDS):

@@ -322,7 +322,7 @@ async def connect_agent(websocket: WebSocket) -> None:
         await command_service.deliver_next(
             device_id,
             presence.session_id,
-            connection.send,
+            partial(connection.send, owner_registry=registry),
             allowed_capabilities=frozenset(effective_capabilities),
             agent_platform=first.payload.platform,
         )
