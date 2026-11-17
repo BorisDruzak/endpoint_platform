@@ -1485,6 +1485,15 @@ reconnect starts per wave, the median share before handler entry was
 bound each phase to its command and all result, replay, history and
 cleanup checks passed. The pre-handler interval still includes proxy
 transport, frame processing and earlier work on the same socket.
+The next 144-client run used the same Gateway source with a test-only
+ASGI receive queue timestamp and per-socket operation spans. In waves
+two and three the eight slowest reconnect start frames queued for
+313–816 ms. Each overlapped an inline delivery call within 0.07 ms of
+the queue interval. Decode p95 was 0.1 ms. Reconnect start p95 was
+0.737, 0.991 and 1.010 s. All 576 results, 384 snapshots, 96 replays
+and both histories were verified. The inline delivery call and pool
+acquisition are separate contributors; the next change needs to keep
+the receive path responsive while preserving delivery ownership.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
