@@ -432,3 +432,16 @@ ZIP не совпали с хешами проверенных реестров.
 `retirement-review-receipt.json` в
 `C:/endpoint-platform-wix-build/stab13-retirement-revalidation-20261117`
 имеет SHA-256 `1626968039fc252f52b79c688856da91a357bd9756165edef22e4a46b37f5d4c`.
+
+## Архивы Windows без регистрации по имени
+
+Производственные SHA-256 сверены с рабочими копиями. ZIP Core
+3.2.190 совпал с сохранённой сборкой и её `build-manifest.json`.
+ZIP 3.2.115 совпал с копией нативной сборки, а вложенный манифест
+указывает 3.2.115. Для ZIP с именем 3.2.3 отдельно сохранена копия
+вне серверного тома и подтверждены её размер и SHA-256.
+Происхождение этого ZIP по-прежнему открыто.
+
+Квитанция `historical-zip-evidence.json` в
+`C:/endpoint-platform-wix-build/stab13-retirement-revalidation-20261117`
+имеет SHA-256 `ec519779227a77f4a90ed2c206a9216670bf4576fdae23d6944714de6f026ec0`.
