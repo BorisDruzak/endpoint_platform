@@ -503,6 +503,10 @@ restore receipts. The production preflight measured a 3,214,503,936
 byte shortfall. The earlier per-tree allocation would yield
 1,188,360,192 bytes of calculated headroom. Current references and
 allocated blocks require revalidation before a retirement operation.
+The 04:25 UTC production inventory found all 41 trees without
+protected references and no unreadable PIDs. Exact allocation still
+matched the verified archives at 4,402,864,128 bytes. With
+7,521,411,072 bytes free the calculated margin is 1,186,856,960 bytes.
 The deployed worker now reports `release_disk` at startup and at the
 existing 15-minute interval. It shares the deploy gate's 10 GiB threshold
 and reports the artifact volume separately. The archived worker on Ubuntu
