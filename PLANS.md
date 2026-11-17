@@ -1471,9 +1471,12 @@ Four 192-client runs on the same limited Gateway compared 1 s and
 250 ms scans. The faster cadence improved delivery by 383–535 ms
 and issued 428–610 more SELECTs. Delivery stayed above 5 s. Reconnect
 start ACK changed by −146 and +519 ms across pairs. All four runs
-verified 256 snapshots, both histories, and cleanup. A separate
-sustained trial at 144 clients measures the next lower capacity point
-with the default 1 s interval.
+verified 256 snapshots, both histories, and cleanup. The 795.207 s
+trial at 144 clients with default 1 s scans verified 576 unique
+results, 384 snapshots and 96 current session observations. Online
+delivery p95 was 4.289–4.304 s. Result ACK after reconnect met 1 s
+in all three waves. Reconnect start ACK reached 1.308 s in the third
+wave. Both histories survived and the isolated environment was removed.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
