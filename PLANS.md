@@ -511,6 +511,14 @@ preserves unclassified entries for operator review. Read-only production
 inventory resolved current and rollback, measured 104 release directories and
 reported nine unclassified entries and 8,418,435,072 bytes free on the release
 volume. No retirement was performed.
+The production artifact catalog has 107 files registered by name and 11
+other files. Seven historical MSI files match the catalog by SHA-256 and
+the Gateway keeps its lease file open. The
+inventory now lists canonical MSI filenames and expected digests separately.
+Three historical ZIPs still need source verification. At 14:28 UTC the
+volume had 7,250,735,104 free bytes. The earlier 30-tree estimate is short
+by 165,830,656 bytes at that reading. Previous block measurements imply
+32 trees before revalidation.
 The next production observation found five directories with direct references.
 The release-commit marker names `5c3eb383e776`. Support Exporter runs from
 `ed643cddf0f5`, and API, worker and Exporter map dependencies from
