@@ -1001,24 +1001,18 @@ class CommandService:
         async with self._session_provider() as session:
             try:
                 await _lock_command_device(session, device_id)
-                gateway_session = await session.scalar(
-                    select(DeviceSession)
-                    .where(
-                        DeviceSession.id == session_id,
-                        DeviceSession.device_id == device_id,
-                        DeviceSession.closed_at.is_(None),
-                    )
-                    .with_for_update()
-                )
                 command = await session.scalar(
                     select(Command)
+                    .join(DeviceSession, DeviceSession.device_id == Command.device_id)
                     .where(
                         Command.id == acknowledgement.command_id,
                         Command.device_id == device_id,
+                        DeviceSession.id == session_id,
+                        DeviceSession.closed_at.is_(None),
                     )
-                    .with_for_update()
+                    .with_for_update(of=(DeviceSession, Command))
                 )
-                if gateway_session is None or command is None:
+                if command is None:
                     raise CommandStateRejected("command is unavailable")
                 delivery = await session.scalar(
                     select(CommandDelivery)

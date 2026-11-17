@@ -825,3 +825,62 @@ async def test_postgresql_replay_and_feedback_do_not_deadlock(update_service_pro
         assert (command.status, collection.status) == (
             ("running", "collecting") if message == "start" else ("failed", "failed")
         )
+
+
+@pytest.mark.asyncio
+async def test_postgresql_start_waits_for_session_close(update_service_provider):
+    provider = update_service_provider
+    device = await seed_device(provider, token=uuid4().hex)
+    presence = await _open_session(provider, device.id, uuid4())
+    now = datetime.now(UTC)
+    async with provider() as seed:
+        seed.add(ContextCollection(
+            device_id=device.id, profile="health_v1", requested_by="operator",
+            idempotency_key="session-close-before-start", status="requested", requested_at=now,
+        ))
+        await seed.commit()
+
+    service = CommandService(provider)
+    sent = []
+    assert await service.deliver_next(device.id, presence.session_id, sent.append)
+    command_id = sent[0].payload.command_id
+    acknowledgement = AgentCommandAckV1(
+        schema_version="agent_command_ack_v1", command_id=command_id, device_id=device.id,
+        status="running", acknowledged_at=now,
+    )
+
+    async with provider() as closing:
+        session = await closing.get(DeviceSession, presence.session_id, with_for_update=True)
+        session.closed_at = now
+        await closing.flush()
+        closing_pid = await closing.scalar(text("SELECT pg_backend_pid()"))
+
+        task = asyncio.create_task(service.record_ack(
+            device_id=device.id, session_id=presence.session_id,
+            acknowledgement=acknowledgement, start_permission=True,
+        ))
+        try:
+            async with asyncio.timeout(5), provider() as monitor:
+                while True:
+                    blocked = await monitor.scalar(text(
+                        "SELECT EXISTS (SELECT 1 FROM pg_stat_activity "
+                        "WHERE :closing_pid = ANY(pg_blocking_pids(pid)))"
+                    ), {"closing_pid": closing_pid})
+                    if blocked:
+                        break
+                    await monitor.rollback()
+                    await asyncio.sleep(0.01)
+                assert not task.done()
+            await closing.commit()
+            with pytest.raises(CommandStateRejected, match="command is unavailable"):
+                await asyncio.wait_for(task, timeout=5)
+        finally:
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    async with provider() as verify:
+        command = await verify.get(Command, command_id)
+        delivery = await verify.scalar(select(CommandDelivery).where(CommandDelivery.command_id == command_id))
+        assert command.status == delivery.status == "delivered"
+        assert delivery.acknowledged_at is None

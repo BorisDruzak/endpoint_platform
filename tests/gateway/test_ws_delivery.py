@@ -271,32 +271,39 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(
             if power_start == "not_yet_sent":
                 finish_power.set()
                 await asyncio.wait_for(post_power_probe.wait(), timeout=4)
-            await send(_envelope("command_ack", 2, {
-                "schema_version": "agent_command_ack_v1", "device_id": str(device.id),
-                "command_id": command, "status": "running", "acknowledged_at": now.isoformat(),
-            }))
-            finish_power.set()
-            assert (await receive("command_start"))["command_id"] == command
-            if power_start == "queued":
-                assert not post_power_probe.is_set()
-            result_reads = []
+            feedback_reads = []
 
-            def observe_result(_connection, _cursor, statement, *_):
+            def observe_feedback(_connection, _cursor, statement, *_):
                 if asyncio.current_task() is task and statement.lstrip().startswith("SELECT"):
-                    result_reads.append(" ".join(statement.lower().split()))
+                    feedback_reads.append(" ".join(statement.lower().split()))
 
             async with session_provider() as db:
                 engine = db.get_bind()
-            event.listen(engine, "before_cursor_execute", observe_result)
+            event.listen(engine, "before_cursor_execute", observe_feedback)
+            try:
+                await send(_envelope("command_ack", 2, {
+                    "schema_version": "agent_command_ack_v1", "device_id": str(device.id),
+                    "command_id": command, "status": "running", "acknowledged_at": now.isoformat(),
+                }))
+                finish_power.set()
+                assert (await receive("command_start"))["command_id"] == command
+            finally:
+                event.remove(engine, "before_cursor_execute", observe_feedback)
+            assert sum("from device_sessions" in sql or "from commands" in sql for sql in feedback_reads) == 1
+            if power_start == "queued":
+                assert not post_power_probe.is_set()
+
+            feedback_reads.clear()
+            event.listen(engine, "before_cursor_execute", observe_feedback)
             try:
                 await send(_result(device.id, command, 1))
                 assert (await receive("result_ack"))["command_id"] == command
             finally:
-                event.remove(engine, "before_cursor_execute", observe_result)
-            assert sum("from commands where commands.id =" in sql for sql in result_reads) == 1
-            assert sum("from context_collections where context_collections.command_id =" in sql for sql in result_reads) == 1
-            assert not any("from command_results where command_results.id =" in sql for sql in result_reads)
-            assert not any("from context_collections where context_collections.command_result_id =" in sql for sql in result_reads)
+                event.remove(engine, "before_cursor_execute", observe_feedback)
+            assert sum("from commands where commands.id =" in sql for sql in feedback_reads) == 1
+            assert sum("from context_collections where context_collections.command_id =" in sql for sql in feedback_reads) == 1
+            assert not any("from command_results where command_results.id =" in sql for sql in feedback_reads)
+            assert not any("from context_collections where context_collections.command_result_id =" in sql for sql in feedback_reads)
             finish_post_power_probe.set()
             if follow_up:
                 next_command = await receive("command")
