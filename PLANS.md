@@ -1494,6 +1494,20 @@ the queue interval. Decode p95 was 0.1 ms. Reconnect start p95 was
 and both histories were verified. The inline delivery call and pool
 acquisition are separate contributors; the next change needs to keep
 the receive path responsive while preserving delivery ownership.
+Gateway `f236040a28f9` passed the regression that holds the next
+delivery probe while a delivered command receives both start permission
+and a result ACK. WSS activity and scheduled scans feed the same eight
+dispatch workers. Activity coalesces by current owner and survives a
+scheduler refresh. The queue test covers another device progressing
+while a worker is busy, replay of a pending activity request and
+retirement on replacement. Gateway, Context and Architecture passed
+470 local tests with 26 skips, and the agent transport and journal
+suites passed 106. The corrected 144-client fixture verified delivery,
+ACK, durable replay and both histories. Reconnect start p95 was
+0.552, 0.566 and 0.576 s. Online delivery p95 was 4.247–4.885 s.
+The Windows workflow task passed 2,915 tests with four skips, Console
+passed 125, and both exact-source server archives matched. Full Linux
+release workflow, hosted CI and production publication remain open.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
