@@ -1305,7 +1305,13 @@ processes the acknowledgement before the next delivery probe. Power
 commit remains before its ACK. In the same 39-device workload, paired
 start permission p95 fell from 1.361 to 0.698 s and from 1.219 to
 0.859 s. All four runs preserved history and completed the 73 snapshots
-and 103 Power events. The exact candidate awaits a 192-client repeat.
+and 103 Power events. The paired 192-client repeat reduced start p95 by
+123–136 ms, with 1.545–1.808 s start and 5.833–6.433 s online delivery
+on the candidate. All four runs verified 256 snapshots and kept history.
+The production Context history plan sorts the latest rows for a device
+and profile. A synthetic indexed rehearsal on 90,089 rows reduced p95
+from 0.899–0.981 ms to 0.051–0.074 ms for its no-active-collection path
+and returned the same results. Integrated index validation remains open.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
