@@ -1745,6 +1745,21 @@ Power alone caused 1,488 empty probes but used 9.557 worker-seconds.
 Next test a result-path work hint before requesting a delivery worker.
 The instrumented run verified 768 results and 512 snapshots. It remains
 diagnostic because the shared Helpdesk staging service restarted during it.
+Candidate `cb5a97320b0a` adds the WSS work hint to the locked command read
+in the result transaction. The ACK stays before the dispatch request.
+Module steps and late results keep their wake. A later commit can still
+be found by the periodic scan. At 192 clients, the candidate recorded
+576 empty hints and 320 positive hints across 896 results including replays.
+Result-only empty probes fell from 656 in the diagnostic run to 138,
+with 33.829 worker-seconds. Online p95 was 5.145–5.544 s. Both reconnect
+ACK measures stayed under 1 s in all waves. Staging service projections
+matched and temporary load services were removed. Windows passed 2,920
+tests, Console passed 125, and both release archives matched.
+The exact Ubuntu/PostgreSQL workflow passed 5,342 tests and two subtests
+with 722 skips. Migration 0051–0056 and API/worker startup from the archive
+passed. The original staging services retained their states, and temporary
+services, listeners, and evidence directories were removed. The exact
+GitHub Actions run, production release space, and the 5 s SLO remain open.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
