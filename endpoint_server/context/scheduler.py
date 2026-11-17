@@ -209,6 +209,7 @@ async def schedule_due_collections_with_backlog(
                 f"scheduler:{rule.profile}:{bucket}",
                 now=scheduled_at,
                 expires_at=scheduled_at + rule.interval,
+                locked_device=device,
             )
             if inserted:
                 created += 1

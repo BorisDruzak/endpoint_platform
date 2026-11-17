@@ -112,6 +112,7 @@ async def queue_connect_refreshes(
             f"connect-refresh:{rule.profile}:{bucket}",
             now=observed_at,
             expires_at=observed_at + _DELIVERY_WINDOW,
+            locked_device=device,
         )
         if inserted:
             created += 1

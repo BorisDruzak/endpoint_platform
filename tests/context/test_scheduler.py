@@ -181,7 +181,7 @@ async def test_scheduler_pages_by_device_and_retries_a_rolled_back_page(session)
 
 
 @pytest.mark.asyncio
-async def test_scheduler_reads_all_profile_histories_in_one_query_per_device(session):
+async def test_scheduler_reads_device_and_profile_history_once(session):
     device = Device(device_identifier="scheduler-single-history-read", created_at=NOW)
     session.add(device)
     await session.flush()
@@ -194,11 +194,14 @@ async def test_scheduler_reads_all_profile_histories_in_one_query_per_device(ses
         session, device_id=device.id, profile="health_v1", completed_at=NOW - timedelta(minutes=6),
     )
     await _completed_collection(session, device_id=device.id, profile="session_v1", completed_at=NOW)
-    statements = []
+    history_reads = []
+    device_reads = []
 
     def observe(_connection, _cursor, statement, _parameters, _context, _many):
         if "ORDER BY context_collections.requested_at" in statement:
-            statements.append(statement)
+            history_reads.append(statement)
+        if "FROM devices" in statement and "WHERE devices.id =" in statement:
+            device_reads.append(statement)
 
     engine = session.get_bind()
     event.listen(engine, "before_cursor_execute", observe)
@@ -207,7 +210,8 @@ async def test_scheduler_reads_all_profile_histories_in_one_query_per_device(ses
     finally:
         event.remove(engine, "before_cursor_execute", observe)
 
-    assert len(statements) == 1
+    assert len(history_reads) == 1
+    assert len(device_reads) == 1
     profiles = await session.scalars(select(ContextCollection.profile).where(ContextCollection.requested_by == "scheduler"))
     assert set(profiles) == {"health_v1", "network_v1", "inventory_v1"}
 
@@ -239,6 +243,12 @@ async def test_scheduler_locks_active_row_without_locking_history(update_service
 
     async with provider() as scheduler:
         assert await schedule_due_collections(scheduler, now=NOW) == 4
+        async with provider() as observer:
+            with pytest.raises(DBAPIError) as rejected:
+                await observer.scalar(
+                    select(Device).where(Device.id == device.id).with_for_update(nowait=True)
+                )
+            assert rejected.value.orig.sqlstate == "55P03"
         async with provider() as observer:
             assert (await observer.scalar(lock(history_id))).id == history_id
             with pytest.raises(DBAPIError) as rejected:

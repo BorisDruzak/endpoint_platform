@@ -96,19 +96,27 @@ async def request_collection_outcome(
     *,
     now: datetime | None = None,
     expires_at: datetime | None = None,
+    locked_device: Device | None = None,
 ) -> tuple[ContextCollection, bool]:
-    """Create one request and report whether this transaction inserted it."""
+    """Create one request and report whether this transaction inserted it.
+
+    Supply locked_device only after selecting this device FOR UPDATE in the
+    same, still-open transaction.
+    """
     checked_device_id = require_uuid(device_id, "device id")
     checked_profile = require_profile(profile)
     if not requested_by or len(requested_by) > 128 or not idempotency_key or len(idempotency_key) > 128:
         raise ContextValidationError("request identity must be bounded non-empty text")
+    if locked_device is not None and (locked_device.id != checked_device_id or locked_device not in session):
+        raise ValueError("locked device must match the request device and session")
     await _advisory_lock(
         session,
         f"context.request:{checked_device_id}:{checked_profile}:{requested_by}:{idempotency_key}",
     )
-    device = await session.scalar(select(Device).where(Device.id == checked_device_id).with_for_update())
-    if device is None:
-        raise ContextNotFound("device was not found")
+    if locked_device is None:
+        device = await session.scalar(select(Device).where(Device.id == checked_device_id).with_for_update())
+        if device is None:
+            raise ContextNotFound("device was not found")
     existing = await session.scalar(
         select(ContextCollection)
         .where(

@@ -67,13 +67,25 @@ async def test_connect_refresh_queues_only_supported_inventory_profiles(session)
     session.add(device)
     await session.flush()
 
-    created = await queue_connect_refreshes(
-        session,
-        device.id,
-        {"context.baseline.collect", "context.inventory.collect", "context.network.collect"},
-        now=datetime(2026, 9, 18, 10, 0, tzinfo=UTC),
-    )
+    device_reads = []
 
+    def observe(_connection, _cursor, statement, *_):
+        if "FROM devices" in statement and "WHERE devices.id =" in statement:
+            device_reads.append(statement)
+
+    engine = session.get_bind()
+    event.listen(engine, "before_cursor_execute", observe)
+    try:
+        created = await queue_connect_refreshes(
+            session,
+            device.id,
+            {"context.baseline.collect", "context.inventory.collect", "context.network.collect"},
+            now=datetime(2026, 9, 18, 10, 0, tzinfo=UTC),
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", observe)
+
+    assert len(device_reads) == 1
     queued = (await session.scalars(select(ContextCollection).order_by(ContextCollection.profile))).all()
     assert created == 3
     assert [collection.profile for collection in queued] == ["baseline_v1", "inventory_v1", "network_v1"]
