@@ -1680,8 +1680,18 @@ lock retained priority. At 192 clients, delivery transactions recorded
 queries. All 768 results and 512 snapshots were verified. Online p95 was
 4.990–5.396 s and reconnect ACK p95 remained below 1 s. The fixture was
 removed. Windows passed 2,920 tests with four skips, Console passed 125,
-and two exact-source archives matched. The Ubuntu gate on the same source
-is active.
+and two exact-source archives matched. The full Ubuntu suite on
+`8939fff82014` passed 5,340 tests and two subtests, with 722 skips and
+one failure. Two tests seeded the same module key in a shared PostgreSQL
+database. The background insert failed on the unique constraint before
+the lock test received its signal. `34b9178ace8a` gives every module
+fixture its own key and propagates task errors. All 47 tests in the
+delivery module passed with PostgreSQL. The new Windows workflow test set
+passed 2,920 tests with four skips across two invocations, Console passed
+125, and the two new archives matched. All 335 archive files match
+`8939fff82014`. The ten-worker comparison runs with the same server source
+and database pool as the eight-worker baseline. The full Ubuntu rerun of
+`34b9178ace8a` follows that comparison on the same staging host.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
