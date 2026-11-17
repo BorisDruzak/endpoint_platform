@@ -1604,8 +1604,12 @@ Windows passed 2,917 checks with four skips and Console passed 125 checks.
 In the 192-client acknowledgement run online p95 remained
 5.060–6.093 s. The combined command/session read executed once per start.
 The run counted 6,563 empty socket-triggered worker probes with 99.047
-worker-seconds in total. The next diagnostic will compare empty worker
-occupancy during the delivery waves and preserve idle operator work.
+worker-seconds in total. Candidate `5f1de47b645e` extends the periodic
+scan to new operator Context requests, diagnostics and eligible queued
+module steps. It keeps device capability, deadline and step ordering checks.
+The 669-test local set passed with 35 skips. The 31-test combined preflight
+on `e7093e62b706` passed, including diagnostic and module discovery on
+PostgreSQL 16. The 192-client run with per-wave worker occupancy is active.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
