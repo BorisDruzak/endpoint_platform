@@ -1517,6 +1517,12 @@ ACK, durable replay and both histories. Reconnect start p95 was
 The Windows workflow task passed 2,915 tests with four skips, Console
 passed 125, and both exact-source server archives matched. Full Linux
 release workflow, hosted CI and production publication remain open.
+The same candidate completed the sustained 168-client trial with
+672 unique results, 448 snapshots, 112 replays and both histories
+verified. All three waves met the 1 s reconnect start and result
+ACK targets. Online delivery p95 was 5.200–6.012 s against 5 s.
+An instrumented 192-client trial will measure the delay before
+enqueue, time in the shared queue and worker time through send.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
