@@ -112,6 +112,15 @@ Console assets and worker `rebuild_daily` passed from the archive.
 GitHub Actions had no run for this SHA. A merge projection with live
 `main` at `50cb0ffd34ac` found six conflicting paths. Production
 release-space preflight returned 2 with 7,540,903,936 bytes free.
+Local integration `a47d15d38e2b` resolved the six paths with
+`main` as its first parent. The resolved tree adds the 14 exact
+historical 3.2.156 values from main to the audit release record
+and keeps all runtime and archive inputs. Worktime, runtime,
+transport, Windows fixture and architecture checks passed 351
+tests, and contract artifacts checked cleanly. Two new archives
+matched, all 335 member digests matched the prior tested candidate,
+125 Console tests passed, and the merge archive started API and
+worker on schema 0056. GitHub Actions has no receipt for the merge SHA.
 STAB-01 source: WSS bounded FIFO and separate command task, fixed worker
 process with capability budgets, deadline admission and owned process-tree
 cleanup. HTTP pull remains sequential. Windows source fault injection covers
