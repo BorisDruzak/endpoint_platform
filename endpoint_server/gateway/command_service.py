@@ -743,15 +743,10 @@ def _safe_operation_result(
     )
 
 
-async def _lock_command_device(
-    session: AsyncSession, device_id: UUID, *, only_if: ColumnElement[bool] | None = None,
-) -> bool:
+async def _lock_command_device(session: AsyncSession, device_id: UUID) -> None:
     # Serialize delivery and feedback with the same parent lock before either
     # path locks a command or collection. Both HTTP pull and WSS use this row.
-    statement = select(Device.id).where(Device.id == device_id).with_for_update()
-    if only_if is not None:
-        statement = statement.where(only_if)
-    return await session.scalar(statement) is not None
+    await session.scalar(select(Device.id).where(Device.id == device_id).with_for_update())
 
 
 async def next_pending_command(
@@ -763,7 +758,6 @@ async def next_pending_command(
     agent_platform: str | None = None,
 ) -> GatewayCommandV1 | None:
     """Replay only unacknowledged deliveries before creating a new command."""
-    await _lock_command_device(session, device_id)
     pending = await _next_pending_command(
         session, device_id, allowed_capabilities, transport=transport, agent_platform=agent_platform,
     )
@@ -788,8 +782,8 @@ async def _next_pending_command(
     transport: str,
     agent_platform: str | None,
 ) -> _PendingCommand | None:
-    """Choose work with the device row already locked by the caller."""
     from endpoint_server.installation_lifecycle.service import installation_state_statement, removed
+    await _lock_command_device(session, device_id)
     has_module_work = False
     if transport == "gateway_wss":
         # Use a fresh statement after the device lock. A module insert can
@@ -1006,9 +1000,7 @@ class CommandService:
         """Commit one delivery before exposing it to the network callback."""
         async with self._session_provider() as session:
             try:
-                if not await _lock_command_device(
-                    session, device_id, only_if=wss_work_available(device_id, allowed_capabilities),
-                ):
+                if not await session.scalar(select(wss_work_available(device_id, allowed_capabilities))):
                     return False
                 pending = await _next_pending_command(
                     session,
