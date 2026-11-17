@@ -149,6 +149,58 @@ async def test_unacknowledged_command_replays_only_after_reconnect(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("pending_owner", ["current", "previous", "unassigned", "current_with_queued"])
+async def test_replayed_result_checks_for_delivery_to_current_session(session_provider, pending_owner):
+    device = await seed_device(session_provider)
+    instance_id = uuid4()
+    old = await _open_session(session_provider, device.id, instance_id)
+    service = CommandService(session_provider)
+    capabilities = frozenset({"context.health.collect"})
+    now = datetime.now(UTC)
+
+    async def request(key, requested_at):
+        async with session_provider() as session:
+            session.add(ContextCollection(
+                device_id=device.id, profile="health_v1", requested_by="gateway-test",
+                idempotency_key=key, status="requested", requested_at=requested_at,
+                expires_at=now + timedelta(minutes=5),
+            ))
+            await session.commit()
+
+    await request("before-reconnect", now)
+    sent = []
+    assert await service.deliver_next(device.id, old.session_id, sent.append)
+    result = AgentResultV1(
+        schema_version="agent_result_v1", command_id=sent[0].payload.command_id, device_id=device.id,
+        status="failed", result_items=[], message="collection failed", completed_at=now,
+    )
+    await service.record_result(
+        device_id=device.id, device_instance_id=old.device_instance_id, session_id=old.session_id,
+        result_sequence=1, result=result, durable_replay=True,
+    )
+    await request("next-command", now + timedelta(seconds=1))
+    if pending_owner == "previous":
+        assert await service.deliver_next(device.id, old.session_id, sent.append)
+
+    current = await _open_session(session_provider, device.id, instance_id)
+    if pending_owner in {"current", "current_with_queued"}:
+        assert await service.deliver_next(device.id, current.session_id, sent.append)
+    if pending_owner == "current_with_queued":
+        await request("still-queued", now + timedelta(seconds=2))
+
+    ack, work = await service.record_result_with_work_hint(
+        device_id=device.id, device_instance_id=current.device_instance_id, session_id=current.session_id,
+        result_sequence=1, result=result, durable_replay=True, allowed_capabilities=capabilities,
+    )
+    assert ack.payload.command_id == result.command_id
+    assert work is (pending_owner != "current")
+    if pending_owner == "previous":
+        old_delivery = sent[1].payload
+        assert await service.deliver_next(device.id, current.session_id, sent.append)
+        assert sent[2].payload == old_delivery
+
+
+@pytest.mark.asyncio
 async def test_late_ack_for_terminal_command_does_not_close_live_session(
     session_provider: async_sessionmaker[AsyncSession],
 ) -> None:

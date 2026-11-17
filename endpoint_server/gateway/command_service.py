@@ -907,7 +907,8 @@ async def _next_pending_command(
 
 
 def wss_work_available(
-    device_id: UUID, allowed_capabilities: AbstractSet[str] | None,
+    device_id: UUID, allowed_capabilities: AbstractSet[str] | None, *,
+    current_session_id: UUID | None = None,
 ) -> ColumnElement[bool]:
     """Probe for possible work before entering the locked dispatch path."""
     profiles = tuple(profile for profile, capability in _CAPABILITIES.items()
@@ -917,6 +918,12 @@ def wss_work_available(
         ContextCollection.status.in_(_DELIVERABLE_COLLECTION_STATUSES),
         ContextCollection.profile.in_(profiles),
     )
+    if current_session_id is not None:
+        delivered_here = select(CommandDelivery.id).where(
+            CommandDelivery.command_id == ContextCollection.command_id,
+            CommandDelivery.device_session_id == current_session_id,
+        ).correlate(ContextCollection).exists()
+        deliverable = deliverable.where(or_(ContextCollection.status != "delivered", ~delivered_here))
     module = _active_module_operations(device_id).with_only_columns(EndpointOperation.id)
     overdue = overdue_collection_statement(device_id, now=datetime.now(UTC))
     return or_(deliverable.exists(), module.exists(), overdue.exists())
@@ -1253,7 +1260,7 @@ class CommandService:
                     has_work = True
                 else:
                     row = (await session.execute(command_lookup.add_columns(
-                        wss_work_available(device_id, allowed_capabilities),
+                        wss_work_available(device_id, allowed_capabilities, current_session_id=session_id),
                     ))).one_or_none()
                     command, has_work = (None, True) if row is None else row
                 if gateway_session is None or instance is None or command is None:
