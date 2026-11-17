@@ -149,11 +149,16 @@ journalctl -u endpoint-apt-expiry.service -p err
 [Выражения триггеров](https://www.zabbix.com/documentation/7.0/en/manual/config/triggers/expression).
 
 Для новой установки монитора укажите текущий отпечаток обоих каналов
-в `/etc/default/endpoint-apt-expiry`. Для ручной проверки передайте
-тот же отпечаток при запуске из репозитория.
+в `/etc/default/endpoint-apt-expiry`. Задайте
+`ENDPOINT_APT_VERIFY_PUBLIC_KEYRING=1`, чтобы монитор проверял тот же
+InRelease также с keyring, скачанным из HTTPS-каталога этого канала.
+Отсутствующий keyring или невозможность проверить им закреплённую
+подпись дают ошибку проверки для этого канала. Для ручного запуска
+передайте эти настройки из командной строки.
 
 ```sh
 ENDPOINT_APT_FINGERPRINT=840AC80D602970C76C282E6DD02C861F8B636743 \
+  ENDPOINT_APT_VERIFY_PUBLIC_KEYRING=1 \
   sh tools/release/check_endpoint_apt_expiry.sh
 ```
 

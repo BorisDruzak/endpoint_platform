@@ -107,6 +107,30 @@ class TestAptExpiryMonitor(unittest.TestCase):
         self.assertIn("metadata check failed for ubuntu/noble", result.stderr)
         self.assertNotIn("metadata check failed for debian/bookworm", result.stderr)
 
+    def test_published_keyring_must_verify_current_index(self):
+        published = {}
+        for channel in CHANNELS:
+            published[channel] = self.http_root / channel / "endpoint-apt-transition.gpg"
+            published[channel].write_bytes(self.keyring.read_bytes())
+        settings = {
+            "ENDPOINT_APT_UBUNTU_FINGERPRINT": self.new,
+            "ENDPOINT_APT_DEBIAN_FINGERPRINT": self.new,
+            "ENDPOINT_APT_VERIFY_PUBLIC_KEYRING": "1",
+        }
+        result = self._check(self.new, self.new, **settings)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        published["ubuntu"].write_bytes(subprocess.check_output([*self.gpg, "--export", self.old]))
+        result = self._check(self.new, self.new, **settings)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("published keyring check failed for ubuntu/noble", result.stderr)
+        self.assertNotIn("published keyring check failed for debian/bookworm", result.stderr)
+
+        published["debian"].unlink()
+        result = self._check(self.new, self.new, **settings)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("published keyring check failed for debian/bookworm", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
