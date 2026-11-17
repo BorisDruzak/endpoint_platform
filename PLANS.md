@@ -1663,8 +1663,12 @@ preflight passed 35 tests with one SQLite lock-case skip. The exact
 SELECTs in delivery transactions. Online p95 was 5.095–5.574 s.
 Reconnect ACK p95 stayed below 1 s. The capacity fixture was removed.
 Windows passed 2,920 tests with four skips, Console passed 125, and
-both exact-source archives matched. The isolated full Ubuntu gate has
-started on `068b1322c367`. Archive smoke follows the test suite.
+both exact-source archives matched. The isolated Ubuntu gate on
+`068b1322c367` passed 5,340 tests and two subtests with 722 skips. Migration
+0051–0056 and API/worker startup from the exact archive passed. Both
+staging fixtures were removed. The combined release receipt has SHA-256
+`bdefdfe7c46601e81b86ba809aaebe080eedeb4487bc8b96ca3106ead8ae7f82`.
+The exact GitHub Actions run and production release space remain open.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
