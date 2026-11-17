@@ -1587,7 +1587,13 @@ for the newly inserted result or collection by result ID. Online p95 improved
 to 5.441–5.824 s in three waves. The 5 s target is still open. Candidate
 `2e426fa436a2` locks the command and open session in one acknowledgement
 query while still checking the durable delivery owner. Four ASGI scenarios
-passed and the isolated Ubuntu exact-source workflow is active.
+and three PostgreSQL ownership cases passed. The full Ubuntu run passed
+5,333 tests and two subtests. One unrelated cancellation replay test hit its
+one-second client watchdog. The targeted PostgreSQL repeat with a five-second
+test watchdog passed all 64 cancellation cases, including a replay before the
+new owner released its Device lock. The archive smoke also passed. The full
+Ubuntu repeat is pending and the 192-client acknowledgement rehearsal is
+active with counts for successful and empty dispatches.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
