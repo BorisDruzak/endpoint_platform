@@ -125,8 +125,10 @@ Candidate `2b2297228baa` passed the local Windows workflow task
 (2,912 passed, four skipped) and Console (125 passed). Two clean
 server builds matched across all 335 files. Since the verified merge
 archive, only the scheduler and two Gateway payload files changed.
-The archived process smoke and hosted CI receipt remain open for this
-candidate.
+The archived API started on schema 0056 and served matching Console
+assets. The archived worker completed `rebuild_daily` under the
+release-volume warning. The isolated environment was removed. Hosted
+CI remains open.
 STAB-01 source: WSS bounded FIFO and separate command task, fixed worker
 process with capability budgets, deadline admission and owned process-tree
 cleanup. HTTP pull remains sequential. Windows source fault injection covers
