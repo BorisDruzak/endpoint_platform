@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import stat
 
@@ -19,6 +20,7 @@ from endpoint_server.setup_updates.models import SetupRelease
 
 
 MAX_ENTRIES = 20_000
+MSI_VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 
 
 def scan_artifacts(root: Path) -> tuple[dict[str, int], list[str]]:
@@ -54,11 +56,29 @@ async def read_artifact_inventory(session, root: Path) -> dict[str, object]:
     if len(rows) > MAX_ENTRIES:
         raise ValueError("release catalog exceeds inventory limit")
     names = {name for (name,) in rows}
+    msi_rows = (await session.execute(union_all(
+        select(SetupRelease.version, SetupRelease.msi_sha256),
+        select(WindowsSetupRelease.agent_version, WindowsSetupRelease.msi_sha256),
+    ).limit(MAX_ENTRIES + 1))).all()
+    if len(msi_rows) > MAX_ENTRIES:
+        raise ValueError("MSI provenance catalog exceeds inventory limit")
+    expected_msi: dict[str, set[str]] = {}
+    for version, digest in msi_rows:
+        if MSI_VERSION.fullmatch(version):
+            name = f"EndpointAgent-{version}-x64.msi"
+            expected_msi.setdefault(name, set()).add(digest)
     files, other = await asyncio.to_thread(scan_artifacts, root)
+    msi_candidates = (files.keys() - names) & expected_msi.keys()
     space = shutil.disk_usage(root)
     return {
         "registered_files": [{"name": name, "bytes": files[name]} for name in sorted(names & files.keys())],
-        "unclassified_files": [{"name": name, "bytes": files[name]} for name in sorted(files.keys() - names)],
+        "msi_provenance_candidates": [
+            {"name": name, "bytes": files[name], "expected_sha256": sorted(expected_msi[name])}
+            for name in sorted(msi_candidates)
+        ],
+        "unclassified_files": [
+            {"name": name, "bytes": files[name]} for name in sorted(files.keys() - names - msi_candidates)
+        ],
         "missing_registered_names": sorted(names - files.keys() - set(other)),
         "registered_nonregular_entries": sorted(names & set(other)),
         "other_entries": other,

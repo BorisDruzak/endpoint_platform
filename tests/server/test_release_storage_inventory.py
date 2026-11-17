@@ -12,6 +12,9 @@ async def test_inventory_keeps_registered_and_unclassified_artifacts(tmp_path):
     root.mkdir()
     (root / "registered.zip").write_bytes(b"registered")
     (root / "unclassified.exe").write_bytes(b"unclassified")
+    (root / "EndpointAgent-3.2.171-x64.msi").write_bytes(b"setup-msi")
+    (root / "EndpointAgent-3.2.172-x64.msi").write_bytes(b"enrollment-msi")
+    (root / "EndpointAgent-3.2.199-x64.msi").write_bytes(b"unknown-msi")
     (root / "subdirectory").mkdir()
     (root / "subdirectory" / "nested").write_bytes(b"nested")
 
@@ -20,14 +23,24 @@ async def test_inventory_keeps_registered_and_unclassified_artifacts(tmp_path):
         async with engine.begin() as connection:
             for definition in (
                 "update_builds (artifact_identifier TEXT)",
-                "setup_update_releases (artifact_name TEXT)",
-                "windows_setup_releases (artifact_identifier TEXT)",
+                "setup_update_releases (artifact_name TEXT, version TEXT, msi_sha256 TEXT)",
+                "windows_setup_releases (artifact_identifier TEXT, agent_version TEXT, msi_sha256 TEXT)",
                 "browser_sensor_releases (artifact_identifier TEXT, update_manifest_identifier TEXT, metadata_identifier TEXT)",
             ):
                 await connection.execute(text(f"CREATE TABLE {definition}"))
             await connection.execute(text("INSERT INTO update_builds VALUES ('registered.zip')"))
-            await connection.execute(text("INSERT INTO setup_update_releases VALUES ('missing.exe')"))
-            await connection.execute(text("INSERT INTO windows_setup_releases VALUES ('subdirectory')"))
+            await connection.execute(
+                text("INSERT INTO setup_update_releases VALUES ('missing.exe', '3.2.171', :digest)"),
+                {"digest": "a" * 64},
+            )
+            await connection.execute(
+                text("INSERT INTO windows_setup_releases VALUES ('subdirectory', '3.2.172', :digest)"),
+                {"digest": "b" * 64},
+            )
+            await connection.execute(
+                text("INSERT INTO windows_setup_releases VALUES ('missing.exe', '3.2.171', :digest)"),
+                {"digest": "c" * 64},
+            )
             await connection.execute(text(
                 "INSERT INTO browser_sensor_releases VALUES ('sensor.crx', 'update.xml', 'metadata.json')"
             ))
@@ -36,7 +49,14 @@ async def test_inventory_keeps_registered_and_unclassified_artifacts(tmp_path):
     finally:
         await engine.dispose()
     assert result["registered_files"] == [{"name": "registered.zip", "bytes": 10}]
-    assert result["unclassified_files"] == [{"name": "unclassified.exe", "bytes": 12}]
+    assert result["msi_provenance_candidates"] == [
+        {"name": "EndpointAgent-3.2.171-x64.msi", "bytes": 9, "expected_sha256": ["a" * 64, "c" * 64]},
+        {"name": "EndpointAgent-3.2.172-x64.msi", "bytes": 14, "expected_sha256": ["b" * 64]},
+    ]
+    assert result["unclassified_files"] == [
+        {"name": "EndpointAgent-3.2.199-x64.msi", "bytes": 11},
+        {"name": "unclassified.exe", "bytes": 12},
+    ]
     assert result["missing_registered_names"] == ["metadata.json", "missing.exe", "sensor.crx", "update.xml"]
     assert result["registered_nonregular_entries"] == ["subdirectory"]
     assert result["other_entries"] == ["subdirectory"]
