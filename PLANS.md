@@ -1424,6 +1424,15 @@ scheduled requests completed. Context deduplicates unchanged session
 observations, which passed the focused ingestion test. The next trial
 checks all 672 persisted command results, the 448 exact snapshots,
 and the freshness of 112 session observations independently.
+The 796.648 s trial completed on 168 clients with 2,700 background
+Helpdesk requests. It verified 672 unique command results, 336
+health snapshots, 112 session snapshots, and current observation
+timestamps for all 112 unchanged sessions. Both histories survived
+and 112 result replays added no command result or snapshot. The
+queue drained within 6.721 s and event-loop p99 was 6.9 ms. Online
+delivery exceeded 5 s in waves two and three. Reconnect start ACK
+exceeded 1 s in all three waves and reconnect result ACK exceeded it
+in wave three. The isolated environment was removed.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
