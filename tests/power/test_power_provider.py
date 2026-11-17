@@ -357,3 +357,34 @@ async def test_timeline_marks_only_authoritative_history_without_changing_activi
         assert not truncated and len(markers) == 1
         assert markers[0]["event"].event_kind == "OS_SLEEP_STARTED"
         assert markers[0]["device_id"] == str(db[1])
+
+
+@pytest.mark.parametrize("pending", [False, True])
+async def test_power_ack_reports_work_from_the_device_lock(db, pending):
+    from sqlalchemy import event as sql_event, literal
+
+    provider, device_id = db
+    statements = []
+    sent = []
+
+    def observe(_connection, _cursor, statement, *_):
+        if statement.lstrip().startswith("SELECT"):
+            statements.append(" ".join(statement.lower().split()))
+
+    async def send(envelope):
+        async with provider() as session:
+            assert await session.scalar(select(PowerSourceState.device_id)) == device_id
+        sent.append(envelope)
+
+    engine = provider.kw["bind"].sync_engine
+    sql_event.listen(engine, "before_cursor_execute", observe)
+    try:
+        work = await commit_and_ack_power_events(
+            provider, device_id, batch(), sequence=7, send=send, received_at=NOW,
+            work_available=literal(pending),
+        )
+    finally:
+        sql_event.remove(engine, "before_cursor_execute", observe)
+    assert work is pending
+    assert len(sent) == 1 and sent[0].sequence == 7
+    assert sum("from devices where devices.id =" in sql for sql in statements) == 1

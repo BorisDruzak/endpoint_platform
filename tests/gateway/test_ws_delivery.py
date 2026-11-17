@@ -207,8 +207,9 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(
     scan_enabled = True
 
     async def observe_power(*args, **kwargs):
-        await commit_power(*args, **kwargs)
+        has_work = await commit_power(*args, **kwargs)
         await finish_power.wait()
+        return has_work
 
     async def observe_dispatch(service, *args, **kwargs):
         if power_start and finish_power.is_set():
@@ -234,23 +235,22 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(
     monkeypatch.setattr(CommandService, "deliver_next", observe_dispatch)
     monkeypatch.setattr(CommandService, "scheduled_pending_devices", scan)
     monkeypatch.setattr(ConnectionRegistry, "request_dispatch", observe_request)
-    if requester == "operator":
-        from endpoint_server.gateway.presence_service import PresenceService
+    from endpoint_server.gateway.presence_service import PresenceService
 
-        record_heartbeat = PresenceService.record_heartbeat
+    record_heartbeat = PresenceService.record_heartbeat
 
-        async def observe_heartbeat(presence, **kwargs):
-            result = await record_heartbeat(presence, **kwargs)
-            heartbeat_done.set()
-            return result
+    async def observe_heartbeat(presence, **kwargs):
+        result = await record_heartbeat(presence, **kwargs)
+        heartbeat_done.set()
+        return result
 
-        monkeypatch.setattr(PresenceService, "record_heartbeat", observe_heartbeat)
+    monkeypatch.setattr(PresenceService, "record_heartbeat", observe_heartbeat)
     if power_start:
         monkeypatch.setattr(ws_routes, "commit_and_ack_power_events", observe_power)
-        async with session_provider() as db:
-            connection = await db.connection()
-            await connection.run_sync(lambda sync: PowerSourceState.__table__.create(sync))
-            await db.commit()
+    async with session_provider() as db:
+        connection = await db.connection()
+        await connection.run_sync(lambda sync: PowerSourceState.__table__.create(sync))
+        await db.commit()
     token = uuid4().hex
     device = await seed_device(session_provider, token=token)
     settings = replace(
@@ -289,9 +289,7 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(
         return envelope["payload"]
 
     hello = agent_hello(device.id, instance_id=uuid4())
-    features = [COMMAND_JOURNAL_FEATURE]
-    if power_start:
-        features.append(POWER_EVENTS_FEATURE)
+    features = [COMMAND_JOURNAL_FEATURE, POWER_EVENTS_FEATURE]
     hello.update(capabilities=["context.health.collect"], protocol_features=features)
     async with app.router.lifespan_context(app):
         task = asyncio.create_task(app(scope, receive_from_agent, send_to_agent))
@@ -302,7 +300,23 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(
             handshake = await receive("gateway_hello")
             await asyncio.wait_for(initial_dispatch_done.wait(), timeout=4)
             now = datetime.now(UTC)
+            if power_start is None:
+                await send(_envelope("power_event_batch", 0, {
+                    "schema_version": "power_event_batch_v1", "batch_id": str(uuid4()), "events": [],
+                    "source_status": {
+                        "schema_version": "power_source_status_v1", "source": "systemd-journal",
+                        "availability": "UNAVAILABLE", "reported_at": now.isoformat(), "loss_count": 2,
+                    },
+                }))
+                await receive("power_event_ack")
+                await send(_envelope("heartbeat", 1, {
+                    "schema_version": "agent_heartbeat_v1", "device_id": str(device.id),
+                    "platform": "linux", "agent_version": hello["agent_version"], "reported_at": now.isoformat(),
+                }))
+                await asyncio.wait_for(heartbeat_done.wait(), timeout=4)
+                assert socket_requests == []
             if requester == "operator":
+                heartbeat_done.clear()
                 await send(_envelope("heartbeat", 1, {
                     "schema_version": "agent_heartbeat_v1", "device_id": str(device.id),
                     "platform": "linux", "agent_version": hello["agent_version"], "reported_at": now.isoformat(),

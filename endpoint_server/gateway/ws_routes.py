@@ -427,9 +427,12 @@ async def connect_agent(websocket: WebSocket) -> None:
                     raise GatewayProtocolError(1008, 'power_events_disabled')
                 if COMMAND_JOURNAL_FEATURE in connection.protocol_features:
                     prefetched = asyncio.create_task(receive())
-                await commit_and_ack_power_events(
+                has_work = await commit_and_ack_power_events(
                     websocket.app.state.session_provider,
                     device_id, envelope.payload, sequence=envelope.sequence, send=connection.send,
+                    work_available=wss_work_available(
+                        device_id, connection.effective_capabilities, current_session_id=connection.session_id,
+                    ),
                 )
                 # A waiting start request owns the next receive turn. Power
                 # ACK stays after commit and all frames are handled in order.
@@ -440,6 +443,8 @@ async def connect_agent(websocket: WebSocket) -> None:
                     waiting = prefetched.result()
                     if isinstance(waiting, CommandAckEnvelopeV1) and waiting.payload.status == "running":
                         continue
+                if not has_work:
+                    continue
             elif isinstance(envelope, SecurityEventBatchEnvelopeV1):
                 if (
                     not websocket.app.state.settings.endpoint_policy_enabled
