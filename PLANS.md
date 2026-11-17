@@ -129,6 +129,14 @@ The archived API started on schema 0056 and served matching Console
 assets. The archived worker completed `rebuild_daily` under the
 release-volume warning. The isolated environment was removed. Hosted
 CI remains open.
+The exact candidate then passed the full Linux workflow task with
+5,329 tests, two subtests and 722 skips. Migration 0051 to 0056
+preserved Activity, device identity, both histories, the Setup hold
+and the pending Core intent. The archived API and worker passed
+smoke again. The local evidence record links Linux, Windows, Console,
+the paired archives and migration proof. The production preflight
+returned 2 at 7,522,914,304 free bytes. GitHub Actions returned no run
+for this SHA.
 STAB-01 source: WSS bounded FIFO and separate command task, fixed worker
 process with capability budgets, deadline admission and owned process-tree
 cleanup. HTTP pull remains sequential. Windows source fault injection covers
