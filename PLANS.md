@@ -498,6 +498,11 @@ and copied off-volume with verified hashes. The latest inventory found no
 deployment references to any of the 41 archived trees. Their combined
 allocation of 4,402,864,128 bytes gives a projected 1,244,151,808 bytes of
 headroom over the release threshold. The deployed trees remain in place.
+On 17 November all 41 off-volume copies rehashed against their
+restore receipts. The production preflight measured a 3,214,503,936
+byte shortfall. The earlier per-tree allocation would yield
+1,188,360,192 bytes of calculated headroom. Current references and
+allocated blocks require revalidation before a retirement operation.
 The deployed worker now reports `release_disk` at startup and at the
 existing 15-minute interval. It shares the deploy gate's 10 GiB threshold
 and reports the artifact volume separately. The archived worker on Ubuntu
