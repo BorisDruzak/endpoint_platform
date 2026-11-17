@@ -1521,8 +1521,15 @@ The same candidate completed the sustained 168-client trial with
 672 unique results, 448 snapshots, 112 replays and both histories
 verified. All three waves met the 1 s reconnect start and result
 ACK targets. Online delivery p95 was 5.200–6.012 s against 5 s.
-An instrumented 192-client trial will measure the delay before
-enqueue, time in the shared queue and worker time through send.
+The instrumented 192-client trial verified 768 unique results and
+512 snapshots. Online delivery p95 was 5.395–5.901 s. Reconnect
+start ACK p95 was 0.720–0.760 s and result ACK 0.820–0.971 s.
+For the nine slowest commit-to-send samples in each wave, the median
+share before enqueue was 57.3–72.3%, shared queue residence took
+23.8–37.9%, and active dispatch took 3.6–4.1%. All eight workers
+were active when each of those deliveries was taken from the queue.
+The next check needs to correlate the pre-enqueue interval with the
+preceding command and scheduler scan on the same device.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
