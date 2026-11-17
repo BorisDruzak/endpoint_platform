@@ -10,8 +10,9 @@ from datetime import UTC, datetime, timedelta
 from typing import AbstractSet
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, case, func, or_, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from endpoint_contracts import (
     AgentCommandAckV1,
@@ -52,6 +53,7 @@ from endpoint_server.db.models import (
     ModuleOperationStep,
 )
 from endpoint_server.db.models.modules import ModuleVersion
+from endpoint_server.db.models.operations import MODULE_OPERATION_STEP_CAPABILITIES
 from endpoint_server.db.session import SessionProvider
 from endpoint_server.operations.projection import project_diagnostic_result
 from endpoint_server.operations.evidence import create_operation_evidence
@@ -68,7 +70,8 @@ from endpoint_server.modules.recipe_engine import (
 SendCommand = Callable[[CommandEnvelopeV1], Awaitable[None] | None]
 _TERMINAL_STATUSES = frozenset({"succeeded", "failed", "canceled", "expired"})
 _DELIVERABLE_COLLECTION_STATUSES = ("requested", "delivered")
-_ACTIVE_MODULE_STATUSES = ("queued", "delivered", "acknowledged", "running")
+_ACTIVE_MODULE_STEP_STATUSES = ("delivered", "acknowledged", "running")
+_ACTIVE_MODULE_STATUSES = ("queued", *_ACTIVE_MODULE_STEP_STATUSES)
 _MAX_AGENT_CLOCK_SKEW = timedelta(minutes=5)
 _CAPABILITIES = {
     **{rule.profile: rule.capability for rule in SCHEDULE_RULES},
@@ -76,8 +79,8 @@ _CAPABILITIES = {
 }
 
 
-_SCHEDULED_PROFILES = frozenset(rule.profile for rule in SCHEDULE_RULES)
-_SCHEDULED_CAPABILITIES = frozenset(rule.capability for rule in SCHEDULE_RULES)
+_CONTEXT_CAPABILITIES = frozenset(_CAPABILITIES.values())
+_MODULE_CAPABILITIES = frozenset(MODULE_OPERATION_STEP_CAPABILITIES)
 
 
 class CommandStateRejected(ValueError):
@@ -228,7 +231,7 @@ async def _next_pending_module_command(
         active_steps = [
             step
             for step in steps
-            if step.status in {"delivered", "acknowledged", "running"}
+            if step.status in _ACTIVE_MODULE_STEP_STATUSES
         ]
         if active_steps:
             if len(active_steps) != 1 or active_steps[0].status != "delivered":
@@ -898,29 +901,63 @@ class CommandService:
     async def scheduled_pending_devices(
         self, capabilities: Mapping[UUID, AbstractSet[str]],
     ) -> tuple[UUID, ...]:
-        """Find online candidates without claiming queue rows or opening deliveries."""
-        eligible = {device_id for device_id, advertised in capabilities.items()
-                    if not _SCHEDULED_CAPABILITIES.isdisjoint(advertised)}
-        if not eligible:
+        """Find new work for online devices without claiming rows or opening deliveries."""
+        context_devices = [
+            device_id for device_id, advertised in capabilities.items()
+            if not _CONTEXT_CAPABILITIES.isdisjoint(advertised)
+        ]
+        module_devices = [
+            device_id for device_id, advertised in capabilities.items()
+            if not _MODULE_CAPABILITIES.isdisjoint(advertised)
+        ]
+        if not context_devices and not module_devices:
             return ()
+        now = datetime.now(UTC)
         collection = ContextCollection
-        statement = (
-            select(collection.device_id, collection.profile)
+        context_requests = (
+            select(
+                collection.device_id,
+                case(_CAPABILITIES, value=collection.profile).label("capability"),
+                func.min(collection.requested_at).label("requested_at"),
+            )
             .where(
-                collection.device_id.in_(eligible),
-                collection.requested_by == "scheduler",
-                collection.profile.in_(_SCHEDULED_PROFILES),
+                collection.device_id.in_(context_devices),
+                collection.profile.in_(_CAPABILITIES),
                 collection.status == "requested",
                 collection.command_id.is_(None),
-                or_(collection.expires_at.is_(None), collection.expires_at > datetime.now(UTC)),
+                or_(collection.expires_at.is_(None), collection.expires_at > now),
             )
             .group_by(collection.device_id, collection.profile)
-            .order_by(func.min(collection.requested_at), collection.device_id)
+        )
+        operation, step = EndpointOperation, ModuleOperationStep
+        sibling = aliased(ModuleOperationStep)
+        blocked = select(sibling.id).where(
+            sibling.operation_id == step.operation_id,
+            or_(
+                sibling.status.in_(_ACTIVE_MODULE_STEP_STATUSES),
+                and_(sibling.sequence < step.sequence, sibling.status != "succeeded"),
+            ),
+        ).exists()
+        module_requests = (
+            select(operation.device_id, step.capability, operation.created_at.label("requested_at"))
+            .join(step, step.operation_id == operation.id)
+            .where(
+                operation.device_id.in_(module_devices),
+                operation.capability == "endpoint.module.recipe",
+                operation.status.in_(_ACTIVE_MODULE_STATUSES),
+                operation.deadline_at > now,
+                step.status == "queued",
+                ~blocked,
+            )
+        )
+        requests = union_all(context_requests, module_requests).subquery()
+        statement = select(requests.c.device_id, requests.c.capability).order_by(
+            requests.c.requested_at, requests.c.device_id,
         )
         async with self._session_provider() as session:
             rows = (await session.execute(statement)).all()
         return tuple(dict.fromkeys(
-            device_id for device_id, profile in rows if _CAPABILITIES[profile] in capabilities[device_id]
+            device_id for device_id, capability in rows if capability in capabilities[device_id]
         ))
 
     async def deliver_next(

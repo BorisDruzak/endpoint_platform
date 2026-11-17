@@ -160,12 +160,16 @@ async def test_no_pending_command_sends_nothing(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("follow_up", "power_start"),
-    [(False, None), (True, None), (True, "queued"), (True, "not_yet_sent")],
-    ids=["single", "follow-up", "start-ready-during-power", "start-after-power-probe"],
+    ("follow_up", "power_start", "requester"),
+    [
+        (False, None, "scheduler"), (True, None, "scheduler"),
+        (True, "queued", "scheduler"), (True, "not_yet_sent", "scheduler"),
+        (False, None, "operator"),
+    ],
+    ids=["single", "follow-up", "start-ready-during-power", "start-after-power-probe", "operator"],
 )
 async def test_idle_gateway_delivers_worker_request_without_heartbeat(
-    session_provider, tmp_path, monkeypatch, follow_up, power_start,
+    session_provider, tmp_path, monkeypatch, follow_up, power_start, requester,
 ):
     initial_dispatch_done = asyncio.Event()
     finish_power = asyncio.Event()
@@ -238,7 +242,7 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(
             now = datetime.now(UTC)
             async with session_provider() as db:
                 db.add(ContextCollection(
-                    device_id=device.id, profile="health_v1", requested_by="scheduler",
+                    device_id=device.id, profile="health_v1", requested_by=requester,
                     idempotency_key="idle-worker-request", status="requested",
                     requested_at=now, expires_at=now + timedelta(minutes=5),
                 ))
@@ -343,7 +347,7 @@ async def test_scheduled_candidates_require_matching_capability_and_live_request
     service = CommandService(session_provider)
     caps = frozenset({"context.health.collect"})
     assert await service.scheduled_pending_devices({due.id: frozenset({"context.inventory.collect"})}) == ()
-    assert await service.scheduled_pending_devices({due.id: caps, expired.id: caps, manual.id: caps}) == (due.id,)
+    assert await service.scheduled_pending_devices({due.id: caps, expired.id: caps, manual.id: caps}) == tuple(sorted((due.id, manual.id)))
 
 
 @pytest.mark.asyncio

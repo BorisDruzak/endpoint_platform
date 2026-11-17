@@ -50,6 +50,7 @@ from endpoint_server.operations.service import create_operation_outcome
 from endpoint_server.modules.operation_service import create_module_parent_operation
 from endpoint_server.policy.network_targets import NetworkTargetPolicyV1
 from endpoint_server.worker import run_worker
+from tests.server.test_update_postgresql import update_service_database_url, update_service_provider
 
 from .conftest import (
     VALID_TOKEN,
@@ -429,6 +430,64 @@ async def test_lab_parent_latches_platform_only_when_a_child_is_delivered(
     assert operation.parameters == {"execution_mode": "lab"}
 
 
+async def _assert_idle_gateway_discovers_operation(session_provider, kind):
+    capabilities, expected = {
+        "diagnostic": (["context.diagnostic.collect"], "context.diagnostic.collect"),
+        "module": (["dns.resolve", "network.ping"], "dns.resolve"),
+    }[kind]
+    from endpoint_server.gateway.connection_registry import ConnectionRegistry, GatewayConnection
+    from endpoint_server.gateway.scheduled_dispatch import run_scheduled_dispatch
+
+    device = await seed_device(session_provider)
+    presence = await _open_session(
+        session_provider, device_id=device.id, capabilities=capabilities,
+    )
+    received = asyncio.Queue()
+
+    class Socket:
+        async def send_json(self, frame):
+            await received.put(CommandEnvelopeV1.model_validate(frame))
+
+    registry = ConnectionRegistry()
+    connection = GatewayConnection(
+        device.id, presence.session_id, Socket(), platform="linux_amd64",
+        effective_capabilities=frozenset(capabilities),
+    )
+    await registry.register(connection)
+    connection.ready_for_dispatch.set()
+    dispatcher = asyncio.create_task(run_scheduled_dispatch(registry, session_provider))
+    try:
+        if kind == "diagnostic":
+            operation = await _seed_operation(session_provider, device_id=device.id)
+        else:
+            operation = await _seed_module_operation(session_provider, device_id=device.id)
+            assert await CommandService(session_provider).scheduled_pending_devices({
+                device.id: frozenset({"network.ping"}),
+            }) == ()
+        frame = await asyncio.wait_for(received.get(), timeout=4)
+        assert frame.payload.capability == expected
+        assert frame.payload.correlation.request_id == operation.id
+        # A repeat scan must not ask the same open session to replay a delivery.
+        assert await CommandService(session_provider).scheduled_pending_devices({
+            device.id: frozenset(capabilities),
+        }) == ()
+    finally:
+        dispatcher.cancel()
+        await asyncio.gather(dispatcher, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["diagnostic", "module"])
+async def test_idle_gateway_discovers_new_operation(session_provider, kind):
+    await _assert_idle_gateway_discovers_operation(session_provider, kind)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["diagnostic", "module"])
+async def test_postgresql_idle_gateway_discovers_new_operation(update_service_provider, kind):
+    await _assert_idle_gateway_discovers_operation(update_service_provider, kind)
+
+
 @pytest.mark.asyncio
 async def test_module_parent_is_absent_from_http_pull_and_wss_delivers_one_typed_child(
     session_provider: async_sessionmaker[AsyncSession],
@@ -565,6 +624,9 @@ async def test_module_child_ack_and_result_advance_the_next_typed_step(
             completed_at=acknowledged_at,
         ),
     )
+    assert await CommandService(session_provider).scheduled_pending_devices({
+        device.id: frozenset({"network.ping"}),
+    }) == (device.id,)
     second: list[CommandEnvelopeV1] = []
     assert await CommandService(session_provider).deliver_next(
         device.id,
