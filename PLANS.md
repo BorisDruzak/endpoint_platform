@@ -1367,6 +1367,14 @@ p95 improved by 370–743 ms and reconnect start by 52–630 ms.
 Reconnect result ACK moved in opposite directions across the pairs.
 All four runs preserved both histories and completed 256 new snapshots.
 All three latency targets remain open at 192 clients.
+The scheduler now acquires the existing profile advisory locks in one
+ordered PostgreSQL statement per device. A competing transaction proved
+the original acquisition order. The focused Linux suite passed 483 tests.
+At 192 clients, four paired runs at 250 ms confirmed a reduction from 832
+to 192 lock queries and a 57–341 ms shorter worker cycle. All four kept
+both histories and completed the same 256 snapshots. Delivery, reconnect
+start and result ACK changed in opposite directions across pairs, and
+both candidate runs exceeded the three latency targets.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
