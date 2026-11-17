@@ -1558,8 +1558,13 @@ for second commands. Enqueue on start grant passed the controlled
 first-result regression, but at 192 clients online delivery p95 was
 5.937–6.897 s. That candidate was reverted. The Gateway, Context,
 Architecture and agent set passed 578 tests with 26 skips on the
-restored code. A lab-only 192-client trial now compares ten delivery
-workers with the measured eight-worker runs.
+restored code. The lab-only 192-client trial with ten delivery workers
+measured 5.812–6.533 s online p95 versus 5.828–6.139 s in the earlier
+eight-worker run. All reconnect ACK p95 values stayed below 1 s. The
+configured count remains eight. A local scheduler probe on 192 devices
+counted 256 repeat Device row reads for 256 created requests. The next
+scheduler change will test reuse of the row that the scheduler already
+locked in the transaction.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
