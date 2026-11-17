@@ -1669,6 +1669,13 @@ both exact-source archives matched. The isolated Ubuntu gate on
 staging fixtures were removed. The combined release receipt has SHA-256
 `bdefdfe7c46601e81b86ba809aaebe080eedeb4487bc8b96ca3106ead8ae7f82`.
 The exact GitHub Actions run and production release space remain open.
+Candidate `8939fff82014` reads installation state and active module
+availability in one statement after acquiring the Device lock. It
+avoids a standalone module lookup for Context delivery with no active
+module. The local suite passed 697 tests with 36 skips. The staging
+preflight passed 36 tests with one SQLite lock case skipped. Its PostgreSQL
+test confirmed that a module committed while delivery waited for the Device
+lock retained priority. The 192-client comparison is active.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
