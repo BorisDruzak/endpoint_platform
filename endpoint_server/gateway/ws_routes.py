@@ -186,8 +186,11 @@ async def _send_safe_error(websocket: WebSocket, code: str) -> None:
 
 @router.websocket("/agent/v1/connect")
 async def connect_agent(websocket: WebSocket) -> None:
+    registry = websocket.app.state.gateway_connection_registry
+    db_slots = registry.handshake_db_slots
     try:
-        authenticated = await authenticate_gateway_websocket(websocket)
+        async with db_slots:
+            authenticated = await authenticate_gateway_websocket(websocket)
     except GatewayHandshakeRejected as rejection:
         await websocket.close(code=rejection.close_code)
         return
@@ -201,7 +204,6 @@ async def connect_agent(websocket: WebSocket) -> None:
     published = False
     prefetched: asyncio.Task[AgentEnvelope] | None = None
     replaced_socket_cleanup: asyncio.Task[None] | None = None
-    registry = websocket.app.state.gateway_connection_registry
     close_reason = "disconnected"
     device_id = authenticated.principal.device.id
     presence_service = PresenceService(websocket.app.state.session_provider)
@@ -243,12 +245,13 @@ async def connect_agent(websocket: WebSocket) -> None:
         ]
         async with registry.handshake_lock(device_id):
             await registry.require_capacity(device_id)
-            presence = await presence_service.open_session(
-                device_id=device_id,
-                hello=first.payload,
-                source_address=str(authenticated.source_address),
-                effective_capabilities=effective_capabilities,
-            )
+            async with db_slots:
+                presence = await presence_service.open_session(
+                    device_id=device_id,
+                    hello=first.payload,
+                    source_address=str(authenticated.source_address),
+                    effective_capabilities=effective_capabilities,
+                )
             connection = GatewayConnection(
                 device_id=device_id,
                 session_id=presence.session_id,
@@ -266,7 +269,7 @@ async def connect_agent(websocket: WebSocket) -> None:
             replaced_socket_cleanup = asyncio.create_task(registry.close_replaced(previous))
         if await registry.get(device_id) is not connection:
             return
-        async with websocket.app.state.session_provider() as session:
+        async with db_slots, websocket.app.state.session_provider() as session:
             await queue_connect_refreshes(
                 session,
                 device_id,
@@ -278,7 +281,7 @@ async def connect_agent(websocket: WebSocket) -> None:
             if not websocket.app.state.settings.endpoint_policy_enabled:
                 policy_readiness = "not_required"
             else:
-                async with websocket.app.state.session_provider() as session:
+                async with db_slots, websocket.app.state.session_provider() as session:
                     effective_policy = await resolve_effective_policy(session, device_id)
                 policy_readiness = (
                     "not_required" if effective_policy is None else "required"
@@ -309,7 +312,7 @@ async def connect_agent(websocket: WebSocket) -> None:
             ),
         )
         if websocket.app.state.settings.endpoint_policy_enabled:
-            async with websocket.app.state.session_provider() as session:
+            async with db_slots, websocket.app.state.session_provider() as session:
                 policy_delivery = await prepare_policy_delivery(session, first.payload)
                 await session.commit()
             if policy_delivery is not None:

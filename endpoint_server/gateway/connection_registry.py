@@ -104,6 +104,8 @@ class ConnectionRegistry:
         self._max_connections = max_connections
         self._connections: dict[UUID, GatewayConnection] = {}
         self._lock = asyncio.Lock()
+        # Bound opening bursts against the shared database pool.
+        self.handshake_db_slots = asyncio.BoundedSemaphore(8)
         # Fixed-size stripes bound memory even during bursts of new device IDs.
         self._handshake_locks = tuple(asyncio.Lock() for _ in range(256))
 

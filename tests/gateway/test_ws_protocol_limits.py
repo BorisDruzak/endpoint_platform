@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import json
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 
+from endpoint_server.gateway import ws_routes
 from endpoint_server.gateway.connection_registry import (
     ConnectionRegistry,
     GatewayConnection,
@@ -67,6 +70,63 @@ async def test_process_local_registry_has_a_hard_capacity() -> None:
         await registry.register(second)
 
     assert registry.connection_count == 1
+
+
+@pytest.mark.asyncio
+async def test_wss_opening_admission_releases_slots_before_hello(session_provider, monkeypatch, tmp_path):
+    app = create_app(gateway_settings(artifact_root=tmp_path), session_provider)
+    authenticating = asyncio.Queue()
+    reading_hello = asyncio.Queue()
+    release_authentication = asyncio.Event()
+
+    class Socket:
+        headers = {}
+
+        async def accept(self):
+            pass
+
+        async def receive(self):
+            reading_hello.put_nowait(self)
+            await asyncio.Event().wait()
+
+    async def authenticate(socket):
+        authenticating.put_nowait(socket)
+        await release_authentication.wait()
+        return SimpleNamespace(principal=SimpleNamespace(device=SimpleNamespace(id=uuid4())))
+
+    monkeypatch.setattr(ws_routes, "authenticate_gateway_websocket", authenticate)
+    sockets = [Socket() for _ in range(10)]
+    for socket in sockets:
+        socket.app = app
+
+    queued = asyncio.Event()
+
+    async def start_ninth():
+        queued.set()
+        await ws_routes.connect_agent(sockets[8])
+
+    tasks = [asyncio.create_task(ws_routes.connect_agent(socket)) for socket in sockets[:8]]
+    try:
+        async with asyncio.timeout(5):
+            assert {await authenticating.get() for _ in range(8)} == set(sockets[:8])
+            tasks.append(asyncio.create_task(start_ninth()))
+            await queued.wait()
+            assert authenticating.empty()
+
+            tasks[0].cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await tasks[0]
+            assert await authenticating.get() is sockets[8]
+
+            release_authentication.set()
+            assert {await reading_hello.get() for _ in range(8)} == set(sockets[1:9])
+            tasks.append(asyncio.create_task(ws_routes.connect_agent(sockets[9])))
+            assert await authenticating.get() is sockets[9]
+            assert await reading_hello.get() is sockets[9]
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 @pytest.mark.parametrize(
