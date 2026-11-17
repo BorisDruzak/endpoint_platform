@@ -1311,7 +1311,18 @@ on the candidate. All four runs verified 256 snapshots and kept history.
 The production Context history plan sorts the latest rows for a device
 and profile. A synthetic indexed rehearsal on 90,089 rows reduced p95
 from 0.899–0.981 ms to 0.051–0.074 ms for its no-active-collection path
-and returned the same results. Integrated index validation remains open.
+and returned the same results. Migration 0056 adds the nonunique history
+index. Staging PostgreSQL upgrade and rollback preserved collection rows.
+The 0051 to 0056 rehearsal retained existing deliveries, Activity,
+unknown profile state, the Setup recovery hold and the unrequested Core
+intent. The focused suite passed 523 tests with 12 skips.
+On 192 clients with both histories present, the indexed runs reduced
+worker history query p95 from 2.2–2.3 ms to 1.5 ms and the worker
+schedule by 111–132 ms. All four runs completed 256 new snapshots and
+preserved the original rows. Online delivery and reconnect start moved
+in opposite directions in the two pairs, and reconnect result ACK p95
+rose by 170.2 and 310.4 ms. All four runs exceeded the delivery, start
+and result ACK targets at this load.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
