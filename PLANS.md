@@ -1543,6 +1543,14 @@ verified replay after API restart, database interruption with the API
 running, worker restart and forced process or PostgreSQL exit. A separate
 local restore exercised API and worker from the recovered source,
 database and synthetic signed release.
+Gateway `416856407700` restarts its command dispatcher after an
+unexpected exception or return. The supervisor logs a safe error
+code and closes the active WSS owners before restarting. The fault
+tests lost a frame after a real SQLite commit. After reconnect, the
+same command and delivery row attached to the replacement session.
+The normal shutdown lease test and the Gateway, Context and
+Architecture set passed 472 tests with 26 skips. Windows passed
+2,915 tests, Console 125 and two exact-source archives matched.
 On Ubuntu 24.04.3, backend processes started from archive `fcad03de9ce5`
 behind a loopback Nginx TLS listener. The actual agent lifecycle with a
 synthetic collector retried after five seconds, opened a new WSS session
