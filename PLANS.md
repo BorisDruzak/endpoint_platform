@@ -1340,6 +1340,15 @@ It added 426–550 SELECTs. The largest observed online delay reduction
 was for second commands on the same socket between commit and handler.
 All four runs verified 256 snapshots and retained both histories.
 The 250 ms trials still exceeded the three latency targets.
+The scheduler now reads all eligible profile histories in one query
+per device. PostgreSQL confirmed the existing active and history row
+locking distinction and the focused Linux suite passed 482 tests.
+An ABBA repeat at the same 250 ms lab interval reduced history queries
+from 832 to 192 and the worker cycle by 446–557 ms. Online delivery
+p95 improved by 370–743 ms and reconnect start by 52–630 ms.
+Reconnect result ACK moved in opposite directions across the pairs.
+All four runs preserved both histories and completed 256 new snapshots.
+All three latency targets remain open at 192 clients.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
