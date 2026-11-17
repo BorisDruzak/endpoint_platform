@@ -1548,8 +1548,12 @@ The follow-up placed all 27 slowest deliveries on the second
 command for an online device. Enqueue preceded receipt of the previous
 result ACK by the client. The scanner had already selected those devices. P95
 before enqueue was 1.025–1.176 s for first commands and 3.094–3.452 s
-for second commands. The next regression should hold the first result
-and verify that a durable start grant wakes background delivery.
+for second commands. Enqueue on start grant passed the controlled
+first-result regression, but at 192 clients online delivery p95 was
+5.937–6.897 s. That candidate was reverted. The Gateway, Context,
+Architecture and agent set passed 578 tests with 26 skips on the
+restored code. A lab-only 192-client trial now compares ten delivery
+workers with the measured eight-worker runs.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
