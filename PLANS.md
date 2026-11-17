@@ -1433,6 +1433,12 @@ queue drained within 6.721 s and event-loop p99 was 6.9 ms. Online
 delivery exceeded 5 s in waves two and three. Reconnect start ACK
 exceeded 1 s in all three waves and reconnect result ACK exceeded it
 in wave three. The isolated environment was removed.
+An instrumented 192-client trial measured first queue entry,
+reselection, and dequeue. For the 127 first online commands sent
+by the dispatcher, p95 wait in its queue was 3.478 s and the work
+probe excluding checkout was 18.6 ms. The 12 second online commands
+sent by the dispatcher entered that queue 4.285 s after commit at
+p95. The trial verified all 256 snapshots and both histories.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
