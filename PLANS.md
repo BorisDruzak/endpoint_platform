@@ -487,6 +487,13 @@ checks after one controlled service start. VM136, its disk and both ISO
 files were removed along with the dedicated database and provider services.
 The live witness is in the
 [release qualification matrix](docs/verification/2026-11-14-agent-release-qualification-matrix.md#штатная-очистка-отложенных-zip-на-установленном-core-32242).
+The Windows updater now preserves a changed prepared ZIP and archives its
+record by digest, after checking the path, ownership and absence of an active
+handoff. The publication slot is then available for the next download. NTFS
+tests covered a changed hash, changed size, active handoff, hard link and
+conflicting retained evidence. On `a947ff580473` the full Windows gate passed
+2,920 tests with four skips. Signed lab Core 3.2.243 from `94b47a90b5af`
+passed the archive and bytecode checks and awaits native acceptance.
 Historical Core caches, scratch files from writers without the lock and archives tied to
 quarantined handoff records remain open, along with server deployment releases
 and retirement of catalog artifacts. The server archive ships both storage
