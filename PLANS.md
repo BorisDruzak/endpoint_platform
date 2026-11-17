@@ -1418,8 +1418,12 @@ first sustained 168-client trial drained three 224-command waves.
 Waves two and three exceeded the 5 s online delivery and 1 s
 reconnect ACK targets. The final harness assertion incorrectly
 expected zero replays across all three waves. The trial observed
-112 acknowledged replays. The repeat verifies them together with
-the exact stored snapshots and both histories.
+112 acknowledged replays. The repeat confirmed 0, 56 and 56 replays
+and preserved both histories. It found 448 snapshots after the 672
+scheduled requests completed. Context deduplicates unchanged session
+observations, which passed the focused ingestion test. The next trial
+checks all 672 persisted command results, the 448 exact snapshots,
+and the freshness of 112 session observations independently.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
