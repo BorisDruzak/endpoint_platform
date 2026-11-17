@@ -1535,8 +1535,12 @@ For the nine slowest commit-to-send samples in each wave, the median
 share before enqueue was 57.3–72.3%, shared queue residence took
 23.8–37.9%, and active dispatch took 3.6–4.1%. All eight workers
 were active when each of those deliveries was taken from the queue.
-The next check needs to correlate the pre-enqueue interval with the
-preceding command and scheduler scan on the same device.
+The follow-up placed all 27 slowest deliveries on the second
+command for an online device. Enqueue preceded receipt of the previous
+result ACK by the client. The scanner had already selected those devices. P95
+before enqueue was 1.025–1.176 s for first commands and 3.094–3.452 s
+for second commands. The next regression should hold the first result
+and verify that a durable start grant wakes background delivery.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
