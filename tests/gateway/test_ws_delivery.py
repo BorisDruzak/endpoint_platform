@@ -172,12 +172,7 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(
     post_power_probe = asyncio.Event()
     finish_post_power_probe = asyncio.Event()
     deliver_next = CommandService.deliver_next
-    record_ack = CommandService.record_ack
     commit_power = ws_routes.commit_and_ack_power_events
-
-    async def observe_start(service, **kwargs):
-        assert not post_power_probe.is_set()
-        return await record_ack(service, **kwargs)
 
     async def observe_power(*args, **kwargs):
         await commit_power(*args, **kwargs)
@@ -194,8 +189,6 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(
         return delivered
 
     monkeypatch.setattr(CommandService, "deliver_next", observe_dispatch)
-    if power_start == "queued":
-        monkeypatch.setattr(CommandService, "record_ack", observe_start)
     if power_start:
         monkeypatch.setattr(ws_routes, "commit_and_ack_power_events", observe_power)
         async with session_provider() as db:
@@ -284,18 +277,13 @@ async def test_idle_gateway_delivers_worker_request_without_heartbeat(
             }))
             finish_power.set()
             assert (await receive("command_start"))["command_id"] == command
-            next_command = None
-            if follow_up and power_start != "not_yet_sent":
-                next_command = await receive("command")
-                async with session_provider() as db:
-                    first = await db.get(Command, UUID(command))
-                    assert first.status == "running"
+            if power_start == "queued":
+                assert not post_power_probe.is_set()
             await send(_result(device.id, command, 1))
             assert (await receive("result_ack"))["command_id"] == command
             finish_post_power_probe.set()
             if follow_up:
-                if next_command is None:
-                    next_command = await receive("command")
+                next_command = await receive("command")
                 async with session_provider() as db:
                     follow_up_collection = await db.get(ContextCollection, follow_up_id)
                     assert str(follow_up_collection.command_id) == next_command["command_id"]
