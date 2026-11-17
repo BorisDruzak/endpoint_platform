@@ -103,6 +103,15 @@ and the pending Core intent. API and worker started from the verified
 archive on schema 0056 and the worker completed `rebuild_daily`.
 Hosted GitHub Actions and production release space remain open.
 Production had 7,544,098,816 bytes free against the 10 GiB gate.
+Candidate `1972fbc12039` passed the exact Windows workflow (2,912
+passed, four skipped), Console (125 passed) and the isolated Linux
+workflow (5,327 passed, 722 skipped, two subtests). Two builds agreed
+on all 335 archive files. The 0051 to 0056 rehearsal preserved the
+original rows and exclusive Setup recovery ownership. API health,
+Console assets and worker `rebuild_daily` passed from the archive.
+GitHub Actions had no run for this SHA. A merge projection with live
+`main` at `50cb0ffd34ac` found six conflicting paths. Production
+release-space preflight returned 2 with 7,540,903,936 bytes free.
 STAB-01 source: WSS bounded FIFO and separate command task, fixed worker
 process with capability budgets, deadline admission and owned process-tree
 cleanup. HTTP pull remains sequential. Windows source fault injection covers
