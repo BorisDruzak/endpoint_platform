@@ -1733,6 +1733,13 @@ waves were slower than their baseline and all three missed 5 s. Commit
 files passed 67 tests with three PostgreSQL-only skips after the revert.
 Compare queue admission and worker wait for second commands before making
 another change to SQL in the delivery transaction.
+The trigger trace on the restored runtime attributes 656 empty probes
+and 77.338 worker-seconds to CommandResult alone. Across delivery windows
+these empty probes occupied a mean 1.638–1.943 of the eight workers.
+Power alone caused 1,488 empty probes but used 9.557 worker-seconds.
+Next test a result-path work hint before requesting a delivery worker.
+The instrumented run verified 768 results and 512 snapshots. It remains
+diagnostic because the shared Helpdesk staging service restarted during it.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
