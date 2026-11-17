@@ -144,6 +144,12 @@ archive smoke passed. One evidence record binds the Linux workflow,
 the three sustained load trials to that source. The production gate
 returned 2 with 7,508,058,112 bytes free. GitHub Actions returned no
 run for this SHA.
+The dispatch recovery candidate `416856407700` passed 5,332
+Linux tests, two subtests and 722 skips. Migration and archive smoke
+passed. The two verified archives match, with only
+`endpoint_server/main.py` changed in the payload since `f236040a28f9`.
+Production space was 7,504,457,728 bytes against the 10 GiB gate,
+and GitHub Actions returned no run for the exact SHA.
 STAB-01 source: WSS bounded FIFO and separate command task, fixed worker
 process with capability budgets, deadline admission and owned process-tree
 cleanup. HTTP pull remains sequential. Windows source fault injection covers

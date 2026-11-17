@@ -819,3 +819,27 @@ API отдал совпадающие CSS и JS Console. Анонимный за
 `candidate-evidence.json` находится в
 `C:/endpoint-platform-wix-build/stability-ci-f236040a28f9`.
 SHA-256 — `1d3d8d019d98de4ab5eb3ae2133fff6b0b1968cf154e29acbaacff7e789d46ec`.
+
+### Локальная приёмка восстановления диспетчера
+
+С коммитом `4168564077006bf0d3831516afbcd431a748308f` выполнена серверная задача
+из `.github/workflows/endpoint-operations-provider.yml` на Ubuntu
+с Python 3.12.3 и PostgreSQL 16. Прошли 5 332 теста и два подтеста,
+722 пропущены. Миграция 0051 → 0056 и запуск из архива прошли.
+API подтвердил соединение с БД, схему и файлы Console. Воркер
+выдал предупреждение о месте и выполнил `rebuild_daily`.
+Временное окружение удалено.
+
+Два архива совпали побайтово. По сравнению с `f236040a28f9`
+в содержимом изменился только `endpoint_server/main.py`.
+Квитанция связывает Linux JUnit, Windows gate с 2 915 проходами
+и четырьмя пропусками, 125 тестов Console, серверный архив,
+квитанцию состава и журналы миграции и запуска.
+
+В 07:08 UTC проверка production вернула код 2 при
+7 504 457 728 свободных байтах. GitHub Actions вернул пустой
+список запусков для этого коммита.
+
+`candidate-evidence.json` находится в
+`C:/endpoint-platform-wix-build/stability-ci-416856407700`.
+SHA-256 — `8b6b3c6bb6e1fe607e477ad32b5ac3d13b0fbcfb926112946f7801aa79913987`.
