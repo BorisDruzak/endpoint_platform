@@ -12,6 +12,14 @@
     "version": "3.2.205",
     "record": "docs/releases/windows-3.2.205-production.json"
   },
+  "apt_repository_trust": {
+    "current_signing_fingerprint": "840AC80D602970C76C282E6DD02C861F8B636743",
+    "previous_signing_fingerprint": "D132784F1C7F0D78BDA2842FDE5739F7FD0AFEBE",
+    "transition_keyring_sha256": "fac2b095742d58cbd945c30409dc31ad2e6f05291ce12edeb4fb6d79ebee6e37",
+    "noble_keyring_url": "https://endpoint.sosnadmin.local/downloads/ubuntu/endpoint-apt-transition.gpg",
+    "bookworm_keyring_url": "https://endpoint.sosnadmin.local/downloads/debian/endpoint-apt-transition.gpg",
+    "verification": "docs/verification/2026-11-16-stab17-apt-renewal-rehearsal.md"
+  },
   "ubuntu_servers_197": {
     "package": "endpoint-agent-ubuntu",
     "version": "3.2.197-1ubuntu1",

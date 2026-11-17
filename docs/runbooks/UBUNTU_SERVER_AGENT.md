@@ -78,13 +78,27 @@ PyInstaller работающим Core.
 повторите установку нового проверенного DEB, чтобы штатно снять запрет.
 При откате на уже опубликованный DEB используйте ручную остановку выше.
 
-Production-источник — `https://endpoint.sosnadmin.local/downloads/ubuntu`. Публичный ключ `endpoint-ubuntu-apt.gpg` имеет отпечаток `D132784F1C7F0D78BDA2842FDE5739F7FD0AFEBE` и SHA-256 `a1718e6b042501c3a3fde1662a6c5302b6d1ced454e6230d59617d5e18c25aa8`. Ключ находится в отдельном хранилище GnuPG на рабочей станции издателя. На HTTPS-сервер переносятся подписанный индекс, проверенные пакеты и публичный ключ.
+Production-источник Noble — `https://endpoint.sosnadmin.local/downloads/ubuntu`,
+Bookworm — `https://endpoint.sosnadmin.local/downloads/debian`. Оба индекса
+подписаны ключом `840AC80D602970C76C282E6DD02C861F8B636743`.
+Публичный `endpoint-apt-transition.gpg` содержит текущий ключ и прежний
+`D132784F1C7F0D78BDA2842FDE5739F7FD0AFEBE`. SHA-256 файла в обоих каналах —
+`fac2b095742d58cbd945c30409dc31ad2e6f05291ce12edeb4fb6d79ebee6e37`.
+Исторические файлы с одним прежним ключом сохранены для воспроизведения
+ранних выпусков. [Keyring Noble](https://endpoint.sosnadmin.local/downloads/ubuntu/endpoint-apt-transition.gpg) ·
+[Keyring Bookworm](https://endpoint.sosnadmin.local/downloads/debian/endpoint-apt-transition.gpg)
 
-На Ubuntu 24.04 привяжите доверие к этому источнику через `Signed-By: /etc/apt/keyrings/endpoint-ubuntu-apt.gpg` и укажите сертификат CA только для хоста Endpoint:
+Проверьте SHA-256 скачанного keyring перед установкой. На Ubuntu 24.04
+запишите его в `/etc/apt/keyrings/endpoint-ubuntu-apt.gpg` с правами 0644
+и привяжите этот путь в `Signed-By`. На Debian используйте
+`/etc/apt/keyrings/endpoint-debian-apt.gpg` и источник Bookworm.
+Укажите сертификат CA только для хоста Endpoint.
 
 ```text
 Acquire::https::endpoint.sosnadmin.local::CaInfo "/etc/apt/keyrings/endpoint-ubuntu-ca.crt";
 ```
+
+На Debian укажите `/etc/apt/keyrings/endpoint-debian-ca.crt` в той же настройке.
 
 Соберите дерево по команде ниже во временной директории на рабочей станции издателя. Сборщик подписывает `dists/noble/InRelease` указанным ключом. Перед публикацией проверьте подпись через `gpgv` с публичным ключом издателя, контрольную сумму `Packages` из подписанного индекса и SHA-256 обоих DEB. Публикуйте дерево в `/srv/endpoint-platform-distribution/ubuntu` с владельцем `root`. После публикации подтвердите выбор кандидата и скачивание обеих версий на пилотном хосте.
 
@@ -134,10 +148,13 @@ journalctl -u endpoint-apt-expiry.service -p err
 [Шаблоны Zabbix 7.0](https://www.zabbix.com/documentation/7.0/en/manual/xml_export_import/templates) ·
 [Выражения триггеров](https://www.zabbix.com/documentation/7.0/en/manual/config/triggers/expression).
 
-Проверку также можно запустить вручную.
+Для новой установки монитора укажите текущий отпечаток обоих каналов
+в `/etc/default/endpoint-apt-expiry`. Для ручной проверки передайте
+тот же отпечаток при запуске из репозитория.
 
 ```sh
-sh tools/release/check_endpoint_apt_expiry.sh
+ENDPOINT_APT_FINGERPRINT=840AC80D602970C76C282E6DD02C861F8B636743 \
+  sh tools/release/check_endpoint_apt_expiry.sh
 ```
 
 При поэтапной смене ключа задайте `ENDPOINT_APT_UBUNTU_FINGERPRINT`
@@ -158,8 +175,8 @@ sh tools/release/check_endpoint_apt_expiry.sh
 
 ```sh
 python tools/release/build_ubuntu_apt_repository.py --renew /release/ubuntu-apt \
-  --keyring /release/endpoint-ubuntu-apt.gpg \
-  --signing-fingerprint D132784F1C7F0D78BDA2842FDE5739F7FD0AFEBE
+  --keyring /release/endpoint-apt-transition.gpg \
+  --signing-fingerprint 840AC80D602970C76C282E6DD02C861F8B636743
 ```
 
 Проверка охватывает `ubuntu/noble` и `debian/bookworm`. Для Debian
@@ -186,8 +203,8 @@ python tools/release/build_ubuntu_apt_repository.py \
   --publish-renewal /srv/endpoint-platform-distribution/ubuntu \
   --from-inrelease /release/renewed-noble.InRelease \
   --expected-inrelease-sha256 "$EXPECTED_INRELEASE_SHA256" \
-  --keyring /release/endpoint-ubuntu-apt.gpg \
-  --signing-fingerprint D132784F1C7F0D78BDA2842FDE5739F7FD0AFEBE
+  --keyring /release/endpoint-apt-transition.gpg \
+  --signing-fingerprint 840AC80D602970C76C282E6DD02C861F8B636743
 ```
 
 Команда использует публичный ключ издателя. Она сверяет подписи обоих
@@ -244,8 +261,8 @@ SHA-256, дат, подписанных индексов и байтов DEB. П
 ```ini
 ENDPOINT_APT_REPOSITORY=/mirror/endpoint/ubuntu
 ENDPOINT_APT_OUTPUT=/release/endpoint-apt/prepared
-ENDPOINT_APT_KEYRING=/release/endpoint-ubuntu-apt.gpg
-ENDPOINT_APT_FINGERPRINT=D132784F1C7F0D78BDA2842FDE5739F7FD0AFEBE
+ENDPOINT_APT_KEYRING=/release/endpoint-apt-transition.gpg
+ENDPOINT_APT_FINGERPRINT=840AC80D602970C76C282E6DD02C861F8B636743
 GNUPGHOME=/path/to/approved/publisher-keyring
 ```
 
