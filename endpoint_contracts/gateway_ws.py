@@ -75,9 +75,10 @@ ProtocolFeatureV1 = Literal[
     "endpoint.telemetry-results.v1",
     "endpoint.power-events.v1",
     "endpoint.policy-readiness.v1",
+    "endpoint.command-journal.v1",
 ]
 ProtocolFeaturesV1 = Annotated[
-    list[ProtocolFeatureV1], Field(strict=True, max_length=9)
+    list[ProtocolFeatureV1], Field(strict=True, max_length=10)
 ]
 
 
@@ -257,6 +258,10 @@ class CommandCancelV1(ContractModelV1):
     canceled_at: AwareDatetime
 
 
+COMMAND_JOURNAL_FEATURE = "endpoint.command-journal.v1"
+COMMAND_JOURNAL_HEADER = "x-endpoint-command-journal"
+
+
 class ResultAckV1(ContractModelV1):
     schema_version: Literal["result_ack_v1"]
     command_id: UUID
@@ -401,6 +406,11 @@ class CommandAckEnvelopeV1(_GatewayWsEnvelopeBaseV1):
     payload: AgentCommandAckV1
 
 
+class CommandStartEnvelopeV1(_GatewayWsEnvelopeBaseV1):
+    kind: Literal["command_start"]
+    payload: AgentCommandAckV1
+
+
 class CommandResultEnvelopeV1(_GatewayWsEnvelopeBaseV1):
     kind: Literal["command_result"]
     payload: AgentResultV1
@@ -487,6 +497,7 @@ GatewayWsEnvelopeBodyV1 = Annotated[
     | HeartbeatEnvelopeV1
     | CommandEnvelopeV1
     | CommandAckEnvelopeV1
+    | CommandStartEnvelopeV1
     | CommandResultEnvelopeV1
     | CommandCancelEnvelopeV1
     | ResultAckEnvelopeV1
@@ -513,6 +524,7 @@ class GatewayWsEnvelopeV1(RootModel[GatewayWsEnvelopeBodyV1]):
 
 GatewayInboundBodyV1 = Annotated[
     CommandEnvelopeV1
+    | CommandStartEnvelopeV1
     | CommandCancelEnvelopeV1
     | ResultAckEnvelopeV1
     | PolicyUpdateEnvelopeV1

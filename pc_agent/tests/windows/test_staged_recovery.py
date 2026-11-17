@@ -89,6 +89,51 @@ def test_companion_session_changes_during_update():
     assert companion_restore_decisions(before, [{'session_id':2,'sid':'S-1-5-21-100'}]) == before
 
 
+@pytest.mark.parametrize(('schema', 'user_id', 'resolved_sid', 'rights', 'accepted'), [
+    ('1.2', r'HOST\User', 'S-1-5-21-10-20-30-1001', 'GRGX', True),
+    ('1.2', r'HOST\User', 'S-1-5-21-10-20-30-1002', 'GRGX', False),
+    ('1.2', r'HOST\User', None, 'GRGX', False),
+    ('1.2', 'User', 'S-1-5-21-10-20-30-1001', 'GRGX', False),
+    ('1.3', r'HOST\User', 'S-1-5-21-10-20-30-1001', 'GRGX', False),
+    ('1.4', 'S-1-5-21-10-20-30-1001', None, 'GRGX', True),
+    ('1.4', 'S-1-5-21-10-20-30-1001', None, 'GRGWGX', False),
+])
+def test_companion_launcher_legacy_principal_matches_original_sid(
+    tmp_path, monkeypatch, schema, user_id, resolved_sid, rights, accepted,
+):
+    win32security = pytest.importorskip('win32security')
+    from xml.sax.saxutils import escape
+    from pc_agent.platform.windows.staged_recovery import _validate_companion_launcher
+
+    expected_sid = 'S-1-5-21-10-20-30-1001'
+    executable = escape(str(tmp_path / 'EndpointUserSensor.exe'))
+    xml = f'''<Task version="{schema}" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+      <Principals><Principal><UserId>{user_id}</UserId></Principal></Principals>
+      <Actions><Exec><Command>{executable}</Command></Exec></Actions>
+    </Task>'''
+    task = SimpleNamespace(
+        Xml=xml,
+        Definition=SimpleNamespace(Principal=SimpleNamespace(LogonType=3, RunLevel=0),
+                                   Settings=SimpleNamespace(MultipleInstances=2)),
+        GetSecurityDescriptor=lambda _: f'O:BAG:BAD:P(A;;FA;;;SY)(A;;{rights};;;{expected_sid})',
+    )
+
+    def lookup(system, account):
+        assert system is None and account == r'HOST\User'
+        if resolved_sid is None:
+            raise win32security.error(1332, 'LookupAccountName', 'No account mapping')
+        return win32security.ConvertStringSidToSid(resolved_sid), 'HOST', win32security.SidTypeUser
+
+    monkeypatch.setattr(win32security, 'LookupAccountName', lookup)
+    paths = SimpleNamespace(install_root=tmp_path)
+    item = {'role': 'sensor', 'session_id': 1, 'sid': expected_sid}
+    if accepted:
+        _validate_companion_launcher(task, paths, item)
+    else:
+        with pytest.raises(ValueError, match='RECOVERY_REQUIRED'):
+            _validate_companion_launcher(task, paths, item)
+
+
 def test_setup_recovery_dispatch_does_not_enter_enrollment(monkeypatch):
     from pc_agent.platform.windows import setup_entry
     operation = str(uuid4()); calls = []
@@ -368,3 +413,15 @@ def test_owner_loss_during_trial_requests_compensation(recovery, staged):
         assert module.recover_staged_update(paths,binding.operation_id,capability=cap) == 'rollback-required'
     assert state.read_staged_update(paths).attempt_id == attempt
     assert state.read_staged_update(paths).phase == 'trial'
+
+
+def test_legacy_task_xml_spelling_needs_real_system_service_account(tmp_path):
+    from pc_agent.platform.windows.staged_recovery import _validate_task_definition
+    operation = 'cf85346d-b6af-47f4-bcc3-a815e6aca448'
+    executable = tmp_path / 'EndpointAgentSetup.exe'
+    xml = f'''<Task version="1.3" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><Principals><Principal><UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel><LogonType>InteractiveToken</LogonType></Principal></Principals><Triggers><BootTrigger/></Triggers><Actions><Exec><Command>{executable}</Command><Arguments>--recover-staged-update {operation}</Arguments></Exec></Actions></Task>'''
+    _validate_task_definition(xml, operation, executable, 5)
+    for altered, logon_type in ((xml, 3), (xml.replace('S-1-5-18', 'S-1-5-19'), 5),
+                                 (xml.replace('1.3', '1.4'), 5)):
+        with pytest.raises(ValueError):
+            _validate_task_definition(altered, operation, executable, logon_type)

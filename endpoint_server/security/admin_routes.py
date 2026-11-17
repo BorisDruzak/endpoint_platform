@@ -11,13 +11,16 @@ from pydantic import BaseModel, ConfigDict, JsonValue, TypeAdapter, ValidationEr
 from sqlalchemy import func, select
 
 from endpoint_contracts.security_events import SecurityEventV1
-from endpoint_server.auth.admin_sessions import AdminPrincipal, require_admin
 from endpoint_server.db.models import Device
 
 from .models import SecurityEvent
+from .authorization import require_dlp_admin
 
 
-router = APIRouter(prefix="/api/admin/console/security/events", tags=["admin-console-security"])
+router = APIRouter(
+    prefix="/api/admin/console/security/events", tags=["admin-console-security"],
+    dependencies=[Depends(require_dlp_admin)],
+)
 _event_adapter = TypeAdapter(SecurityEventV1)
 _event_types = Literal[
     "USB_DEVICE_CONNECTED", "USB_DEVICE_DISCONNECTED", "PRINT_JOB",
@@ -108,7 +111,6 @@ def _project(row: SecurityEvent, device: Device) -> ConsoleSecurityEventDetail:
 @router.get("", response_model=ConsoleSecurityEventPage)
 async def list_security_events(
     request: Request,
-    _: Annotated[AdminPrincipal, Depends(require_admin)],
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
     since: datetime | None = None,
@@ -160,7 +162,6 @@ async def list_security_events(
 async def security_event_detail(
     event_id: UUID,
     request: Request,
-    _: Annotated[AdminPrincipal, Depends(require_admin)],
 ) -> ConsoleSecurityEventDetailResponse:
     async with request.app.state.session_provider() as session:
         row = (await session.execute(

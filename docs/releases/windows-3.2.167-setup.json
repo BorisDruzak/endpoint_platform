@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "version": "3.2.167",
+  "platform": "windows_amd64",
+  "status": "native_canary_failed_continuation_not_qualified",
+  "verified_utc": "2026-11-05T13:07:02.313702+00:00",
+  "runtime_source_commit": "ab313225e04b7cccefc0c30ae17b949d8fdd964d",
+  "windows_packaging_commit": "773f2dbeeee561cc565b124c9f2dcbac553bd48f",
+  "server_console_commit": "773f2dbeeee561cc565b124c9f2dcbac553bd48f",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.167.json",
+  "initial_runtime": {
+    "source_revision": "ab313225e04b7cccefc0c30ae17b949d8fdd964d",
+    "artifact": {
+      "file_count": 119,
+      "tree_sha256": "e0ce0ce8f513c432ff898bb5961acada8de982d205e5103f60562eeb05c4216a"
+    },
+    "component_guid": "C98CD694-9170-56CE-9254-D5E6AAE5061F",
+    "source_file_count": 280,
+    "contract_authored_before_freeze": true,
+    "native_helpers_reuse_allowed": false
+  },
+  "setup_update_release_id": "b3feccd9-ac42-4a86-8c17-9a7fc1509869",
+  "setup_update_manifest": {
+    "schema_version": "windows_setup_release_v1",
+    "release_identifier": "endpoint-windows-full-setup-3.2.167-ab31322",
+    "version": "3.2.167",
+    "artifact_name": "EndpointAgentSetup-3.2.167-x64.exe",
+    "sha256": "7a994993281e0cbbdb2f4f190369968be46e3d142dc2605cf129b9d96803b9ae",
+    "size": 146243456,
+    "source_revision": "ab313225e04b7cccefc0c30ae17b949d8fdd964d",
+    "msi_sha256": "ffb3e7def4573a33551f424c0bbb9b7dde6a8617ce8dfb673993d129788bee70",
+    "tray_sha256": "609051f19dfbb1b6271131985be941dcaad15eaecdb3af57c49205e42c96a988",
+    "sensor_sha256": "b8ce942202d00c064e5a10abd1d059915acab9bc9515ea0241a6447874c5eaca"
+  },
+  "artifacts": [
+    {
+      "filename": "EndpointAgentSetup-3.2.167-x64.exe",
+      "operator_path": "C:\\endpoint-platform-wix-build\\setup167-ab31322\\native-setup-build\\releases\\EndpointAgentSetup-3.2.167-x64.exe",
+      "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgentSetup-3.2.167-x64.exe",
+      "sha256": "7a994993281e0cbbdb2f4f190369968be46e3d142dc2605cf129b9d96803b9ae",
+      "size": 146243456
+    },
+    {
+      "filename": "EndpointAgent-3.2.167-x64.msi",
+      "operator_path": "C:\\endpoint-platform-wix-build\\setup167-ab31322\\native-setup-build\\releases\\EndpointAgent-3.2.167-x64.msi",
+      "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgent-3.2.167-x64.msi",
+      "sha256": "ffb3e7def4573a33551f424c0bbb9b7dde6a8617ce8dfb673993d129788bee70",
+      "size": 104431616
+    }
+  ],
+  "signatures": {
+    "msi": "Valid",
+    "setup": "Valid",
+    "both_timestamped": true,
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776"
+  },
+  "packaged_observer": {
+    "client_version": "1.0.6",
+    "schema_version": 1,
+    "script_sha256": "f6359376cac7f5a5de6476ed9c41ea652fb95fe7e64c285d1ff2eaa8f6b0b069",
+    "source_sha256": "ff518de2831f75ed12b4203463c0dbdc94751579d2ac60adebc75e6df24f3119"
+  },
+  "native_helper": {
+    "sha256": "e5be98ef2e2f8eea40b1f8170f64249c14f80a92ff2dd23569170fc453aba38d",
+    "build_tools_absent": true,
+    "python_module_count": 438,
+    "archive_member_count": 112
+  },
+  "qualification": {
+    "native_applied": false,
+    "active_user_telemetry": false,
+    "source_foundations": [],
+    "setup_assignments": 1,
+    "failed_canary": {
+      "device_id": "943c87ef-f121-40b9-a31f-003e9459e292",
+      "address": "192.168.101.120",
+      "assignment_id": "0301db1b-38b2-40f1-91dc-3842e85fc66c",
+      "attempt_id": "15268bc4-4594-4121-9b8b-b7591972f67d",
+      "source_core": "3.2.165",
+      "source_foundation": "3.2.165",
+      "source_client": "1.0.5",
+      "assigned_through_console": true,
+      "workstation_update_preparation": false,
+      "native_stage": "accepted",
+      "native_exit": 21,
+      "status": "recovery_required",
+      "safe_code": "native_exit_requires_recovery",
+      "failed_phase": "restore-staged-companions",
+      "root_cause": "Native reconciliation and staged trial serialize the same authenticated candidate selector in different JSON key order; the immutable continuation grant correctly rejects the changed byte hash.",
+      "core_and_foundation_observed": "3.2.167",
+      "observer_observed": "1.0.5",
+      "post_update_user_telemetry_verified": false,
+      "original_job_and_native_hold_preserved": true
+    }
+  },
+  "enrollment": {
+    "published": false,
+    "existing_default_version": "3.2.165",
+    "auto_campaign_unchanged": true
+  },
+  "fleet": {
+    "enabled": false,
+    "policy_revision": 3,
+    "scope": "all_active",
+    "max_parallel": 2,
+    "target_version": "3.2.165",
+    "pause_reason": "fleet_failure_requires_review",
+    "existing_146_chain_preserved": true,
+    "active_recovery_device": "192.168.101.120"
+  },
+  "independent_support_tunnel": {
+    "status": "design_only",
+    "included_in_this_setup": false,
+    "spec": "docs/superpowers/specs/2026-11-05-pilot-support-tunnel.md"
+  },
+  "verification_record": "docs/verification/2026-11-05-observer106-setup167-candidates.md"
+}

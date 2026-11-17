@@ -2,6 +2,7 @@
 # Build: python -m PyInstaller --noconfirm pc_agent/pyinstaller_endpoint_core_windows.spec
 # This spec intentionally excludes Qt, Helpdesk UI, and Remote Assist.
 import sys
+import os
 from pathlib import Path
 
 pc_agent_root = Path(SPECPATH)
@@ -9,6 +10,14 @@ project_root = pc_agent_root.parent
 sys.path.insert(0, str(project_root))
 from tools.canary.tzdata_payload import configure_tzdata_archive
 from tools.canary.ssl_payload import configure_ssl_resources
+
+# Mandatory signed input is staged outside Git; a missing client must never
+# silently produce a bridge that cannot bootstrap the Setup update channel.
+signed_setup_client = Path(os.environ['ENDPOINT_SIGNED_SETUP_CLIENT']).resolve(strict=True)
+unsigned_source = (project_root / 'packaging/windows/EndpointSetupUpdater.ps1').read_text(encoding='utf-8-sig')
+signed_source = signed_setup_client.read_text(encoding='utf-8-sig')
+if signed_source.split('# SIG # Begin signature block')[0].rstrip() != unsigned_source.rstrip():
+    raise ValueError('Signed Setup client differs from committed source')
 
 _excluded_optional_runtime = [
     "PySide6",
@@ -48,7 +57,8 @@ a = Analysis(
         "pc_agent.context_profiles.probe",
         "pc_agent.context_profiles.registry",
     ],
-    datas=[(str(project_root / "browser_sensor" / "extension-id.txt"), "browser_sensor")],
+    datas=[(str(project_root / "browser_sensor" / "extension-id.txt"), "browser_sensor"),
+           (str(signed_setup_client), 'setup-updater')],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[str(pc_agent_root / "runtime_hook_tzdata_zip.py")],

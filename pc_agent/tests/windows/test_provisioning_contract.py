@@ -115,6 +115,57 @@ def test_provisioning_requires_the_installed_ca_file(tmp_path: Path) -> None:
         request.validate()
 
 
+@pytest.mark.parametrize('changed', [False, True])
+def test_resumed_provisioning_binds_only_original_transaction_under_lock(tmp_path, monkeypatch, changed):
+    from contextlib import contextmanager
+    from dataclasses import replace
+    from types import SimpleNamespace
+    from pc_agent.platform.windows import installation_lifecycle, installation_notification
+    from pc_agent.platform.windows.provision import WindowsProvisioner
+
+    transaction = 'd5839dc6-fcf7-41f6-8603-5aca9dce1186'
+    request = replace(_request(tmp_path), native_transaction_id=transaction)
+    events = []
+    held = False
+
+    @contextmanager
+    def lock():
+        nonlocal held
+        held = True
+        try:
+            yield
+        finally:
+            held = False
+
+    def awaiting():
+        assert held
+        return {'transaction_id': 'other' if changed else transaction}
+
+    def bind(expected, device_id):
+        assert held and expected == transaction and device_id == str(_DEVICE_ID)
+        assert (request.data_root / 'enrollment-identity.json').is_file()
+        events.append('bind')
+
+    def sync(_):
+        assert not held and 'bind' in events
+        events.append('sync')
+        return 'delivered'
+
+    monkeypatch.setattr(installation_lifecycle, 'outbox_for',
+                        lambda _: SimpleNamespace(awaiting_enrollment=awaiting, bind_installation=bind))
+    monkeypatch.setattr(installation_notification, 'sync_enrolled_installation', sync)
+    provisioner = WindowsProvisioner(request, enrollment=_Enrollment(events),
+        service=_Service(events), acl=_Acl(events), mutation_scope=lock,
+        support_installer=lambda: {})
+    if changed:
+        with pytest.raises(ValueError, match='INSTALLATION_NATIVE_CONFLICT'):
+            provisioner.provision_from_stdin(io.StringIO(_CLAIM))
+        assert not events and not request.data_root.exists()
+    else:
+        assert provisioner.provision_from_stdin(io.StringIO(_CLAIM)).device_id == _DEVICE_ID
+        assert events.index('gateway.enroll') < events.index('bind') < events.index('sync')
+
+
 def test_provisioning_rejects_non_certificate_ca_content(tmp_path: Path) -> None:
     """A readable arbitrary file must not bypass TLS trust validation."""
     request = _request(tmp_path)
@@ -262,7 +313,7 @@ def test_provisioner_cli_reports_only_failure_type_without_enrollment_material(
         def provision_from_stdin(self) -> None:
             raise RuntimeError(_CLAIM)
 
-    monkeypatch.setattr(provision, "WindowsProvisioner", lambda _request: _FailingProvisioner())
+    monkeypatch.setattr(provision, "WindowsProvisioner", lambda _request, **_kwargs: _FailingProvisioner())
 
     assert provision.main([
         "--endpoint-origin", "https://endpoint.sosnadmin.local",
@@ -274,6 +325,76 @@ def test_provisioner_cli_reports_only_failure_type_without_enrollment_material(
     captured = capsys.readouterr()
     assert "RuntimeError" in captured.err
     assert _CLAIM not in captured.out + captured.err
+
+
+@pytest.mark.parametrize("origin", ["https://endpoint-staging.sosnadmin.local", "https://endpoint.sosnadmin.local"])
+def test_directed_provisioner_reads_private_material_from_inherited_pipe(tmp_path, monkeypatch, capsys, origin):
+    import json
+    import sys
+    from types import SimpleNamespace
+    from pc_agent.platform.windows import provision
+
+    installation_id = "inventory-11111111-1111-4111-8111-111111111111-22222222-2222-4222-8222-222222222222-" + "a" * 32
+    monkeypatch.setattr(sys, "stdin", None)
+    monkeypatch.setattr(
+        "pc_agent.platform.windows.installer_stdio.read_inherited_pipe",
+        lambda _: json.dumps({"installation_id": installation_id, "claim": "ic_test"}),
+    )
+    received = []
+    class Provisioner:
+        def __init__(self, request, *, mutation_scope):
+            assert request.installation_id == installation_id
+            assert callable(mutation_scope)
+
+        def provision_from_stdin(self, stream):
+            received.append(stream.read())
+            return SimpleNamespace(support_access_status="installed", support_access_error=None)
+
+    monkeypatch.setattr(provision, "WindowsProvisioner", Provisioner)
+    result = provision.main([
+        "--endpoint-origin", origin, "--ca-file", str(tmp_path / "ca"),
+        "--data-dir", str(tmp_path), "--inventory-stdin",
+    ])
+    allowed = origin == "https://endpoint-staging.sosnadmin.local"
+    assert result == (0 if allowed else 1)
+    assert received == (["ic_test"] if allowed else [])
+    output = capsys.readouterr()
+    assert installation_id not in output.out + output.err and "ic_test" not in output.out + output.err
+
+
+def test_legacy_cli_rejects_reserved_inventory_namespace(tmp_path, monkeypatch, capsys):
+    from pc_agent.platform.windows import provision
+
+    monkeypatch.setattr(provision, "WindowsProvisioner", lambda *_a, **_kw: pytest.fail("reserved ID reached provisioner"))
+    assert provision.main([
+        "--endpoint-origin", "https://endpoint.sosnadmin.local", "--ca-file", str(tmp_path / "ca"),
+        "--data-dir", str(tmp_path), "--installation-id", "inventory-fixture",
+    ]) == 1
+    assert "inventory-fixture" not in capsys.readouterr().err
+
+
+def test_ordinary_provisioner_rechecks_identity_inside_the_mutation_scope(tmp_path):
+    from contextlib import contextmanager
+    from pc_agent.platform.windows.provision import CREDENTIAL_FILENAME, WindowsProvisioner
+
+    request = _request(tmp_path)
+    request.data_root.mkdir()
+    credential = request.data_root / CREDENTIAL_FILENAME
+    events = []
+
+    @contextmanager
+    def concurrent_registration():
+        credential.write_text("existing-credential")
+        yield
+
+    provisioner = WindowsProvisioner(
+        request, enrollment=_Enrollment(events), service=_Service(events), acl=_Acl(events),
+        mutation_scope=concurrent_registration,
+    )
+    with pytest.raises(ValueError, match="enrollment already exists"):
+        provisioner.provision_from_stdin(io.StringIO(_CLAIM))
+    assert events == []
+    assert credential.read_text() == "existing-credential"
 
 
 def test_provisioner_uses_atomic_replace_for_claim_and_permanent_records(
@@ -327,8 +448,9 @@ def test_windows_acl_contract_keeps_ordinary_users_off_the_credential() -> None:
     }
 
 
+@pytest.mark.parametrize("inventory", [False, True])
 def test_https_windows_enrollment_sends_a_valid_windows_contract_request(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, inventory: bool
 ) -> None:
     """A malformed Windows request would consume a one-time claim without enrollment."""
     from pc_agent.platform.windows import provision
@@ -341,24 +463,79 @@ def test_https_windows_enrollment_sends_a_valid_windows_contract_request(
             observed.update(kwargs)
             return EnrollmentDelivery(device_id=_DEVICE_ID, device_token=_TOKEN)
 
-    monkeypatch.setattr(provision, "HttpsEnrollmentTransport", lambda: _Transport())
-    monkeypatch.setattr(
-        provision, "_derive_hardware_fingerprint", lambda _probe: "sha256:" + "a" * 64
-    )
+    def transport(**options):
+        assert options == ({"allow_redirects": False} if inventory else {})
+        return _Transport()
 
-    result = provision.HttpsWindowsEnrollmentClient("windows-contract-001").enroll(
+    def derive(probe):
+        expected = provision.collect_windows_inventory_fingerprint if inventory else provision.collect_device_fingerprint
+        assert probe is expected
+        return "sha256:" + "a" * 64
+
+    monkeypatch.setattr(provision, "HttpsEnrollmentTransport", transport)
+    monkeypatch.setattr(provision, "_derive_hardware_fingerprint", derive)
+    installation_id = (
+        "inventory-11111111-1111-1111-1111-111111111111-22222222-2222-2222-2222-222222222222-" + "a" * 32
+        if inventory else "windows-contract-001"
+    )
+    origin = provision.STAGING_ORIGIN if inventory else "https://endpoint.sosnadmin.local"
+
+    result = provision.HttpsWindowsEnrollmentClient(installation_id).enroll(
         claim=_CLAIM,
-        endpoint_origin="https://endpoint.sosnadmin.local",
+        endpoint_origin=origin,
         ca_file=tmp_path / "endpoint-ca.crt",
     )
 
     assert result.device_id == _DEVICE_ID
-    assert observed["endpoint_url"] == "https://endpoint.sosnadmin.local"
+    assert observed["endpoint_url"] == origin
     request = observed["request"]
     assert request["schema_version"] == "agent_enrollment_request_v1"
     assert request["platform"] == "windows"
     assert request["hardware_fingerprint"] == "sha256:" + "a" * 64
-    assert request["installation_id"] == "windows-contract-001"
+    assert request["installation_id"] == installation_id
     assert re.fullmatch(r"[A-Za-z0-9_-]{43}", request["delivery_nonce"])
     assert datetime.fromisoformat(request["requested_at"])
     assert _CLAIM not in str(request)
+
+
+def test_support_install_follows_durable_identity_proof_before_core_start(tmp_path, monkeypatch):
+    from pc_agent.platform.windows.provision import WindowsProvisioner
+    from pc_agent.device_credential import read_device_credential
+    from pc_agent.enrollment_identity import read_enrollment_device_id
+    request = _request(tmp_path)
+    events = []
+    from pc_agent.platform.windows import installation_notification
+    def delivered(data_root):
+        assert read_device_credential(data_root/'device-credential') == _TOKEN
+        assert read_enrollment_device_id(data_root/'enrollment-identity.json') == _DEVICE_ID
+        events.append('lifecycle.delivered')
+        return 'delivered'
+    monkeypatch.setattr(installation_notification,'sync_enrolled_installation',delivered)
+    def support_installer():
+        assert read_device_credential(request.data_root/'device-credential') == _TOKEN
+        assert read_enrollment_device_id(request.data_root/'enrollment-identity.json') == _DEVICE_ID
+        assert 'service.start' not in events
+        events.append('support.install')
+        return {'installed':True}
+    result = WindowsProvisioner(request,enrollment=_Enrollment(events),service=_Service(events),acl=_Acl(events),
+        support_installer=support_installer).provision_from_stdin(io.StringIO(_CLAIM))
+    assert events.index('gateway.enroll') < events.index('support.install') < events.index('service.start')
+    assert events.index('lifecycle.delivered') < events.index('support.install')
+    assert result.support_access_status == 'installed'
+
+
+def test_support_dependency_failure_preserves_successful_enrollment_without_claim_replay(tmp_path, monkeypatch):
+    from pc_agent.platform.windows.provision import WindowsProvisioner
+    request = _request(tmp_path)
+    events=[]
+    from pc_agent.platform.windows import installation_notification
+    monkeypatch.setattr(installation_notification,'sync_enrolled_installation',lambda _: 'delivered')
+    def failure(): raise RuntimeError('do-not-report-sensitive-error')
+    result = WindowsProvisioner(request,enrollment=_Enrollment(events),service=_Service(events),acl=_Acl(events),
+        support_installer=failure).provision_from_stdin(io.StringIO(_CLAIM))
+    assert result.device_id == _DEVICE_ID
+    assert result.claim_removed
+    assert result.support_access_status == 'unavailable'
+    assert events.count('gateway.enroll') == 1
+    assert events.count('service.start') == 1
+    assert (request.data_root/'device-credential').read_text() == _TOKEN

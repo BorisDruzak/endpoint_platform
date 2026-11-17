@@ -1,0 +1,10 @@
+[Unit]
+Description=Retry only the original installed Endpoint bootstrap
+
+[Timer]
+OnBootSec=60
+OnUnitInactiveSec=120
+Unit=endpoint-agent-setup-retry.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,40 @@
+#!/bin/sh
+set -eu
+
+# The incoming package installs this guard even when the old DEB predates it.
+if [ "$1" = upgrade ] && [ -d /run/systemd/system ]; then
+    unit=endpoint-agent-ubuntu.service
+    dropin=/etc/systemd/system/$unit.d
+    fence=$dropin/90-endpoint-package-upgrade.conf
+    resume=$dropin/.endpoint-package-resume
+    state=$(systemctl show "$unit" -p ActiveState --value)
+    enabled=$(systemctl is-enabled "$unit" 2>/dev/null || true)
+    if [ -e "$fence" ] || [ -L "$fence" ]; then
+        test ! -L "$fence"
+        grep -Fxq '# Endpoint DEB transaction fence' "$fence"
+    else
+        restart=no
+        case "$state:$enabled" in
+            *:masked|*:masked-runtime) ;;
+            active:*|activating:*|reloading:*|failed:enabled|failed:enabled-runtime) restart=yes ;;
+        esac
+        if [ -f "$resume" ] && grep -Fxq '# Resume=yes' "$resume"; then
+            restart=yes
+        fi
+        mkdir -p "$dropin"
+        scratch=$(mktemp "$dropin/.endpoint-package-upgrade.XXXXXXXX")
+        trap 'rm -f -- "$scratch"' EXIT
+        printf '# Endpoint DEB transaction fence\n# Resume=%s\n[Unit]\nConditionPathExists=!%s\n' "$restart" "$fence" > "$scratch"
+        chmod 0644 "$scratch"
+        ln "$scratch" "$fence"
+    fi
+    sync -f "$dropin"
+    systemctl daemon-reload
+    # Cancel a queued start as well as an already active process.
+    deb-systemd-invoke stop "$unit"
+    case "$(systemctl show "$unit" -p ActiveState --value)" in
+        inactive|failed) ;;
+        *) exit 1 ;;
+    esac
+    test "$(systemctl show "$unit" -p MainPID --value)" = 0
+fi

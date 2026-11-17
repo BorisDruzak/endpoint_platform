@@ -56,8 +56,10 @@ def _settings(artifact_root: Path = Path("artifacts")) -> Settings:
 @pytest_asyncio.fixture
 async def session_provider() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    from endpoint_server.setup_updates.models import SetupRelease, SetupAssignment, SetupClientPresence, SetupPreparation
     tables = (
-        Device.__table__,
+        SetupRelease.__table__, SetupAssignment.__table__, SetupClientPresence.__table__, SetupPreparation.__table__,
+        Device.metadata.tables["installation_states"], Device.__table__,
         DeviceCredential.__table__,
         UpdateBuild.__table__,
         UpdateRollout.__table__,
@@ -198,11 +200,21 @@ async def test_assigned_device_can_download_only_its_controller_artifact(
             "register-artifact",
             now=NOW,
         )
-        await _seed_assignment(session, device=device_a, build=build, suffix="artifact")
+        _, assignment = await _seed_assignment(session, device=device_a, build=build, suffix="artifact")
+        operation_id = assignment.operation_id
         await session.commit()
 
     app = create_app(_settings(artifact_root), session_provider)
     async with _client(app) as client:
+        premature = await client.get(
+            "/agent/v1/updates/artifacts/endpoint-linux-2.0.0",
+            headers={"Authorization": f"Bearer {token_a}"},
+        )
+        assert premature.status_code == 404
+        acknowledgement = await client.post(f"/agent/v1/updates/{operation_id}/ack", json={
+            "schema_version": "agent_update_ack_v1", "status": "requested",
+        }, headers={"Authorization": f"Bearer {token_a}"})
+        assert acknowledgement.status_code == 204, acknowledgement.text
         allowed = await client.get(
             "/agent/v1/updates/artifacts/endpoint-linux-2.0.0",
             headers={"Authorization": f"Bearer {token_a}"},

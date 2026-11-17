@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
-from sqlalchemy import select, text
+from sqlalchemy import case, literal, select, text, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import Select
 
 from endpoint_server.db.models import Device
 
@@ -19,15 +21,23 @@ class ContextScheduleRule:
     """One server-owned periodic profile rule."""
 
     profile: str
+    capability: str
     interval: timedelta
 
 
+@dataclass(frozen=True, slots=True)
+class ContextScheduleBatch:
+    created: int
+    oldest_due_age_seconds: float
+    next_device_id: UUID | None = None
+
+
 SCHEDULE_RULES: tuple[ContextScheduleRule, ...] = (
-    ContextScheduleRule("baseline_v1", timedelta(hours=24)),
-    ContextScheduleRule("health_v1", timedelta(minutes=5)),
-    ContextScheduleRule("network_v1", timedelta(minutes=15)),
-    ContextScheduleRule("inventory_v1", timedelta(hours=24)),
-    ContextScheduleRule("session_v1", timedelta(minutes=5)),
+    ContextScheduleRule("baseline_v1", "context.baseline.collect", timedelta(hours=24)),
+    ContextScheduleRule("health_v1", "context.health.collect", timedelta(minutes=5)),
+    ContextScheduleRule("network_v1", "context.network.collect", timedelta(minutes=15)),
+    ContextScheduleRule("inventory_v1", "context.inventory.collect", timedelta(hours=24)),
+    ContextScheduleRule("session_v1", "context.session.collect", timedelta(minutes=5)),
 )
 """The complete periodic allowlist; diagnostic_v1 is deliberately absent."""
 
@@ -61,13 +71,14 @@ async def _advisory_lock(session: AsyncSession, key: str) -> None:
 
 
 async def _expire_overdue_scheduled_collections(
-    session: AsyncSession, *, now: datetime
+    session: AsyncSession, *, now: datetime, device_id
 ) -> None:
     """Release bounded periodic work that could not reach an offline device."""
     overdue = (await session.scalars(
         select(ContextCollection)
         .where(
             ContextCollection.requested_by == "scheduler",
+            ContextCollection.device_id == device_id,
             ContextCollection.status.in_(_ACTIVE_STATUSES),
             ContextCollection.expires_at.is_not(None),
             ContextCollection.expires_at <= now,
@@ -80,66 +91,126 @@ async def _expire_overdue_scheduled_collections(
         collection.failure_code = "schedule_expired"
 
 
+def _schedule_history_probe(
+    device_id: UUID, profile: str,
+) -> Select[tuple[str, bool, datetime | None]]:
+    history = select(ContextCollection.requested_at).where(
+        ContextCollection.device_id == device_id,
+        ContextCollection.profile == profile,
+    )
+    active = (
+        history.where(ContextCollection.status.in_(_ACTIVE_STATUSES))
+        .order_by(ContextCollection.requested_at, ContextCollection.id)
+        .limit(1)
+        .with_for_update(skip_locked=True)
+        .cte()
+    )
+    has_active = select(active.c.requested_at).exists()
+    latest = (
+        history.order_by(ContextCollection.requested_at.desc(), ContextCollection.id.desc())
+        .limit(1)
+        .with_for_update(skip_locked=True)
+        .scalar_subquery()
+    )
+    # Use the same active probe for both outputs and only read history if it is empty.
+    return select(literal(profile), has_active, case((has_active, None), else_=latest))
+
+
+async def _schedule_history(
+    session: AsyncSession, device_id: UUID, rules: tuple[ContextScheduleRule, ...],
+) -> dict[str, tuple[bool, datetime | None]]:
+    # Each branch retains its own ordered and bounded row locks.
+    probes = union_all(*(_schedule_history_probe(device_id, rule.profile) for rule in rules))
+    return {
+        profile: (active, last_requested_at)
+        for profile, active, last_requested_at in await session.execute(probes)
+    }
+
+
 async def schedule_due_collections(
     session: AsyncSession,
     *,
     now: datetime | None = None,
 ) -> int:
-    """Create at most one active fixed-profile request for every active device.
+    """Return the count of newly scheduled collections."""
+    return (await schedule_due_collections_with_backlog(session, now=now)).created
+
+
+async def schedule_due_collections_with_backlog(
+    session: AsyncSession,
+    *,
+    now: datetime | None = None,
+    after_device_id: UUID | None = None,
+    page_size: int | None = None,
+) -> ContextScheduleBatch:
+    """Create at most one active request per fixed profile for the selected devices.
 
     A device/profile advisory lock protects the no-row case that a normal row
     lock cannot cover.  Each request gets an interval-bounded expiry, so an
     offline agent cannot leave the periodic scheduler blocked indefinitely.
     """
+    if page_size is not None and page_size < 1:
+        raise ValueError("context schedule page size must be positive")
     scheduled_at = _now(now)
-    await _expire_overdue_scheduled_collections(session, now=scheduled_at)
-    devices = (await session.scalars(
-        select(Device).where(Device.retired_at.is_(None)).order_by(Device.id)
-    )).all()
+    candidate_ids = select(Device.id).where(Device.retired_at.is_(None)).order_by(Device.id)
+    if after_device_id is not None:
+        candidate_ids = candidate_ids.where(Device.id > after_device_id)
+    if page_size is not None:
+        candidate_ids = candidate_ids.limit(page_size + 1)
+    device_ids = (await session.scalars(candidate_ids)).all()
+    next_device_id = None
+    if page_size is not None and len(device_ids) > page_size:
+        device_ids = device_ids[:page_size]
+        next_device_id = device_ids[-1]
     created = 0
-    for device in devices:
-        for rule in SCHEDULE_RULES:
+    oldest_due_age = 0.0
+    for device_id in device_ids:
+        from endpoint_server.installation_lifecycle.service import removed
+        device = await session.scalar(
+            select(Device)
+            .where(Device.id == device_id, Device.retired_at.is_(None))
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if device is None:
+            continue
+        await _expire_overdue_scheduled_collections(session, now=scheduled_at, device_id=device.id)
+        if await removed(session, device.id):
+            continue
+        profiles = device.scheduled_context_profiles
+        rules = tuple(rule for rule in SCHEDULE_RULES if profiles is None or rule.profile in profiles)
+        if not rules:
+            continue
+        for rule in rules:
             await _advisory_lock(
                 session, f"context.schedule:{device.id}:{rule.profile}"
             )
-            active = await session.scalar(
-                select(ContextCollection)
-                .where(
-                    ContextCollection.device_id == device.id,
-                    ContextCollection.profile == rule.profile,
-                    ContextCollection.status.in_(_ACTIVE_STATUSES),
-                )
-                .order_by(ContextCollection.requested_at, ContextCollection.id)
-                .with_for_update(skip_locked=True)
-            )
-            if active is not None:
+        history = await _schedule_history(session, device.id, rules)
+        for rule in rules:
+            active, last_requested_at = history[rule.profile]
+            if active:
                 continue
-            latest = await session.scalar(
-                select(ContextCollection)
-                .where(
-                    ContextCollection.device_id == device.id,
-                    ContextCollection.profile == rule.profile,
-                )
-                .order_by(ContextCollection.requested_at.desc(), ContextCollection.id.desc())
-                .limit(1)
-                .with_for_update(skip_locked=True)
+            overdue = (
+                scheduled_at - _utc(last_requested_at) - rule.interval
+                if last_requested_at is not None else scheduled_at - _utc(device.created_at)
             )
-            if latest is not None and scheduled_at - _utc(latest.requested_at) < rule.interval:
+            if last_requested_at is not None and overdue < timedelta(0):
                 continue
             bucket = int(scheduled_at.timestamp() // rule.interval.total_seconds())
-            collection, inserted = await request_collection_outcome(
+            _, inserted = await request_collection_outcome(
                 session,
                 device.id,
                 rule.profile,
                 "scheduler",
                 f"scheduler:{rule.profile}:{bucket}",
                 now=scheduled_at,
+                expires_at=scheduled_at + rule.interval,
             )
             if inserted:
-                collection.expires_at = scheduled_at + rule.interval
                 created += 1
+                oldest_due_age = max(oldest_due_age, overdue.total_seconds())
     await session.flush()
-    return created
+    return ContextScheduleBatch(created, oldest_due_age, next_device_id)
 
 
 __all__ = ["ContextScheduleRule", "SCHEDULE_RULES", "schedule_due_collections"]

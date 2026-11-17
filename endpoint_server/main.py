@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -13,11 +14,23 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import RequestResponseEndpoint
 
 from endpoint_server.auth.admin_sessions import router as admin_auth_router
+from endpoint_server.auth.oidc import OIDCProvider, router as oidc_router
+from endpoint_server.auth.employee_sessions import router as employee_auth_router
+from endpoint_server.auth.identity_admin import router as identity_admin_router
+from endpoint_server.console.employee import router as employee_shell_router
+from endpoint_server.worktime.router import router as worktime_router
+from endpoint_server.auth.worktime_handoff import router as worktime_handoff_router
+from endpoint_server.auth.worktime_sessions import router as worktime_session_router
+from endpoint_server.auth.worktime_protocol import fixed_helpdesk_endpoints
+from endpoint_server.identity.worktime_client import WorktimeIdentityClient
+from endpoint_server.worktime.companion import router as worktime_companion_router
+from endpoint_server.identity.helpdesk_client import HelpdeskIdentityClient
 from endpoint_server.browser_sensor.public_routes import router as browser_sensor_public_router
 from endpoint_server.browser_sensor.admin_routes import router as browser_sensor_admin_router
 from endpoint_server.auth.validation import redacting_validation_exception_handler
 from endpoint_server.config import Settings
 from endpoint_server.device_binding.routes import router as device_binding_router
+from endpoint_server.support_access.routes import agent_router as support_agent_router, admin_router as support_admin_router
 from endpoint_server.console.routes import (
     install_console_assets,
     router as console_router,
@@ -38,11 +51,13 @@ from endpoint_server.power.routes import router as console_power_router
 from endpoint_server.console.activity_analytics import router as activity_analytics_router
 from endpoint_server.policy.admin_routes import router as policy_admin_router
 from endpoint_server.security.admin_routes import router as security_admin_router
+from endpoint_server.security.dlp_routes import router as dlp_router
 from endpoint_server.enrollment.provisioning_routes import (
     router as provisioning_router,
 )
 from endpoint_server.enrollment.request_routes import router as enrollment_request_router
 from endpoint_server.enrollment.verification_routes import router as enrollment_verification_router
+from endpoint_server.enrollment.inventory_receipt_routes import router as inventory_receipt_router
 from endpoint_server.provisioning.admin_routes import (
     router as provisioning_admin_router,
 )
@@ -61,22 +76,30 @@ from endpoint_server.gateway.connection_registry import (
     ConnectionRegistry,
     GatewayWorkerLease,
 )
+from endpoint_server.gateway.scheduled_dispatch import run_scheduled_dispatch
 from endpoint_server.gateway.ws_routes import (
     assert_single_gateway_worker,
     router as gateway_ws_router,
 )
 from endpoint_server.updates.admin_routes import router as updates_admin_router
 from endpoint_server.updates.agent_routes import router as updates_agent_router
+from endpoint_server.setup_updates.routes import admin_router as setup_updates_admin_router, agent_router as setup_updates_agent_router
+from endpoint_server.setup_updates.fleet_routes import router as setup_fleet_router
 from endpoint_server.updates.admin_transaction import UpdateAdminTransactionProvider
 
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.gateway_worker_lease.acquire()
+    dispatch = asyncio.create_task(run_scheduled_dispatch(
+        app.state.gateway_connection_registry, app.state.session_provider,
+    ))
     try:
         yield
     finally:
         try:
+            dispatch.cancel()
+            await asyncio.gather(dispatch, return_exceptions=True)
             await app.state.gateway_connection_registry.shutdown_all()
             if app.state.update_admin_provider is not None:
                 await app.state.update_admin_provider.close()
@@ -95,6 +118,25 @@ def create_app(
     assert_single_gateway_worker()
     app = FastAPI(title="Endpoint Platform", version="0.0.0", lifespan=_lifespan)
     app.state.settings = settings
+    app.state.oidc_provider = OIDCProvider(settings.oidc)
+    app.state.helpdesk_identity_client = (
+        HelpdeskIdentityClient(settings.oidc.helpdesk_base_url,settings.oidc.helpdesk_credential,ca_file=settings.oidc.ca_file)
+        if settings.oidc.enabled else None
+    )
+    app.include_router(oidc_router)
+    app.include_router(employee_auth_router)
+    app.include_router(identity_admin_router)
+    app.include_router(employee_shell_router)
+    app.include_router(worktime_router)
+    app.include_router(worktime_handoff_router)
+    app.include_router(worktime_session_router)
+    app.state.worktime_identity_client=None
+    if settings.worktime_helpdesk_enabled:
+        if not settings.worktime_enabled or not settings.oidc.enabled:raise ValueError('WorkTime Helpdesk login requires configured WorkTime and identity service')
+        fixed_helpdesk_endpoints(settings.public_base_url,settings.oidc.helpdesk_base_url)
+        app.state.worktime_identity_client=WorktimeIdentityClient(settings.oidc.helpdesk_base_url,settings.oidc.helpdesk_credential,ca_file=settings.oidc.ca_file)
+    if settings.worktime_enabled:
+        app.include_router(worktime_companion_router)
     app.state.session_provider = session_provider or create_session_provider(
         settings.database_url
     )
@@ -146,6 +188,10 @@ def create_app(
             )
 
         response = await call_next(request)
+        if request.url.path.startswith(('/auth/','/api/employee/','/api/dlp/','/api/admin/identities/')):
+            response.headers['Cache-Control'] = 'no-store'
+            response.headers['Referrer-Policy'] = 'no-referrer'
+            response.headers['X-Content-Type-Options'] = 'nosniff'
         if request.url.path.startswith("/admin/assets/") and response.status_code == 200:
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
             response.headers["X-Content-Type-Options"] = "nosniff"
@@ -159,19 +205,38 @@ def create_app(
 
     app.include_router(health_router)
     app.include_router(device_binding_router)
+    from endpoint_server.installation_lifecycle.routes import router as installation_router
+    app.include_router(installation_router)
+    app.include_router(support_agent_router)
+    from endpoint_server.support_access.linux_routes import agent_router as linux_support_agent,admin_router as linux_support_admin
+    from endpoint_server.installation_lifecycle.linux_routes import router as linux_installation_router
+    app.include_router(linux_support_agent)
+    app.include_router(linux_support_admin)
+    from endpoint_server.support_access.discovery import router as support_platform_router
+    app.include_router(support_platform_router)
+    app.include_router(linux_installation_router)
+    app.include_router(support_admin_router)
     app.include_router(browser_sensor_public_router)
     app.include_router(admin_auth_router)
     app.include_router(enrollment_admin_router)
     app.include_router(enrollment_admin_request_router)
     app.include_router(enrollment_agent_router)
+    from endpoint_server.enrollment.linux_request_routes import router as linux_enrollment_request_router
+    app.include_router(linux_enrollment_request_router)
+    from endpoint_server.enrollment.ubuntu_requests import router as ubuntu_enrollment_request_router
+    app.include_router(ubuntu_enrollment_request_router)
     app.include_router(enrollment_request_router)
     app.include_router(enrollment_verification_router)
+    app.include_router(inventory_receipt_router)
     app.include_router(gateway_router)
     app.include_router(gateway_ws_router)
     app.include_router(provisioning_router)
     app.include_router(provisioning_admin_router)
     app.include_router(updates_admin_router)
     app.include_router(updates_agent_router)
+    app.include_router(setup_updates_admin_router)
+    app.include_router(setup_fleet_router)
+    app.include_router(setup_updates_agent_router)
     app.include_router(context_router)
     if settings.endpoint_operations_api_enabled:
         app.include_router(operations_router)
@@ -192,6 +257,7 @@ def create_app(
     if settings.endpoint_policy_enabled:
         app.include_router(policy_admin_router)
         app.include_router(security_admin_router)
+        app.include_router(dlp_router)
         app.include_router(console_activity_router)
     app.include_router(console_router)
     return app

@@ -7,6 +7,7 @@ existing import order remain unchanged when any model export is requested.
 
 
 def _load_models():
+    from .linux_enrollment import LinuxEnrollmentPolicyV1, LinuxPreEnrollmentRequestCreateV1
     from .commands import (
         AgentCommandAckV1,
         AgentCommandV1,
@@ -123,10 +124,19 @@ def _load_models():
         UpdateRolloutCreateV1,
     )
 
+    from .installation_lifecycle import InstallationEventV1, InstallationEventAckV1, InstallationNativeProof, InstallationCleanup
+    from .linux_installation_lifecycle import LinuxInstallationEventV1, LinuxInstallationNativeProof
+    from .linux_support_access import (LinuxSupportRegistration,LinuxSupportRegistrationResult,LinuxSupportPolicy,
+        LinuxSupportPolicyUpdate,LinuxSupportStatusReport)
+    from .support_console import SupportPlatform, LinuxSupportConfiguredPolicy, LinuxSupportAdminStatus
     return locals()
 
 
 __all__ = [
+    "SupportPlatform", "LinuxSupportConfiguredPolicy", "LinuxSupportAdminStatus",
+    "LinuxInstallationEventV1", "LinuxInstallationNativeProof", "LinuxSupportRegistration",
+    "LinuxSupportRegistrationResult", "LinuxSupportPolicy", "LinuxSupportPolicyUpdate", "LinuxSupportStatusReport",
+    "InstallationEventV1", "InstallationEventAckV1", "InstallationNativeProof", "InstallationCleanup",
     "AgentSecurityEventBatchV1",
     "ActivityObservationEnvelopeV1",
     "ActivityObservationV1",
@@ -232,6 +242,8 @@ __all__ = [
     "UpdateRolloutCreateV1",
     "validate_context_result_item",
     "WindowsEnrollmentPolicyV1",
+    "LinuxEnrollmentPolicyV1",
+    "LinuxPreEnrollmentRequestCreateV1",
 ]
 
 

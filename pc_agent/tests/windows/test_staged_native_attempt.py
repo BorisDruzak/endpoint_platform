@@ -9,6 +9,7 @@ from pc_agent.tests.windows.test_staged_update_state import staged, move, native
 
 @pytest.fixture
 def attempt(recovery, staged, monkeypatch):
+    from pc_agent.platform.windows import companion_processes
     from pc_agent.platform.windows import staged_boot_marker as marker
     _, paths, binding, cap = recovery
     move(staged,'preparing','prepared');move(staged,'prepared','switching')
@@ -21,7 +22,44 @@ def attempt(recovery, staged, monkeypatch):
     monkeypatch.setattr(module,'_validate_recovery_inputs',lambda *_:{'boot':original})
     monkeypatch.setattr(marker,'capture',capture)
     monkeypatch.setattr(marker,'present',lambda _,token:tokens[token])
+    monkeypatch.setattr(companion_processes, 'stop_tray_companions', lambda _: None)
     return paths,binding,cap,tokens,original
+
+
+def test_native_attempt_stops_companions_before_publication(attempt, monkeypatch):
+    from pc_agent.platform.windows import companion_processes
+
+    paths, binding, cap, _, _ = attempt
+    stopped = []
+
+    def stop(companion_paths):
+        assert companion_paths == paths
+        assert module._native_attempt(paths, module.state.read_staged_update(paths)) is None
+        stopped.append(True)
+
+    monkeypatch.setattr(companion_processes, 'stop_tray_companions', stop)
+    with durable_state.installer_mutation_checkpoints(lambda: None):
+        attempt_id = module.begin_native_attempt(paths, binding.operation_id, cap['owner'])
+
+    assert stopped == [True]
+    pending = module._native_attempt(paths, module.state.read_staged_update(paths))
+    assert pending['attempt_id'] == attempt_id
+
+
+def test_native_attempt_does_not_publish_when_companion_stop_fails(attempt, monkeypatch):
+    from pc_agent.platform.windows import companion_processes
+
+    paths, binding, cap, _, _ = attempt
+
+    def stop(_):
+        raise RuntimeError('companion did not stop')
+
+    monkeypatch.setattr(companion_processes, 'stop_tray_companions', stop)
+    with durable_state.installer_mutation_checkpoints(lambda: None):
+        with pytest.raises(RuntimeError, match='companion did not stop'):
+            module.begin_native_attempt(paths, binding.operation_id, cap['owner'])
+
+    assert module._native_attempt(paths, module.state.read_staged_update(paths)) is None
 
 
 def test_pending_attempt_blocks_trial_and_owner_loss_requests_rollback(attempt):
@@ -96,10 +134,13 @@ def test_zero_result_needs_exact_native_release_and_atomic_outcome(attempt,monke
 
 
 @pytest.mark.skipif(__import__('os').name!='nt',reason='actual owner control flow and compiled policy')
-def test_owner_requires_pending_publication_before_launch_and_settlement_before_success(tmp_path):
+@pytest.mark.parametrize('line_ending', [b'\n', b'\r\n'], ids=['lf', 'crlf'])
+def test_owner_requires_pending_publication_before_launch_and_settlement_before_success(tmp_path, line_ending):
     import subprocess
     from pathlib import Path
-    source=Path(__file__).resolve().parents[3]/'packaging/windows/Install-EndpointAgentCanary.ps1'
+    wrapper = Path(__file__).resolve().parents[3] / 'packaging/windows/Install-EndpointAgentCanary.ps1'
+    source = tmp_path / wrapper.name
+    source.write_bytes(wrapper.read_bytes().replace(b'\r\n', b'\n').replace(b'\n', line_ending))
     script=tmp_path/'native-gate.ps1'
     script.write_text(r'''param($Source)
 $ErrorActionPreference='Stop';$tokens=$null;$errors=$null
@@ -116,9 +157,15 @@ $denied=$false;try{$policy.RegisterHelper([EndpointInstallerBridge.Identity]::ne
 if(!$denied){throw 'success admitted without actual native settlement'}
 $gate=$ast.Find({param($n)$n -is [Management.Automation.Language.IfStatementAst] -and $n.Extent.Text.StartsWith('if($stagedOnline -or $null -ne $stagedRecoveryObserved)')},$true)
 if(!$gate){throw 'pending launch barrier missing'}
-$sourceText=[IO.File]::ReadAllText($Source)
-$native=$sourceText.IndexOf("`n    Start-WindowsInstaller`n    if",$gate.Extent.EndOffset)
-if($native -lt $gate.Extent.EndOffset){throw 'pending barrier does not precede native launch'}
+$launches = @($gate.Parent.Statements | Where-Object {
+    $_ -is [Management.Automation.Language.PipelineAst] -and
+        $_.PipelineElements.Count -eq 1 -and
+        $_.PipelineElements[0] -is [Management.Automation.Language.CommandAst] -and
+        $_.PipelineElements[0].GetCommandName() -eq 'Start-WindowsInstaller'
+})
+if ($launches.Count -ne 1 -or $launches[0].Extent.StartOffset -lt $gate.Extent.EndOffset) {
+    throw 'pending barrier does not precede native launch'
+}
 $stagedOnline=$true;$stagedRecoveryObserved=$null;$bridge=[pscustomobject]@{TransactionId='33333333-3333-4333-8333-333333333333'}
 $fakePolicy=New-Object psobject;$fakePolicy|Add-Member ScriptMethod MarkQuiescent {}
 $script:fakeBridge=[pscustomobject]@{Policy=$fakePolicy}

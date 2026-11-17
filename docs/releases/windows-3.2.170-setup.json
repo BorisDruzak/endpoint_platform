@@ -1,0 +1,201 @@
+{
+  "schema_version": 1,
+  "version": "3.2.170",
+  "platform": "windows_amd64",
+  "status": "source168_native_accepted_source169_automatically_recovered_failure",
+  "runtime_source_commit": "bd2d736f33de5422902adca0f9d07aee40bf2ec7",
+  "windows_packaging_commit": "800f9151ea9cff3344b2069474897425c56d0460",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.170.json",
+  "producer_root": "C:\\endpoint-platform-wix-build\\setup170-bd2d736",
+  "initial_runtime": {
+    "file_count": 119,
+    "tree_sha256": "562757a3f3c7004b0534bc653280a31356d548cf8843eda46284a96201e59a29",
+    "component_guid": "00E4BCC4-6179-5C63-BD9F-9A05C606FFF2",
+    "source_file_count": 280,
+    "native_helpers_reuse_allowed": false
+  },
+  "fixes": [
+    "888af5a7559af4b3e208509384eb8143ee4b6f29",
+    "9aade90a33217c483dc11a9c051ae5dacc333d43",
+    "411b19625e97fd196d84bd1f4cdda28a16c0b614"
+  ],
+  "packaged_observer": {
+    "client_version": "1.0.7",
+    "schema_version": 1,
+    "script_sha256": "8a1a30e7d208fbb431e2f715967d8a21eb82eac43edbfb4e97433a83049a6247",
+    "source_sha256": "8165e3f4f3a71c8552e0234c39e04fa462e775bb460a56cace08b740b38520d7"
+  },
+  "native_helper": {
+    "inspection": {
+      "sha256": "c5eb36a4e12b0c658e352e83eab9a745461f9dbdd8d3d94d8cae718e1dcd2498",
+      "build_tools_absent": true,
+      "python_module_count": 438,
+      "archive_member_count": 112
+    },
+    "observer_payload": {
+      "client_version": "1.0.7",
+      "schema_version": 1,
+      "script_sha256": "8a1a30e7d208fbb431e2f715967d8a21eb82eac43edbfb4e97433a83049a6247",
+      "source_sha256": "8165e3f4f3a71c8552e0234c39e04fa462e775bb460a56cace08b740b38520d7"
+    },
+    "canonical_selector_in_core_and_helper": true,
+    "strict_grant_reader_unchanged": true,
+    "tray_pair_and_foundation_pin_exact_in_core_and_helper": true,
+    "native_phase_diagnostics_exact_in_helper": true
+  },
+  "setup_update_release_id": "eb098f60-615c-4360-afb0-b12542a1d24a",
+  "setup_update_manifest": {
+    "schema_version": "windows_setup_release_v1",
+    "release_identifier": "endpoint-windows-full-setup-3.2.170-bd2d736",
+    "version": "3.2.170",
+    "artifact_name": "EndpointAgentSetup-3.2.170-x64.exe",
+    "sha256": "386ca8ef079ea73f131e991534cd4ec39d815c3aab4ef8737b830319b8b49a8b",
+    "size": 146273704,
+    "source_revision": "bd2d736f33de5422902adca0f9d07aee40bf2ec7",
+    "msi_sha256": "beaaf9f7dd9f44c4c5ee8823aec3a89a622c052c196c7cabbf01a30f97679751",
+    "tray_sha256": "c39e5b10b88742dae351cc799c84e1991b5b6b6d25ecbb882a8bd40ee1461eb9",
+    "sensor_sha256": "0e5ef81d74d735fd1fefc69772808a9df86bbe0cf0fde3876c7fbc4806f8d1bc"
+  },
+  "signatures": [
+    {
+      "File": "EndpointAgent-3.2.170-x64.msi",
+      "Size": 104452096,
+      "SHA256": "beaaf9f7dd9f44c4c5ee8823aec3a89a622c052c196c7cabbf01a30f97679751",
+      "Signature": "Valid",
+      "Publisher": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+      "Timestamped": true
+    },
+    {
+      "File": "EndpointAgentSetup-3.2.170-x64.exe",
+      "Size": 146273704,
+      "SHA256": "386ca8ef079ea73f131e991534cd4ec39d815c3aab4ef8737b830319b8b49a8b",
+      "Signature": "Valid",
+      "Publisher": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+      "Timestamped": true
+    }
+  ],
+  "qualification": {
+    "native_applied": true,
+    "active_user_telemetry": true,
+    "server_qualified_source_foundations": [],
+    "fleet_eligible": false,
+    "accepted_source_foundations": [
+      "3.2.168"
+    ]
+  },
+  "fleet": {
+    "enabled": false,
+    "policy_revision": 3,
+    "max_parallel": 2,
+    "active_chains": 0
+  },
+  "enrollment": {
+    "published": false,
+    "existing_default_version": "3.2.165",
+    "auto_campaign_unchanged": true
+  },
+  "server_console_commit": "ce46fd47a3a929a2fe104f01fac2bc8cc619559d",
+  "live_canaries": [
+    {
+      "address": "192.168.101.187",
+      "device_id": "d3ed13cd-1b40-4ccc-b035-240a184cf247",
+      "assignment_id": "7a61bbc2-1270-4517-a1de-92a62e3d6c48",
+      "source_core": "3.2.169",
+      "source_foundation": "3.2.169",
+      "source_client": "1.0.7",
+      "assigned_at": "2026-11-06 07:21:15.104950+00:00",
+      "status": "failed",
+      "workstation_preparation_for_this_assignment": false,
+      "previous_administrative_recovery": true,
+      "safe_code": "native_failed_target_recovered",
+      "attempt_id": "3c82121d-7227-4215-9185-636986c22fe1",
+      "finished_at": "2026-11-06 07:31:54.367255+00:00",
+      "native_exit": 21,
+      "pending": false,
+      "private_preserved": true,
+      "soak": {
+        "duration_seconds": 183.629,
+        "samples": 6,
+        "sensor_count": 1,
+        "sensor_cpu_percent_max": 0.0,
+        "services_stable": true,
+        "companions_stable": true,
+        "connected": true
+      },
+      "observed_core": "3.2.170",
+      "observed_foundation": "3.2.170",
+      "observed_client": "1.0.7",
+      "user_sensor_last_seen_at": "2026-11-06 07:36:49.769040+00:00",
+      "automatic_target_recovery": true,
+      "new_administrative_repair": false,
+      "original_native_failure_preserved": true
+    },
+    {
+      "address": "192.168.101.27",
+      "device_id": "13f38b93-cc73-4130-b58c-41f534b1893e",
+      "assignment_id": "e9ca3029-99b0-460d-9f60-546e26aa3aaa",
+      "source_core": "3.2.168",
+      "source_foundation": "3.2.168",
+      "source_client": "1.0.6",
+      "assigned_at": "2026-11-06 07:22:24.392507+00:00",
+      "status": "applied",
+      "workstation_preparation_for_this_assignment": false,
+      "previous_administrative_recovery": true,
+      "safe_code": "setup_post_restart_confirmed",
+      "attempt_id": "c96b8ffb-8d08-4996-aeb3-1535374d41b9",
+      "finished_at": "2026-11-06 07:29:01.719973+00:00",
+      "native_exit": 0,
+      "pending": false,
+      "private_preserved": true,
+      "soak": {
+        "duration_seconds": 181.989,
+        "samples": 6,
+        "sensor_count": 1,
+        "sensor_cpu_percent_max": 0.0,
+        "services_stable": true,
+        "companions_stable": true,
+        "connected": true
+      },
+      "observed_core": "3.2.170",
+      "observed_foundation": "3.2.170",
+      "observed_client": "1.0.7",
+      "user_sensor_last_seen_at": "2026-11-06 07:36:36.441321+00:00"
+    }
+  ],
+  "independent_support_tunnel_included": false,
+  "verification_record": "docs/verification/2026-11-06-setup170-web-fleet.md",
+  "artifacts": [
+    {
+      "filename": "EndpointAgent-3.2.170-x64.msi",
+      "operator_path": "C:\\endpoint-platform-wix-build\\setup170-bd2d736\\native-setup-build\\releases\\EndpointAgent-3.2.170-x64.msi",
+      "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgent-3.2.170-x64.msi",
+      "sha256": "beaaf9f7dd9f44c4c5ee8823aec3a89a622c052c196c7cabbf01a30f97679751",
+      "size": 104452096
+    },
+    {
+      "filename": "EndpointAgentSetup-3.2.170-x64.exe",
+      "operator_path": "C:\\endpoint-platform-wix-build\\setup170-bd2d736\\native-setup-build\\releases\\EndpointAgentSetup-3.2.170-x64.exe",
+      "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgentSetup-3.2.170-x64.exe",
+      "sha256": "386ca8ef079ea73f131e991534cd4ec39d815c3aab4ef8737b830319b8b49a8b",
+      "size": 146273704
+    }
+  ],
+  "setup_wrapper": {
+    "setup_wrapper_exact_source_functions": [
+      "staged_recovery._tray_bootloader_pair",
+      "staged_recovery._probe_companions",
+      "msi_inventory.verified_foundation_bytes",
+      "msi_inventory._foundation_pin_failure"
+    ],
+    "phase_reporting_is_native_helper_only": true
+  },
+  "diagnosis": {
+    "phase": "restore-staged-companions",
+    "invariant": "change_time",
+    "public_slot": "EndpointAgentTray.exe",
+    "public_slot_sha256": "65bf2e3c39bccbbac07a46b63e54822f59ffeb86097420cd9d95cf9f51dc9c05",
+    "event_record_id": 3080,
+    "origin_of_specific_metadata_write": "unknown",
+    "followup_plan": "docs/superpowers/plans/2026-11-06-foundation-execution-pins.md"
+  }
+}

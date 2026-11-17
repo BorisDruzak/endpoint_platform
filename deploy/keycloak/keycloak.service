@@ -1,0 +1,30 @@
+[Unit]
+Description=Dedicated Sosnadmin Keycloak SSO
+After=network-online.target postgresql@16-keycloak.service
+Requires=postgresql@16-keycloak.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=keycloak
+Group=keycloak
+WorkingDirectory=/var/lib/keycloak
+Environment="JAVA_OPTS_KC_HEAP=-Xms256m -Xmx1024m"
+ExecStart=/opt/keycloak/current/bin/kc.sh --config-file=/etc/keycloak/keycloak.conf start --optimized
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=180
+TimeoutStopSec=60
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadWritePaths=/var/lib/keycloak
+
+[Install]
+WantedBy=multi-user.target

@@ -275,6 +275,25 @@ class EndpointUpdateAdapter:
         assigned_version: str,
         rollback_version: str,
     ) -> bool:
+        if not self._persist_scheduled_handoff(
+            operation_id, assigned_version=assigned_version, rollback_version=rollback_version,
+        ):
+            return False
+        return await self.retry_scheduled_acknowledgement(operation_id)
+
+    def prepare_scheduled_handoff(
+        self, operation_id: str, *, assigned_version: str, rollback_version: str,
+    ) -> bool:
+        """Persist and flush the operation identity without doing network I/O."""
+        return self._persist_scheduled_handoff(
+            operation_id, assigned_version=assigned_version, rollback_version=rollback_version,
+            flush_existing=True,
+        )
+
+    def _persist_scheduled_handoff(
+        self, operation_id: str, *, assigned_version: str, rollback_version: str,
+        flush_existing: bool = False,
+    ) -> bool:
         if (
             self._data_root is None
             or not _is_operation_id(operation_id)
@@ -282,28 +301,30 @@ class EndpointUpdateAdapter:
             or not _SEMVER.fullmatch(rollback_version)
         ):
             return False
-        with self._journal_transaction():
-            records = self._load_update_state()
-            existing = next(
-                (record for record in records if record["operation_id"] == operation_id),
-                None,
-            )
-            if existing is None:
-                records.append(
-                    {
+        try:
+            with self._journal_transaction():
+                records = self._load_update_state()
+                existing = next(
+                    (record for record in records if record["operation_id"] == operation_id),
+                    None,
+                )
+                if existing is None:
+                    records.append({
                         "operation_id": operation_id,
                         "assigned_version": assigned_version,
                         "rollback_version": rollback_version,
                         "scheduled_ack_delivered_at": None,
-                    }
-                )
-                self._write_update_state(records)
-            elif (
-                existing["assigned_version"] != assigned_version
-                or existing["rollback_version"] != rollback_version
-            ):
-                return False
-        return await self.retry_scheduled_acknowledgement(operation_id)
+                    })
+                    self._write_update_state(records)
+                elif (existing["assigned_version"], existing["rollback_version"]) != (
+                    assigned_version, rollback_version,
+                ):
+                    return False
+                elif flush_existing:
+                    durable_state.flush_directory(self._update_state_path().parent)
+                return True
+        except UpdateInProgress:
+            return False
 
     @_defer_busy_update
     async def retry_scheduled_acknowledgement(self, operation_id: str) -> bool:

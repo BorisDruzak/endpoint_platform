@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
+from uuid import UUID
 
 from endpoint_contracts import (
     AgentCommandAckV1,
@@ -18,7 +19,12 @@ from endpoint_contracts import (
     AgentResultV1,
     GatewayHelloV1,
 )
-from endpoint_contracts.gateway_ws import EndpointPolicyAckV1, EndpointPolicyDeliveryV1
+from endpoint_contracts.gateway_ws import (
+    COMMAND_JOURNAL_FEATURE,
+    EndpointPolicyAckV1,
+    EndpointPolicyDeliveryV1,
+    ResultAckV1,
+)
 from endpoint_contracts.security_events import SecurityEventAckV1
 from endpoint_contracts.power_events import PowerEventAckV1
 from endpoint_contracts.telemetry_results import TelemetryResultV1
@@ -34,10 +40,13 @@ from pc_agent.transport.protocol import GatewayInboundV1, compatibility_agent_he
 from pc_agent.version import EXIT_UPDATE_PENDING
 
 from .status import RuntimePhase, RuntimeStatus
+from .local_state import CommandJournal, LocalStateError, migrate_local_state
 
 
 logger = logging.getLogger(__name__)
 _TRAY_STATUS_HEARTBEAT_SECONDS = 60.0
+_MAX_QUEUED_COMMANDS = 8
+_RESULT_ACK_TIMEOUT_SECONDS = 15.0
 
 
 CredentialRejected = GatewayCredentialRejected
@@ -172,6 +181,7 @@ class RuntimeDependencies:
     )
     reconnect_delay: float = 5.0
     recover_protocol_errors: bool = False
+    command_journal: CommandJournal | None = None
     create_service_tasks: Callable[
         [object, str, AgentHelloV1, Callable[[str], None]], Iterable[Awaitable[None]]
     ] = _no_service_tasks
@@ -215,6 +225,9 @@ class RuntimeLifecycle:
         tray_status_writer: TrayStatusWriter | None = None
         service_tasks: set[asyncio.Task] = set()
         try:
+            journal = self._dependencies.command_journal
+            if journal is not None:
+                await migrate_local_state(journal.path)
             await executor.start()
             executor_started = True
             local_sensor = self._dependencies.start_local_sensor(self._settings)
@@ -298,6 +311,7 @@ class RuntimeLifecycle:
                         after_policy_ack_sent=self._dependencies.after_policy_ack_sent,
                         after_policy_delivery=self._dependencies.after_policy_delivery,
                         after_server_disconnected=self._dependencies.after_server_disconnected,
+                        journal=journal,
                     ), service_tasks)
                     raise GatewayTerminalError(
                         "Gateway connected loops stopped unexpectedly"
@@ -516,9 +530,18 @@ async def _run_connected(
     after_policy_ack_sent: Callable[[EndpointPolicyAckV1], Awaitable[None]] = _noop_after_policy,
     after_policy_delivery: Callable[[], Awaitable[None]] = _noop_after_event,
     after_server_disconnected: Callable[[], Awaitable[None]] = _noop_after_event,
+    journal: CommandJournal | None = None,
 ) -> None:
-    """Run receive and heartbeat loops for the lifetime of one connection."""
+    """Run protocol I/O with one bounded FIFO for in-session commands."""
+    commands: asyncio.Queue[AgentCommandV1] = asyncio.Queue(_MAX_QUEUED_COMMANDS)
+    command_state = None
+    if journal is not None and COMMAND_JOURNAL_FEATURE in hello.protocol_features and (
+        COMMAND_JOURNAL_FEATURE in gateway_hello.protocol_features
+    ):
+        await journal.recover_interrupted(now=datetime.now(UTC))
+        command_state = ConnectedCommands(journal, transport, hello.device_id)
     tasks = {
+        asyncio.create_task(_command_loop(transport, executor, commands, completion_sink, command_state)),
         asyncio.create_task(_receive_loop(
             transport, executor, completion_sink, policy_handler,
             security_ack_handler, security_policy_ack_sent,
@@ -527,6 +550,8 @@ async def _run_connected(
             after_policy_delivery,
             telemetry_result_handler,
             power_ack_handler,
+            commands=commands,
+            command_state=command_state,
         )),
         asyncio.create_task(
             _heartbeat_loop(
@@ -538,6 +563,8 @@ async def _run_connected(
             )
         ),
     }
+    if command_state is not None:
+        tasks.add(asyncio.create_task(command_state.deliver_forever()))
     tasks.update(asyncio.ensure_future(task) for task in connected_tasks)
     try:
         done, _pending = await asyncio.wait(
@@ -579,9 +606,52 @@ async def _receive_loop(
     after_policy_delivery: Callable[[], Awaitable[None]] = _noop_after_event,
     telemetry_result_handler: Callable[[TelemetryResultV1], Awaitable[bool]] | None = None,
     power_ack_handler: Callable[[PowerEventAckV1], Awaitable[bool]] | None = None,
+    *,
+    commands: asyncio.Queue[AgentCommandV1],
+    command_state: ConnectedCommands | None = None,
 ) -> None:
     while True:
         inbound = await transport.receive()
+        if inbound.root.kind == "command":
+            command = inbound.root.payload
+            if command_state is None and command.deadline_at <= datetime.now(UTC):
+                continue
+            if getattr(transport, "sequential_command_polling", False):
+                if command_state is None:
+                    await _execute_command(transport, executor, command, completion_sink)
+                else:
+                    await command_state.execute(executor, command, completion_sink)
+                continue
+            try:
+                commands.put_nowait(command)
+            except asyncio.QueueFull:
+                if command_state is not None:
+                    await command_state.execute(executor, command, completion_sink, busy=True)
+                    continue
+                if command.deadline_at <= datetime.now(UTC):
+                    continue
+                await _ack_command(transport, command)
+                await transport.send_result(AgentResultV1(
+                    schema_version="agent_result_v1",
+                    command_id=command.command_id,
+                    device_id=command.device_id,
+                    status="failed",
+                    message="AGENT_COMMAND_QUEUE_FULL",
+                    completed_at=datetime.now(UTC),
+                ))
+            continue
+        if command_state is not None and inbound.root.kind == "command_cancel":
+            await command_state.cancel(inbound.root.payload.command_id)
+            continue
+        if command_state is not None and inbound.root.kind == "command_start":
+            permission = inbound.root.payload
+            if permission.device_id != command_state.device_id or permission.status != "running":
+                raise GatewayTerminalError("invalid command start permission")
+            command_state.authorize_start(permission.command_id)
+            continue
+        if command_state is not None and inbound.root.kind == "result_ack":
+            await command_state.acknowledge(inbound.root.payload)
+            continue
         await _handle_inbound(
             transport, executor, inbound, completion_sink,
             policy_handler=policy_handler,
@@ -593,6 +663,24 @@ async def _receive_loop(
             after_policy_ack_sent=after_policy_ack_sent,
             after_policy_delivery=after_policy_delivery,
         )
+
+
+async def _command_loop(
+    transport: GatewayTransport,
+    executor: RuntimeExecutor,
+    commands: asyncio.Queue[AgentCommandV1],
+    completion_sink: Callable[[dict[str, object]], None] | None,
+    command_state: ConnectedCommands | None = None,
+) -> None:
+    while True:
+        command = await commands.get()
+        try:
+            if command_state is not None:
+                await command_state.execute(executor, command, completion_sink)
+            elif command.deadline_at > datetime.now(UTC):
+                await _execute_command(transport, executor, command, completion_sink)
+        finally:
+            commands.task_done()
 
 
 async def _heartbeat_loop(
@@ -679,15 +767,149 @@ async def _handle_inbound(
         raise GatewayTerminalError(error.code)
     if inbound.root.kind != "command":
         raise GatewayTerminalError("unsupported Gateway inbound message")
-    command = inbound.root.payload
+    await _execute_command(transport, executor, inbound.root.payload, completion_sink)
+
+
+async def _ack_command(transport: GatewayTransport, command: AgentCommandV1, *, running: bool = False) -> None:
     ack = AgentCommandAckV1(
         schema_version="agent_command_ack_v1",
         command_id=command.command_id,
         device_id=command.device_id,
-        status="acknowledged",
+        status="running" if running else "acknowledged",
         acknowledged_at=datetime.now(UTC),
     )
     await transport.send_ack(ack)
+
+
+class ConnectedCommands:
+    """Map durable results to this connection's outbound sequences."""
+
+    def __init__(self, journal: CommandJournal, transport: GatewayTransport, device_id: UUID):
+        self.journal = journal
+        self.transport = transport
+        self.device_id = device_id
+        self._in_flight: dict[UUID, tuple[int, AgentResultV1, float]] = {}
+        self._send_lock = asyncio.Lock()
+        self._starts: dict[UUID, asyncio.Future[bool]] = {}
+
+    def authorize_start(self, command_id: UUID) -> None:
+        request = self._starts.get(command_id)
+        if request is not None and not request.done():
+            request.set_result(True)
+
+    async def _request_start(self, command: AgentCommandV1) -> bool:
+        decision = asyncio.get_running_loop().create_future()
+        self._starts[command.command_id] = decision
+        try:
+            async with asyncio.timeout(_RESULT_ACK_TIMEOUT_SECONDS):
+                await _ack_command(self.transport, command, running=True)
+                return await decision
+        except TimeoutError as error:
+            raise GatewayRetryableError("command start permission timed out") from error
+        finally:
+            del self._starts[command.command_id]
+
+    async def execute(self, executor, command, completion_sink, *, busy=False) -> None:
+        if command.device_id != self.device_id:
+            raise GatewayTerminalError("command device does not match session")
+        try:
+            decision = await self.journal.begin(command, now=datetime.now(UTC))
+        except LocalStateError as error:
+            raise GatewayRetryableError("command journal admission failed") from error
+        if decision == "completed":
+            result = await self.journal.pending_result(self.device_id, command.command_id)
+            if result is not None:
+                await self._send_result(result)
+            return
+        if decision != "execute":
+            return
+
+        started_at = time.monotonic()
+        status, message = "expired", "AGENT_COMMAND_DEADLINE_EXPIRED"
+        result = None
+        if command.deadline_at > datetime.now(UTC):
+            if busy:
+                await _ack_command(self.transport, command)
+                status, message = "failed", "AGENT_COMMAND_QUEUE_FULL"
+            elif not await self._request_start(command):
+                await self.journal.reject_start(command)
+                return
+            elif command.deadline_at > datetime.now(UTC):
+                try:
+                    await self.journal.mark_execution_started(command)
+                except LocalStateError as error:
+                    raise GatewayRetryableError("command start could not be persisted") from error
+                if command.deadline_at > datetime.now(UTC):
+                    result = await executor.execute(command)
+        executed = result is not None
+        if result is None:
+            result = AgentResultV1(
+                schema_version="agent_result_v1", command_id=command.command_id,
+                device_id=command.device_id, status=status, message=message,
+                completed_at=datetime.now(UTC),
+            )
+        await self.journal.complete(command, result)
+        if executed:
+            emit_command_completed_marker(
+                command, result,
+                duration_ms=max(0, int((time.monotonic() - started_at) * 1000)),
+                completion_sink=completion_sink,
+            )
+        await self._send_result(result)
+
+    async def cancel(self, command_id: UUID) -> None:
+        try:
+            await self.journal.cancel(self.device_id, command_id)
+        except LocalStateError as error:
+            raise GatewayRetryableError("command cancel could not be persisted") from error
+        request = self._starts.get(command_id)
+        if request is not None and not request.done():
+            request.set_result(False)
+
+    async def _send_result(self, result: AgentResultV1) -> None:
+        async with self._send_lock:
+            if result.command_id in self._in_flight or len(self._in_flight) >= 32:
+                return
+            current = await self.journal.pending_result(self.device_id, result.command_id)
+            if current != result:
+                return
+            try:
+                async with asyncio.timeout(_RESULT_ACK_TIMEOUT_SECONDS):
+                    sequence = await self.transport.send_result(result)
+            except TimeoutError as error:
+                raise GatewayRetryableError("command result send timed out") from error
+            if sequence is None:
+                await self.journal.acknowledge(result)
+            else:
+                self._in_flight[result.command_id] = (
+                    sequence, result, time.monotonic() + _RESULT_ACK_TIMEOUT_SECONDS
+                )
+
+    async def acknowledge(self, acknowledgement: ResultAckV1) -> None:
+        async with self._send_lock:
+            sent = self._in_flight.get(acknowledgement.command_id)
+            if sent is not None and sent[0] == acknowledgement.result_sequence:
+                await self.journal.acknowledge(sent[1])
+                del self._in_flight[acknowledgement.command_id]
+
+    async def deliver_forever(self) -> None:
+        while True:
+            async with self._send_lock:
+                now = time.monotonic()
+                if any(deadline <= now for _, _, deadline in self._in_flight.values()):
+                    raise GatewayRetryableError("command result acknowledgement timed out")
+            for result in await self.journal.pending(self.device_id):
+                await self._send_result(result)
+            await asyncio.sleep(1)
+
+
+async def _execute_command(
+    transport: GatewayTransport,
+    executor: RuntimeExecutor,
+    command: AgentCommandV1,
+    completion_sink: Callable[[dict[str, object]], None] | None,
+) -> None:
+    await _ack_command(transport, command)
     started_at = time.monotonic()
     result = await executor.execute(command)
     emit_command_completed_marker(
@@ -696,7 +918,9 @@ async def _handle_inbound(
         duration_ms=max(0, int((time.monotonic() - started_at) * 1000)),
         completion_sink=completion_sink,
     )
-    await transport.send_result(result)
+    # The Gateway expires operations itself and rejects late result frames.
+    if result.status != "expired" and command.deadline_at > datetime.now(UTC):
+        await transport.send_result(result)
 
 
 def emit_command_completed_marker(

@@ -19,19 +19,39 @@ def frozen_worker():
     return ast.parse(result.stdout)
 
 
-def test_current_pending_producer_matches_immutable81_validator_fields():
+def test_current_pending_producer_matches_immutable81_validator_fields(tmp_path):
+    import hashlib
+
+    from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateRuntime
+    from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+    from pc_agent.update_adapter import EndpointRecommendation
+
     legacy = frozen_worker()
     fields = next(node.value for node in legacy.body if isinstance(node, ast.Assign)
         and any(isinstance(target, ast.Name) and target.id == "_PENDING_FIELDS" for target in node.targets))
     assert isinstance(fields, ast.Call) and isinstance(fields.func, ast.Name) and fields.func.id == "frozenset"
     expected = frozenset(ast.literal_eval(fields.args[0]))
-    current = ast.parse((ROOT / "pc_agent/platform/windows/online_update_runtime.py").read_text(encoding="utf-8"))
-    producers = [node for node in ast.walk(current) if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name) and node.func.id == "write_json_atomic"
-        and len(node.args) > 1 and isinstance(node.args[1], ast.Dict)
-        and "archive_type" in [key.value for key in node.args[1].keys if isinstance(key, ast.Constant)]]
-    assert len(producers) == 1
-    assert {key.value for key in producers[0].args[1].keys} == expected
+
+    paths = WindowsUpdatePaths(tmp_path / "install", tmp_path / "updates/pending_update.json")
+    paths.downloads_root.mkdir(parents=True)
+    staged = paths.downloads_root / "download.zip.partial"
+    artifact = paths.downloads_root / "build.zip"
+    contents = b"fixture Core archive"
+    staged.write_bytes(contents)
+    recommendation = EndpointRecommendation(
+        "caa31a48-bf2f-4c1c-8b77-d1be77e12b4e", "3.2.83", "windows_amd64", "canary",
+        "https://endpoint.example.test/build.zip", artifact.name, "zip",
+        hashlib.sha256(contents).hexdigest(), len(contents), "scheduled_rollout",
+    )
+    runtime = WindowsOnlineUpdateRuntime(
+        adapter=None, paths=paths, acl=SimpleNamespace(protect_update_path=lambda _: None), download=None,
+    )
+    runtime._publish_download(recommendation, staged, artifact)
+
+    pending = json.loads(paths.pending_path.read_bytes())
+    assert pending.keys() == expected
+    assert pending["artifact_path"] == str(artifact)
+    assert artifact.read_bytes() == contents
 
 
 @pytest.mark.parametrize("field,replacement", [(None, None), ("attempt_id", "other"),

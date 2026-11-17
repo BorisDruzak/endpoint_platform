@@ -6,6 +6,7 @@ Crash is a test-owned process-loss sentinel; it bypasses ordinary error recovery
 """
 from __future__ import annotations
 
+from contextlib import ExitStack
 import errno
 import hashlib
 import json
@@ -241,7 +242,6 @@ async def test_fresh_owners_recover_all_thirteen_fault_boundaries(tmp_path, monk
         patch.setattr(os, "fsync", fsync)
         for module, symbol, selected, fault, after in (
             (update_adapter, "write_json_atomic", "endpoint_update_state.json", "handoff_journal", False),
-            (online_update_runtime, "write_json_atomic", "pending_update.json", "pending_publication", False),
             (updater_service, "_write_json_atomic", "current.json", "after_current_selector", True),
             (updater_service, "_write_json_atomic", "terminal-outcome.json", "terminal_persistence", False),
             (updater_service, "durable_unlink", "pending_update.json", "cleanup", True),
@@ -255,6 +255,13 @@ async def test_fresh_owners_recover_all_thirteen_fault_boundaries(tmp_path, monk
                     rig.hit(_fault)
                 return result
             patch.setattr(module, symbol, wrapped)
+        original_publish = online_update_runtime.publish_prepared
+
+        def publish(*args, **kwargs):
+            rig.hit("pending_publication")
+            return original_publish(*args, **kwargs)
+
+        patch.setattr(online_update_runtime, "publish_prepared", publish)
         try:
             await rig.online().run_once()
             rig.worker().run_once()
@@ -280,6 +287,15 @@ async def test_fresh_owners_recover_all_thirteen_fault_boundaries(tmp_path, monk
     if failure is Crash:
         assert expected == NEW
     assert not final["pending"] and not final["transition"] and not final["attempt"]
+    archives = list(rig.paths.downloads_root.glob("build-*.zip"))
+    if point == "terminal_persistence" and failure is OSError:
+        # The worker quarantines pending when its terminal record cannot be
+        # written. Keep that handed-off archive with the forensic record.
+        rejected, = rig.paths.updates_root.glob("rejected-pending-*.json")
+        assert archives == [Path(json.loads(rejected.read_text())["artifact_path"])]
+    else:
+        assert not archives
+    assert not (rig.paths.updates_root / "prepared-core-download.json").exists()
     assert len(final["reports"]) == 1 and final["reports"][0]["delivered_at"]
     assert final["handoff"][0]["scheduled_ack_delivered_at"]
     report_posts = [body for url, body in rig.posts if url.endswith("/reports")]
@@ -302,7 +318,7 @@ async def test_persistent_enospc_keeps_known_good_and_fresh_owner_can_retry(tmp_
         def full(*_, **__):
             raise OSError(errno.ENOSPC, "source-test-only")
         if point == "pending_publication":
-            patch.setattr(online_update_runtime, "write_json_atomic", full)
+            patch.setattr(online_update_runtime, "publish_prepared", full)
         else:
             async def no_space(*_, **__):
                 full()
@@ -625,6 +641,70 @@ async def test_terminal_cleanup_restarts_after_each_retired_leaf(tmp_path, monke
     assert await rig.online().report_startup_outcome()
     from pc_agent.platform.windows.update_transaction import active_update_state
     assert active_update_state(rig.paths) is None
+    assert len([url for url, _ in rig.posts if url.endswith("/reports")]) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("accepted", [False, True], ids=["failed", "applied"])
+@pytest.mark.parametrize("after_unlock", ["intact", "changed", "interrupted"])
+async def test_terminal_core_zip_is_retried_after_a_sharing_violation(tmp_path, monkeypatch, accepted, after_unlock):
+    from pc_agent.platform.windows import update_download_retention
+
+    rig = Rig(tmp_path, monkeypatch)
+    if accepted:
+        assert (await rig.online().run_once()).status == "scheduled"
+    else:
+        await failed_candidate(rig)
+    artifact = Path(json.loads(rig.paths.pending_path.read_text())["artifact_path"])
+    original = update_download_retention.durable_unlink
+
+    def locked(path, **kwargs):
+        if path == artifact:
+            error = PermissionError("test sharing violation")
+            error.winerror = 32
+            raise error
+        return original(path, **kwargs)
+
+    receipt = rig.paths.updates_root / f".core-retire-{OPERATION}.json"
+    with ExitStack() as resources:
+        if os.name == "nt":
+            import win32file
+            handle = win32file.CreateFile(
+                str(artifact), win32file.GENERIC_READ, win32file.FILE_SHARE_READ | win32file.FILE_SHARE_WRITE,
+                None, win32file.OPEN_EXISTING, win32file.FILE_ATTRIBUTE_NORMAL, None,
+            )
+            resources.callback(handle.Close)
+        else:
+            patch = resources.enter_context(monkeypatch.context())
+            patch.setattr(update_download_retention, "durable_unlink", locked)
+        if accepted:
+            assert rig.worker().run_once().status == "applied"
+        assert await rig.online().report_startup_outcome()
+        assert artifact.exists()
+        assert receipt.exists()
+        assert not rig.paths.pending_path.exists()
+
+    changed_zip = after_unlock == "changed"
+    if changed_zip:
+        artifact.write_bytes(bytes(len(rig.payload)))
+    before = list(rig.events)
+    if after_unlock == "interrupted":
+        def interrupted(path, **kwargs):
+            if path == artifact:
+                artifact.unlink()
+                raise OSError("test barrier failure after archive unlink")
+            return original(path, **kwargs)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(update_download_retention, "durable_unlink", interrupted)
+            assert (await rig.online().run_once()).status == "idle"
+        assert not artifact.exists() and receipt.exists()
+    assert (await rig.online().run_once()).status == "idle"
+    assert artifact.exists() is changed_zip
+    assert receipt.exists() is changed_zip
+    if changed_zip:
+        assert artifact.read_bytes() == bytes(len(rig.payload))
+    assert rig.events == before
     assert len([url for url, _ in rig.posts if url.endswith("/reports")]) == 1
 
 

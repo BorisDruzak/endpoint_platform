@@ -47,6 +47,35 @@ def test_live_complete_product_identity(tmp_path):
     module.verify_installed(package(module), tmp_path, native=native)
 
 
+def test_persist_installed_flushes_package_files_before_directories_and_registry(tmp_path, monkeypatch):
+    from pc_agent.platform.windows import durable_state, msi_inventory as module
+
+    install_root = tmp_path / 'Agent'
+    inventory = package(module)
+    payload = install_root / inventory.files[0].path
+    original = tmp_path / 'source.msi'
+    calls = []
+
+    def flush_file(path, *, trusted_root, verified_identity):
+        assert trusted_root == install_root
+        assert verified_identity is None
+        calls.append(path)
+
+    def persist_cache(path, package):
+        assert path == original and package == inventory
+        calls.append('cache')
+
+    monkeypatch.setattr(durable_state, 'flush_existing_file', flush_file)
+    monkeypatch.setattr(durable_state, 'flush_directory', calls.append)
+    monkeypatch.setattr(module, 'persist_registered_cache', persist_cache)
+    monkeypatch.setattr(module, '_flush_installation_registry', lambda: calls.append('registry'))
+
+    module.persist_installed(inventory, install_root, original_path=original)
+
+    assert calls == [payload, payload.parent, install_root / 'versions',
+                     install_root, tmp_path, 'cache', 'registry']
+
+
 def test_foundation_verification_rejects_missing_component_with_runtime_retired(tmp_path):
     from dataclasses import replace
     from pc_agent.platform.windows import msi_inventory as module
@@ -191,3 +220,64 @@ def test_component_verification_rejects_feature_before_component_access(tmp_path
     native.component = lambda *_: pytest.fail('unavailable feature reached component query')
     with pytest.raises(module.ProvenanceConflict):
         module._verify_components(package(module), tmp_path, native, package(module).components.values())
+
+
+@pytest.mark.parametrize('defect', [None, 'shared-root-absent', 'different-keypath', 'present-absent',
+    'missing-local', 'wrong-package', 'wrong-state', 'altered-bytes', 'foreign-shared-file'])
+def test_interrupted_foundation_checks_removed_keypaths_and_remaining_bytes(tmp_path, monkeypatch, defect):
+    from dataclasses import replace
+    from hashlib import sha256
+    from types import SimpleNamespace
+    from pc_agent.platform.windows import msi_inventory as module, update_transaction
+
+    monkeypatch.setattr(update_transaction, '_assert_state_security', lambda _: None)
+    shared = '_foundation-runtime/deleted/proof.dll'
+    retained = '_foundation-runtime/live.dll'
+    paths = (shared, retained, 'current.json')
+    components = {
+        f'component{index}': module.Component(f'component{index}', f'guid{index}',
+            'INSTALLFOLDER', f'file{index}', (module.FOUNDATION_FEATURE,))
+        for index, _ in enumerate(paths)
+    }
+    inventory = replace(package(module), components=components, files=tuple(
+        module.InstalledFile(f'file{index}', f'component{index}', path, 5)
+        for index, path in enumerate(paths)
+    ))
+    rows = tuple(dict(path=path, file=f'file{index}', component=f'component{index}',
+        size=5, sha256=sha256(b'bytes').hexdigest()) for index, path in enumerate(paths[:2]))
+    monkeypatch.setattr(module, '_foundation_records', lambda records, **_: records)
+    expected = SimpleNamespace(package=inventory, foundation_files=rows, foundation_schema=3)
+    native = Native()
+    locations = {f'guid{index}': (3 if path == retained else 2, str(tmp_path / path))
+                 for index, path in enumerate(paths)}
+    native.component = lambda _product, guid: locations[guid]
+    live = tmp_path / retained
+    live.parent.mkdir()
+    live.write_bytes(b'bytes')
+    if defect == 'shared-root-absent':
+        live.unlink()
+        live.parent.rmdir()
+        locations['guid1'] = (2, str(live))
+    elif defect == 'different-keypath':
+        locations['guid0'] = (2, str(tmp_path / 'unknown.dll'))
+    elif defect == 'present-absent':
+        (tmp_path / shared).parent.mkdir()
+        (tmp_path / shared).write_bytes(b'bytes')
+    elif defect == 'missing-local':
+        live.unlink()
+    elif defect == 'wrong-package':
+        native.property = lambda *_: 'different'
+    elif defect == 'wrong-state':
+        locations['guid0'] = (-1, str(tmp_path / shared))
+    elif defect == 'altered-bytes':
+        live.write_bytes(b'other')
+    elif defect == 'foreign-shared-file':
+        (live.parent / 'foreign.dll').write_bytes(b'other')
+
+    if defect is None:
+        assert module.verify_interrupted_foundation(expected, tmp_path, native=native) == {shared, 'current.json'}
+    elif defect == 'shared-root-absent':
+        assert module.verify_interrupted_foundation(expected, tmp_path, native=native) == set(paths)
+    else:
+        with pytest.raises((ValueError, OSError)):
+            module.verify_interrupted_foundation(expected, tmp_path, native=native)

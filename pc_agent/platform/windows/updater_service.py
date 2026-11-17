@@ -29,6 +29,7 @@ from .durable_state import durable_unlink, flush_directory, write_bytes_atomic, 
 from .disk_readiness import allocation_required_bytes, apply_required_bytes, is_disk_full, require_disk_space
 from .service_control import SERVICE_NAME, UPDATER_SERVICE_NAME
 from .update_paths import UPDATE_EXECUTABLE_NAME, WindowsUpdatePaths
+from .update_download_retention import retire_update_download
 from .update_transaction import update_transaction, UpdateInProgress
 
 
@@ -90,7 +91,16 @@ class PyWin32EndpointAgentService:
     """Fixed-name SCM control; callers cannot select another service."""
 
     def stop(self) -> None:
-        self._modules().StopService(SERVICE_NAME)
+        import ctypes
+
+        import pywintypes
+
+        try:
+            self._modules().StopService(SERVICE_NAME)
+        except pywintypes.error as error:
+            # Preserve the native code for already-stopped handling and expose
+            # other SCM failures to the updater's OSError recovery path.
+            raise ctypes.WinError(error.winerror) from error
 
     def start(self) -> None:
         self._modules().StartService(SERVICE_NAME)
@@ -433,6 +443,7 @@ class WindowsUpdater:
                 pending.version, previous, pending.requested_reason
             ):
                 raise ValueError("candidate version is not eligible from current selector")
+            self._retire_old_zip_runtimes(pending.version)
             self._publish_tray_status(
                 previous,
                 agent_state="starting",
@@ -467,9 +478,9 @@ class WindowsUpdater:
             except Exception as error:
                 if not _is_service_not_active(error):
                     raise
-            service_stopped = True
             if not self._service.wait_stopped():
                 raise ValueError("EndpointAgent did not stop")
+            service_stopped = True
             _write_json_atomic(self._paths.current_path, candidate_selector, trusted_root=self._paths.install_root)
             self._service.start()
             # Candidate WSS/HTTP owners must run while proof is awaited.
@@ -554,6 +565,76 @@ class WindowsUpdater:
             transaction.close()
             if staging is not None and staging.exists():
                 shutil.rmtree(staging, ignore_errors=True)
+
+    def _retire_old_zip_runtimes(self, pending_version: str) -> None:
+        from itertools import islice
+
+        from endpoint_contracts.runtime_payload import version_tuple
+        from .installation_provenance import MSI_MARKER, RETAINED_RECEIPT, ZIP_RECEIPT, _inspect_zip
+        from .installer_fence import assert_namespace_security
+        from .staged_update_state import _selector as native_selector, read_staged_update
+
+        if self._transition is not None:
+            return
+        paths = self._paths
+        try:
+            current = _load_selector(paths.current_path)["version"]
+            previous = _load_selector(paths.previous_path)["version"]
+            # Preserve installed newer releases and the direct rollback slot.
+            upper_bound = min(version_tuple(current), version_tuple(previous))
+            protected = {pending_version, current, previous}
+            native = read_staged_update(paths)
+            if native is not None:
+                if native.phase not in {"accepted", "rolled-back"}:
+                    return
+                binding = native.binding
+                protected.update((binding.candidate_version, binding.old_release["version"],
+                                  native_selector(binding.selected_before)["version"]))
+                if binding.previous_before is not None:
+                    protected.add(native_selector(binding.previous_before)["version"])
+            assert_namespace_security(paths.versions_root, include_self=True)
+            with os.scandir(paths.versions_root) as entries:
+                candidates = [paths.versions_root / entry.name for entry in islice(entries, 1024)]
+        except (OSError, ValueError):
+            return
+
+        inspected = 0
+        for root in candidates:
+            try:
+                if root.name in protected or version_tuple(root.name) >= upper_bound:
+                    continue
+                _reject_reparse_path(root)
+                if not root.is_dir():
+                    continue
+                if any(os.path.lexists(root / marker) for marker in (MSI_MARKER, RETAINED_RECEIPT)):
+                    continue
+                if not (root / ZIP_RECEIPT).is_file():
+                    continue
+                inspected += 1
+                assert_namespace_security(root, include_self=True)
+                expected = {"version": root.name}
+                for count, path in enumerate(root.rglob("*"), start=1):
+                    if count > MAX_ARCHIVE_MEMBERS * 2:
+                        raise ValueError("old runtime inventory exceeds limit")
+                    _reject_reparse_path(path)
+                identity = _inspect_zip(root, b"", expected).identity
+                if identity.version == root.name:
+                    directories = {
+                        parent.as_posix() for item in identity.files
+                        for parent in Path(item.path).parents if parent.parts
+                    }
+                    for directory, subdirs, _ in os.walk(root, followlinks=False):
+                        for name in subdirs:
+                            relative = (Path(directory) / name).relative_to(root).as_posix()
+                            if relative not in directories:
+                                raise ValueError("unowned directory in retired runtime")
+                    shutil.rmtree(root)
+                    flush_directory(paths.versions_root)
+            except (OSError, ValueError):
+                # Cache retirement must not affect the selected update.
+                pass
+            if inspected >= 4:
+                break
 
     def _record_terminal_outcome(self, **outcome) -> None:
         try:
@@ -658,6 +739,10 @@ class WindowsUpdater:
             if not isinstance(payload, dict) or not self._matches_transition(payload):
                 raise ValueError("accepted transition pending identity differs")
             self._validator._security.assert_update_path(self._paths.pending_path)
+            retire_update_download(
+                self._paths, payload, assert_security=self._validator._security.assert_update_path,
+                protect_receipt=PyWin32AclAdapter().protect_update_path,
+            )
         durable_unlink(self._paths.pending_path, trusted_root=self._paths.updates_root, missing_ok=True)
         _clear_startup_attempt(self._paths)
         self._clear_transition()

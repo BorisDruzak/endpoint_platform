@@ -33,6 +33,8 @@ MODULE_OPERATIONS_CREATE_SCOPE = "module_operations.create"
 MODULE_OPERATIONS_READ_SCOPE = "module_operations.read"
 PROVISIONING_INSTALL_CLAIMS_ISSUE_SCOPE = "provisioning.install-claims.issue"
 DEVICE_BINDING_REDEEM_SCOPE = "device-binding.redeem"
+INVENTORY_INSTALLATION_RECEIPTS_READ_SCOPE = "enrollment.installation-receipts.read"
+INVENTORY_INSTALLATION_ASSIGNMENTS_ISSUE_SCOPE = "enrollment.installation-assignments.issue"
 
 
 @dataclass(frozen=True, slots=True)

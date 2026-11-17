@@ -46,7 +46,7 @@ def _settings() -> Settings:
 async def session_provider() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     tables = (
-        Device.__table__,
+        Device.metadata.tables["installation_states"], Device.__table__,
         DeviceCredential.__table__,
         DeviceInstance.__table__,
         DeviceSession.__table__,

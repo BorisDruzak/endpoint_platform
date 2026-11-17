@@ -2,18 +2,25 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from endpoint_contracts import AgentCommandV1, AgentResultV1
 from pc_agent.context_profiles.command_execution import execute_context_agent_command
-from pc_agent.context_profiles.probe import SystemProbe
+from pc_agent.context_profiles.probe import IN_OWNED_COMMAND_WORKER, SystemProbe
 from pc_agent.context_profiles.registry import CONTEXT_COLLECTION_CAPABILITIES
 from pc_agent.primitives.network.command_execution import execute_network_agent_command
 from pc_agent.primitives.network.policy import AgentNetworkProbePolicy
 from pc_agent.primitives.read_only.command_execution import execute_read_only_agent_command
+
+from .command_worker import run_command_worker
+
+
+async def _collect_context(command: AgentCommandV1, *, probe: object) -> AgentResultV1:
+    return await asyncio.to_thread(execute_context_agent_command, command, probe=probe)
 
 
 async def _execute_context_capability(
@@ -65,6 +72,40 @@ BUILTIN_ENDPOINT_CAPABILITIES = {
 }
 
 
+_CAPABILITY_BUDGETS = {
+    name: 45 if handler is _execute_context_capability else 12
+    for name, handler in BUILTIN_ENDPOINT_CAPABILITIES.items()
+}
+_CAPABILITY_BUDGETS.update({"network.ping": 35, "tcp.connect": 25, "dns.resolve": 10})
+
+
+def failed_result(
+    command: AgentCommandV1, message: str, *, status: Literal["failed", "expired"] = "failed",
+) -> AgentResultV1:
+    return AgentResultV1(
+        schema_version="agent_result_v1", command_id=command.command_id,
+        device_id=command.device_id, status=status, message=message,
+        completed_at=datetime.now(UTC),
+    )
+
+
+def execute_worker_command(
+    command: AgentCommandV1, policy: AgentNetworkProbePolicy,
+) -> AgentResultV1:
+    handler = BUILTIN_ENDPOINT_CAPABILITIES.get(command.capability)
+    token = IN_OWNED_COMMAND_WORKER.set(True)
+    try:
+        if handler is _execute_context_capability:
+            return execute_context_agent_command(command, probe=SystemProbe())
+        if handler is _execute_network_capability:
+            return execute_network_agent_command(command, policy=policy)
+        if handler is _execute_read_only_capability:
+            return execute_read_only_agent_command(command, policy=policy)
+        return failed_result(command, "CONTEXT_CAPABILITY_REJECTED")
+    finally:
+        IN_OWNED_COMMAND_WORKER.reset(token)
+
+
 class CommandExecutor:
     def __init__(
         self,
@@ -76,8 +117,15 @@ class CommandExecutor:
         network_probe_policy: AgentNetworkProbePolicy | None = None,
     ) -> None:
         self._probe_factory = probe_factory or SystemProbe
+        self._in_process_handlers = set()
+        if probe_factory is not None or execute_context_command is not None:
+            self._in_process_handlers.add(_execute_context_capability)
+        if execute_network_command is not None:
+            self._in_process_handlers.add(_execute_network_capability)
+        if execute_read_only_command is not None:
+            self._in_process_handlers.add(_execute_read_only_capability)
         self._execute_context_command = (
-            execute_context_command or execute_context_agent_command
+            execute_context_command or _collect_context
         )
         self._execute_network_command = (
             execute_network_command or execute_network_agent_command
@@ -99,15 +147,24 @@ class CommandExecutor:
     async def execute(self, command: AgentCommandV1) -> AgentResultV1:
         handler = BUILTIN_ENDPOINT_CAPABILITIES.get(command.capability)
         if handler is None:
-            return AgentResultV1(
-                schema_version="agent_result_v1",
-                command_id=command.command_id,
-                device_id=command.device_id,
-                status="failed",
-                result_items=[],
-                message="CONTEXT_CAPABILITY_REJECTED",
-                completed_at=datetime.now(UTC),
-            )
+            return failed_result(command, "CONTEXT_CAPABILITY_REJECTED")
+        if handler not in self._in_process_handlers:
+            remaining = (command.deadline_at - datetime.now(UTC)).total_seconds()
+            if remaining <= 0:
+                return failed_result(command, "AGENT_COMMAND_DEADLINE_EXCEEDED", status="expired")
+            try:
+                return await run_command_worker(
+                    command, self._network_probe_policy,
+                    timeout=min(remaining, _CAPABILITY_BUDGETS[command.capability]),
+                )
+            except TimeoutError:
+                if command.deadline_at <= datetime.now(UTC):
+                    return failed_result(command, "AGENT_COMMAND_DEADLINE_EXCEEDED", status="expired")
+                return failed_result(command, "AGENT_COMMAND_BUDGET_EXCEEDED")
+            except (OSError, ValueError):
+                return failed_result(command, "AGENT_COMMAND_WORKER_FAILED")
+        # These paths are explicit local dependency injection. Deployed runtimes
+        # use the owned worker for every registered handler.
         result = handler(self, command)
         if inspect.isawaitable(result):
             result = await result

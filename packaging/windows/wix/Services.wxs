@@ -2,6 +2,14 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Fragment>
     <ComponentGroup Id="EndpointAgentServiceComponents">
+      <Component Id="cmpSupportAccess" Directory="INSTALLFOLDER"
+                 Guid="C20F6D8B-2DF2-42E6-9C7C-0D033D137F61" Bitness="always64">
+        <File Id="filSupportAccess" Source="$(var.StagingDir)\ProgramFiles\EndpointSupportAccess.exe"
+              Name="EndpointSupportAccess.exe" KeyPath="yes" />
+        <!-- MSI owns only this staged signed helper. Active Support is a
+             separate sibling, activated after accepted health or enrollment.
+             Native UNKNOWN and reverse MSI must never stop/delete it. -->
+      </Component>
       <Component Id="cmpServiceEntrypoints" Directory="INSTALLFOLDER"
                  Guid="A10A61A1-B511-4A07-9D37-C592515D217E" Bitness="always64">
         <File Id="filServiceHost" Source="$(var.StagingDir)\ProgramFiles\endpoint-agent-service.exe"
@@ -76,6 +84,11 @@
     <CustomAction Id="ConfigureFoundation" BinaryRef="EndpointInstallerHost"
                   ExeCommand="--installer-phase foundation-config --installer-session &quot;[ENDPOINT_INSTALLER_SESSION]&quot;"
                   Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
+    <!-- Commit execution is essential: failed uninstall must retain independent
+         keys/credential and policy. Embedded signed bytes survive RemoveFiles. -->
+    <CustomAction Id="CommitSupportAccessRemoval" BinaryRef="EndpointSupportAccessRemoval"
+                  ExeCommand="--uninstall" Execute="commit" Impersonate="no"
+                  Return="ignore" HideTarget="yes" />
     <CustomAction Id="ClassifyRuntimeRetirement" Property="ENDPOINT_RUNTIME_RETIRE" Value="1" />
     <CustomAction Id="ScheduleEndpointRootCleanup" BinaryRef="Wix4UtilCA_X64"
                   DllEntry="WixRemoveFoldersEx" Execute="immediate" Return="ignore" />
@@ -114,6 +127,8 @@
     <CustomAction Id="CaptureRuntimeActionLocal" Property="EndpointRuntimeAction" Value="3" />
     <CustomAction Id="CaptureRuntimeActionDefault" Property="EndpointRuntimeAction" Value="5" />
     <InstallExecuteSequence>
+      <Custom Action="CommitSupportAccessRemoval" After="InstallInitialize"
+              Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND NOT WIX_UPGRADE_DETECTED AND NOT ENDPOINT_STAGED_REMOVE AND NOT ENDPOINT_RUNTIME_RETIRE AND NOT ENDPOINT_UNINSTALL_FINALIZE" />
       <Custom Action="ClassifyRuntimeRetirement" After="CostFinalize"
               Condition="NOT ENDPOINT_UNINSTALL_FINALIZE AND (!EndpointAgentInitialRuntimeFeature = 3 OR !EndpointAgentInitialRuntimeFeature = 2) AND &amp;EndpointAgentInitialRuntimeFeature = 2 AND &amp;EndpointAgentFeature = 3" />
       <Custom Action="ResetFoundationInstalled" After="ClassifyRuntimeRetirement" />

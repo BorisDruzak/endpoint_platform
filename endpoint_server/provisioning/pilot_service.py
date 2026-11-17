@@ -22,6 +22,7 @@ from endpoint_server.auth.service_tokens import (
     revoke_service_credential,
 )
 from endpoint_server.config import Settings
+from endpoint_server.enrollment.inventory_assignments import INVENTORY_PREFIX
 from endpoint_server.db.models import ServiceClient, ServiceCredential
 
 
@@ -89,6 +90,8 @@ async def issue_test_pilot_credential(
 ) -> IssuedServiceCredential:
     """Issue the sole service scope needed to make one short install claim."""
     normalized_installation_id = normalize_install_session_id(installation_id)
+    if normalized_installation_id.startswith(INVENTORY_PREFIX):
+        raise ValueError("Inventory assignments require canonical enrollment")
     normalized_fingerprint = normalize_hardware_fingerprint(hardware_fingerprint)
     issued_at = now or datetime.now(UTC)
     if issued_at.tzinfo is None:

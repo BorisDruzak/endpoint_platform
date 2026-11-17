@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
@@ -12,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from endpoint_contracts import AgentHeartbeatV1, AgentHelloV1
 from endpoint_server.audit.service import append_audit_event
+from endpoint_server.context.scheduler import SCHEDULE_RULES
 from endpoint_server.db.models import Device, DeviceInstance, DeviceSession
 from endpoint_server.db.session import SessionProvider
 
@@ -27,6 +29,7 @@ class PresenceRejected(ValueError):
 class GatewayPresence:
     session_id: UUID
     device_instance_id: UUID
+    replaced_session_ids: frozenset[UUID] = frozenset()
 
 
 def _utc(value: datetime | None = None) -> datetime:
@@ -42,6 +45,7 @@ async def record_http_pull_presence(
     device_id: UUID,
     source_address: str,
     observed_at: datetime | None = None,
+    command_poll: bool = False,
 ) -> None:
     """Refresh a dedicated fallback session from an authenticated pull request."""
     try:
@@ -53,9 +57,13 @@ async def record_http_pull_presence(
         select(Device)
         .where(Device.id == device_id, Device.retired_at.is_(None))
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if device is None:
         raise PresenceRejected("gateway device is unavailable")
+    if command_poll:
+        # HTTP command polls have no capability handshake.
+        device.scheduled_context_profiles = None
     identifier = f"http-pull-{device_id.hex}"
     pull_session = await session.scalar(
         select(DeviceSession)
@@ -95,6 +103,7 @@ class PresenceService:
         device_id: UUID,
         hello: AgentHelloV1,
         source_address: str,
+        effective_capabilities: Collection[str] | None = None,
         observed_at: datetime | None = None,
     ) -> GatewayPresence:
         if hello.device_id != device_id:
@@ -113,6 +122,18 @@ class PresenceService:
                 )
                 if device is None:
                     raise PresenceRejected("gateway device is unavailable")
+                # Heartbeat and result handling also acquire session before instance.
+                active_sessions = (
+                    await session.scalars(
+                        select(DeviceSession)
+                        .where(
+                            DeviceSession.device_id == device_id,
+                            DeviceSession.closed_at.is_(None),
+                        )
+                        .order_by(DeviceSession.created_at, DeviceSession.id)
+                        .with_for_update()
+                    )
+                ).all()
                 instance = await session.scalar(
                     select(DeviceInstance)
                     .where(
@@ -129,6 +150,7 @@ class PresenceService:
                         instance_identifier=str(hello.agent_instance_id),
                         agent_version=hello.agent_version,
                         launcher_version=hello.launcher_version,
+                        platform=hello.platform,
                         last_seen_at=now,
                         last_result_sequence=0,
                     )
@@ -137,19 +159,9 @@ class PresenceService:
                 else:
                     instance.agent_version = hello.agent_version
                     instance.launcher_version = hello.launcher_version
+                    instance.platform = hello.platform
                     instance.last_seen_at = now
 
-                active_sessions = (
-                    await session.scalars(
-                        select(DeviceSession)
-                        .where(
-                            DeviceSession.device_id == device_id,
-                            DeviceSession.closed_at.is_(None),
-                        )
-                        .order_by(DeviceSession.created_at, DeviceSession.id)
-                        .with_for_update()
-                    )
-                ).all()
                 for active in active_sessions:
                     active.closed_at = now
                     await self._audit(
@@ -166,12 +178,18 @@ class PresenceService:
                     device_id=device_id,
                     device_instance_id=instance.id,
                     session_identifier=f"gateway-{uuid4().hex}",
+                    created_at=now,
                     expires_at=now + _PRESENCE_LIFETIME,
                     closed_at=None,
                     last_seen_at=now,
                     source_address=canonical_source,
                 )
                 session.add(gateway_session)
+                if effective_capabilities is not None:
+                    device.scheduled_context_profiles = [
+                        rule.profile for rule in SCHEDULE_RULES
+                        if rule.capability in effective_capabilities
+                    ]
                 await self._audit(
                     session,
                     device_id=device_id,
@@ -184,6 +202,7 @@ class PresenceService:
                 return GatewayPresence(
                     session_id=gateway_session.id,
                     device_instance_id=instance.id,
+                    replaced_session_ids=frozenset(active.id for active in active_sessions),
                 )
             except Exception:
                 await session.rollback()

@@ -39,8 +39,12 @@ from endpoint_server.operations.service import (
     OperationConflict,
     create_operation_outcome,
     expire_operations,
+    operation_expiry_backlog_age,
 )
-from endpoint_server.operations.evidence import create_operation_evidence, cleanup_operation_results, pin_operation_evidence
+from endpoint_server.operations.evidence import (
+    cleanup_operation_results, create_operation_evidence,
+    operation_result_cleanup_backlog_age, pin_operation_evidence,
+)
 from endpoint_server.policy.network_targets import NetworkTargetPolicyV1
 
 
@@ -309,6 +313,10 @@ async def test_pin_wins_against_expiry_cleanup_on_postgresql(operation_database_
             assert pinned.safe_payload == {"safe": "result"}
             async with factory() as cleanup_session:
                 # The row is locked by the uncommitted pin, so SKIP LOCKED cannot scrub it.
+                async with asyncio.timeout(3):
+                    assert await operation_result_cleanup_backlog_age(
+                        cleanup_session, now=NOW + timedelta(hours=25),
+                    ) == 3540
                 assert await cleanup_operation_results(cleanup_session, now=NOW + timedelta(hours=25)) == 0
                 await cleanup_session.commit()
             await holder.commit()
@@ -317,6 +325,9 @@ async def test_pin_wins_against_expiry_cleanup_on_postgresql(operation_database_
                 await holder.rollback()
             await holder.close()
         async with factory() as cleanup_session:
+            assert await operation_result_cleanup_backlog_age(
+                cleanup_session, now=NOW + timedelta(hours=25),
+            ) == 0
             assert await cleanup_operation_results(cleanup_session, now=NOW + timedelta(hours=25)) == 0
             evidence = await cleanup_session.scalar(select(OperationEvidence).where(OperationEvidence.operation_id == operation_id))
             assert evidence.safe_payload == {"safe": "result"}
@@ -543,7 +554,7 @@ async def test_expiry_skips_locked_operation_then_finishes_after_release_in_post
                 service_client_id=client.id,
                 device_id=device.id,
                 idempotency_key=f"expiry-second-{uuid4().hex}",
-                now=NOW,
+                now=NOW + timedelta(seconds=15),
             )
             await session.commit()
 
@@ -556,9 +567,13 @@ async def test_expiry_skips_locked_operation_then_finishes_after_release_in_post
             )
             assert locked is not None
             async with factory() as expiration_session:
+                measured_at = NOW + timedelta(minutes=15, seconds=20)
+                assert await asyncio.wait_for(
+                    operation_expiry_backlog_age(expiration_session, now=measured_at), timeout=3,
+                ) == 20
                 assert await expire_operations(
                     expiration_session,
-                    now=NOW + timedelta(minutes=15),
+                    now=measured_at,
                     limit=10,
                 ) == 1
                 await expiration_session.commit()

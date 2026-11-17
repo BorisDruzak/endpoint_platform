@@ -13,7 +13,7 @@ from sqlalchemy import select
 from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.auth.admin_sessions import AdminPrincipal, require_admin
-from endpoint_server.db.models import EnrollmentCampaign, EnrollmentRequest
+from endpoint_server.db.models import EnrollmentCampaign, EnrollmentRequest, InventoryInstallationAssignment
 
 from .requests import (
     RequestTransitionError,
@@ -39,6 +39,7 @@ class EnrollmentRequestQueueItem(BaseModel):
     macs: list[str]
     source_address: str
     installer_release_id: str
+    installer_kind: Literal["setup", "rpm", "deb"] | None = None
     selected_campaign_id: UUID | None
     created_at: datetime
     expires_at: datetime
@@ -46,6 +47,11 @@ class EnrollmentRequestQueueItem(BaseModel):
 
 class EnrollmentRequestQueueResponse(BaseModel):
     requests: list[EnrollmentRequestQueueItem]
+
+
+class ApproveEnrollmentRequestBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    previous_device_id: UUID | None = None
 
 
 class DenyEnrollmentRequestBody(BaseModel):
@@ -70,6 +76,13 @@ def _conflict() -> HTTPException:
 
 
 def project_enrollment_request(record: EnrollmentRequest) -> EnrollmentRequestQueueItem:
+    from .ubuntu_requests import is_deb_request
+
+    installer_kind = None
+    if record.platform == "windows":
+        installer_kind = "setup"
+    elif record.platform == "linux":
+        installer_kind = "deb" if is_deb_request(record) else "rpm"
     return EnrollmentRequestQueueItem(
         id=record.id,
         status=record.status,
@@ -82,6 +95,7 @@ def project_enrollment_request(record: EnrollmentRequest) -> EnrollmentRequestQu
         macs=list(record.macs),
         source_address=record.source_address,
         installer_release_id=record.installer_release_id,
+        installer_kind=installer_kind,
         selected_campaign_id=record.selected_campaign_id,
         created_at=record.created_at,
         expires_at=record.expires_at,
@@ -137,6 +151,7 @@ async def approve_request(
     request_id: UUID,
     request: Request,
     principal: Annotated[AdminPrincipal, Depends(require_admin)],
+    body: ApproveEnrollmentRequestBody | None = None,
 ) -> None:
     """Approve only the persisted campaign selected at request creation time."""
     now = datetime.now(UTC)
@@ -151,15 +166,45 @@ async def approve_request(
             ).scalar_one_or_none()
             if record is None:
                 raise _not_found()
-            if record.selected_campaign_id is None:
+            from .campaigns import EnrollmentDenied
+            from .ubuntu_requests import build_campaign, is_deb_request
+
+            if is_deb_request(record) and body is not None and body.previous_device_id is not None:
                 raise _conflict()
-            campaign = (
-                await session.execute(
-                    select(EnrollmentCampaign)
-                    .where(EnrollmentCampaign.id == record.selected_campaign_id)
-                    .with_for_update()
+            if now >= record.expires_at.astimezone(UTC):
+                directed = (await session.execute(
+                    select(InventoryInstallationAssignment.installation_digest).where(
+                        InventoryInstallationAssignment.installation_digest == record.installation_id_digest,
+                        InventoryInstallationAssignment.expires_at <= now,
+                    )
+                )).scalar_one_or_none()
+                if directed is not None:
+                    raise _conflict()
+            if record.selected_campaign_id is None:
+                if not is_deb_request(record):
+                    raise _conflict()
+                try:
+                    campaign = build_campaign(record, pepper=request.app.state.settings.device_token_pepper, now=now)
+                except EnrollmentDenied:
+                    raise _conflict() from None
+                session.add(campaign)
+                await session.flush()
+                record.selected_campaign_id = campaign.id
+                await append_audit_event(
+                    session, actor_kind="admin", actor_identifier=str(principal.user.id),
+                    action="enrollment_campaign.created", object_kind="enrollment_campaign",
+                    object_identifier=str(campaign.id), request_id=audit_request_id(request),
+                    details={"allowed_cidrs": campaign.allowed_cidrs, "expires_at": campaign.expires_at,
+                             "max_uses": campaign.max_uses, "target_platform": "linux"}, occurred_at=now,
                 )
-            ).scalar_one_or_none()
+            else:
+                campaign = (
+                    await session.execute(
+                        select(EnrollmentCampaign)
+                        .where(EnrollmentCampaign.id == record.selected_campaign_id)
+                        .with_for_update()
+                    )
+                ).scalar_one_or_none()
             if campaign is None:
                 deny_enrollment_request(
                     record, reason="SELECTED_CAMPAIGN_INVALID", now=now
@@ -175,6 +220,12 @@ async def approve_request(
                 )
                 await session.commit()
                 raise _conflict()
+            if record.platform == 'linux':
+                from .linux_requests import validate_linux_request
+                try:
+                    await validate_linux_request(session, record)
+                except EnrollmentDenied:
+                    raise _conflict() from None
             try:
                 approve_enrollment_request(record, campaign=campaign, now=now)
             except RequestTransitionError:
@@ -193,6 +244,9 @@ async def approve_request(
                     )
                     await session.commit()
                 raise _conflict()
+            if body is not None and body.previous_device_id is not None:
+                from endpoint_server.installation_lifecycle.parent import link_previous_installation
+                await link_previous_installation(session,record,body.previous_device_id,principal,request)
             record.decided_by = principal.user.id
             await _append_decision_audit(
                 session,

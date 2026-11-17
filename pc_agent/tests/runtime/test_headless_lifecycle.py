@@ -247,6 +247,37 @@ async def test_headless_runtime_exchanges_systemd_claim_before_gateway_start(
     assert events == ["enroll", "gateway"]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("required", "status", "exit_code"), [
+    (True, "enrolled", 0),
+    (True, "already_enrolled", 0),
+    (True, "handoff_pending", 75),
+    (False, "enrolled", 75),
+])
+async def test_deb_claim_handoff_never_starts_gateway(monkeypatch, tmp_path, required, status, exit_code):
+    from dataclasses import replace
+
+    settings = replace(_settings(tmp_path), package_managed_updates=True)
+    monkeypatch.setattr(runtime_main.sys, "platform", "linux")
+    monkeypatch.setenv("ENDPOINT_AGENT_ENROLLMENT_REQUIRED", "1" if required else "0")
+    monkeypatch.setenv("ENDPOINT_AGENT_ENROLLMENT_ONLY", "1")
+    monkeypatch.setattr(
+        runtime_main, "systemd_runtime_paths",
+        lambda: (Path("/run/config"), Path("/run/ca"), Path("/run/claim")),
+    )
+
+    async def enroll(**_kwargs):
+        assert required
+        return EnrollmentOutcome(status, "device-1")
+
+    async def forbidden_gateway(_settings):
+        pytest.fail("the DEB claim handoff must not open a Gateway session")
+
+    monkeypatch.setattr(runtime_main, "run_linux_enrollment_gate", enroll)
+    monkeypatch.setattr(runtime_main, "run_runtime", forbidden_gateway)
+    assert await runtime_main._run_runtime_after_first_boot_enrollment(settings) == exit_code
+
+
 def test_headless_runtime_rejects_unapproved_staging_origin_before_gateway_start(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -697,6 +728,10 @@ async def test_default_activity_wiring_resets_gate_for_reconnect_and_policy_deli
 async def test_security_feature_pins_browser_identity_and_durable_handoff(
     monkeypatch, tmp_path: Path,
 ) -> None:
+    from pc_agent.platform.windows import browser_policy
+    from pc_agent.tests.windows.test_browser_policy import MemoryRegistry
+    monkeypatch.setattr(browser_policy, "WindowsPolicyRegistry", MemoryRegistry)
+
     from pc_agent.platform.windows import (
         activity_api, browser_bridge_entry, print_sensor, usb_sensor,
     )
@@ -992,7 +1027,7 @@ async def test_executor_startup_failure_returns_runtime_error(tmp_path: Path) ->
 
 
 def _command(capability: str) -> AgentCommandV1:
-    created_at = datetime(2026, 8, 1, 9, 0, tzinfo=UTC)
+    created_at = datetime.now(UTC)
     return AgentCommandV1.model_construct(
         schema_version="agent_command_v1",
         command_id=UUID("00000000-0000-4000-8000-000000000401"),
@@ -1251,6 +1286,10 @@ async def test_default_wss_composition_binds_bearer_to_stored_server_device_id(
     tmp_path: Path,
 ) -> None:
     """Catches breaking identity loading before the real default WSS boundary."""
+    from pc_agent.platform.windows import browser_policy
+    from pc_agent.tests.windows.test_browser_policy import MemoryRegistry
+    monkeypatch.setattr(browser_policy, "WindowsPolicyRegistry", MemoryRegistry)
+
     from pc_agent.transport.websocket import WebSocketGatewayTransport
     from pc_agent.platform.windows import activity_api
 
@@ -1529,3 +1568,174 @@ async def test_production_http_attempt_preserves_update_poll_deadline_through_li
     assert sleeps == expected_sleeps
     assert update_runtime.calls == expected_update_polls
     assert sessions == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("overflow", [False, True])
+async def test_connected_runtime_receives_acks_while_command_waits(overflow: bool) -> None:
+    from uuid import uuid4
+
+    from pc_agent.runtime.lifecycle import _MAX_QUEUED_COMMANDS, _run_connected
+
+    first = _command("context.diagnostic.collect")
+    backlog = [
+        first.model_copy(update={"command_id": uuid4()})
+        for _ in range(_MAX_QUEUED_COMMANDS + 1)
+    ] if overflow else []
+    rejected = backlog[-1:]
+    started = asyncio.Event()
+    released = asyncio.Event()
+    ack_received = asyncio.Event()
+    heartbeat_sent = asyncio.Event()
+    calls = []
+    acknowledgements = []
+    results = []
+
+    class Executor:
+        async def execute(self, command):
+            calls.append(command.command_id)
+            started.set()
+            try:
+                await asyncio.Future()
+            finally:
+                released.set()
+
+    class Transport:
+        commands = iter([first, *backlog])
+
+        async def receive(self):
+            command = next(self.commands, None)
+            if command is first:
+                return SimpleNamespace(root=SimpleNamespace(kind="command", payload=command))
+            await started.wait()
+            if command is not None:
+                return SimpleNamespace(root=SimpleNamespace(kind="command", payload=command))
+            if not ack_received.is_set():
+                return SimpleNamespace(root=SimpleNamespace(kind="power_event_ack", payload=object()))
+            await asyncio.Future()
+
+        async def send_ack(self, ack):
+            acknowledgements.append(ack.command_id)
+            await asyncio.sleep(0)
+
+        async def send_result(self, result):
+            results.append((result.command_id, result.status, result.message))
+
+        async def send_heartbeat(self, _heartbeat):
+            heartbeat_sent.set()
+
+    async def power_ack(_payload):
+        ack_received.set()
+        return True
+
+    async def sleep(_interval):
+        await started.wait()
+        await asyncio.sleep(0)
+
+    task = asyncio.create_task(_run_connected(
+        Transport(), Executor(), compatibility_agent_hello(), _gateway_hello(), sleep,
+        power_ack_handler=power_ack,
+    ))
+    try:
+        async with asyncio.timeout(1):
+            await ack_received.wait()
+            await heartbeat_sent.wait()
+        assert calls == [first.command_id]
+        assert acknowledgements == [first.command_id, *(command.command_id for command in rejected)]
+        assert results == [
+            (command.command_id, "failed", "AGENT_COMMAND_QUEUE_FULL") for command in rejected
+        ]
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert released.is_set()
+
+
+@pytest.mark.asyncio
+async def test_connected_http_pull_waits_for_result_before_next_request() -> None:
+    from pc_agent.runtime.lifecycle import _run_connected
+    from pc_agent.transport.base import GatewayIdle
+
+    command = _command("context.diagnostic.collect")
+    sent = []
+
+    class Executor:
+        async def execute(self, received):
+            await asyncio.sleep(0)
+            return AgentResultV1(
+                schema_version="agent_result_v1",
+                command_id=received.command_id,
+                device_id=received.device_id,
+                status="failed",
+                completed_at=datetime.now(UTC),
+            )
+
+    class Transport:
+        sequential_command_polling = True
+
+        async def receive(self):
+            if sent:
+                assert sent == ["receive", "ack", "result"]
+                raise GatewayIdle(0)
+            sent.append("receive")
+            return SimpleNamespace(root=SimpleNamespace(kind="command", payload=command))
+
+        async def send_ack(self, _ack):
+            sent.append("ack")
+
+        async def send_result(self, _result):
+            sent.append("result")
+
+    with pytest.raises(GatewayIdle):
+        await _run_connected(
+            Transport(), Executor(), compatibility_agent_hello(), _gateway_hello(), asyncio.sleep,
+        )
+
+
+@pytest.mark.asyncio
+async def test_connected_runtime_skips_command_that_expires_in_queue() -> None:
+    from uuid import uuid4
+
+    from pc_agent.runtime import lifecycle
+
+    first = _command("context.diagnostic.collect")
+    second = first.model_copy(update={
+        "command_id": uuid4(),
+        "deadline_at": first.created_at + timedelta(seconds=1),
+    })
+    command_queue = asyncio.Queue()
+    release = asyncio.Event()
+    processed = asyncio.Event()
+    executions = []
+
+    class Executor:
+        async def execute(self, command):
+            executions.append(command.command_id)
+            await release.wait()
+            return AgentResultV1(
+                schema_version="agent_result_v1", command_id=command.command_id,
+                device_id=command.device_id, status="failed", completed_at=datetime.now(UTC),
+            )
+
+    class Transport:
+        async def send_ack(self, _ack):
+            pass
+
+        async def send_result(self, _result):
+            processed.set()
+
+    worker = asyncio.create_task(lifecycle._command_loop(Transport(), Executor(), command_queue, None))
+    try:
+        command_queue.put_nowait(first)
+        command_queue.put_nowait(second)
+        async with asyncio.timeout(3):
+            await asyncio.sleep(max(0, (second.deadline_at - datetime.now(UTC)).total_seconds()) + 0.02)
+            release.set()
+            await command_queue.join()
+        assert processed.is_set()
+        assert executions == [first.command_id]
+    finally:
+        worker.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await worker

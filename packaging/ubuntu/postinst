@@ -1,0 +1,66 @@
+#!/bin/sh
+set -eu
+
+if [ "$1" = configure ]; then
+    systemd-sysusers /usr/lib/sysusers.d/endpoint-agent-ubuntu.conf
+    systemd-tmpfiles --create /usr/lib/tmpfiles.d/endpoint-agent-ubuntu.conf
+fi
+if [ "$1" = configure ] || [ "$1" = abort-upgrade ]; then
+    if [ -d /run/systemd/system ]; then
+        unit=endpoint-agent-ubuntu.service
+        dropin=/etc/systemd/system/$unit.d
+        fence=$dropin/90-endpoint-package-upgrade.conf
+        resume=$dropin/.endpoint-package-resume
+        if [ -e "$fence" ] || [ -L "$fence" ]; then
+            test ! -L "$fence"
+            grep -Fxq '# Endpoint DEB transaction fence' "$fence"
+            mv -fT -- "$fence" "$resume"
+            sync -f "$dropin"
+        fi
+        systemctl daemon-reload
+        enabled=$(systemctl is-enabled "$unit" 2>/dev/null || true)
+        if [ -f "$resume" ]; then
+            test ! -L "$resume"
+            grep -Fxq '# Endpoint DEB transaction fence' "$resume"
+            case "$enabled" in
+                masked|masked-runtime) ;;
+                *)
+                    if grep -Fxq '# Resume=yes' "$resume"; then
+                        case "$enabled" in
+                            enabled|enabled-runtime) deb-systemd-invoke start "$unit" ;;
+                            *)
+                                # deb-systemd-invoke skips an inactive disabled unit.
+                                # Preserve a former manual start, respecting local policy.
+                                policy=0
+                                if [ -x /usr/sbin/policy-rc.d ]; then
+                                    /usr/sbin/policy-rc.d "$unit" start || policy=$?
+                                fi
+                                case "$policy" in
+                                    0|104) systemctl start "$unit" ;;
+                                    101) ;;
+                                    *) exit 1 ;;
+                                esac
+                                ;;
+                        esac
+                    fi
+                    ;;
+            esac
+            rm -- "$resume"
+            sync -f "$dropin"
+            exit 0
+        fi
+        if [ "$1" = abort-upgrade ]; then exit 0; fi
+        case "$enabled" in
+            masked|masked-runtime) ;;
+            *)
+                if systemctl is-active --quiet "$unit"; then
+                    deb-systemd-invoke restart "$unit"
+                elif systemctl is-failed --quiet "$unit"; then
+                    case "$enabled" in
+                        enabled|enabled-runtime) deb-systemd-invoke restart "$unit" ;;
+                    esac
+                fi
+                ;;
+        esac
+    fi
+fi

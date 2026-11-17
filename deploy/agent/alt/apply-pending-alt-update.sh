@@ -6,8 +6,10 @@ readonly AGENT_SERVICE=endpoint-agent.service
 readonly DATA_ROOT=/var/lib/endpoint-agent
 readonly INSTALL_ROOT=/opt/endpoint-agent
 readonly STABLE_LAUNCHER=/opt/endpoint-agent/launcher
+readonly PENDING_UPDATE=/var/lib/endpoint-agent/updates/pending_alt_update.json
 readonly ROLLBACK_REQUEST=/var/lib/endpoint-agent/updates/rollback-request.json
-readonly FAILED_ROLLBACK_REQUEST=/var/lib/endpoint-agent/updates/last_failed_alt_rollback_request.json
+readonly STOP_OWNER=/var/lib/endpoint-agent-update/core-stop
+readonly BOOT_ID_FILE=/proc/sys/kernel/random/boot_id
 
 validate_stable_launcher() {
     python3 - "$STABLE_LAUNCHER" <<'PY'
@@ -124,30 +126,97 @@ except (OSError, ValueError):
 PY
 }
 
-restore_update_state_owner() {
-    local state
-    # The root worker may create a terminal history file. Return only those
-    # fixed, regular state files to the service account; never recursively
-    # chown an agent-writable tree.
-    for state in \
-        "$DATA_ROOT/updates/update_history.json" \
-        "$DATA_ROOT/updates/last_failed_alt_update.json" \
-        "$DATA_ROOT/updates/last_failed_alt_rollback_request.json" \
-        "$DATA_ROOT/updates/last_failed_launch.json" \
-        "$DATA_ROOT/logs/action_trace.jsonl"; do
-        if [[ -f "$state" && ! -L "$state" ]]; then
-            chown endpoint-agent:endpoint-agent "$state"
-            chmod 0600 "$state"
-        fi
-    done
+# The root-only StateDirectory is writable under ProtectSystem=strict.
+# Commit ownership before systemctl can make Core inactive.
+set_stop_owner() {
+    python3 - "$STOP_OWNER" "$1" "$BOOT_ID_FILE" <<'PYTHON'
+import os
+import sys
+from pathlib import Path
+
+marker = Path(sys.argv[1])
+directory = os.open(marker.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+try:
+    if sys.argv[2] == "acquire":
+        boot = Path(sys.argv[3]).read_bytes()
+        with marker.open("xb") as stream:
+            stream.write(boot)
+            stream.flush()
+            os.fsync(stream.fileno())
+    else:
+        marker.unlink(missing_ok=True)
+    os.fsync(directory)
+finally:
+    os.close(directory)
+PYTHON
 }
 
-validate_stable_launcher || exit $?
-systemctl stop endpoint-agent.service || exit $?
-if ! validate_updates_directory; then
-    systemctl start endpoint-agent.service || exit $?
-    exit 1
+core_enablement() {
+    local state
+    state=$(timeout 5s systemctl is-enabled "$AGENT_SERVICE")
+    case "$state" in
+        enabled|enabled-runtime) return 0 ;;
+        disabled|masked|masked-runtime|static|not-found) return 1 ;;
+        *) return 2 ;;
+    esac
+}
+
+recover_service() {
+    [[ -f "$STOP_OWNER" ]] || return 0
+    local boot owner system_state
+    boot=$(cat "$BOOT_ID_FILE") || return 1
+    owner=$(cat "$STOP_OWNER") || return 1
+    # On a new boot systemd follows normal Core enablement. A receipt
+    # from a previous boot cannot override current administrative state.
+    if [[ -z "$boot" || "$owner" != "$boot" ]]; then
+        set_stop_owner release
+        return
+    fi
+    system_state=$(timeout 5s systemctl is-system-running)
+    case "$system_state" in
+        running|degraded|starting) ;;
+        stopping) return 0 ;;
+        *) return 1 ;;
+    esac
+    core_enablement
+    case "$?" in
+        0) ;;
+        1) set_stop_owner release; return $? ;;
+        *) return 1 ;;
+    esac
+    # A stop queued by the operator or shutdown must win over recovery.
+    timeout 45s systemctl --job-mode=fail start "$AGENT_SERVICE" || return 1
+    timeout 5s systemctl is-active --quiet "$AGENT_SERVICE" || return 1
+    set_stop_owner release
+}
+
+if [[ "${1:-}" == --recover-service ]]; then
+    recover_service
+    exit $?
 fi
+if [[ "$#" != 0 ]]; then
+    exit 2
+fi
+
+validate_stable_launcher || exit $?
+if [[ -f "$STOP_OWNER" ]]; then
+    recover_service || exit $?
+fi
+core_enablement
+case "$?" in
+    0) ;;
+    1) exit 0 ;;
+    *) exit 1 ;;
+esac
+systemctl is-active --quiet "$AGENT_SERVICE" || exit 0
+if [[ -f "$PENDING_UPDATE" && ! -e "$ROLLBACK_REQUEST" && ! -L "$ROLLBACK_REQUEST" ]]; then
+    "$STABLE_LAUNCHER" --preflight-alt-update --no-gui \
+        --data-dir "$DATA_ROOT" --install-root "$INSTALL_ROOT" || exit $?
+fi
+set_stop_owner acquire || exit $?
+systemctl --job-mode=fail stop "$AGENT_SERVICE" || exit $?
+[[ "$(systemctl show --property=ActiveState --value "$AGENT_SERVICE")" == inactive ]] || exit 1
+validate_updates_directory || exit $?
 worker_mode=update
 if [[ -e "$ROLLBACK_REQUEST" || -L "$ROLLBACK_REQUEST" ]]; then
     worker_mode=rollback
@@ -160,10 +229,4 @@ else
     "$STABLE_LAUNCHER" --apply-alt-update --no-gui \
         --data-dir "$DATA_ROOT" --install-root "$INSTALL_ROOT" || status=$?
 fi
-restore_update_state_owner
-
-# The launcher records handled apply failures and exits successfully. Retain
-# this explicit fallback for unexpected process failures too: the old selected
-# bundle is safer than a stopped management agent.
-systemctl start endpoint-agent.service || exit $?
 exit "$status"

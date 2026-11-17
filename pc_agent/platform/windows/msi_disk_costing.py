@@ -320,14 +320,8 @@ def _recovery_rollback_allocations(native, package_path, context):
             if code is not None and code.upper() != package.package_code:
                 raise MsiCostError()
             cached = native.optional_product_info(product, "LocalPackage")
-            if cached is not None:
-                if _recovery_cache_present(Path(cached)):
-                    actual = msi_inventory.read_package(Path(cached), package.sha256)
-                    if (actual.product_code, actual.package_code) != (
-                        product,
-                        package.package_code,
-                    ):
-                        raise MsiCostError()
+            if cached is not None and _recovery_cache_present(Path(cached)):
+                msi_inventory.verify_registered_cache(source, package, expected_cache=Path(cached))
         inventory = _Inventory(
             product,
             tuple(

@@ -326,10 +326,10 @@ def test_persistent_exhaustion_restores_without_new_payload_allocation(tmp_path,
     assert restarted.run_once().status == "applied"
 
 
-def _interrupted_transition(tmp_path, *, selected=True):
+def _interrupted_transition(tmp_path, *, selected=True, archive_name="candidate.zip"):
     from pc_agent.platform.windows import updater_service
     paths = _paths(tmp_path)
-    artifact = _artifact(paths.downloads_root / "candidate.zip")
+    artifact = _artifact(paths.downloads_root / archive_name)
     _pending(paths, artifact)
     paths.install_root.mkdir(parents=True)
     old = {"schema_version": 1, "source_revision": "b" * 40, "version": "3.1.9"}
@@ -344,6 +344,77 @@ def _interrupted_transition(tmp_path, *, selected=True):
     if selected:
         updater_service._write_json_atomic(paths.current_path, candidate, trusted_root=paths.install_root)
     return paths, old
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_accepted_transition_retires_only_its_verified_cache(tmp_path, changed):
+    from pc_agent.platform.windows import updater_service
+
+    name = "build-3.2.0-caa31a48-bf2f-4f1c-8b77-d1be77e12b4e.zip"
+    paths, _ = _interrupted_transition(tmp_path, archive_name=name)
+    archive = paths.downloads_root / name
+    other = paths.downloads_root / "build-3.2.1-241fe64c-9639-47ca-b2c5-c36b36b11f9a.zip"
+    other.write_bytes(archive.read_bytes())
+    worker = updater_service.WindowsUpdater(
+        paths, acl=_Acl(), confirmation=SimpleNamespace(is_confirmed=lambda **_: True)
+    )
+    worker._transition = updater_service._load_selector_transition(paths)
+    worker._mark_accepted()
+    if changed:
+        original = archive.read_bytes()
+        archive.write_bytes(bytes([original[0] ^ 1]) + original[1:])
+
+    assert worker.run_once().status == "applied"
+    assert archive.exists() is changed
+    assert other.is_file()
+    assert not paths.pending_path.exists()
+
+
+@pytest.mark.parametrize("recovering", [False, True])
+def test_zip_runtime_retirement_preserves_reserved_versions_and_unknown_trees(tmp_path, monkeypatch, recovering):
+    from endpoint_contracts.runtime_payload import BUNDLE_FILENAME, CONTRACT_FILENAME
+    from pc_agent.platform.windows import installer_fence, updater_service
+
+    paths = _paths(tmp_path)
+    paths.versions_root.mkdir(parents=True)
+    monkeypatch.setattr(installer_fence, "assert_namespace_security", lambda *a, **kw: None)
+
+    def make_release(version):
+        root = paths.versions_root / version
+        root.mkdir()
+        contract = json.dumps(dict(schema_version=1, version=version,
+            source_revision="a" * 40, minimum_launcher_version=None)).encode()
+        files = {"pc_agent.exe": b"fixture", CONTRACT_FILENAME: contract}
+        for name, data in files.items():
+            (root / name).write_bytes(data)
+        (root / BUNDLE_FILENAME).write_text(json.dumps(dict(
+            schema_version=1, version=version, source_revision="a" * 40,
+            files=[dict(path=name, size=len(data), sha256=hashlib.sha256(data).hexdigest())
+                   for name, data in files.items()],
+        )), encoding="utf-8")
+        (root / ".endpoint-update.json").write_text(
+            json.dumps(dict(version=version, size=123, sha256="b" * 64)), encoding="utf-8"
+        )
+        return root
+
+    old = make_release("3.2.1")
+    current, previous, pending = (make_release(f"3.2.{i}") for i in (5, 4, 6))
+    native = make_release("3.2.2")
+    (native / ".endpoint-msi-runtime.json").touch()
+    unknown = make_release("3.2.3")
+    (unknown / "other.txt").touch()
+    unowned_directory = make_release("3.2.0")
+    (unowned_directory / "unowned").mkdir()
+    paths.current_path.write_text(json.dumps({"version": current.name}))
+    paths.previous_path.write_text(json.dumps({"version": previous.name}))
+
+    worker = updater_service.WindowsUpdater(paths, acl=_Acl())
+    if recovering:
+        worker._transition = {"status": "prepared"}
+    worker._retire_old_zip_runtimes(pending.name)
+
+    assert old.exists() is recovering
+    assert all(path.is_dir() for path in (current, previous, pending, native, unknown, unowned_directory))
 
 
 def test_old_selected_restart_survives_persistent_exhaustion_and_retries(tmp_path, monkeypatch):
@@ -1113,11 +1184,13 @@ def test_updater_start_acl_keeps_management_rights_without_granting_start_to_oth
     """Replacing the whole DACL with RP-only ACEs breaks administration and is unnecessary."""
     from pc_agent.platform.windows.service_control import updater_start_access_policy
 
-    policy = updater_start_access_policy(service_all_access=0xFFFF, service_start=0x10)
+    policy = updater_start_access_policy(
+        service_all_access=0xFFFF, service_start=0x10, service_query_status=0x04,
+    )
     assert policy == {
         "S-1-5-18": 0xFFFF,
         "S-1-5-32-544": 0xFFFF,
-        "NT SERVICE\\EndpointAgent": 0x10,
+        "NT SERVICE\\EndpointAgent": 0x14,
     }
 
 
@@ -1584,3 +1657,62 @@ def test_proof_acceptance_requires_unchanged_authority(tmp_path, monkeypatch, ch
     assert worker.run_once().status == "rejected"
     assert not (paths.updates_root / "terminal-outcome.json").exists()
     assert all(leaf.read_bytes() == expected for leaf, expected in preserved.items())
+
+def test_updater_preserves_selector_and_does_not_restart_until_stop_is_proven(tmp_path):
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip", version="3.2.7")
+    _pending(paths, artifact, version="3.2.7")
+    paths.install_root.mkdir(parents=True)
+    previous = b'{"version":"3.2.6"}'
+    paths.current_path.write_bytes(previous)
+    events = []
+    service = SimpleNamespace(
+        stop=lambda: events.append("stop"),
+        wait_stopped=lambda: False,
+        start=lambda: events.append("start"),
+    )
+    result = WindowsUpdater(
+        paths, acl=_Acl(), service=service, verifier=SimpleNamespace(verify=lambda *_: True), confirmation=SimpleNamespace(),
+    ).run_once()
+
+    assert result.status == "rejected"
+    assert paths.current_path.read_bytes() == previous
+    assert events == ["stop"]
+
+
+def test_updater_records_failure_when_scm_stop_control_times_out(tmp_path, monkeypatch):
+    pywintypes = pytest.importorskip("pywintypes")
+    from pc_agent.platform.windows.updater_service import PyWin32EndpointAgentService, WindowsUpdater
+
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip", version="3.2.7")
+    _pending(paths, artifact, version="3.2.7")
+    paths.install_root.mkdir(parents=True)
+    previous = b'{"version":"3.2.6"}'
+    paths.current_path.write_bytes(previous)
+
+    def stop(_name):
+        raise pywintypes.error(1053, "ControlService", "service did not respond")
+
+    service = PyWin32EndpointAgentService()
+    monkeypatch.setattr(service, "_modules", lambda: SimpleNamespace(StopService=stop))
+
+    def unexpected_service_action():
+        pytest.fail("SCM stop was not proven")
+
+    monkeypatch.setattr(service, "wait_stopped", unexpected_service_action)
+    monkeypatch.setattr(service, "start", unexpected_service_action)
+    result = WindowsUpdater(
+        paths, acl=_Acl(), service=service, verifier=SimpleNamespace(verify=lambda *_: True),
+        confirmation=SimpleNamespace(),
+    ).run_once()
+
+    assert result.status == "rejected"
+    assert paths.current_path.read_bytes() == previous
+    assert not paths.transition_path.exists()
+    outcome = json.loads((paths.updates_root / "terminal-outcome.json").read_bytes())
+    assert outcome["status"] == "failed"
+    assert outcome["reported_version"] == "3.2.6"
+    assert outcome["safe_code"] == "launcher_apply_failed"

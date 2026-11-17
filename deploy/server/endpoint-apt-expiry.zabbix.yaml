@@ -1,0 +1,68 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: a571c0d144b14fd4a87a9d9b2aa9fcd6
+      name: Templates/Applications
+  templates:
+    - uuid: b5383753ab43486f8610fb9e47550ac9
+      template: Endpoint APT expiry by Zabbix agent 2
+      name: Endpoint APT expiry by Zabbix agent 2
+      description: Monitor the daily Endpoint APT expiry check on the pilot host.
+      groups:
+        - name: Templates/Applications
+      items:
+        - uuid: e406b90f9912411b8ac6e414241fcd57
+          name: Endpoint APT expiry check result
+          type: ZABBIX_ACTIVE
+          key: 'systemd.unit.info[endpoint-apt-expiry.service,Result,Service]'
+          delay: 5m
+          history: 7d
+          value_type: CHAR
+          triggers:
+            - uuid: b3a181e8e44c485886417be699344a87
+              name: Endpoint APT metadata needs attention
+              expression: 'last(/Endpoint APT expiry by Zabbix agent 2/systemd.unit.info[endpoint-apt-expiry.service,Result,Service])<>"success"'
+              priority: WARNING
+              description: Review the expiry check journal for the affected suite and failure.
+              tags:
+                - tag: component
+                  value: endpoint-apt
+        - uuid: 37a0ec4eb87840dc8bd3791e1978d407
+          name: Endpoint APT expiry check last completion
+          type: ZABBIX_ACTIVE
+          key: 'systemd.unit.info[endpoint-apt-expiry.service,ExecMainExitTimestamp,Service]'
+          delay: 5m
+          history: 7d
+          trends: '0'
+          value_type: UNSIGNED
+          units: unixtime
+          preprocessing:
+            - type: MULTIPLIER
+              parameters:
+                - '0.000001'
+          triggers:
+            - uuid: 5d25337f9c5d48da81738dca4f15a4c0
+              name: Endpoint APT expiry check completion is stale or missing
+              expression: >-
+                now()-last(/Endpoint APT expiry by Zabbix agent 2/systemd.unit.info[endpoint-apt-expiry.service,ExecMainExitTimestamp,Service])>93600
+                or nodata(/Endpoint APT expiry by Zabbix agent 2/systemd.unit.info[endpoint-apt-expiry.service,ExecMainExitTimestamp,Service],20m)=1
+              priority: WARNING
+              description: A daily check has no completion in the last 26 hours, or its completion item has no data.
+              tags:
+                - tag: component
+                  value: endpoint-apt
+        - uuid: d7c7cf86b7fa4918886ea0c0a606d87b
+          name: Endpoint APT expiry timer state
+          type: ZABBIX_ACTIVE
+          key: 'systemd.unit.info[endpoint-apt-expiry.timer,ActiveState,Unit]'
+          delay: 5m
+          history: 7d
+          value_type: CHAR
+          triggers:
+            - uuid: e77c5c18614548a589ca0029b36dd4d9
+              name: Endpoint APT expiry timer is not active
+              expression: 'last(/Endpoint APT expiry by Zabbix agent 2/systemd.unit.info[endpoint-apt-expiry.timer,ActiveState,Unit])<>"active"'
+              priority: WARNING
+              tags:
+                - tag: component
+                  value: endpoint-apt

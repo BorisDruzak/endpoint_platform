@@ -1,0 +1,15 @@
+[Unit]
+Description=Reconcile bounded Endpoint support SSH authorizations
+After=endpoint-support-gateway.service endpoint-support-exporter.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/python3 /usr/local/libexec/endpoint-support-broker.py
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+TimeoutStartSec=45

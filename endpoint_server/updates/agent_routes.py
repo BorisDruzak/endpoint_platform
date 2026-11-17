@@ -44,7 +44,7 @@ from .service import recommendation_for_device, record_ack, record_report
 
 
 router = APIRouter(prefix="/agent/v1/updates", tags=["agent-updates"])
-_DELIVERABLE_TARGET_STATUSES = ("assigned", "requested", "scheduled")
+_DELIVERABLE_TARGET_STATUSES = ("requested", "scheduled")
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,9 +110,14 @@ async def _authenticate_device(session, request: Request) -> DevicePrincipal:
         digest = device_token_digest(token, pepper)
     except ValueError as error:
         raise _invalid_credential() from error
-    credentials = (
-        await session.scalars(
-            select(DeviceCredential)
+    matches = (
+        await session.execute(
+            select(DeviceCredential, Device)
+            # A retired device still counts toward credential ambiguity.
+            .outerjoin(
+                Device,
+                and_(Device.id == DeviceCredential.device_id, Device.retired_at.is_(None)),
+            )
             .where(
                 or_(
                     DeviceCredential.token_digest == digest,
@@ -123,13 +128,12 @@ async def _authenticate_device(session, request: Request) -> DevicePrincipal:
             .limit(2)
         )
     ).all()
-    if len(credentials) != 1:
+    if len(matches) != 1:
         raise _invalid_credential()
-    credential = credentials[0]
+    credential, device = matches[0]
     checked_at = datetime.now(UTC)
     if (
-        credential is None
-        or not (
+        not (
             device_token_matches(token, credential.token_digest, pepper)
             or (
                 credential.pending_token_digest is not None
@@ -148,12 +152,6 @@ async def _authenticate_device(session, request: Request) -> DevicePrincipal:
         )
     ):
         raise _invalid_credential()
-    device = await session.scalar(
-        select(Device).where(
-            Device.id == credential.device_id,
-            Device.retired_at.is_(None),
-        )
-    )
     if device is None:
         raise _invalid_credential()
     return DevicePrincipal(device=device, credential=credential)

@@ -96,6 +96,22 @@ def test_exact_recovery_inventory_counts_missing_or_larger_files(
         == allocations
     )
     assert checked == [(installer, ())]
+    registered_cache = installer / "registered.msi"
+    registered_cache.write_bytes(b"MSI cache with different container bytes")
+    native.optional_product_info = lambda _product, key: (
+        str(registered_cache) if key == "LocalPackage" else package.package_code
+    )
+    checked_cache = []
+
+    def verify_cache(source, expected, *, expected_cache):
+        assert source == tmp_path / "exact.msi" and expected == package
+        checked_cache.append(expected_cache)
+
+    from pc_agent.platform.windows import msi_inventory
+    monkeypatch.setattr(msi_inventory, "verify_registered_cache", verify_cache)
+    assert costing._recovery_rollback_allocations(native, tmp_path / "exact.msi", context)[0] == allocations
+    assert checked_cache == [registered_cache]
+
     native.optional_product_info = lambda _product, key: (
         str(tmp_path / "outside.msi") if key == "LocalPackage" else None
     )

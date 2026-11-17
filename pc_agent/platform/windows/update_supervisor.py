@@ -10,7 +10,7 @@ import aiohttp
 
 from pc_agent.enrollment_identity import canonical_enrollment_device_id
 from pc_agent.transport.base import GatewayCredentialRejected, GatewayTerminalError
-from pc_agent.update_schedule import UPDATE_POLL_INTERVAL_SEC
+from pc_agent.update_schedule import CORE_RECOVERY_CHECK_SECONDS, UPDATE_POLL_INTERVAL_SEC
 
 from .online_update_runtime import WindowsOnlineUpdateResult
 
@@ -60,9 +60,9 @@ class WindowsRecoveryUpdateSupervisor:
             self._publish("checking")
             logger.debug("recovery_update_check_started")
             try:
-                # Each HTTP request is bounded to 20s; bound report/discovery/
-                # download as a whole while preserving parent cancellation.
-                async with asyncio.timeout(120):
+                # Bound the whole sequence without cutting off the archive's
+                # independent transfer budget.
+                async with asyncio.timeout(CORE_RECOVERY_CHECK_SECONDS):
                     await self._report()
                     result = await self._check()
             except (aiohttp.ClientError, TimeoutError):

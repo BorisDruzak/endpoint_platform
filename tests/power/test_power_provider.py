@@ -21,6 +21,7 @@ from endpoint_server.power.projection import (
     power_summary,
     enrich_power_summaries,
 )
+from endpoint_server.power import retention
 from endpoint_server.power.retention import retain_power_events
 from endpoint_server.power.projection import power_timeline_markers
 
@@ -313,7 +314,9 @@ async def test_retention_only_power_and_summary_coverage(db):
             session, db[1], online=False, last_seen_at=None, now=NOW
         )
         assert summary.status == "sleep"
-        assert await retain_power_events(session, now=NOW + timedelta(days=31)) == 1
+        batch_result = await retention.retain_power_events_with_backlog(session, now=NOW + timedelta(days=31))
+        assert (batch_result.deleted, batch_result.oldest_due_age_seconds) == (1, 87000)
+        assert await retain_power_events(session, now=NOW + timedelta(days=31)) == 0
         remaining = list((await session.scalars(select(DeviceEvent))).all())
         assert len(remaining) == 1 and remaining[0].category == "session"
         await session.commit()

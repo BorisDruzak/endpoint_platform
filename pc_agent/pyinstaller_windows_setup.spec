@@ -39,7 +39,9 @@ if not setup_installer_wrapper.is_file():
 a = Analysis(
     [str(pc_agent_root / "platform" / "windows" / "setup_entry.py")],
     pathex=[str(project_root), str(pc_agent_root)],
-    hiddenimports=['pc_agent.platform.windows.staged_update_state', 'pc_agent.platform.windows.staged_recovery'],
+    hiddenimports=['pc_agent.platform.windows.staged_update_state', 'pc_agent.platform.windows.staged_recovery',
+                   'pc_agent.platform.windows.installation_lifecycle',
+                   'pc_agent.platform.windows.installation_notification'],
     datas=[
         (str(setup_msi), "payload"),
         (str(setup_core_archive), "payload"),

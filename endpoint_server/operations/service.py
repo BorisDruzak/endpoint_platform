@@ -542,6 +542,32 @@ async def expire_operation_if_due(
     return True
 
 
+def _due_operations(expired_at: datetime):
+    return (
+        EndpointOperation.status.in_(_ACTIVE_STATUSES),
+        EndpointOperation.deadline_at <= expired_at,
+    )
+
+
+async def operation_expiry_backlog_age(
+    session: AsyncSession, *, now: datetime | None = None,
+) -> float:
+    """Seconds past the oldest active deadline, including locked operations."""
+    measured_at = _now(now)
+    oldest = await session.scalar(
+        select(EndpointOperation.deadline_at)
+        .where(*_due_operations(measured_at))
+        .order_by(EndpointOperation.deadline_at)
+        .limit(1)
+    )
+    if oldest is None:
+        return 0.0
+    # SQLite returns naive values for timezone-aware columns stored in UTC.
+    if oldest.utcoffset() is None:
+        oldest = oldest.replace(tzinfo=UTC)
+    return max(0.0, (measured_at - oldest).total_seconds())
+
+
 async def expire_operations(
     session: AsyncSession,
     *,
@@ -555,10 +581,7 @@ async def expire_operations(
     operations = (
         await session.scalars(
             select(EndpointOperation)
-            .where(
-                EndpointOperation.status.in_(_ACTIVE_STATUSES),
-                EndpointOperation.deadline_at <= expired_at,
-            )
+            .where(*_due_operations(expired_at))
             .order_by(EndpointOperation.deadline_at, EndpointOperation.id)
             .limit(limit)
             .with_for_update(skip_locked=True)
@@ -583,5 +606,6 @@ __all__ = [
     "create_operation_outcome",
     "expire_operation_if_due",
     "expire_operations",
+    "operation_expiry_backlog_age",
     "read_operation_for_service",
 ]

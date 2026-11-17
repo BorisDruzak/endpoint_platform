@@ -34,7 +34,7 @@ NOW = datetime(2026, 7, 29, 12, 0, tzinfo=UTC)
 async def session() -> AsyncIterator[AsyncSession]:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     tables = (
-        Device.__table__,
+        Device.metadata.tables["installation_states"], Device.__table__,
         DeviceInstance.__table__,
         DeviceSession.__table__,
         Command.__table__,

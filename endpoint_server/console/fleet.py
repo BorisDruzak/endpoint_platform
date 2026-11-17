@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, get_args
 
 from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import String, and_, func, or_, select
@@ -13,8 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from endpoint_contracts import DeviceContextEnvelopeV1
+from endpoint_contracts.context import ServerRoleV1
 from endpoint_contracts.updates import SemanticVersionV1, _SEMVER_PATTERN
 from endpoint_server.db.instance_order import latest_instance_order
+from endpoint_server.installation_lifecycle.models import InstallationState
+from endpoint_server.installation_lifecycle.service import connection_conflicts_with_removal
 from endpoint_server.context.models import ContextCurrent, ContextSnapshot
 from endpoint_server.db.models import (
     Device, DeviceInstance, DeviceSession, EndpointOperation, EnrollmentRequest, UpdateTarget,
@@ -24,6 +27,7 @@ from endpoint_server.db.models import (
 PRESENCE_TTL = timedelta(seconds=90)
 CONTEXT_TTL = timedelta(hours=24)
 _VERSION = TypeAdapter(SemanticVersionV1)
+_SERVER_ROLES = frozenset(get_args(ServerRoleV1))
 
 
 def _version_or_unknown(value: str | None) -> str | None:
@@ -170,6 +174,7 @@ async def list_fleet(
     session_snapshot = aliased(ContextSnapshot)
     base = (
         select(Device)
+        .outerjoin(InstallationState, InstallationState.device_id == Device.id)
         .outerjoin(sessions, and_(sessions.c.device_id == Device.id, sessions.c.rank == 1))
         .outerjoin(instances, and_(instances.c.device_id == Device.id, instances.c.rank == 1))
         .outerjoin(updates, and_(updates.c.device_id == Device.id, updates.c.rank == 1))
@@ -215,17 +220,22 @@ async def list_fleet(
     elif update == "failed":
         base = base.where(updates.c.status == "failed")
     total = (await session.scalar(select(func.count()).select_from(base.with_only_columns(Device.id).subquery()))) or 0
+    health_current = aliased(ContextCurrent)
+    health_snapshot = aliased(ContextSnapshot)
+    server_role = health_snapshot.normalized_projection["sections"]["server"]["role"].as_string()
     rows = (await session.execute(
-        base.with_only_columns(
-            Device.id, Device.device_identifier, Device.display_name,
+        base.outerjoin(
+            health_current, and_(health_current.device_id == Device.id, health_current.profile == "health_v1"),
+        ).outerjoin(health_snapshot, health_snapshot.id == health_current.snapshot_id).with_only_columns(
+            Device.id, Device.device_identifier, Device.display_name, InstallationState.state, InstallationState.received_at,
             sessions.c.last_seen_at, sessions.c.closed_at,
             instances.c.agent_version, instances.c.launcher_version, newer, updates.c.status,
             func.coalesce(inventory_current.last_observed_at, inventory_current.updated_at), inventory.normalized_projection,
-            session_snapshot.normalized_projection,
+            session_snapshot.normalized_projection, server_role,
         ).order_by(Device.device_identifier, Device.id).limit(limit).offset(offset)
     )).all()
     data: list[dict[str, object]] = []
-    for device_id, identifier, display_name, seen, closed, version, launcher, core_newer, update_status, collected, inventory_json, session_json in rows:
+    for device_id, identifier, display_name, installation_state, installation_received_at, seen, closed, version, launcher, core_newer, update_status, collected, inventory_json, session_json, role in rows:
         system = _safe_sections(inventory_json, "inventory_v1")
         current_session = _safe_sections(session_json, "session_v1")
         system_info = system.get("system") or {}
@@ -238,6 +248,8 @@ async def list_fleet(
             "id": str(device_id),
             "device_identifier": identifier,
             "display_name": display_name or identifier,
+            "installation_state": installation_state or "unknown",
+            "installation_conflict": connection_conflicts_with_removal(installation_state, seen, installation_received_at),
             "online": bool(observed and closed is None and now - PRESENCE_TTL <= observed <= now),
             "last_seen_at": observed,
             "agent_version": _version_or_unknown(version),
@@ -247,6 +259,7 @@ async def list_fleet(
             "platform": system_info.get("platform"),
             "os_name": system_info.get("os_name"),
             "os_version": system_info.get("os_version"),
+            "server_role": role if role in _SERVER_ROLES else None,
             "cpu_model": hardware.get("cpu_model"),
             "ram_bytes": memory.get("total_bytes"),
             "current_user": session_info.get("current_user_login"),

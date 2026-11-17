@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import io
 import json
 import os
+import subprocess
 import tarfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -32,6 +35,7 @@ def _write_bundle(
     corrupt_manifest: bool = False,
     layout: str = "legacy",
     mode_overrides: dict[str, int] | None = None,
+    long_payload_path: bool = False,
 ) -> None:
     if layout == "legacy":
         files = {
@@ -51,6 +55,8 @@ def _write_bundle(
         }
     else:
         raise AssertionError("unknown fixture layout")
+    if long_payload_path:
+        files[f"pc_agent/{'x' * 120}.dat"] = (b"data", 0o644)
     if mode_overrides:
         files = {
             name: (value, mode_overrides.get(name, mode))
@@ -85,6 +91,20 @@ def _write_bundle(
         info.size = len(manifest)
         info.mode = 0o644
         archive.addfile(info, io.BytesIO(manifest))
+
+
+@pytest.fixture(autouse=True)
+def local_ota_authorization(request, monkeypatch):
+    if request.node.name.startswith("test_alt_publisher_"):
+        return
+
+    def authorized(payload):
+        with tarfile.open(payload["artifact_path"], "r:gz") as bundle:
+            stream = bundle.extractfile("manifest.json")
+            assert stream is not None
+            return json.load(stream)["source_revision"]
+
+    monkeypatch.setattr(alt_update_installer, "_authorized_source_revision", authorized)
 
 
 def test_headless_alt_update_selects_task8_layout_without_replacing_stable_launcher(
@@ -1129,3 +1149,242 @@ def test_verified_existing_alt_release_can_be_selected_for_rollback(
         "success": True,
         "version": "3.1.77-rc.1",
     }
+
+
+@pytest.mark.parametrize(
+    ("limit", "value", "message"),
+    [
+        ("_MAX_EXPANDED_BYTES", 10, "expanded"),
+        ("_MAX_MEMBER_BYTES", 6, "size limit"),
+        ("_MAX_ARCHIVE_MEMBERS", 2, "member count"),
+        ("_MAX_MANIFEST_BYTES", 128, "size limit"),
+    ],
+)
+def test_alt_archive_limits_reject_before_creating_staging(
+    tmp_path, monkeypatch, limit, value, message
+):
+    artifact = tmp_path / "bundle.tar.gz"
+    _write_bundle(artifact)
+    monkeypatch.setattr(alt_update_installer, limit, value)
+    staging = tmp_path / "staging"
+    with pytest.raises(ValueError, match=message):
+        alt_update_installer._extract_and_validate(
+            artifact_path=artifact, staging=staging, expected_version="3.1.77-rc.1",
+        )
+    assert not staging.exists()
+
+
+def test_alt_pax_long_path_remains_publishable(tmp_path):
+    artifact = tmp_path / "bundle.tar.gz"
+    _write_bundle(artifact, long_payload_path=True)
+    staging = tmp_path / "staging"
+    alt_update_installer._extract_and_validate(
+        artifact_path=artifact, staging=staging, expected_version="3.1.77-rc.1",
+    )
+    assert (staging / "pc_agent" / ("x" * 120 + ".dat")).read_bytes() == b"data"
+
+
+@pytest.mark.parametrize("filesystem", ["install", "data"])
+@pytest.mark.parametrize("shortage", ["bytes", "inodes"])
+def test_alt_preflight_rejects_allocation_shortage_without_changing_release(
+    tmp_path, monkeypatch, filesystem, shortage
+):
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _initial_selector(install_root)
+    artifact = data_root / "updates" / "downloads" / "candidate.tar.gz"
+    artifact.parent.mkdir(parents=True)
+    _write_bundle(artifact)
+    pending = _pending(data_root, artifact)
+    selector = install_root / "current.json"
+    original = selector.read_bytes()
+
+    def allocation(path):
+        exhausted = path.is_relative_to(tmp_path / filesystem)
+        return SimpleNamespace(
+            f_frsize=4096,
+            f_bsize=4096,
+            f_bavail=1 if exhausted and shortage == "bytes" else 20000,
+            f_files=10000,
+            f_favail=1 if exhausted and shortage == "inodes" else 10000,
+        )
+
+    monkeypatch.setattr(alt_update_installer.os, "statvfs", allocation)
+    assert alt_update_installer.preflight_alt_update(
+        install_root, data_root, pending
+    ) == (False, "alt_update_no_space")
+    assert selector.read_bytes() == original
+    assert not (install_root / "versions" / "_alt_update_staging").exists()
+    assert not pending.exists()
+    history = json.loads((data_root / "updates" / "update_history.json").read_text())
+    assert history[-1]["operation_id"] == _OPERATION_ID
+    assert history[-1]["success"] is False
+
+
+def test_alt_preflight_keeps_pending_if_failure_cannot_be_recorded(tmp_path, monkeypatch):
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    artifact = data_root / "updates" / "downloads" / "candidate.tar.gz"
+    artifact.parent.mkdir(parents=True)
+    _write_bundle(artifact)
+    pending = _pending(data_root, artifact)
+
+    def no_space(*args, **kwargs):
+        raise OSError(errno.ENOSPC, "test allocation exhausted")
+
+    monkeypatch.setattr(alt_update_installer, "_require_update_space", no_space)
+    monkeypatch.setattr(alt_update_installer, "_append_history", no_space)
+    assert alt_update_installer.preflight_alt_update(
+        install_root, data_root, pending
+    ) == (False, "alt_update_no_space")
+    assert pending.is_file()
+
+
+def test_alt_retained_bundle_survives_original_download_replacement(tmp_path, monkeypatch):
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _initial_selector(install_root)
+    artifact = data_root / "updates" / "downloads" / "candidate.tar.gz"
+    artifact.parent.mkdir(parents=True)
+    _write_bundle(artifact)
+    pending = _pending(data_root, artifact)
+    original = alt_update_installer._inspect_archive
+
+    def inspect(retained, expected_version):
+        details = os.fstat(retained.fileno())
+        assert details.st_nlink == 0
+        assert details.st_mode & 0o077 == 0
+        artifact.rename(artifact.with_suffix(".saved"))
+        artifact.write_bytes(b"replacement file")
+        return original(retained, expected_version)
+
+    monkeypatch.setattr(alt_update_installer, "_inspect_archive", inspect)
+    assert apply_alt_update(install_root, data_root, pending) == (True, "3.1.77-rc.1")
+
+
+def test_alt_preflight_rejects_redirected_download_directory(tmp_path, monkeypatch):
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _initial_selector(install_root)
+    downloads = data_root / "updates" / "downloads"
+    downloads.parent.mkdir(parents=True)
+    external = tmp_path / "other-downloads"
+    external.mkdir()
+    _write_bundle(external / "candidate.tar.gz")
+    downloads.symlink_to(external, target_is_directory=True)
+    pending = _pending(data_root, downloads / "candidate.tar.gz")
+    monkeypatch.setattr(alt_update_installer, "_authorized_source_revision", lambda _: "feedface")
+
+    assert alt_update_installer.preflight_alt_update(
+        install_root, data_root, pending
+    ) == (False, "invalid_alt_archive")
+    assert json.loads((install_root / "current.json").read_text())["version"] == "3.1.76"
+
+@pytest.fixture(scope="module")
+def ota_signing_key(tmp_path_factory):
+    gpg = "/usr/bin/gpg"
+    if not Path(gpg).is_file() or os.geteuid() != 0:
+        pytest.skip("ALT OTA trust test requires root and GnuPG")
+    home = tmp_path_factory.mktemp("ota-signing-key")
+    home.chmod(0o700)
+    command = [gpg, "--no-options", "--homedir", str(home), "--batch"]
+    subprocess.run(
+        [*command, "--gen-key"],
+        input=b"Key-Type: RSA\nKey-Length: 2048\nKey-Usage: sign\nName-Real: Test OTA signer\n"
+              b"Name-Email: ota@example.invalid\nExpire-Date: 0\n%no-protection\n%commit\n",
+        capture_output=True, check=True, timeout=30,
+    )
+    fingerprint = subprocess.check_output(
+        [*command, "--with-colons", "--fingerprint"],
+        timeout=10,
+    ).decode().split("fpr:::::::::")[1].split(":")[0]
+    return command, fingerprint, subprocess.check_output([*command, "--armor", "--export"], timeout=10)
+
+
+@pytest.mark.parametrize(
+    "case", ["valid", "missing", "changed_json", "wrong_source", "wrong_version", "wrong_signer", "wrong_digest"]
+)
+def test_alt_publisher_authorization_is_required_and_bound(
+    tmp_path, monkeypatch, ota_signing_key, case
+):
+    command, fingerprint, key = ota_signing_key
+    # Use a root-owned directory from the actual native trust boundary.
+    trust = tmp_path / "ota-authorizations"
+    trust.mkdir(mode=0o700)
+    monkeypatch.setattr(alt_update_installer, "_validate_authority_file",
+                        lambda path, **kwargs: path.lstat())
+    pubkey = tmp_path / "publisher.asc"
+    pubkey.write_bytes(key)
+    monkeypatch.setattr(alt_update_installer, "_OTA_AUTHORIZATIONS", trust)
+    monkeypatch.setattr(alt_update_installer, "_PUBLISHER_KEY", pubkey)
+    monkeypatch.setattr(alt_update_installer, "_PUBLISHER_KEY_SHA256", _sha256(key))
+    monkeypatch.setattr(
+        alt_update_installer, "_PUBLISHER_FINGERPRINT",
+        "0" * 40 if case == "wrong_signer" else fingerprint,
+    )
+
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _initial_selector(install_root)
+    artifact = data_root / "updates" / "downloads" / "candidate.tar.gz"
+    artifact.parent.mkdir(parents=True)
+    revision = "a" * 40
+    _write_bundle(artifact, source_revision=revision)
+    pending = _pending(data_root, artifact)
+    payload = json.loads(pending.read_text())
+    authorization = {
+        "schema_version": "endpoint_alt_ota_v1",
+        "version": "3.1.78" if case == "wrong_version" else payload["version"],
+        "source_revision": "b" * 40 if case == "wrong_source" else revision,
+        "sha256": "0" * 64 if case == "wrong_digest" else payload["sha256"],
+        "size": payload["size"],
+        "target": "linux_amd64",
+        "channel": "canary",
+        "archive_type": "tar.gz",
+    }
+    manifest = trust / (payload["sha256"] + ".json")
+    manifest.write_text(json.dumps(authorization))
+    if case != "missing":
+        subprocess.run(
+            [*command, "--digest-algo", "SHA256", "--output", str(manifest.with_suffix(".json.sig")),
+             "--detach-sign", str(manifest)],
+            capture_output=True, check=True, timeout=10,
+        )
+    if case == "changed_json":
+        manifest.write_text(manifest.read_text() + "\n")
+    ready, _ = alt_update_installer.preflight_alt_update(install_root, data_root, pending)
+    assert ready == (case == "valid")
+    if ready:
+        assert apply_alt_update(install_root, data_root, pending) == (True, payload["version"])
+    else:
+        assert json.loads((install_root / "current.json").read_text())["version"] == "3.1.76"
+        assert not (install_root / "versions" / payload["version"]).exists()
+
+def test_alt_pending_replacement_preserves_active_selector(tmp_path, monkeypatch):
+    install_root, data_root = tmp_path / "install", tmp_path / "data"
+    _initial_selector(install_root)
+    artifact = data_root / "updates" / "downloads" / "candidate.tar.gz"
+    artifact.parent.mkdir(parents=True)
+    _write_bundle(artifact)
+    pending = _pending(data_root, artifact)
+    verify = alt_update_installer._verify_existing_release
+
+    def replace_pending(release, manifest):
+        verify(release, manifest)
+        if release.name == "3.1.77-rc.1":
+            replacement = json.loads(pending.read_text())
+            replacement["operation_id"] = "417237de-1c81-4e59-9a8f-931402ecdbfb"
+            pending.write_text(json.dumps(replacement))
+
+    monkeypatch.setattr(alt_update_installer, "_verify_existing_release", replace_pending)
+    assert apply_alt_update(install_root, data_root, pending) == (False, "alt_pending_changed")
+    assert json.loads((install_root / "current.json").read_text())["version"] == "3.1.76"
+    assert not (install_root / "previous.json").exists()
+    assert json.loads(pending.read_text())["operation_id"] == "417237de-1c81-4e59-9a8f-931402ecdbfb"
+
+def test_alt_publisher_trust_rejects_writable_file_and_symlink(tmp_path):
+    trusted = tmp_path / "publisher.asc"
+    trusted.write_bytes(b"test public key")
+    trusted.chmod(0o666)
+    with pytest.raises(ValueError, match="unsafe ALT OTA trust path"):
+        alt_update_installer._validate_authority_file(trusted)
+    trusted.chmod(0o644)
+    link = tmp_path / "redirect.asc"
+    link.symlink_to(trusted)
+    with pytest.raises(ValueError, match="unsafe ALT OTA trust path"):
+        alt_update_installer._validate_authority_file(link)

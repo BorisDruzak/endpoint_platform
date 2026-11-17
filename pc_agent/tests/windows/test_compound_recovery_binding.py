@@ -90,6 +90,55 @@ def test_recovery_selects_new_barrier_without_changing_original_storage(stored_r
     assert (original_root/'plan.json').read_bytes()==before
 
 
+@pytest.mark.parametrize('defect', [
+    'torn', 'valid-but-different', 'foreign-copy', 'advanced-copy', 'unsafe-primary',
+])
+def test_recovery_can_use_only_a_bound_prepared_copy_after_a_parse_failure(
+        stored_recovery, monkeypatch, defect):
+    from pc_agent.platform.windows import installer_fence as fence, installer_transaction_bridge as bridge
+
+    paths, attempt, next_record, root, raw = stored_recovery
+    captured = json.loads(raw)
+    cap = bridge._read_capability(paths, captured['new']['session_id'])
+    cap['service_states'] = {'EndpointAgent': 'stopped', 'EndpointAgentUpdater': 'stopped'}
+    plan.publish_plan(paths, cap, captured)
+    prepared = root / 'prepared-plan.json'
+    current = root / 'plan.json'
+    assert prepared.read_bytes() == raw
+    plan.advance_plan(paths, cap, 'old-script-returned', native_result=0)
+    assert prepared.read_bytes() == raw
+    assert plan.read_plan(paths, cap)['phase'] == 'old-script-returned'
+
+    if defect == 'valid-but-different':
+        current.write_text(json.dumps({**captured, 'selected': 'a' * 64}))
+    else:
+        current.write_bytes(b'INDX' + b'\0' * 64)
+    if defect in ('foreign-copy', 'advanced-copy'):
+        bad = ({**captured, 'selected': 'a' * 64} if defect == 'foreign-copy' else
+               {**captured, 'phase': 'old-script-returned', 'sequence': 1})
+        prepared.write_text(json.dumps(bad))
+    if defect == 'unsafe-primary':
+        def reject_acl(path, **_kwargs):
+            if path == current:
+                raise ValueError('UPDATE_STATE_INVALID')
+        monkeypatch.setattr(fence, 'assert_state_security', reject_acl)
+
+    damaged = current.read_bytes()
+    with pytest.raises(ValueError):
+        plan.read_plan(paths, cap)
+    if defect == 'torn':
+        recovered = plan.inspect_recovery_authority(paths, cap['package'])
+        assert recovered['original_plan_sha256'] == recovered['predecessor_plan_sha256'] == sha256(raw).hexdigest()
+        assert plan.has_active_upgrade(paths)
+        plan.publish_recovery_plan(paths, attempt, next_record)
+        assert plan.read_plan(paths, attempt) == next_record
+    else:
+        with pytest.raises(ValueError):
+            plan.inspect_recovery_authority(paths, cap['package'])
+        assert plan.has_active_upgrade(paths)
+    assert current.read_bytes() == damaged
+
+
 @pytest.mark.parametrize('defect',['original','predecessor','before-state','owner','publication-loss'])
 def test_recovery_rejects_changed_original_or_predecessor_and_retains_exclusion(stored_recovery,defect,monkeypatch):
     from pc_agent.platform.windows import durable_state

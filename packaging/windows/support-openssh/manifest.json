@@ -1,0 +1,454 @@
+{
+  "schema_version": 1,
+  "version": "10.4.0.0p1-Preview",
+  "preview": true,
+  "official_url": "https://github.com/PowerShell/Win32-OpenSSH/releases/download/10.4.0.0p1-Preview/OpenSSH-Win64.zip",
+  "archive_sha256": "b67ff8becd203502190ec42ac7787c24c2cd3325ed7700485fe7a1c83d2a7957",
+  "archive_size": 6021393,
+  "archive_members": [
+    {
+      "path": "OpenSSH-Win64/_manifest/",
+      "directory": true
+    },
+    {
+      "path": "OpenSSH-Win64/FixHostFilePermissions.ps1",
+      "size": 16669,
+      "sha256": "f54f432c7f4bda77036a55131db82df37eebb6a34fdeed317820b4b6f0464c2e"
+    },
+    {
+      "path": "OpenSSH-Win64/FixUserFilePermissions.ps1",
+      "size": 15621,
+      "sha256": "6d8a776d58f6287aa6e84dead5648429e90e190a45b51dbd44001b5a4c703ef8"
+    },
+    {
+      "path": "OpenSSH-Win64/install-sshd.ps1",
+      "size": 22620,
+      "sha256": "4e68e35d9988994c320eed05b089b9f2bfff9e54c4de60c75eea3febedc14d52"
+    },
+    {
+      "path": "OpenSSH-Win64/libcrypto.dll",
+      "size": 1801032,
+      "sha256": "b4cbfd202d52ec0f094bfa328414c74b05b51234df95d2eb42e5fdb47160c9b5"
+    },
+    {
+      "path": "OpenSSH-Win64/LICENSE.txt",
+      "size": 21552,
+      "sha256": "568c41f330a50a7d2d2eba9d3f7807caaaf4e091705ab6652ec26a3f9d1acfdb"
+    },
+    {
+      "path": "OpenSSH-Win64/moduli",
+      "size": 674480,
+      "sha256": "8f594b7e50f7bf0995b49bb6bf39c42be527a2391113bf592ae4ad09a0648122"
+    },
+    {
+      "path": "OpenSSH-Win64/NOTICE.txt",
+      "size": 36008,
+      "sha256": "2cd5f5d0064bc909dfe0f0fc8f4787882c7c379f2730d89e5faa0c2bc57c620b"
+    },
+    {
+      "path": "OpenSSH-Win64/openssh-events.man",
+      "size": 3485,
+      "sha256": "c36019e53e3045cba2639bf35ed1e2498e3563b272533e53301165c31ab60199"
+    },
+    {
+      "path": "OpenSSH-Win64/OpenSSHUtils.psd1",
+      "size": 15363,
+      "sha256": "1a6db92849fd59ba76738ade18dee3fccc3f3f09e41c33f2c96a4ecb98be57c5"
+    },
+    {
+      "path": "OpenSSH-Win64/OpenSSHUtils.psm1",
+      "size": 49610,
+      "sha256": "1e8ea53b290dd7b80a285f9c097443d584f5cfe75823df40862cc8f4b3b3fd74"
+    },
+    {
+      "path": "OpenSSH-Win64/scp.exe",
+      "size": 436000,
+      "sha256": "41f0f40a823d3f1b105778492cf7d9c004b4e01fec3025aa7fe1140b4deec02b"
+    },
+    {
+      "path": "OpenSSH-Win64/sftp-server.exe",
+      "size": 382264,
+      "sha256": "5f5df08dfa1fb659d0f6eb96f0f942c2bd0852670ba79ff9107578142568e2cf"
+    },
+    {
+      "path": "OpenSSH-Win64/sftp.exe",
+      "size": 462640,
+      "sha256": "726cafe6c451cd725b7e7c3bf0ffbe08197e27d9482af6302999d60537b29f67"
+    },
+    {
+      "path": "OpenSSH-Win64/ssh-add.exe",
+      "size": 729392,
+      "sha256": "d374788249c32da4f48dc28b6dec4bce355456cc700a29031f5247f1b41649b5"
+    },
+    {
+      "path": "OpenSSH-Win64/ssh-agent.exe",
+      "size": 666912,
+      "sha256": "642cd33a2983217eaab99e41dc38e9a2988bc2568460e61fffcb66360bdf7f11"
+    },
+    {
+      "path": "OpenSSH-Win64/ssh-keygen.exe",
+      "size": 990000,
+      "sha256": "a7370caccfe212af57f10f0b87e366a8977139dc08146106d2b80d1433b85b38"
+    },
+    {
+      "path": "OpenSSH-Win64/ssh-keyscan.exe",
+      "size": 858400,
+      "sha256": "069c4ce7ee3ab94e3db4fd8ef5ee053190b769c7c661ee1ee1bb346112fc6476"
+    },
+    {
+      "path": "OpenSSH-Win64/ssh-pkcs11-helper.exe",
+      "size": 622368,
+      "sha256": "c728d4659292abeff3f8f6f5352f6e7bb8da1fcde9c8bae0d3ba3cad1407baba"
+    },
+    {
+      "path": "OpenSSH-Win64/ssh-shellhost.exe",
+      "size": 192816,
+      "sha256": "536c16069098ac9570f3b1ad3a2573fbc66045a09e76ff44b7890748a859c4ca"
+    },
+    {
+      "path": "OpenSSH-Win64/ssh-sk-helper.exe",
+      "size": 765224,
+      "sha256": "eb242acb4647683339e525016339ead9189f69b596856f2a647a596596b18cde"
+    },
+    {
+      "path": "OpenSSH-Win64/ssh.exe",
+      "size": 1500960,
+      "sha256": "ee115a1b833261034dcb2e5b862e6571f6dcedc084c555ea0df45ae7fd42c5e0"
+    },
+    {
+      "path": "OpenSSH-Win64/sshd_config_default",
+      "size": 2230,
+      "sha256": "796f518d1f4bb03d775da710c259b518eb770d123133dbd6429ca7e14d3c224b"
+    },
+    {
+      "path": "OpenSSH-Win64/sshd-auth.exe",
+      "size": 1016624,
+      "sha256": "6f1e5e4e8f245fa2f2884429ac26c458e3c6e102fa95b8ae629185688e49ba56"
+    },
+    {
+      "path": "OpenSSH-Win64/sshd-session.exe",
+      "size": 1466168,
+      "sha256": "c4c664eac726e23d82f6ff0039298b8f04457f38a7527669f10e2ae067268a1f"
+    },
+    {
+      "path": "OpenSSH-Win64/sshd.exe",
+      "size": 890672,
+      "sha256": "00d61610a0965b42cc9a9cd401dae8983fe77d5394697f074d776bb68ce6ff0a"
+    },
+    {
+      "path": "OpenSSH-Win64/uninstall-sshd.ps1",
+      "size": 15452,
+      "sha256": "4a986bd88aa0d58b9c6391e2058534c679dbcefe365e4cfa2b0aa199b955d37e"
+    },
+    {
+      "path": "OpenSSH-Win64/_manifest/spdx_2.2/bsi.cose",
+      "size": 5413,
+      "sha256": "aeec1c24e007a30735da7397b817795962413a8e8e295151fc000d8044d66b2f"
+    },
+    {
+      "path": "OpenSSH-Win64/_manifest/spdx_2.2/bsi.json",
+      "size": 930,
+      "sha256": "30f6a8bb097bd1eb40cbf46901004da593a7b1f10c16ee01cefd2bee076a5660"
+    },
+    {
+      "path": "OpenSSH-Win64/_manifest/spdx_2.2/ESRPClientLogs1015195749414.json",
+      "size": 49229,
+      "sha256": "9bf96ed904ea4b58172517bb10444d6b7a39a474f1de23afcc592083fd35aa2e"
+    },
+    {
+      "path": "OpenSSH-Win64/_manifest/spdx_2.2/manifest.cat",
+      "size": 12056,
+      "sha256": "783c737be04d2f0ea16404804f20db7f2e78dd55d2539919ae857190e5bccc1b"
+    },
+    {
+      "path": "OpenSSH-Win64/_manifest/spdx_2.2/manifest.spdx.cose",
+      "size": 5413,
+      "sha256": "0c34691f4cb75bbdf203af59eb6386355d208d39916cb0af46a65594aa1ec1f1"
+    },
+    {
+      "path": "OpenSSH-Win64/_manifest/spdx_2.2/manifest.spdx.json",
+      "size": 46342,
+      "sha256": "f187ee0cc033c5c8d3776c5b4032bf14a26532a7cf09fd2b582779cf9ba9a2e3"
+    },
+    {
+      "path": "OpenSSH-Win64/_manifest/spdx_2.2/manifest.spdx.json.sha256",
+      "size": 64,
+      "sha256": "5df841bb697a31cceded913c9c68f4134a9a455bd4517b905838bb0ee02f81cc"
+    }
+  ],
+  "runtime_files": [
+    {
+      "version": "4.3.3.0",
+      "path": "libcrypto.dll",
+      "size": 1801032,
+      "sha256": "b4cbfd202d52ec0f094bfa328414c74b05b51234df95d2eb42e5fdb47160c9b5",
+      "publisher_thumbprint": "C18BBD6EF7A93BF993072A3724004FF0357255D7",
+      "imports": [
+        "KERNEL32.dll",
+        "WS2_32.dll",
+        "bcrypt.dll",
+        "ntdll.dll"
+      ]
+    },
+    {
+      "size": 21552,
+      "path": "LICENSE.txt",
+      "sha256": "568c41f330a50a7d2d2eba9d3f7807caaaf4e091705ab6652ec26a3f9d1acfdb"
+    },
+    {
+      "size": 674480,
+      "path": "moduli",
+      "sha256": "8f594b7e50f7bf0995b49bb6bf39c42be527a2391113bf592ae4ad09a0648122"
+    },
+    {
+      "size": 36008,
+      "path": "NOTICE.txt",
+      "sha256": "2cd5f5d0064bc909dfe0f0fc8f4787882c7c379f2730d89e5faa0c2bc57c620b"
+    },
+    {
+      "version": "10.4.0.0",
+      "path": "scp.exe",
+      "size": 436000,
+      "sha256": "41f0f40a823d3f1b105778492cf7d9c004b4e01fec3025aa7fe1140b4deec02b",
+      "publisher_thumbprint": "AB172913A2960A224809EE8A0C371CD47A079B72",
+      "imports": [
+        "ADVAPI32.dll",
+        "CRYPT32.dll",
+        "KERNEL32.dll",
+        "SHLWAPI.dll",
+        "USER32.dll",
+        "USERENV.dll",
+        "WS2_32.dll",
+        "libcrypto.dll"
+      ]
+    },
+    {
+      "version": "10.4.0.0",
+      "path": "sftp-server.exe",
+      "size": 382264,
+      "sha256": "5f5df08dfa1fb659d0f6eb96f0f942c2bd0852670ba79ff9107578142568e2cf",
+      "publisher_thumbprint": "AB172913A2960A224809EE8A0C371CD47A079B72",
+      "imports": [
+        "ADVAPI32.dll",
+        "CRYPT32.dll",
+        "KERNEL32.dll",
+        "USER32.dll",
+        "USERENV.dll",
+        "WS2_32.dll",
+        "libcrypto.dll"
+      ]
+    },
+    {
+      "version": "10.4.0.0",
+      "path": "sftp.exe",
+      "size": 462640,
+      "sha256": "726cafe6c451cd725b7e7c3bf0ffbe08197e27d9482af6302999d60537b29f67",
+      "publisher_thumbprint": "1D77A9B9E8FE2075D9AD15123257FB90DB0DA4A1",
+      "imports": [
+        "ADVAPI32.dll",
+        "CRYPT32.dll",
+        "KERNEL32.dll",
+        "USER32.dll",
+        "USERENV.dll",
+        "WS2_32.dll",
+        "libcrypto.dll"
+      ]
+    },
+    {
+      "version": "10.4.0.0",
+      "path": "ssh-add.exe",
+      "size": 729392,
+      "sha256": "d374788249c32da4f48dc28b6dec4bce355456cc700a29031f5247f1b41649b5",
+      "publisher_thumbprint": "1D77A9B9E8FE2075D9AD15123257FB90DB0DA4A1",
+      "imports": [
+        "ADVAPI32.dll",
+        "CRYPT32.dll",
+        "KERNEL32.dll",
+        "USER32.dll",
+        "USERENV.dll",
+        "WS2_32.dll",
+        "libcrypto.dll"
+      ]
+    },
+    {
+      "version": "10.4.0.0",
+      "path": "ssh-agent.exe",
+      "size": 666912,
+      "sha256": "642cd33a2983217eaab99e41dc38e9a2988bc2568460e61fffcb66360bdf7f11",
+      "publisher_thumbprint": "AB172913A2960A224809EE8A0C371CD47A079B72",
+      "imports": [
+        "ADVAPI32.dll",
+        "CRYPT32.dll",
+        "KERNEL32.dll",
+        "USER32.dll",
+        "USERENV.dll",
+        "WS2_32.dll",
+        "libcrypto.dll"
+      ]
+    },
+    {
+      "version": "10.4.0.0",
+      "path": "ssh-keygen.exe",
+      "size": 990000,
+      "sha256": "a7370caccfe212af57f10f0b87e366a8977139dc08146106d2b80d1433b85b38",
+      "publisher_thumbprint": "1D77A9B9E8FE2075D9AD15123257FB90DB0DA4A1",
+      "imports": [
+        "ADVAPI32.dll",
+        "CRYPT32.dll",
+        "KERNEL32.dll",
+        "USER32.dll",
+        "USERENV.dll",
+        "WS2_32.dll",
+        "libcrypto.dll"
+      ]
+    },
+    {
+      "version": "10.4.0.0",
+      "path": "ssh-keyscan.exe",
+      "size": 858400,
+      "sha256": "069c4ce7ee3ab94e3db4fd8ef5ee053190b769c7c661ee1ee1bb346112fc6476",
+      "publisher_thumbprint": "AB172913A2960A224809EE8A0C371CD47A079B72",
+      "imports": [
+        "ADVAPI32.dll",
+        "CRYPT32.dll",
+        "KERNEL32.dll",
+        "USER32.dll",
+        "USERENV.dll",
+        "WS2_32.dll",
+        "libcrypto.dll"
+      ]
+    },
+    {
+      "version": "10.4.0.0",
+      "path": "ssh-pkcs11-helper.exe",
+      "size": 622368,
+      "sha256": "c728d4659292abeff3f8f6f5352f6e7bb8da1fcde9c8bae0d3ba3cad1407baba",
+      "publisher_thumbprint": "AB172913A2960A224809EE8A0C371CD47A079B72",
+      "imports": [
+        "ADVAPI32.dll",
+        "CRYPT32.dll",
+        "KERNEL32.dll",
+        "USER32.dll",
+        "USERENV.dll",
+        "WS2_32.dll",
+        "libcrypto.dll"
+      ]
+    },
+    {
+      "version": "10.4.0.0",
+      "path": "ssh-shellhost.exe",
+      "size": 192816,
+      "sha256": "536c16069098ac9570f3b1ad3a2573fbc66045a09e76ff44b7890748a859c4ca",
+      "publisher_thumbprint": "AB172913A2960A224809EE8A0C371CD47A079B72",
+      "imports": [
+        "KERNEL32.dll",
+        "USER32.dll"
+      ]
+    },
+    {
+      "version": "10.4.0.0",
+      "path": "ssh-sk-helper.exe",
+      "size": 765224,
+      "sha256": "eb242acb4647683339e525016339ead9189f69b596856f2a647a596596b18cde",
+      "publisher_thumbprint": "1D77A9B9E8FE2075D9AD15123257FB90DB0DA4A1",
+      "imports": [
+        "ADVAPI32.dll",
+        "CRYPT32.dll",
+        "HID.DLL",
+        "KERNEL32.dll",
+        "SETUPAPI.dll",
+        "USER32.dll",
+        "USERENV.dll",
+        "WS2_32.dll",
+        "bcrypt.dll",
+        "libcrypto.dll"
+      ]
+    },
+    {
+      "version": "10.4.0.0",
+      "path": "ssh.exe",
+      "size": 1500960,
+      "sha256": "ee115a1b833261034dcb2e5b862e6571f6dcedc084c555ea0df45ae7fd42c5e0",
+      "publisher_thumbprint": "AB172913A2960A224809EE8A0C371CD47A079B72",
+      "imports": [
+        "ADVAPI32.dll",
+        "CRYPT32.dll",
+        "KERNEL32.dll",
+        "NETAPI32.dll",
+        "Secur32.dll",
+        "USER32.dll",
+        "USERENV.dll",
+        "WS2_32.dll",
+        "libcrypto.dll"
+      ]
+    },
+    {
+      "version": "10.4.0.0",
+      "path": "sshd-auth.exe",
+      "size": 1016624,
+      "sha256": "6f1e5e4e8f245fa2f2884429ac26c458e3c6e102fa95b8ae629185688e49ba56",
+      "publisher_thumbprint": "1D77A9B9E8FE2075D9AD15123257FB90DB0DA4A1",
+      "imports": [
+        "ADVAPI32.dll",
+        "CRYPT32.dll",
+        "KERNEL32.dll",
+        "Secur32.dll",
+        "USER32.dll",
+        "USERENV.dll",
+        "WS2_32.dll",
+        "libcrypto.dll"
+      ]
+    },
+    {
+      "version": "10.4.0.0",
+      "path": "sshd-session.exe",
+      "size": 1466168,
+      "sha256": "c4c664eac726e23d82f6ff0039298b8f04457f38a7527669f10e2ae067268a1f",
+      "publisher_thumbprint": "AB172913A2960A224809EE8A0C371CD47A079B72",
+      "imports": [
+        "ADVAPI32.dll",
+        "CRYPT32.dll",
+        "KERNEL32.dll",
+        "NETAPI32.dll",
+        "Secur32.dll",
+        "USER32.dll",
+        "USERENV.dll",
+        "WS2_32.dll",
+        "libcrypto.dll"
+      ]
+    },
+    {
+      "version": "10.4.0.0",
+      "path": "sshd.exe",
+      "size": 890672,
+      "sha256": "00d61610a0965b42cc9a9cd401dae8983fe77d5394697f074d776bb68ce6ff0a",
+      "publisher_thumbprint": "1D77A9B9E8FE2075D9AD15123257FB90DB0DA4A1",
+      "imports": [
+        "ADVAPI32.dll",
+        "CRYPT32.dll",
+        "KERNEL32.dll",
+        "NETAPI32.dll",
+        "Secur32.dll",
+        "USER32.dll",
+        "USERENV.dll",
+        "WS2_32.dll",
+        "libcrypto.dll"
+      ]
+    }
+  ],
+  "system_imports": [
+    "advapi32.dll",
+    "bcrypt.dll",
+    "crypt32.dll",
+    "hid.dll",
+    "kernel32.dll",
+    "netapi32.dll",
+    "ntdll.dll",
+    "secur32.dll",
+    "setupapi.dll",
+    "shlwapi.dll",
+    "user32.dll",
+    "userenv.dll",
+    "ws2_32.dll"
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "purpose": "Signed Setup observer recovery; full Setup target remains158",
+  "status": "Core162 bootstrap and source157 return applied; original native exit21 settled as failed with verified unchanged source",
+  "source_revision": "b9976195cf68be57da7dd860fa062fba6b533b8d",
+  "build": {
+    "schema_version": "update_build_manifest_v1",
+    "build_identifier": "endpoint-windows-core-3.2.162-setup-client",
+    "version": "3.2.162",
+    "platform": "windows_amd64",
+    "channel": "canary",
+    "artifact_url": "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/endpoint-windows-core-3.2.162-setup-client",
+    "artifact_name": "EndpointCore-3.2.162-b997619.zip",
+    "archive_type": "zip",
+    "sha256": "ee1a5aa480896dce05fd51c1df10cf7e82d20b43d3dadfa9baec883a57d640d7",
+    "size": 22904521,
+    "minimum_launcher_version": "3.2.156",
+    "release_notes": "Qualified signed Setup observer1.0.4; test120 retained native hold recovery"
+  },
+  "client": {
+    "version": "1.0.4",
+    "authenticode": "Valid with timestamp",
+    "sha256": "7fc8fcabb936a36ba28bd8cb5e1f13f4d93d05d58e8c9894e24f93e29308badd",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776"
+  },
+  "test120": {
+    "device_id": "0051645c-0e81-4c21-bf52-befcd5ef5407",
+    "preparation_id": "7d33f207-8080-41f4-a66f-f6f2ff062746",
+    "native_assignment_id": "aff35213-1bcc-4784-ade0-c8b9dbf4072c",
+    "bridge_rollout_id": "72699ad3-7707-45ac-a225-f598138613c7",
+    "bridge_applied_at": "2026-11-03T12:49:17.235621Z",
+    "client_installed_at": "2026-11-03T12:49:10.503405Z",
+    "return_rollout_id": "86b3d9f5-7943-4258-8390-5813a1c8411a",
+    "return_applied_at": "2026-11-03T12:54:22.049655Z",
+    "scope": "Existing Foundation158 with exact retained ZIP Core157; no fresh Foundation156 upgrade claim",
+    "native_failure_verified_at": "2026-11-03T12:57:47.237991Z",
+    "source_observation": {
+      "duration_seconds": 183.327,
+      "samples": 6,
+      "sensor_count": 1,
+      "sensor_cpu_percent_max": 0.0064,
+      "services_stable": true,
+      "companions_stable": true,
+      "connected": true
+    }
+  },
+  "full_setup_record": "docs/releases/windows-3.2.158-r3-setup.json"
+}

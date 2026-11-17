@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "version": "3.2.173",
+  "status": "unpublished_candidate_source",
+  "published_windows_primary_unchanged": "3.2.172",
+  "support_component_version": "1.0.0",
+  "baseline_runtime_manifest": "packaging/windows/initial-runtime-3.2.172.json",
+  "baseline_source_file_count": 280,
+  "additional_reviewed_inputs": [
+    "endpoint_contracts/support_access.py",
+    "packaging/windows/initial_runtime_contract.py",
+    "packaging/windows/wix/Components.wxs",
+    "packaging/windows/wix/Directories.wxs",
+    "packaging/windows/wix/Services.wxs",
+    "packaging/windows/wix/Upgrade.wxs",
+    "pc_agent/platform/windows/support_access.py",
+    "pc_agent/platform/windows/support_access_native.py",
+    "pc_agent/platform/windows/support_access_service.py",
+    "pc_agent/pyinstaller_windows_support_access.spec"
+  ],
+  "producer_requirements": {
+    "clean_committed_source_before_freeze": true,
+    "compatibility_contract_authored_before_freeze": true,
+    "fresh_component_guid": true,
+    "independent_stage_evidence": true,
+    "exact_observed_toolchain": true,
+    "native_helpers_reuse_allowed": false,
+    "signed_support_payload_before_msi": true,
+    "historical172_bytes_immutable": true
+  },
+  "release_gates": {
+    "candidate173_built": false,
+    "candidate173_console_canary_accepted": false,
+    "candidate173_server_qualified": false,
+    "candidate173_primary_promoted": false
+  }
+}

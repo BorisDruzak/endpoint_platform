@@ -3,13 +3,63 @@
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import select
+import pytest
+from sqlalchemy import event, select
 
 from endpoint_server.context.connect_refresh import queue_connect_refreshes
-from endpoint_server.context.models import ContextCollection
+from endpoint_server.context.models import ContextCollection, ContextSnapshot
 from endpoint_server.db.models import Device
 
 from .test_collection_lifecycle import session
+
+
+async def test_connect_refresh_without_supported_profiles_never_queries(session):
+    statements = []
+
+    def observe(_connection, _cursor, statement, *_):
+        statements.append(statement)
+
+    engine = session.get_bind()
+    event.listen(engine, "before_cursor_execute", observe)
+    try:
+        assert await queue_connect_refreshes(session, uuid4(), {"context.health.collect"}) == 0
+    finally:
+        event.remove(engine, "before_cursor_execute", observe)
+    assert statements == []
+
+
+@pytest.mark.parametrize("seconds_inside_window", [0, 1])
+async def test_connect_refresh_reads_pending_work_and_snapshot_together(session, seconds_inside_window):
+    now = datetime(2026, 9, 18, 10, 0, tzinfo=UTC)
+    observed_at = now - timedelta(minutes=15) + timedelta(seconds=seconds_inside_window)
+    device = Device(device_identifier="connect-freshness-boundary")
+    session.add(device)
+    await session.flush()
+    collection = ContextCollection(
+        device_id=device.id, profile="network_v1", requested_by="operator",
+        idempotency_key="existing-network", status="completed", requested_at=observed_at,
+    )
+    session.add(collection)
+    await session.flush()
+    session.add(ContextSnapshot(
+        collection_id=collection.id, device_id=device.id, profile="network_v1",
+        collected_at=observed_at, normalized_projection={},
+    ))
+    await session.commit()
+    statements = []
+
+    def observe(_connection, _cursor, statement, *_):
+        if "ORDER BY context_snapshots.collected_at" in statement:
+            statements.append(statement)
+
+    engine = session.get_bind()
+    event.listen(engine, "before_cursor_execute", observe)
+    try:
+        created = await queue_connect_refreshes(session, device.id, {"context.network.collect"}, now=now)
+    finally:
+        event.remove(engine, "before_cursor_execute", observe)
+    assert created == (0 if seconds_inside_window else 1)
+    assert len(statements) == 1 and "FROM context_collections" in statements[0]
 
 
 async def test_connect_refresh_queues_only_supported_inventory_profiles(session) -> None:

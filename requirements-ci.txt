@@ -5,6 +5,7 @@
 
 aiohttp
 alembic
+Authlib==1.9.1
 asyncpg
 argon2-cffi>=23,<26
 cryptography>=46,<47

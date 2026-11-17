@@ -609,7 +609,7 @@ async def test_cancelling_stream_removes_temporary_and_never_publishes_artifact(
     with pytest.raises(asyncio.CancelledError):
         await task
     assert not destination.exists()
-    assert not destination.with_name(".candidate.zip.tmp").exists()
+    assert not list(tmp_path.glob(".candidate.zip.*.tmp"))
 
 
 @pytest.mark.asyncio

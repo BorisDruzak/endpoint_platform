@@ -390,8 +390,6 @@ def archive_retained_core(paths: WindowsUpdatePaths, evidence: CoreEvidence, *, 
     parent = _archive_directory(state_root(paths), 'retained')
     archive = _archive_directory(parent, evidence.digest)
     from .runtime_identity import _retained_payload_root
-    _archive_directory(archive, 'payload')
-    payload_root = _retained_payload_root(archive)
     expected = {
         'schema_version': 1, 'origin': 'retained_msi', 'phase': 'prepared',
         'transaction_id': transaction_id, 'identity_digest': evidence.digest,
@@ -416,6 +414,13 @@ def archive_retained_core(paths: WindowsUpdatePaths, evidence: CoreEvidence, *, 
         expected['transaction_id']=existing['transaction_id']
         if existing != json.loads(json.dumps(expected)):
             raise ProvenanceConflict()
+    # Reinstall may make a previously published retained version MSI-owned
+    # again. Journal its second physical copy before creating payload/. The
+    # capture and its historical publishing operation remain immutable.
+    from . import retained_storage
+    materializing = retained_storage.begin_native_recapture(paths, archive, json.loads(json.dumps(expected)))
+    _archive_directory(archive, 'payload')
+    payload_root = _retained_payload_root(archive)
     durable_state.durable_copy_file(package_path, archive / 'package.msi', source_root=package_path.parent,
         trusted_root=archive, max_bytes=512 * 1024 * 1024, expected_size=package_size,
         expected_sha256=package.sha256, protect=protect_state, validate=assert_state_security)
@@ -434,6 +439,8 @@ def archive_retained_core(paths: WindowsUpdatePaths, evidence: CoreEvidence, *, 
     msi_inventory.verify_installed(package, paths.install_root)
     durable_state.write_json_atomic(record, expected, trusted_root=archive,
         max_bytes=16 * 1024 * 1024, protect=protect_state)
+    if materializing is not None:
+        retained_storage.complete_native_recapture(archive, materializing)
     return archive
 
 
@@ -957,7 +964,11 @@ def _partial_retained_tree(paths,retained,metadata):
 
 def validate_interrupted_reconciliation(paths: WindowsUpdatePaths, expected_msi, *,
                                       native_current=None, allow_native_absence=False) -> None:
-    """Inspect immutable saved authority; caller has not yet gained mutation entry."""
+    """Inspect immutable saved authority before gaining mutation entry.
+
+    The caller may permit a missing current selector after proving native
+    removal of that exact MSI keypath.
+    """
     from .installer_fence import state_root
     from .runtime_identity import verify_retained_archive
     expected=_expected_request(expected_msi)
@@ -965,8 +976,6 @@ def validate_interrupted_reconciliation(paths: WindowsUpdatePaths, expected_msi,
         from .msi_inventory import read_native_selector
         if native_current != read_native_selector(Path(expected_msi['package_path']), expected):
             raise ProvenanceConflict()
-    elif allow_native_absence:
-        raise ProvenanceConflict()
     root=state_root(paths)/'provenance'/expected_msi['transaction_id']
     plan=_read_plan(root,expected_msi,expected)
     core=next(item for item in expected.package.files if item.path==f'versions/{expected.identity.version}/pc_agent.exe')
@@ -1004,8 +1013,10 @@ def validate_interrupted_reconciliation(paths: WindowsUpdatePaths, expected_msi,
         path=paths.install_root/name
         actual=_read(path,4096).hex() if _present(path) else None
         if actual not in (before,after):
-            native_transition = (name == 'current.json' and native_current is not None
-                and (actual == native_current.hex() or (allow_native_absence and actual is None)))
+            native_transition = name == 'current.json' and (
+                (actual is None and allow_native_absence)
+                or (native_current is not None and actual == native_current.hex())
+            )
             if not native_transition and (before is not None or actual is None or after is None or read_json(bytes.fromhex(actual),4096)!=read_json(bytes.fromhex(after),4096)):
                 raise ProvenanceConflict()
         if actual is not None:
@@ -1085,6 +1096,10 @@ def reconcile_installed_core(paths: WindowsUpdatePaths, expected_msi, *, native_
         _read(root / 'handoff-manifest.json', MAX_MANIFEST_BYTES)
     elif _present(candidate_root / ZIP_RECEIPT):
         raise ProvenanceConflict()
+    # Native registration and readable files can still be buffered after MSI
+    # returns. Persist them before publishing our own ownership records.
+    msi_inventory.persist_installed(expected.package, paths.install_root,
+                                     original_path=expected_msi['package_path'])
     for archive_id in plan['archives']:
         from .runtime_identity import verify_retained_archive
         retained = verify_retained_archive(paths, archive_id)

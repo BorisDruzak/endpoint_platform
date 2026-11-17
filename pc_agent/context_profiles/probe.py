@@ -2,19 +2,34 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
+from contextvars import ContextVar
+import json
 import os
 from pathlib import Path
 import shutil
 import signal
+import socket
+import ssl
 import subprocess
 import threading
 import time
 
+import aiohttp
+import psutil
+
+from pc_agent.platform.windows.service_control import read_updater_service_status
+
+from .server_health import ROLES
+
 
 MAX_PROBE_BYTES = 65_536
+WINDOWS_INVENTORY_TIMEOUT_SECONDS = 8.0
+_HTTP_PROBE_TIMEOUT = 2.0
 TERMINATION_GRACE_SECONDS = 0.2
 _DRAIN_JOIN_GRACE_SECONDS = 0.2
+IN_OWNED_COMMAND_WORKER = ContextVar("IN_OWNED_COMMAND_WORKER", default=False)
 
 LSBLK_COMMAND = ("lsblk", "--bytes", "--json", "--output", "NAME,MODEL,SIZE,WWN,SERIAL,ROTA,TRAN,TYPE")
 IP_LINK_COMMAND = ("ip", "-json", "link", "show")
@@ -22,6 +37,8 @@ IP_DEFAULT_ROUTE_COMMAND = ("ip", "-json", "route", "show", "default")
 IP_ADDRESS_COMMAND = ("ip", "-json", "address", "show")
 SSHD_STATUS_COMMAND = ("systemctl", "is-active", "sshd")
 NETWORK_MANAGER_STATUS_COMMAND = ("systemctl", "is-active", "NetworkManager")
+UPDATE_SERVICE_STATUS_COMMAND = ("systemctl", "show", "--property=LoadState,ActiveState", "--", "endpoint-agent-update.service")
+UPDATE_PATH_STATUS_COMMAND = ("systemctl", "show", "--property=LoadState,ActiveState", "--", "endpoint-agent-update.path")
 PROCESS_COMMAND = ("ps", "-eo", "comm=,stat=")
 JOURNAL_COMMAND = (
     "journalctl", "--system", "--lines=32", "--no-pager", "--output=json",
@@ -33,6 +50,8 @@ WHO_COMMAND = ("who",)
 # Invoke the native session tool directly: query.exe can return its own nonzero
 # dispatcher status even when quser.exe successfully returns interactive rows.
 WINDOWS_QUERY_USER_COMMAND = ("quser",)
+OPENVPN_UDP_PORT = 1194
+OPENVPN_SOCKET_COMMAND = ("ss", "-H", "-l", "-u", "-n", "sport", "=", f":{OPENVPN_UDP_PORT}")
 WINDOWS_NETWORK_COMMAND = (
     "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
     "$n=@(Get-CimInstance Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=True'|ForEach-Object{[pscustomobject]@{name=$_.Description;mac=$_.MACAddress;ipv4=@($_.IPAddress|Where-Object{$_ -match '^\\d+\\.'});ipv6=@($_.IPAddress|Where-Object{$_ -match ':'});index=[int]$_.InterfaceIndex;link_type='ethernet';operational_state='unknown'}});$r=Get-CimInstance Win32_IP4RouteTable -Filter \"Destination='0.0.0.0' AND Mask='0.0.0.0'\"|Sort-Object Metric1|Select-Object -First 1;[pscustomobject]@{interfaces=$n;default_interface_index=if($r){[int]$r.InterfaceIndex}else{$null};default_gateway=if($r){$r.NextHop}else{$null}}|ConvertTo-Json -Depth 5 -Compress",
@@ -54,6 +73,8 @@ _ALLOWED_COMMANDS = frozenset(
         IP_ADDRESS_COMMAND,
         SSHD_STATUS_COMMAND,
         NETWORK_MANAGER_STATUS_COMMAND,
+        UPDATE_SERVICE_STATUS_COMMAND,
+        UPDATE_PATH_STATUS_COMMAND,
         PROCESS_COMMAND,
         JOURNAL_COMMAND,
         WINDOWS_TASKLIST_COMMAND,
@@ -62,8 +83,18 @@ _ALLOWED_COMMANDS = frozenset(
         WINDOWS_NETWORK_COMMAND,
         WINDOWS_PHYSICAL_STORAGE_COMMAND,
         WINDOWS_INVENTORY_COMMAND,
+        OPENVPN_SOCKET_COMMAND,
     }
 )
+
+_SERVER_SERVICE_COMMANDS = {
+    unit: ("systemctl", "show", "--property=LoadState,ActiveState,SubState", "--no-pager", "--", unit)
+    for role in ROLES.values()
+    if role.platform == "linux"
+    for unit in role.services
+}
+_ALLOWED_COMMANDS |= frozenset(_SERVER_SERVICE_COMMANDS.values())
+_SERVER_VOLUMES = frozenset(volume.mount for role in ROLES.values() for volume in role.volumes)
 
 
 class SystemProbe:
@@ -72,6 +103,117 @@ class SystemProbe:
     @property
     def platform_name(self) -> str:
         return "windows" if os.name == "nt" else "linux"
+
+    def windows_updater_status(self) -> str:
+        return read_updater_service_status()
+
+    def server_service_state(self, name: str) -> str:
+        if os.name == "nt":
+            try:
+                return psutil.win_service_get(name).status()
+            except psutil.NoSuchProcess:
+                return "missing"
+        output = self.run(_SERVER_SERVICE_COMMANDS[name], 2.0, 512)
+        fields = dict(line.split("=", 1) for line in output.splitlines() if "=" in line)
+        if fields.get("LoadState") == "not-found":
+            return "missing"
+        active, sub = fields.get("ActiveState"), fields.get("SubState")
+        return f"{active}/{sub}" if active and sub else "unknown"
+
+    def server_local_mounts(self) -> set[str]:
+        if os.name == "nt":
+            import ctypes
+
+            # DRIVE_FIXED (3) excludes mapped, removable and unavailable drives.
+            return {
+                mount for mount in _SERVER_VOLUMES
+                if len(mount) == 3 and mount[1:] == ":\\"
+                and ctypes.windll.kernel32.GetDriveTypeW(mount) == 3
+            }
+        return {
+            part.mountpoint for part in psutil.disk_partitions(all=False)
+            if part.mountpoint in _SERVER_VOLUMES
+            and (part.device.startswith("/dev/") or part.fstype == "zfs")
+        }
+
+    def server_disk_usage(self, mount: str):
+        if mount not in _SERVER_VOLUMES:
+            raise ValueError("unknown server mount")
+        return psutil.disk_usage(mount)
+
+    def server_http_status(self, port: int, path: str) -> int:
+        return asyncio.run(_server_http_status(port, path))
+
+    def acti_https_status(self, check: str) -> int:
+        if check not in ("live", "ready"):
+            raise ValueError("unknown ACTI health check")
+        tls = ssl.create_default_context(cafile="/etc/endpoint-agent-ubuntu/acti-ca.crt")
+        return asyncio.run(_server_http_status(443, f"/api/v1/health/{check}", tls=tls))
+
+    def proxmox_health_snapshot(self) -> dict:
+        with Path("/run/endpoint-proxmox-health/status.json").open("rb") as stream:
+            data = stream.read(8193)
+        if len(data) > 8192:
+            raise ValueError("oversized Proxmox health snapshot")
+        snapshot = json.loads(data)
+        if not isinstance(snapshot, dict) or snapshot.get("schema_version") != 1:
+            raise ValueError("invalid Proxmox health snapshot")
+        sampled_at = snapshot.get("sampled_at")
+        if type(sampled_at) is not int or not 0 <= time.time() - sampled_at <= 180:
+            raise ValueError("stale Proxmox health snapshot")
+        return snapshot
+
+    def server_udp_listener(self, port: int) -> bool:
+        if port != OPENVPN_UDP_PORT:
+            raise ValueError("unknown server UDP listener")
+        output = self.run(OPENVPN_SOCKET_COMMAND, 2.0, 4096, check_exit=True)
+        return any(line.startswith("UNCONN ") for line in output.splitlines())
+
+    def server_tcp_listener(self, port: int) -> bool:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=2.0):
+                return True
+        except ConnectionRefusedError:
+            return False
+
+    def server_has_disk_shares(self) -> bool:
+        import ctypes
+        from ctypes import wintypes
+
+        class ShareInfo(ctypes.Structure):
+            _fields_ = [("name", wintypes.LPWSTR), ("kind", wintypes.DWORD), ("remark", wintypes.LPWSTR)]
+
+        netapi = ctypes.WinDLL("netapi32")
+        shares = ctypes.POINTER(ShareInfo)()
+        count = wintypes.DWORD()
+        total = wintypes.DWORD()
+        status = netapi.NetShareEnum(
+            None, 1, ctypes.byref(shares), 16_384, ctypes.byref(count), ctypes.byref(total), None,
+        )
+        try:
+            if status in (0, 234) and any(shares[index].kind == 0 for index in range(count.value)):
+                return True
+            if status != 0:
+                raise OSError(status, "Unable to enumerate local SMB disk shares")
+            return False
+        finally:
+            if shares:
+                netapi.NetApiBufferFree(shares)
+
+    def server_postgresql_ready(self) -> bool:
+        try:
+            result = subprocess.run(
+                ("/usr/bin/pg_isready", "-h", "127.0.0.1", "-p", "5432",
+                 "-U", "postgres", "-d", "postgres", "-t", "2", "-q"),
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                env={"PATH": "/usr/bin:/bin", "PGPASSFILE": "/dev/null"},
+                timeout=3, check=False,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise TimeoutError("PostgreSQL readiness probe exceeded its deadline") from error
+        if result.returncode not in (0, 1, 2):
+            raise ValueError("PostgreSQL readiness check did not run")
+        return result.returncode == 0
 
     def windows_system(self) -> dict[str, object]:
         from pc_agent.platform.windows.identity import native_system
@@ -131,7 +273,9 @@ class SystemProbe:
             return {}
         import json
         try:
-            value = json.loads(self.run(WINDOWS_INVENTORY_COMMAND, 5.0, MAX_PROBE_BYTES))
+            value = json.loads(
+                self.run(WINDOWS_INVENTORY_COMMAND, WINDOWS_INVENTORY_TIMEOUT_SECONDS, MAX_PROBE_BYTES)
+            )
         except (OSError, ValueError, TimeoutError):
             return {}
         if not isinstance(value, dict):
@@ -199,7 +343,9 @@ class SystemProbe:
         with Path(path).open("rb") as source:
             return source.read(limit).decode("utf-8", errors="replace")
 
-    def run(self, argv: Sequence[str], timeout_seconds: float, max_bytes: int) -> str:
+    def run(
+        self, argv: Sequence[str], timeout_seconds: float, max_bytes: int, *, check_exit: bool = False,
+    ) -> str:
         command = tuple(str(item) for item in argv)
         if command not in _ALLOWED_COMMANDS:
             raise ValueError("context probe command is not allowlisted")
@@ -210,19 +356,30 @@ class SystemProbe:
         if not executable:
             raise FileNotFoundError(command[0])
         try:
-            if command in {WINDOWS_QUERY_USER_COMMAND, JOURNAL_COMMAND}:
-                # Keep stderr and nonzero exits out of session and journal
-                # observations instead of treating error text as data.
-                output = _execute_bounded_command(
-                    (executable, *command[1:]), timeout_seconds, limit, check_exit=True,
-                )
-            else:
-                output = _execute_bounded_command((executable, *command[1:]), timeout_seconds, limit)
+            output = _execute_bounded_command(
+                (executable, *command[1:]), timeout_seconds, limit, check_exit=check_exit or command in {WINDOWS_QUERY_USER_COMMAND, JOURNAL_COMMAND},
+            )
         except subprocess.TimeoutExpired as exc:
             raise TimeoutError("context probe command timed out") from exc
         if command == WINDOWS_QUERY_USER_COMMAND and os.name == "nt":
             return output.decode("oem", errors="strict")
         return output.decode("utf-8", errors="replace")
+
+
+async def _server_http_status(port: int, path: str, *, tls: ssl.SSLContext | None = None) -> int:
+    timeout = aiohttp.ClientTimeout(total=_HTTP_PROBE_TIMEOUT)
+    scheme = "https" if tls is not None else "http"
+    options = {"ssl": tls, "server_hostname": "localhost", "headers": {"Host": "localhost"}} if tls else {}
+    try:
+        async with aiohttp.ClientSession(timeout=timeout, trust_env=False) as session:
+            async with session.get(f"{scheme}://127.0.0.1:{port}{path}", allow_redirects=False, **options) as response:
+                return response.status
+    except aiohttp.ClientSSLError as error:
+        raise ssl.SSLError("local HTTPS certificate verification failed") from error
+    except aiohttp.ClientConnectorError as error:
+        raise error.os_error from error
+    except aiohttp.ClientError as error:
+        raise ValueError("invalid local HTTP response") from error
 
 
 def _bounded_limit(max_bytes: int) -> int:
@@ -232,7 +389,8 @@ def _bounded_limit(max_bytes: int) -> int:
 
 
 def _execute_bounded_command(
-    command: tuple[str, ...], timeout_seconds: float, limit: int, *, check_exit: bool = False,
+    command: tuple[str, ...], timeout_seconds: float, limit: int, *,
+    check_exit: bool = False,
 ) -> bytes:
     """Capture local command output without materializing unbounded pipe streams."""
     popen_options: dict[str, object] = {
@@ -240,7 +398,9 @@ def _execute_bounded_command(
         "stdout": subprocess.PIPE,
         "stderr": subprocess.PIPE,
     }
-    if os.name == "posix":
+    # The outer owner must retain every fixed probe in its process group.
+    own_process_group = os.name == "posix" and not IN_OWNED_COMMAND_WORKER.get()
+    if own_process_group:
         popen_options["start_new_session"] = True
     process = subprocess.Popen(command, **popen_options)
     assert process.stdout is not None
@@ -259,19 +419,23 @@ def _execute_bounded_command(
             if stdout.full.is_set() or stderr.full.is_set() or time.monotonic() >= deadline:
                 timed_out = time.monotonic() >= deadline
                 cleanup_attempted = True
-                cleanup_failed = not _terminate_and_reap(process)
+                cleanup_failed = not _terminate_and_reap(process, own_process_group=own_process_group)
                 break
             time.sleep(0.01)
     finally:
         if not cleanup_attempted and process.poll() is None:
-            cleanup_failed = not _terminate_and_reap(process) or cleanup_failed
+            cleanup_failed = not _terminate_and_reap(process, own_process_group=own_process_group) or cleanup_failed
         elif not cleanup_attempted and not _wait_for_exit(process):
             cleanup_failed = True
         stdout.join(_DRAIN_JOIN_GRACE_SECONDS)
         stderr.join(_DRAIN_JOIN_GRACE_SECONDS)
         if stdout.is_alive() or stderr.is_alive():
             timed_out = True
-            cleanup_failed = not _terminate_pipe_holding_group(process, stdout, stderr) or cleanup_failed
+            cleanup_failed = (
+                not own_process_group
+                or not _terminate_pipe_holding_group(process, stdout, stderr)
+                or cleanup_failed
+            )
 
     if timed_out or cleanup_failed:
         raise subprocess.TimeoutExpired(command, timeout_seconds)
@@ -284,22 +448,26 @@ def _execute_bounded_command(
     return (bytes(stdout.output) + bytes(stderr.output))[:limit]
 
 
-def _terminate_and_reap(process: subprocess.Popen[bytes]) -> bool:
+def _terminate_and_reap(
+    process: subprocess.Popen[bytes], *, own_process_group: bool,
+) -> bool:
     """Stop a child without letting a hung exit path block a collector."""
     if process.poll() is not None:
         return _wait_for_exit(process)
-    if not _signal_process(process, terminate=True):
+    if not _signal_process(process, terminate=True, own_process_group=own_process_group):
         return _wait_for_exit(process)
     if _wait_for_exit(process):
         return True
-    if not _signal_process(process, terminate=False):
+    if not _signal_process(process, terminate=False, own_process_group=own_process_group):
         return _wait_for_exit(process)
     return _wait_for_exit(process)
 
 
-def _signal_process(process: subprocess.Popen[bytes], *, terminate: bool) -> bool:
+def _signal_process(
+    process: subprocess.Popen[bytes], *, terminate: bool, own_process_group: bool = True,
+) -> bool:
     """Signal a process group where supported, without leaking OS cleanup errors."""
-    if os.name == "posix":
+    if os.name == "posix" and own_process_group:
         try:
             os.killpg(process.pid, signal.SIGTERM if terminate else signal.SIGKILL)
         except AttributeError:

@@ -8,6 +8,7 @@ import os
 import re
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Sequence
 from urllib.parse import urlsplit
@@ -23,6 +24,9 @@ _SEMVER_TRIPLET = re.compile(r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9]
 _SOURCE_REVISION = re.compile(r"^[0-9a-f]{40}$")
 _MIN_LAUNCHER_VERSION_PROTOCOL = (3, 2, 82)
 _DEFAULT_ENDPOINT_ORIGIN = "https://endpoint.sosnadmin.local"
+_CORE_STOP_GRACE_SECONDS = 10.0
+_CORE_KILL_GRACE_SECONDS = 5.0
+_CORE_POLL_SECONDS = 0.1
 
 
 
@@ -113,46 +117,71 @@ def _provisioned_endpoint_origin(data_root: Path) -> str:
 
 
 class ChildProcessCoordinator:
-    """Supervise one selected runtime and forward SCM stop by closing stdin."""
+    """Supervise the selected Core and require its Job to empty before returning."""
 
     def __init__(self, paths: WindowsUpdatePaths | None = None) -> None:
         self._paths = paths or WindowsUpdatePaths.production()
-        self._process: subprocess.Popen[bytes] | None = None
+        self._process = None
         self._lock = threading.Lock()
-        self._stop_requested = False
+        self._stop_deadline: float | None = None
 
     def run(self) -> int:
         command = build_agent_child_command(self._paths)
         with self._lock:
-            if self._stop_requested:
+            if self._stop_deadline is not None:
                 return 0
-            process = subprocess.Popen(  # noqa: S603 - executable is fixed-root validated
-                command,
-                cwd=str(Path(command[0]).parent),
-                stdin=subprocess.PIPE,
-            )
-            self._process = process
-        exit_code = process.wait()
-        with self._lock:
-            self._process = None
+            from pc_agent.platform.windows.core_process import WindowsCoreProcess
+
+            process = self._process = WindowsCoreProcess(command)
+        try:
+            exit_code = self._wait_for_core(process)
+            # Descendants that remain after a normal Core exit also belong to
+            # this instance. They must exit before SCM or the updater can proceed.
+            self._stop_owned_tree(process)
+        finally:
+            with self._lock:
+                self._process = None
+                process.close()
         if exit_code == EXIT_UPDATE_PENDING:
             trigger_pending_updater()
         return exit_code
 
+    def _wait_for_core(self, process) -> int:
+        while True:
+            try:
+                return process.wait(_CORE_POLL_SECONDS)
+            except subprocess.TimeoutExpired:
+                with self._lock:
+                    deadline = self._stop_deadline
+                if deadline is not None and time.monotonic() >= deadline:
+                    # Force is an SCM stop, never a verified update handoff.
+                    return 0
+
+    def _stop_owned_tree(self, process) -> None:
+        if not process.active_processes():
+            return
+        process.terminate_tree()
+        deadline = time.monotonic() + _CORE_KILL_GRACE_SECONDS
+        while process.active_processes():
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Could not verify termination of EndpointAgent Core Job")
+            time.sleep(_CORE_POLL_SECONDS)
+
     def stop(self, *, shutdown: bool = False) -> None:
         with self._lock:
-            self._stop_requested = True
+            if self._stop_deadline is not None:
+                return
+            self._stop_deadline = time.monotonic() + _CORE_STOP_GRACE_SECONDS
             pipe = self._process.stdin if self._process is not None else None
-        if pipe is not None and not pipe.closed:
-            if shutdown:
+            if pipe is not None and not pipe.closed:
                 try:
-                    # Old cores already stop on any byte/EOF. New cores can
-                    # persist SCM's OS shutdown separately from service stop.
-                    pipe.write(b"S")
-                    pipe.flush()
+                    if shutdown:
+                        # Immutable older cores stop on any byte/EOF.
+                        pipe.write(b"S")
                 except (BrokenPipeError, OSError):
                     pass
-            pipe.close()
+                finally:
+                    pipe.close()
 
 
 def run_agent_service() -> int:
@@ -192,7 +221,7 @@ def run_agent_service() -> int:
 
 
 def _parser() -> argparse.ArgumentParser:
-    from pc_agent.platform.windows.installer_host_entry import add_installer_arguments
+    from pc_agent.platform.windows.installer_native_entry import add_installer_arguments
     parser = argparse.ArgumentParser()
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--agent-service", action="store_true")
@@ -202,7 +231,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    from pc_agent.platform.windows.installer_host_entry import run_installer_args
+    from pc_agent.platform.windows.installer_native_entry import run_installer_args
     args = _parser().parse_args(argv)
     result = run_installer_args(args)
     if result is not None:

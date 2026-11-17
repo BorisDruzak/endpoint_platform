@@ -22,6 +22,7 @@ from .campaigns import (
 )
 from endpoint_contracts.json_types import validate_bounded_json
 from endpoint_server.db.models import EnrollmentCampaign
+from .default_campaign import lock_campaign_set
 
 
 router = APIRouter(
@@ -170,6 +171,7 @@ async def create_campaign(
     except ValueError as error:
         raise _invalid("Invalid enrollment campaign") from error
     async with request.app.state.session_provider() as session:
+        await lock_campaign_set(session)
         session.add(issued.record)
         try:
             await append_audit_event(
@@ -258,6 +260,7 @@ async def update_campaign(
     """Change explicit campaign configuration without affecting campaign selection rules."""
     now = datetime.now(UTC)
     async with request.app.state.session_provider() as session:
+        await lock_campaign_set(session)
         result = await session.execute(
             select(EnrollmentCampaign)
             .where(EnrollmentCampaign.id == campaign_id)

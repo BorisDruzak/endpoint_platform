@@ -111,10 +111,10 @@ jobs:
           PY
           python -m pip freeze > artifacts/dependencies.txt
 
-      - name: Run complete server and agent runtime suites
+      - name: Run server and Linux agent runtime suites
         run: >-
           timeout --signal=INT --kill-after=30s 20m
-          python -m pytest tests pc_agent/tests -q -o faulthandler_timeout=120
+          python -m pytest tests pc_agent/tests -q -o faulthandler_timeout=120 --ignore=pc_agent/tests/windows
           --junitxml=artifacts/endpoint-operations-provider.xml
 
       - name: Check generated contract artifacts
@@ -133,6 +133,64 @@ jobs:
           name: endpoint-operations-provider
           path: |
             artifacts/endpoint-operations-provider.xml
+            artifacts/source.json
+            artifacts/dependencies.txt
+          if-no-files-found: error
+
+  windows-release-gate:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install CI dependencies
+        run: python -m pip install -r requirements-ci.txt -r requirements/build-windows.txt
+
+      - name: Record exact source and dependency evidence
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path artifacts | Out-Null
+          $head = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $head -cne $env:GITHUB_SHA) {
+            throw "Checkout differs from dispatched source"
+          }
+          $pythonVersion = (python --version).Trim()
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          [ordered]@{
+            head = $head
+            ref = $env:GITHUB_REF
+            run_id = $env:GITHUB_RUN_ID
+            run_attempt = $env:GITHUB_RUN_ATTEMPT
+            workflow_ref = $env:GITHUB_WORKFLOW_REF
+            python = $pythonVersion
+          } | ConvertTo-Json | Set-Content -Encoding utf8NoBOM artifacts/source.json
+          python -m pip freeze | Set-Content -Encoding utf8NoBOM artifacts/dependencies.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run Windows agent, PowerShell and updater compatibility suites
+        run: >-
+          python -m pytest -q
+          pc_agent/tests/windows
+          tests/deploy/test_keycloak_ad_pilot.py
+          tests/packaging/test_setup_preflight_process.py
+          tests/packaging/test_support_access_signing.py
+          tests/packaging/test_support_staged_payload.py
+          tests/canary/test_legacy_fixture_schema.py
+          --junitxml=artifacts/windows-release-gate.xml
+
+      - name: Upload Windows release-gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release-gate
+          path: |
+            artifacts/windows-release-gate.xml
             artifacts/source.json
             artifacts/dependencies.txt
           if-no-files-found: error

@@ -49,7 +49,7 @@ describe('Русский интерфейс Console', () => {
     expect(screen.getAllByText('3.2.83')).toHaveLength(2)
     expect(screen.getByText('Core новее Foundation · информационно')).toBeTruthy()
     const unknown = screen.getByText('Unknown').closest('tr')!
-    expect(within(unknown).getByText('В сети')).toBeTruthy()
+    expect(within(unknown).getByText('Установка не подтверждена · в сети')).toBeTruthy()
     expect(within(unknown).getByText('Неизвестна')).toBeTruthy()
     fireEvent.change(screen.getByLabelText('Core Agent ниже версии'), { target: { value: '3.2.82' } })
     await vi.waitFor(() => expect(fetchMock.mock.calls.at(-1)?.[0]).toContain('core_outdated=3.2.82'))
@@ -64,27 +64,80 @@ describe('Русский интерфейс Console', () => {
   it('показывает этапы и безопасный последний отчёт без HTML и выдуманных дат', async () => {
     const hostile = '<img src=x onerror=alert(1)>'
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/api/admin/updates/rollouts?')) return jsonResponse({
+        data: [{ id: 'rollout-1', version: '3.2.83', mode: 'canary',
+          platform: 'linux_amd64', status: 'active', counts: {} }], total: 1,
+      })
       if (url.includes('/rollouts/rollout-1?')) return jsonResponse({
         id: 'rollout-1', version: '3.2.83', mode: 'canary', status: 'completed', counts: {},
-        created_at: null, started_at: null, completed_at: null, reason: null, targets_total: 1,
+        created_at: null, started_at: null, completed_at: null, reason: null, targets_total: 3,
         targets: [{ device_id: 'device-1', device_name: 'PC-REPORT', status: 'failed',
           assigned_at: '2026-10-03T08:00:00Z', requested_at: '', scheduled_at: null,
           updated_at: '2026-10-03T08:02:00Z', terminal_at: '2026-10-03T08:02:00Z',
           safe_reason: null, report_status: 'failed', reported_version: '3.2.83',
-          safe_code: hostile, report_created_at: '2026-10-03T08:03:00Z' }],
+          safe_code: hostile, report_created_at: '2026-10-03T08:03:00Z',
+          installation_removed: true, connection_state: 'online' }, {
+          device_id: 'device-2', device_name: 'PC-WAITING', status: 'assigned',
+          assignment_id: 'assignment-2', age_seconds: 18 * 86400, connection_state: 'offline',
+          last_contact_at: '2026-10-01T08:03:00Z',
+        }, {
+          device_id: 'device-3', device_name: 'PC-REQUEST-SAVED', status: 'assigned',
+          requested_at: '2026-10-03T08:01:00Z',
+        }],
       })
       return jsonResponse({ data: [], total: 0 })
     }))
     render(<MemoryRouter initialEntries={['/admin/updates?open=rollout-1']}><UpdatesPage canWrite={false} /></MemoryRouter>)
     const dialog = await screen.findByRole('dialog', { name: 'Развёртывание' })
-    expect(within(dialog).getByText('Запрошено')).toBeTruthy()
-    expect(within(dialog).getByText('Запланировано')).toBeTruthy()
-    expect(within(dialog).getByText('Последний отчёт')).toBeTruthy()
+    expect(within(dialog).getAllByText('Запрошено')).toHaveLength(3)
+    expect(within(dialog).getAllByText('Запланировано')).toHaveLength(3)
+    expect(within(dialog).getAllByText('Последний отчёт')).toHaveLength(3)
+    expect(within(dialog).getByText('Установка удалена')).toBeTruthy()
+    expect(within(dialog).getByText('Нет свежей связи')).toBeTruthy()
+    const waiting = within(dialog).getByRole('link', { name: 'PC-WAITING' }).closest('li')!
+    const requested = within(dialog).getByRole('link', { name: 'PC-REQUEST-SAVED' }).closest('li')!
+    expect(within(waiting).getByText('Запрос агента ещё не поступил')).toBeTruthy()
+    expect(within(requested).queryByText('Запрос агента ещё не поступил')).toBeNull()
+    expect(await screen.findByText('Активно · Linux')).toBeTruthy()
+    expect(within(dialog).getByText('18 дн.')).toBeTruthy()
+    expect(within(dialog).getByText('assignment-2')).toBeTruthy()
+    expect(within(dialog).getByText('rollout-1')).toBeTruthy()
     expect(within(dialog).getByText(hostile)).toBeTruthy()
     expect(dialog.querySelector('img')).toBeNull()
     expect(within(dialog).getAllByText('—').length).toBeGreaterThanOrEqual(2)
     expect(dialog.textContent).not.toContain('Invalid Date')
   })
+  it('повторяет массовую отмену с тем же подтверждённым составом после ошибки сервера', async () => {
+    const bodies: string[] = []
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const expected = { rollout_id: 'bulk-1', paused_at: '2026-11-14T08:00:00Z', target_count: 2, membership_sha256: 'a'.repeat(64) }
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/api/admin/console/session')) return jsonResponse({ username: 'operator', scopes: ['updates:write'], csrf_token: 'test-csrf' })
+      if (url.endsWith('/unrequested-cancellation-context')) return jsonResponse(expected)
+      if (url.endsWith('/cancel-unrequested')) {
+        bodies.push(String(init?.body))
+        return bodies.length === 1
+          ? new Response(JSON.stringify({ detail: 'Неизвестный исход' }), { status: 503, headers: { 'Content-Type': 'application/json' } })
+          : jsonResponse({})
+      }
+      if (url.includes('/rollouts/bulk-1?')) return jsonResponse({
+        id: 'bulk-1', version: '3.2.156', mode: 'bulk', status: bodies.length === 2 ? 'cancelled' : 'paused',
+        counts: { assigned: 2 }, targets_total: 2, targets: [],
+      })
+      return jsonResponse({ data: [], total: 0 })
+    }))
+    await getSession()
+    render(<MemoryRouter initialEntries={['/admin/updates?open=bulk-1']}><UpdatesPage canWrite /></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Отменить незапрошенные назначения' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('Сервер временно недоступен')
+    fireEvent.click(screen.getByRole('button', { name: 'Повторить отмену' }))
+    await vi.waitFor(() => expect(bodies).toHaveLength(2))
+    expect(bodies[0]).toBe(bodies[1])
+    expect(JSON.parse(bodies[0]).expected).toEqual(expected)
+    expect(confirm).toHaveBeenCalledTimes(1)
+    confirm.mockRestore()
+  })
+
   it('закрепляет доступный безопасный результат операции', async () => {
     let pinned = false
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
@@ -119,9 +172,17 @@ describe('Русский интерфейс Console', () => {
     expect(await screen.findByText(/Результат закреплён/)).toBeTruthy()
   })
   it('показывает поля инвентаризации и других профилей понятными подписями', async () => {
+    const observed_at = '2026-09-24T08:00:00Z'
     vi.stubGlobal('fetch', vi.fn(async (url: string) => jsonResponse(
       url.includes('/power?') ? { data: [], total: 0, offset: 0, limit: 20, has_more: false } : url.includes('/context/history?') ? { data: [], has_more: false } : {
-        device: { id: 'device-1', display_name: 'Рабочая станция', device_identifier: 'PC-01', online: true, last_seen_at: null, agent_version: '3.2.63', hostname: 'PC-01', os_name: 'Windows 11', os_version: '11', current_user: 'operator' },
+        device: { id: 'device-1', display_name: 'Рабочая станция', device_identifier: 'PC-01', online: true, last_seen_at: null, agent_version: '3.2.63', hostname: 'PC-01', os_name: 'Windows 11', os_version: '11', current_user: 'operator', component_evidence: {
+          core: { version: '3.2.63', observed_at, fresh: true },
+          foundation: { version: '3.2.62', observed_at, fresh: false },
+          updater: { status: 'inactive', watcher_status: 'active', observed_at, fresh: true },
+          observer: { version: '1.0.11', observed_at, fresh: false, reported_ready: true },
+          user_sensor: { observed_at, fresh: false },
+          support: { component: { version: '1.1.7', observed_at, fresh: true }, access_verified_at: null },
+        } },
         capabilities: [{ capability: 'system.resource_snapshot', display_name_ru: 'Состояние ресурсов системы', category: 'system' }],
         snapshots: [
           { id: 'inventory-1', profile: 'inventory_v1', collected_at: '2026-09-24T08:00:00Z', fresh: true, semantic_hash: null, warnings: [], sections: {
@@ -142,6 +203,15 @@ describe('Русский интерфейс Console', () => {
     </Routes></MemoryRouter>)
 
     await screen.findByRole('heading', { name: 'Рабочая станция' })
+    const components = within(screen.getByRole('region', { name: 'Компоненты агента' }))
+    expect(components.getByText(/3\.2\.62.*Устарело/)).toBeTruthy()
+    expect(components.getByText('Updater')).toBeTruthy()
+    expect(components.getByText(/Не запущен.*Актуально/)).toBeTruthy()
+    expect(components.getByText('Updater · наблюдатель systemd')).toBeTruthy()
+    expect(components.getByText('Активен')).toBeTruthy()
+    expect(components.getByText(/1\.0\.11.*Последний отчёт: готов/)).toBeTruthy()
+    expect(components.getByText('UserSensor')).toBeTruthy()
+    expect(components.getByText('Подтверждение SSH отсутствует')).toBeTruthy()
     expect(screen.getByText(/Пользователь: operator/)).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Поддерживаемые возможности' })).toBeTruthy()
     expect(screen.getByText('system.resource_snapshot')).toBeTruthy()
@@ -319,6 +389,11 @@ describe('Русский интерфейс Console', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Подробнее' })[0])
     expect(await screen.findByRole('heading', { name: 'Этапы регистрации' })).toBeTruthy()
     expect(screen.getByText('Решение оператора')).toBeTruthy()
+    const previous = screen.getByLabelText('Предыдущая карточка после полной очистки (необязательно)')
+    fireEvent.change(previous, { target: { value: 'not-a-device' } })
+    expect((screen.getByRole('button', { name: 'Одобрить со связью с предыдущей карточкой' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.change(previous, { target: { value: '11111111-1111-4111-8111-111111111111' } })
+    expect((screen.getByRole('button', { name: 'Одобрить со связью с предыдущей карточкой' }) as HTMLButtonElement).disabled).toBe(false)
   })
 
   it('загружает следующую страницу внутри очереди регистрации', async () => {

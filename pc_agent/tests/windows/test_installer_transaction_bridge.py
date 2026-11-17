@@ -6,6 +6,152 @@ import pytest
 from pc_agent.tests.windows.test_installer_fence import native_protected_root
 
 
+@pytest.mark.skipif(os.name != 'nt', reason='Windows PowerShell installer finalization')
+def test_offline_same_version_repair_arms_only_the_notification_retry(tmp_path):
+    source = Path(__file__).resolve().parents[3] / 'packaging/windows/Install-EndpointAgentCanary.ps1'
+    script = tmp_path / 'repair-notification.ps1'
+    script.write_text(r"""param($Source)
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [Management.Automation.Language.Parser]::ParseFile($Source, [ref]$tokens, [ref]$errors)
+if ($errors.Count) { throw 'Installer script does not parse' }
+$block = $ast.Find({
+    param($node)
+    $node -is [Management.Automation.Language.IfStatementAst] -and
+        $node.Clauses[0].Item1.Extent.Text -ceq '$null -ne $installationNotification'
+}, $true)
+if ($null -eq $block) { throw 'Installer notification finalization missing' }
+function Invoke-InstallationNotification($HelperPath, $HelperHash, $LaunchDirectory) {
+    if ($HelperPath -cne 'helper' -or $HelperHash -cne 'hash' -or $LaunchDirectory -cne 'launch') {
+        throw 'Wrong notification input'
+    }
+    if ($script:delivery -ceq 'exception') { throw 'Transport unavailable' }
+    return $script:delivery
+}
+function Register-InstallationEventRetry($Bridge) {
+    if ($Bridge.HelperPath -cne 'helper' -or $Bridge.HelperHash -cne 'hash' -or
+        $Bridge.LaunchDirectory -cne 'launch') { throw 'Wrong retry input' }
+    $script:registrations++
+}
+$installationNotification = @{HelperPath='helper'; HelperHash='hash'; LaunchDirectory='launch'}
+$installationNotificationRetry = $true
+$script:registrations = 0
+foreach ($script:delivery in 'pending','exception','delivered') {
+    Invoke-Expression $block.Extent.Text
+}
+if ($script:registrations -ne 2) { throw "Expected two repair retries, observed $script:registrations" }
+$installationNotificationRetry = $false
+$script:delivery = 'pending'
+Invoke-Expression $block.Extent.Text
+if ($script:registrations -ne 2) { throw 'Unexpected registration for a non-repair path' }
+""", encoding='utf-8')
+    result = subprocess.run(
+        ['powershell.exe', '-NoProfile', '-NonInteractive', '-File', str(script), str(source)],
+        capture_output=True, text=True, timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='Windows PowerShell staged cleanup')
+@pytest.mark.parametrize('route', ['direct', 'scheduled', 'accepted'])
+def test_staged_cleanup_uses_live_owner_session_after_trial(tmp_path, route):
+    source = Path(__file__).resolve().parents[3] / 'packaging/windows/Install-EndpointAgentCanary.ps1'
+    script = tmp_path / 'staged-terminal-cleanup.ps1'
+    script.write_text(r"""param($Source, $Route)
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [Management.Automation.Language.Parser]::ParseFile($Source, [ref]$tokens, [ref]$errors)
+if ($errors.Count) { throw 'Installer script does not parse' }
+foreach ($name in 'Complete-StagedTerminalCleanup','Invoke-StagedRecovery') {
+    $function = $ast.Find({
+        param($node)
+        $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name
+    }, $true)
+    Invoke-Expression $function.Extent.Text
+}
+$direct = $ast.Find({
+    param($node)
+    $node -is [Management.Automation.Language.IfStatementAst] -and
+        $node.Clauses[0].Item1.Extent.Text -ceq '$stagedOnline -and $nativeExit -in @(0,67)'
+}, $true)
+$manifest = @{package_sha256=('a'*64)}
+$helperPath = 'helper'
+$helperHash = 'b'*64
+$installerStateRoot = 'state'
+$operation = '0e9b9acb-c298-4ae6-a8a0-2e3fb1f36942'
+$previousServiceStates = @{EndpointAgent='Running'; EndpointAgentUpdater='Stopped'; EndpointBrowserPolicy='Running'}
+$trialBridge = @{Owner='trial-owner'; TransactionId=$operation; HelperPath=$helperPath; HelperHash=$helperHash;
+    Capability=@{package=$manifest}; Policy=@{Alive=$true}}
+$trialBridge.Policy | Add-Member ScriptMethod MarkQuiescent {}
+$trialBridge.Policy | Add-Member ScriptMethod AuthorizeStagedRecovery {}
+$script:fresh = $null
+$script:disposed = 0
+$script:retry = 0
+$script:restored = 0
+Add-Type 'namespace EndpointInstallerBridge { public static class NativeTransaction { public static object EstablishSettlement(object owner) { return owner; } } }'
+function New-InstallerBridge($Manifest, $HelperPath, $HelperHash, $StateRoot, $ServiceStates, $Intent, $TransactionId) {
+    if ($TransactionId -cne $operation -or $Intent -cne 'install' -or
+        $Manifest.package_sha256 -cne ('a'*64) -or $HelperPath -cne 'helper' -or $HelperHash -cne ('b'*64) -or
+        $StateRoot -cne 'state' -or $ServiceStates.EndpointAgent -cne 'Running') { throw 'wrong rollback binding' }
+    if ($script:fresh) { throw 'multiple cleanup sessions' }
+    $policy = @{Alive=$true}
+    $policy | Add-Member ScriptMethod OwnerLost { $this.Alive = $false }
+    $handle = [pscustomobject]@{}
+    $handle | Add-Member ScriptMethod Dispose { $script:disposed++ }
+    $script:fresh = @{TransactionId=$TransactionId; Policy=$policy; Channel=$handle; Owner=$handle; Peers=@($handle)}
+    return $script:fresh
+}
+function Start-ManagedEndpointAgent {}
+function Start-VerifiedBrowserPolicy {}
+function Invoke-InstallerHelper($Bridge, $Phase) {
+    if ($Phase -ceq 'inspect-staged-recovery') {
+        return @{operation_id=$operation; service_states=$previousServiceStates; old_release='old-release'}
+    }
+    if ($Phase -ceq 'recover-staged-owner') { return @{operation_id=$operation; action='trial-required'} }
+    if ($Phase -cne 'restore-staged-companions') { throw "unexpected phase $Phase" }
+    if (!$Bridge.Policy.Alive) { throw 'revoked trial session reused' }
+    $script:restored++
+    return @{users='not-required'; services=@{EndpointAgent='running'; EndpointBrowserPolicy='running'}}
+}
+function Remove-StagedRecoveryTask($Bridge, $StateRoot) {
+    if (!$Bridge.Policy.Alive -or $Bridge.TransactionId -cne $operation -or $StateRoot -cne 'state') {
+        throw 'invalid cleanup session'
+    }
+    $script:retry++
+}
+function ConvertTo-StagedServiceStates($Value) { return $Value }
+function Get-ManagedAgentServiceStates { return @{} }
+function Stop-ManagedAgentServices($PreviousStates, $StoppedBySetup) {}
+function Invoke-StagedHealthTrial($Bridge, $InstallRoot) {
+    $Bridge.Policy.Alive = $false
+    return 'rollback'
+}
+function Invoke-StagedFoundationRollback { return 'rolled-back' }
+if ($Route -ceq 'scheduled') {
+    $nativeExit = Invoke-StagedRecovery $trialBridge $manifest $helperPath $helperHash $installerStateRoot 'cache' $operation 'root' 'media'
+    if ($nativeExit -ne 67) { throw 'wrong recovery exit' }
+} else {
+    $stagedOnline = $true
+    $nativeExit = if ($Route -ceq 'accepted') { 0 } else { 67 }
+    $trialBridge.Policy.Alive = $nativeExit -eq 0
+    Invoke-Expression $direct.Extent.Text
+}
+if ($script:restored -ne 1 -or $script:retry -ne 1) { throw 'staged cleanup was incomplete' }
+if ($Route -ceq 'accepted') {
+    if ($script:fresh -or $script:disposed -ne 0) { throw 'accepted path changed owner session' }
+} elseif (!$script:fresh -or $script:fresh.Policy.Alive -or $script:disposed -ne 3) {
+    throw 'rollback cleanup did not retire the new session'
+}
+""", encoding='utf-8')
+    result = subprocess.run(
+        ['powershell.exe', '-NoProfile', '-NonInteractive', '-File', str(script), str(source), route],
+        capture_output=True, text=True, timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 @pytest.mark.parametrize('phase,native,minutes,allowed',[
     ('prepare',False,31,True),('prepare',False,120,True),
     ('prepare',False,121,True),('prepare',False,239,True),
@@ -255,6 +401,58 @@ def test_reinstall_default_requires_recovery_of_each_local_feature(operation,rec
     else:
         with pytest.raises(ValueError):
             validate_feature_plan(operation,states,rollback_disabled='',recovery=recovery)
+
+
+@pytest.mark.parametrize('states,service_state,startup,live_startup,same_package,valid', [
+    ((3, 5, 3, 3), 'absent', None, None, True, True),
+    ((3, 5, 3, 3), 'stopped', {'start_type': 3}, {'start_type': 4}, True, False),
+    ((3, 5, 3, 3), 'absent', {'start_type': 3}, {'start_type': 4}, True, False),
+    ((3, 5, 3, 3), 'absent', None, {'start_type': 4}, True, False),
+    ((3, 5, 3, 3), 'absent', None, None, False, False),
+    ((3, 5, 3, 5), 'absent', None, None, True, False),
+    ((2, 5, 3, 3), 'absent', None, None, True, False),
+])
+def test_preflight_limits_normal_reinstall_to_the_missing_service_of_the_installed_foundation(
+        monkeypatch, tmp_path, states, service_state, startup, live_startup, same_package, valid):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    from pc_agent.platform.windows import (
+        installation_provenance, installer_data_security, installer_fence,
+        installer_transaction_bridge as bridge, legacy_foundation_upgrade, msi_inventory,
+    )
+
+    package = {'package_sha256': 'a' * 64}
+    cap = {'transaction_id': 'transaction', 'operation': 'install', 'recovery': False,
+           'package': package, 'selected': 'selected', 'previous': None,
+           'service_states': {'EndpointAgent': service_state, 'EndpointAgentUpdater': 'stopped'}}
+    paths = SimpleNamespace(install_root=tmp_path / 'agent')
+    expected = SimpleNamespace(
+        package=SimpleNamespace(sha256='a' * 64, product_code='product',
+                                package_code='package', version='3.2.216'),
+        identity=SimpleNamespace(source_revision='source'),
+    )
+    fence = bridge._public_fence(expected, cap, {'EndpointAgent': startup, 'EndpointAgentUpdater': None})
+    fence['phase'] = 'msi-starting'
+    checked = []
+    monkeypatch.setattr(msi_inventory, 'read_expected_package', lambda *_: expected)
+    monkeypatch.setattr(installer_fence, 'read_fence', lambda *_: fence)
+    monkeypatch.setattr(installation_provenance, 'verified_foundation_release',
+                        lambda *_: package if same_package else {'package_sha256': 'b' * 64})
+    monkeypatch.setattr(legacy_foundation_upgrade, 'verify_native_preflight', lambda *_, **__: None)
+    monkeypatch.setattr(bridge, '_matching_inspection', lambda *_, **__: None)
+    services = SimpleNamespace(assert_quarantined=lambda: None, snapshot=lambda: {'EndpointAgent': live_startup})
+    monkeypatch.setattr(bridge, 'InstallerServices', lambda *_: nullcontext(services))
+    monkeypatch.setattr(installer_data_security, 'before_native', lambda *_: checked.append('native'))
+    client = SimpleNamespace(phase='msi-preflight', capability=cap)
+
+    if valid:
+        assert bridge._execute_authorized_phase(client, paths, feature_states=states, complete=False) == {}
+        assert checked == ['native']
+    else:
+        with pytest.raises(ValueError, match='OWNER_AUTH_FAILED'):
+            bridge._execute_authorized_phase(client, paths, feature_states=states, complete=False)
+        assert checked == []
 
 
 @pytest.mark.parametrize('operation,recovery,states,valid',[

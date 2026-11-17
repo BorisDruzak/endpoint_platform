@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, event, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from endpoint_contracts import (
@@ -1714,6 +1714,48 @@ async def test_failed_result_safely_terminalizes_operation_without_snapshot(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("expired_owner", [None, "command", "operation"])
+async def test_gateway_commits_start_or_returns_cancel_under_deadline_lock(
+    session_provider, expired_owner,
+):
+    device = await seed_device(session_provider)
+    operation = await _seed_operation(
+        session_provider, device_id=device.id, now=datetime.now(UTC) - timedelta(minutes=1),
+    )
+    presence = await _open_session(session_provider, device_id=device.id)
+    envelope = await _deliver_operation(
+        session_provider, device_id=device.id, session_id=presence.session_id,
+    )
+    command_id = envelope.payload.command_id
+    if expired_owner is not None:
+        async with session_provider() as session:
+            persisted = await session.get(EndpointOperation, operation.id)
+            command = await session.get(Command, command_id)
+            expired_at = datetime.now(UTC) - timedelta(seconds=1)
+            if expired_owner == "command":
+                command.expires_at = expired_at
+            else:
+                persisted.deadline_at = expired_at
+            await session.commit()
+    decision = await CommandService(session_provider).record_ack(
+        device_id=device.id, session_id=presence.session_id, start_permission=True,
+        acknowledgement=AgentCommandAckV1(
+            schema_version="agent_command_ack_v1", command_id=command_id, device_id=device.id,
+            status="running", acknowledged_at=datetime.now(UTC),
+        ),
+    )
+    expired = expired_owner is not None
+    assert decision.kind == ("command_cancel" if expired else "command_start")
+    assert decision.payload.command_id == command_id
+    if expired:
+        assert decision.payload.reason == "expired"
+    async with session_provider() as session:
+        persisted = await session.get(EndpointOperation, operation.id)
+        command = await session.get(Command, command_id)
+        assert persisted.status == command.status == ("delivered" if expired else "running")
+
+
+@pytest.mark.asyncio
 async def test_result_received_after_server_deadline_cannot_complete_operation(
     session_provider: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -1751,6 +1793,16 @@ async def test_result_received_after_server_deadline_cannot_complete_operation(
                 completed_at=server_now - timedelta(seconds=2),
             ),
         )
+
+    late = await CommandService(session_provider).record_result(
+        device_id=device.id,
+        device_instance_id=presence.device_instance_id,
+        session_id=presence.session_id,
+        result_sequence=2,
+        result=_diagnostic_result(command_id=envelope.payload.command_id, device_id=device.id),
+        durable_replay=True,
+    )
+    assert late.payload.result_sequence == 2
 
     async with session_provider() as session:
         persisted = await session.get(EndpointOperation, operation.id)
@@ -1912,8 +1964,55 @@ async def test_mismatched_diagnostic_reason_rolls_back_without_result_ack(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("reconnected", [False, True])
+async def test_durable_result_reuses_verified_session_owner(
+    session_provider: async_sessionmaker[AsyncSession],
+    reconnected: bool,
+) -> None:
+    device = await seed_device(session_provider)
+    await _seed_operation(session_provider, device_id=device.id)
+    instance_id = uuid4()
+    delivery_owner = await _open_session(session_provider, device_id=device.id, instance_id=instance_id)
+    delivery = await _deliver_operation(
+        session_provider, device_id=device.id, session_id=delivery_owner.session_id,
+    )
+    result_owner = delivery_owner
+    if reconnected:
+        result_owner = await _open_session(session_provider, device_id=device.id, instance_id=instance_id)
+    result = _diagnostic_result(command_id=delivery.payload.command_id, device_id=device.id)
+    engine = session_provider.kw["bind"].sync_engine
+    owner_lookups = 0
+
+    def count_owner_lookups(_conn, _cursor, statement, _parameters, _context, _many):
+        nonlocal owner_lookups
+        if " ".join(statement.split()).startswith(
+            "SELECT device_sessions.device_instance_id FROM device_sessions "
+        ):
+            owner_lookups += 1
+
+    event.listen(engine, "before_cursor_execute", count_owner_lookups)
+    try:
+        ack = await CommandService(session_provider).record_result(
+            device_id=device.id,
+            device_instance_id=result_owner.device_instance_id,
+            session_id=result_owner.session_id,
+            result_sequence=1,
+            result=result,
+            durable_replay=True,
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", count_owner_lookups)
+
+    assert ack.payload.command_id == delivery.payload.command_id
+    assert ack.payload.result_sequence == 1
+    assert owner_lookups == int(reconnected)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("first_result_after_reconnect", [False, True])
 async def test_reconnect_duplicate_is_idempotent_but_conflicting_result_rejects(
     session_provider: async_sessionmaker[AsyncSession],
+    first_result_after_reconnect: bool,
 ) -> None:
     """Reconnect replay may recover an ACK but must never replace terminal content."""
     device = await seed_device(session_provider)
@@ -1934,13 +2033,14 @@ async def test_reconnect_duplicate_is_idempotent_but_conflicting_result_rejects(
         command_id=first_delivery.payload.command_id,
         device_id=device.id,
     )
-    await service.record_result(
-        device_id=device.id,
-        device_instance_id=first.device_instance_id,
-        session_id=first.session_id,
-        result_sequence=9,
-        result=result,
-    )
+    if not first_result_after_reconnect:
+        await service.record_result(
+            device_id=device.id,
+            device_instance_id=first.device_instance_id,
+            session_id=first.session_id,
+            result_sequence=9,
+            result=result,
+        )
     reconnected = await _open_session(
         session_provider,
         device_id=device.id,
@@ -1953,6 +2053,7 @@ async def test_reconnect_duplicate_is_idempotent_but_conflicting_result_rejects(
         session_id=reconnected.session_id,
         result_sequence=1,
         result=result,
+        durable_replay=first_result_after_reconnect,
     )
     assert duplicate_ack.payload.result_sequence == 1
     conflicting = result.model_copy(update={"message": "conflicting terminal replay"})
@@ -1963,6 +2064,7 @@ async def test_reconnect_duplicate_is_idempotent_but_conflicting_result_rejects(
             session_id=reconnected.session_id,
             result_sequence=2,
             result=conflicting,
+            durable_replay=first_result_after_reconnect,
         )
     different_instance = await _open_session(
         session_provider,
@@ -1976,6 +2078,7 @@ async def test_reconnect_duplicate_is_idempotent_but_conflicting_result_rejects(
             session_id=different_instance.session_id,
             result_sequence=1,
             result=result,
+            durable_replay=first_result_after_reconnect,
         )
 
     async with session_provider() as session:

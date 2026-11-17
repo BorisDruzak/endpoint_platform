@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,7 +15,10 @@ from endpoint_contracts.gateway_ws import (
 )
 
 
+logger = logging.getLogger(__name__)
 _SESSION_REPLACED_CLOSE_CODE = 4001
+_NOTICE_TIMEOUT_SECONDS = 0.5
+_CLOSE_TIMEOUT_SECONDS = 1.0
 
 
 class RegistryCapacityExceeded(RuntimeError):
@@ -80,6 +84,10 @@ class GatewayConnection:
     effective_capabilities: frozenset[str] = frozenset()
     protocol_features: frozenset[str] = frozenset()
     send_lock: asyncio.Lock = field(default_factory=asyncio.Lock, compare=False, repr=False)
+    ready_for_dispatch: asyncio.Event = field(default_factory=asyncio.Event, compare=False, repr=False)
+    session_closed_by_replacement: asyncio.Event = field(
+        default_factory=asyncio.Event, compare=False, repr=False,
+    )
 
     async def send(self, envelope: object) -> None:
         """Serialize control and command writes on one active WebSocket."""
@@ -96,23 +104,41 @@ class ConnectionRegistry:
         self._max_connections = max_connections
         self._connections: dict[UUID, GatewayConnection] = {}
         self._lock = asyncio.Lock()
+        # Fixed-size stripes bound memory even during bursts of new device IDs.
+        self._handshake_locks = tuple(asyncio.Lock() for _ in range(256))
 
     @property
     def connection_count(self) -> int:
         return len(self._connections)
 
-    async def register(
+    def handshake_lock(self, device_id: UUID) -> asyncio.Lock:
+        """Serialize the durable open and registry publication for a device."""
+        return self._handshake_locks[device_id.int % len(self._handshake_locks)]
+
+    async def require_capacity(self, device_id: UUID) -> None:
+        async with self._lock:
+            self._require_capacity(device_id)
+
+    def _require_capacity(self, device_id: UUID) -> None:
+        if device_id not in self._connections and len(self._connections) >= self._max_connections:
+            raise RegistryCapacityExceeded("gateway connection capacity reached")
+
+    async def publish(
         self, connection: GatewayConnection
     ) -> GatewayConnection | None:
         async with self._lock:
             previous = self._connections.get(connection.device_id)
-            if previous is None and len(self._connections) >= self._max_connections:
-                raise RegistryCapacityExceeded("gateway connection capacity reached")
+            self._require_capacity(connection.device_id)
             self._connections[connection.device_id] = connection
         if previous is not None and previous.session_id != connection.session_id:
-            await self._replace(previous)
             return previous
         return None
+
+    async def register(self, connection: GatewayConnection) -> GatewayConnection | None:
+        previous = await self.publish(connection)
+        if previous is not None:
+            await self.close_replaced(previous)
+        return previous
 
     async def unregister(self, device_id: UUID, session_id: UUID) -> None:
         async with self._lock:
@@ -134,10 +160,12 @@ class ConnectionRegistry:
         async with self._lock:
             connections = tuple(self._connections.values())
             self._connections.clear()
-        for connection in connections:
-            await self._shutdown(connection, "server_shutdown", 1001)
+        await asyncio.gather(*(
+            self._shutdown(connection, "server_shutdown", 1001)
+            for connection in connections
+        ))
 
-    async def _replace(self, connection: GatewayConnection) -> None:
+    async def close_replaced(self, connection: GatewayConnection) -> None:
         await self._shutdown(
             connection,
             "session_replaced",
@@ -161,13 +189,21 @@ class ConnectionRegistry:
             ),
         )
         try:
-            await connection.send(notice)
-        except Exception:
-            pass
+            async with asyncio.timeout(_NOTICE_TIMEOUT_SECONDS):
+                await connection.send(notice)
+        except Exception as error:
+            logger.warning(
+                "Gateway socket cleanup reason=%s stage=notice error=%s session_id=%s",
+                reason, type(error).__name__, connection.session_id,
+            )
         try:
-            await connection.websocket.close(code=close_code)
-        except Exception:
-            pass
+            async with asyncio.timeout(_CLOSE_TIMEOUT_SECONDS):
+                await connection.websocket.close(code=close_code)
+        except Exception as error:
+            logger.warning(
+                "Gateway socket cleanup reason=%s stage=close error=%s session_id=%s",
+                reason, type(error).__name__, connection.session_id,
+            )
 
 
 __all__ = [

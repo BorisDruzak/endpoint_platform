@@ -28,6 +28,8 @@ from pc_agent.version import AGENT_VERSION
 
 __all__ = ["RuntimeSettings", "run_runtime", "run_verify"]
 
+_SERVICE_CHILD_STOP_SECONDS = 5.0
+
 
 def _log_enrollment_refusal(reason: str) -> None:
     """Emit only a bounded, credential-free first-boot refusal reason."""
@@ -41,6 +43,14 @@ def _configuration_exit_code() -> int:
 
 async def _run_runtime_after_first_boot_enrollment(settings: RuntimeSettings) -> int:
     """Exchange the fixed systemd claim before starting the Gateway runtime."""
+    enrollment_only = os.environ.get("ENDPOINT_AGENT_ENROLLMENT_ONLY") == "1"
+    if enrollment_only and (
+        sys.platform != "linux"
+        or not settings.package_managed_updates
+        or os.environ.get("ENDPOINT_AGENT_ENROLLMENT_REQUIRED") != "1"
+    ):
+        _log_enrollment_refusal("invalid_enrollment_only_mode")
+        return _configuration_exit_code()
     if os.environ.get("ENDPOINT_AGENT_ENROLLMENT_REQUIRED", "") != "1":
         return await run_runtime(settings)
     try:
@@ -67,6 +77,11 @@ async def _run_runtime_after_first_boot_enrollment(settings: RuntimeSettings) ->
     if outcome.status not in {"enrolled", "already_enrolled", "handoff_pending"}:
         _log_enrollment_refusal(outcome.status)
         return _configuration_exit_code() if outcome.status in {'credential_invalid','denied'} else 75
+    if enrollment_only:
+        if outcome.status == "handoff_pending":
+            _log_enrollment_refusal(outcome.status)
+            return 75
+        return 0
     return await run_runtime(settings)
 
 
@@ -156,11 +171,15 @@ async def _run_service_child(settings: RuntimeSettings) -> int:
     if runtime.done():
         return await runtime
     runtime.cancel()
+    stopped, _ = await asyncio.wait({runtime}, timeout=_SERVICE_CHILD_STOP_SECONDS)
+    if not stopped:
+        # asyncio.run would wait indefinitely for a task that ignores
+        # cancellation. The fixed service host owns and reaps our Job.
+        os._exit(0)
     try:
-        await runtime
+        return runtime.result()
     except asyncio.CancelledError:
-        pass
-    return 0
+        return 0
 
 
 async def _record_service_shutdown(settings: RuntimeSettings) -> None:
@@ -202,6 +221,11 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--fallback-endpoint-origin",
+        default=os.environ.get("ENDPOINT_AGENT_FALLBACK_ORIGIN", "").strip() or None,
+        help="use this trusted HTTPS Endpoint origin when the primary WSS route is unavailable",
+    )
+    parser.add_argument(
         "--transport-mode",
         choices=("gateway_http_pull", "gateway_wss"),
         default=os.environ.get(
@@ -216,6 +240,11 @@ def _parser() -> argparse.ArgumentParser:
         ).strip().lower()
         in {"1", "true", "yes"},
         help="temporarily use same-origin HTTP pull only when WSS is unavailable",
+    )
+    parser.add_argument(
+        "--package-managed-updates",
+        action="store_true",
+        help="leave binary updates to the Linux system package manager",
     )
     parser.add_argument(
         "--network-probe-allowed-cidr",
@@ -238,12 +267,18 @@ def _parser() -> argparse.ArgumentParser:
     modes.add_argument("--verify", action="store_true")
     modes.add_argument("--print-safe-status", action="store_true")
     modes.add_argument("--print-version", action="store_true")
+    modes.add_argument("--print-build-identity", action="store_true")
+    modes.add_argument("--print-server-health", action="store_true")
     modes.add_argument("--print-hardware-fingerprint", action="store_true")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments == ["--gateway-command-worker"]:
+        from pc_agent.runtime.command_worker import worker_main
+
+        return worker_main()
     if arguments == ["--windows-power-read"]:
         from pc_agent.platform.windows.power_events import read_worker_main
 
@@ -270,6 +305,43 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.print_version:
         print(AGENT_VERSION)
         return 0
+    if args.print_build_identity:
+        import json
+
+        if sys.platform != "linux" or not getattr(sys, "frozen", False):
+            return 2
+        try:
+            identity_path = Path(sys._MEIPASS) / "endpoint-core-build.json"
+            with identity_path.open("rb") as source:
+                raw = source.read(257)
+                identity = json.loads(raw.decode("ascii")) if len(raw) <= 256 else None
+        except (OSError, ValueError):
+            return 2
+        if not isinstance(identity, dict) or set(identity) != {"source_revision", "pyinstaller_version"}:
+            return 2
+        revision, pyinstaller = identity["source_revision"], identity["pyinstaller_version"]
+        if (
+            not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision)
+            or not isinstance(pyinstaller, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", pyinstaller)
+        ):
+            return 2
+        print(json.dumps({
+            "schema_version": "endpoint_linux_core_build_v2",
+            "version": AGENT_VERSION,
+            "source_revision": revision,
+            "python_version": ".".join(map(str, sys.version_info[:3])),
+            "pyinstaller_version": pyinstaller,
+        }))
+        return 0
+    if args.print_server_health:
+        from pc_agent.context_profiles.probe import SystemProbe
+        from pc_agent.context_profiles.server_health import collect_server_health
+
+        server = collect_server_health(SystemProbe())
+        if server is None:
+            return 2
+        print(server.model_dump_json())
+        return 0
     if args.print_hardware_fingerprint:
         print(derive_linux_hardware_fingerprint())
         return 0
@@ -295,6 +367,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         endpoint_origin=endpoint_origin,
         transport_mode=args.transport_mode,
         migration_http_pull_fallback=args.migration_http_pull_fallback,
+        package_managed_updates=args.package_managed_updates,
+        fallback_endpoint_origin=args.fallback_endpoint_origin,
         launcher_version=args.launcher_version,
         network_probe_allowed_cidrs=_network_probe_values(
             args.network_probe_allowed_cidrs,
@@ -312,7 +386,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.windows_service_child:
         return asyncio.run(_run_service_child(settings))
     if args.verify:
-        return run_verify(settings)
+        verified = run_verify(settings)
+        if verified:
+            return verified
+        from pc_agent.platform.windows.setup_update_bootstrap import bootstrap_setup_client
+        return bootstrap_setup_client(settings)
     if args.print_safe_status:
         from pc_agent.platform.windows.service import print_safe_status
 

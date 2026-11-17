@@ -100,8 +100,182 @@ paths:
             "application/json":
               schema:
                 "$ref": "#/components/schemas/UpdateCancellationUnavailableV1"
+  "/api/admin/updates/rollouts/{rollout_id}/unrequested-cancellation-context":
+    get:
+      tags:
+        - "admin-updates"
+      summary: "Get Unrequested Cancellation Context"
+      operationId: "get_unrequested_cancellation_context_api_admin_updates_rollouts__rollout_id__unrequested_cancellation_context_get"
+      security:
+        -
+          UpdateAdminCookie: []
+      parameters:
+        -
+          name: "rollout_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Rollout Id"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/UnrequestedBulkCancellationContext"
+        "401":
+          description: "Invalid administrator session"
+        "403":
+          description: "CSRF or persisted updates:write denied"
+        "404":
+          description: "Absent rollout"
+        "409":
+          description: "Cancellation context conflicts"
+        "422":
+          description: "Invalid bounded input"
+        "503":
+          description: "Bounded failure; retry the identical request to resolve an unknown outcome"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/UpdateCancellationUnavailableV1"
+  "/api/admin/updates/rollouts/{rollout_id}/cancel-unrequested":
+    post:
+      tags:
+        - "admin-updates"
+      summary: "Cancel Bulk Rollout"
+      description: "Retire a paused bulk rollout before delivery; requires updates:write."
+      operationId: "cancel_bulk_rollout_api_admin_updates_rollouts__rollout_id__cancel_unrequested_post"
+      security:
+        -
+          UpdateAdminCookie: []
+      parameters:
+        -
+          name: "rollout_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Rollout Id"
+        -
+          name: "x-csrf-token"
+          in: "header"
+          required: true
+          description: "Mandatory per-session CSRF token; enforced within bounded authentication"
+          schema:
+            type: "string"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/UnrequestedBulkCancellationRequest"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/UnrequestedBulkCancellationReceipt"
+        "401":
+          description: "Invalid administrator session"
+        "403":
+          description: "CSRF or persisted updates:write denied"
+        "404":
+          description: "Absent rollout"
+        "409":
+          description: "Cancellation context conflicts"
+        "422":
+          description: "Invalid bounded input"
+        "503":
+          description: "Bounded failure; retry the identical request to resolve an unknown outcome"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/UpdateCancellationUnavailableV1"
 components:
   schemas:
+    UnrequestedBulkCancellationContext:
+      properties:
+        rollout_id:
+          not:
+            const: "00000000-0000-0000-0000-000000000000"
+          type: "string"
+          format: "uuid"
+          title: "Rollout Id"
+        paused_at:
+          type: "string"
+          format: "date-time"
+          title: "Paused At"
+        target_count:
+          type: "integer"
+          maximum: 10000.0
+          minimum: 1.0
+          title: "Target Count"
+        membership_sha256:
+          type: "string"
+          maxLength: 64
+          minLength: 64
+          pattern: "^[0-9a-f]{64}(?![\\s\\S])"
+          title: "Membership Sha256"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "rollout_id"
+        - "paused_at"
+        - "target_count"
+        - "membership_sha256"
+      title: "UnrequestedBulkCancellationContext"
+    UnrequestedBulkCancellationReceipt:
+      properties:
+        cancellation_id:
+          not:
+            const: "00000000-0000-0000-0000-000000000000"
+          type: "string"
+          format: "uuid"
+          title: "Cancellation Id"
+        rollout_id:
+          not:
+            const: "00000000-0000-0000-0000-000000000000"
+          type: "string"
+          format: "uuid"
+          title: "Rollout Id"
+        target_count:
+          type: "integer"
+          maximum: 10000.0
+          minimum: 1.0
+          title: "Target Count"
+        cancelled_at:
+          type: "string"
+          format: "date-time"
+          title: "Cancelled At"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "cancellation_id"
+        - "rollout_id"
+        - "target_count"
+        - "cancelled_at"
+      title: "UnrequestedBulkCancellationReceipt"
+    UnrequestedBulkCancellationRequest:
+      properties:
+        expected:
+          "$ref": "#/components/schemas/UnrequestedBulkCancellationContext"
+        cancellation_id:
+          not:
+            const: "00000000-0000-0000-0000-000000000000"
+          type: "string"
+          format: "uuid"
+          title: "Cancellation Id"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "expected"
+        - "cancellation_id"
+      title: "UnrequestedBulkCancellationRequest"
     UpdateCancellationUnavailableV1:
       properties:
         code:

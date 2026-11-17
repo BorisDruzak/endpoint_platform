@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 
 from endpoint_server.context.models import ContextCurrent, ContextDiff, ContextSnapshot, DeviceEvent
 from endpoint_server.context.ingestion import ingest_context_result
+from endpoint_server.context.projection import snapshot_projection
 
 from .test_collection_lifecycle import _result, session
 
@@ -25,6 +26,29 @@ async def test_duplicate_result_creates_one_snapshot(session) -> None:
 
     assert first.id == second.id
     assert await _snapshot_count(session, first.device_id) == 1
+
+
+async def test_server_health_is_persisted_and_exposed_to_admin_only(session) -> None:
+    record, result = await _result(session, profile="health_v1")
+    expected = {
+        "role": "endpoint_platform",
+        "services": [{"name": "nginx.service", "status": "ok", "observed_state": "active/running"}],
+        "volumes": [{"mount": "/", "status": "critical", "used_percent": 99,
+                     "total_bytes": 1048576000, "free_bytes": 10485760}],
+        "applications": [{"name": "endpoint_api_health", "status": "ok", "http_status": 200}],
+    }
+    result.result_items[0]["sections"] = {
+        "resources": {"uptime_seconds": 10, "load_1m": 0, "free_bytes": 1},
+        "services": [],
+        "server": expected,
+    }
+    collection = await ingest_context_result(session, record.id, result)
+    snapshot = await session.scalar(
+        select(ContextSnapshot).where(ContextSnapshot.collection_id == collection.id)
+    )
+    assert collection.status == "completed"
+    assert snapshot_projection(snapshot, include_server_health=True)["sections"]["server"] == expected
+    assert "server" not in snapshot_projection(snapshot)["sections"]
 
 
 async def test_equivalent_later_baseline_does_not_create_another_snapshot(session) -> None:

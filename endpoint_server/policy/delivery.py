@@ -84,7 +84,8 @@ async def prepare_policy_delivery(
         acknowledged_at = (acknowledged_at.replace(tzinfo=UTC) if acknowledged_at.tzinfo is None
                            else acknowledged_at.astimezone(UTC))
     retry_readiness = (
-        state.status == 'ERROR' and state.error_code == 'SENSOR_NOT_READY'
+        state.status == 'ERROR'
+        and state.error_code in {'SENSOR_NOT_READY', 'BROWSER_POLICY_HELPER_UNAVAILABLE'}
         and acknowledged_at is not None
         and datetime.now(UTC) - acknowledged_at >= _SENSOR_READINESS_RETRY
     )

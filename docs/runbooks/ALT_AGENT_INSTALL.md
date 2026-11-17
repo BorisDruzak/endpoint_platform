@@ -6,18 +6,23 @@ CA trust, credentials and configuration are provisioned separately.
 
 ## Current native RPM workstation path
 
-For the signed 3.2.127-2 native distribution kit, use
-`packaging/alt/pilot/README.ru.md` and `tools/build_alt_pilot_kit.py`.
-It includes the separately installed CUPS repair and rollback/source RPMs,
-publisher RPM signatures, detached archive/manifest signatures and read-only
-preflight. Its public signing key requires independent fingerprint verification;
-environment CA and unique enrollment are supplied separately. A fresh install
-in a container is supplemental evidence, not acceptance on a separate test PC.
+The published native release is **3.2.183**, with independent Support1.0.0.
+Use [Linux native Setup](LINUX_NATIVE_SETUP.md) and the exact
+[release record](../releases/linux-3.2.183-native.json) for signed bytes, installation,
+ordinary removal/reinstall, offline recovery and qualification limits. The canonical
+coordinator verifies both RPMs and owns the known-native result. Existing-identity
+upgrades preserve UUID/credential/history. A fresh install requires separately
+approved bounded Linux enrollment authority; publication creates no new campaign.
 
-For the current headless Core layout, follow `packaging/alt/README.md` and build
-on ALT with `bash packaging/alt/build-rpm.sh --with-user-sensor`. Install the Core
-and optional user-sensor RPM together. The legacy offline layout documented below
-remains a separate path; do not run it against the current RPM release tree.
+The historical3.2.127-2 kit and its separate CUPS repair/rollback/source RPMs remain
+archived under `packaging/alt/pilot/README.ru.md`. Keep their original qualification
+and package ownership separate. Native183 media does not include a new CUPS release.
+
+Build the current headless layout on ALT using `packaging/alt/README.md` and
+`bash packaging/alt/build-rpm.sh --with-user-sensor`; freeze/review/sign its exact
+source before distribution. Install the paired archives through native Setup.
+Core-only runtime OTA must preserve RPM-owned privileged helpers and units.
+The legacy offline layout below remains a separate historical procedure.
 
 The optional package supplies KDE autostart and the restricted browser helper.
 For a session already running during installation, execute
@@ -187,8 +192,36 @@ it will not use an external artifact host. Before assigning a canary, place
 the reviewed `.tar.gz` file under the controller's root-owned `ARTIFACT_ROOT`
 using the exact `artifact_name` registered in the immutable build manifest.
 The controller serves it at `/agent/v1/updates/artifacts/{build_identifier}`
-only to the device that has an active target for that build. Verify the
-lifecycle in this order: `requested`, `scheduled`, service restart, then
+only to the device that has an active target for that build.
+
+Authorize the exact OTA release on each canary host before assigning it. Create
+a UTF-8 JSON object with exactly these fields:
+
+| Field | Value |
+| --- | --- |
+| `schema_version` | `endpoint_alt_ota_v1` |
+| `target`, `channel`, `archive_type` | `linux_amd64`, `canary`, `tar.gz` |
+| `version` | Exact version in the frozen archive manifest |
+| `source_revision` | Full lowercase 40-character Git revision in that manifest |
+| `sha256`, `size` | SHA-256 of the compressed archive and its integer byte size |
+
+The offline publisher produces a binary detached signature over the exact JSON
+bytes using the pinned Endpoint RPM signing key and SHA-256. Install the JSON as
+`/etc/endpoint-agent/ota-authorizations/<archive-sha256>.json` and its signature
+alongside it with the `.json.sig` suffix. The administrator installs both as
+root:root with mode `0644` and keeps the directory root:root with mode `0755`.
+The launcher verifies both files using the pinned key supplied by the signed
+RPM at `/usr/share/endpoint-agent/endpoint-rpm-release.asc`. Rollback uses the
+existing root-owned previous selector. A generic launcher deployment needs the
+same independently provisioned public key before using OTA.
+
+The launcher checks authorization before opening the archive, copies the
+compressed bytes into a private file descriptor, checks its digest and expands
+only that copy. The inspected archive manifest must match the authorized source.
+Missing authorization or a bad signature rejects the operation before stopping
+Core. Use the signed native RPM workflow to deploy the fixed launcher itself.
+
+Verify the lifecycle in this order: `requested`, `scheduled`, service restart, then
 `applied` (or `failed`/`rolled_back`). A `scheduled` acknowledgement alone is
 not success. Pausing a rollout stops new recommendations and acknowledgements,
 but an already assigned target may still submit its terminal launcher outcome;
@@ -214,6 +247,12 @@ PyInstaller's generated `base_library.zip`, with SHA-256 and POSIX mode for
 every regular file. The installer accepts either this exact headless shape or
 the retained legacy launcher/`pc_agent` shape, never a mixture.
 
+The online agent verifies the artifact and persists the assigned and rollback
+identities in its operation journal before publishing the watched
+`pending_alt_update.json`. Publication fsyncs the file and updates directory.
+The scheduled acknowledgement can be retried after restart, including when
+the watcher stops the online agent immediately after the rename.
+
 The agent service itself remains the dedicated unprivileged `endpoint-agent`
 account and cannot write `/opt/endpoint-agent`. A root-owned
 `endpoint-agent-update.path` watches the fixed ALT pending update and fixed
@@ -227,13 +266,38 @@ request cleanup. A failed selector replacement restores the former
 `previous.json` record. If that authority is missing or inconsistent on replay,
 the worker quarantines the pending record and publishes a fixed failure record
 instead of leaving the path unit in an activation loop.
-The companion one-shot worker validates the request metadata, stops the agent,
-and invokes only the fixed stable launcher. Rollback mode compares the request
+The root update helper asks the fixed stable launcher to check the archive
+before stopping Core. The limits are 512 MiB compressed, 512 MiB per file,
+2 GiB expanded payload, and 1,024 archive members. The helper checks bytes
+and inodes on the release staging and update state filesystems with a 64 MiB
+margin on each. Existing release directories count as used space. The launcher
+checks capacity again before staging. A preflight rejection records the
+operation outcome when update state is writable and leaves Core running. If
+state writes fail, the pending request remains and systemd records the failure.
+The 180-second updater service timeout covers preflight and publication.
+
+Rollback mode compares the request
 to root-owned `current.json` and `previous.json`, re-verifies the exact previous
 manifest, files, hashes and modes, and atomically replaces only `current.json`.
 It writes the terminal `startup_crash_rollback` marker only after selector
-publication; rejected requests leave the selector unchanged. The worker starts
-the unprivileged service again after a handled request.
+publication; rejected requests leave the selector unchanged.
+
+The updater records the current boot ID in a root-only stop receipt before
+stopping an active, enabled Core. systemd runs its recovery hook after normal
+exit, timeout or a killed helper. The hook starts Core only while the receipt
+is current and the unit is still enabled. It preserves a queued conflicting
+stop and verifies the service is active before clearing the receipt. A stale
+receipt from a prior boot is discarded. On boot, ordinary service enablement
+starts the selected Core and the path unit can replay the request. A pending
+request does not prevent the unprivileged launcher from starting the selected
+Core. systemd bounds repeated helper activations with a start limit.
+
+Run `tests/deploy/verify_alt_update_recovery.py` with the helper and service
+source paths on a dedicated ALT systemd host to verify the recovery hook with
+isolated units. The harness checks SIGKILL, systemd timeout, enablement,
+synthetic selector preservation and an unchanged Core PID after preflight
+rejection. Verify actual RPM installation and power-loss
+recovery separately.
 
 If interrupted after selector publication, the next fixed-request activation
 idempotently finishes the terminal marker and cleanup. Rollback state I/O pins

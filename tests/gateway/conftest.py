@@ -48,7 +48,7 @@ PEPPER = b"gateway-device-pepper"
 VALID_TOKEN = "gateway-valid-device-token"
 _GATEWAY_TABLES = (
     ServiceClient.__table__,
-    Device.__table__,
+    Device.metadata.tables["installation_states"], Device.__table__,
     DeviceCredential.__table__,
     DeviceInstance.__table__,
     DeviceSession.__table__,

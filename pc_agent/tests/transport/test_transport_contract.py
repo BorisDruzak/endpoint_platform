@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import pytest
@@ -76,8 +76,11 @@ def _hello() -> AgentHelloV1:
 class _InMemoryGatewayTransport:
     """A transport fake that exercises the public GatewayTransport contract."""
 
+    sequential_command_polling = True
+
     def __init__(self, events: list[str]) -> None:
         self._events = events
+        self._created_at = datetime.now(UTC)
 
     async def connect(self, hello: AgentHelloV1) -> GatewayHelloV1:
         self._events.append("connect")
@@ -122,8 +125,8 @@ class _InMemoryGatewayTransport:
                     "parameters": {},
                     "requested_by_service": "transport-test",
                     "idempotency_key": "transport-command-402",
-                    "created_at": "2026-08-01T00:00:00+00:00",
-                    "deadline_at": "2026-08-01T00:01:00+00:00",
+                    "created_at": self._created_at.isoformat(),
+                    "deadline_at": (self._created_at + timedelta(minutes=1)).isoformat(),
                 },
             }
         )

@@ -1,0 +1,3 @@
+#!/bin/sh
+# Fixed native-owned entry point; no Core selector or runtime imports.
+exec /usr/lib/endpoint-agent-setup/endpoint-agent-setup "$@"

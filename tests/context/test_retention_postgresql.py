@@ -18,7 +18,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from endpoint_server.context.models import ContextCollection, ContextCurrent, ContextSnapshot
-from endpoint_server.context.retention import retain_context_snapshots
+from endpoint_server.context.retention import cleanup_raw_context_payloads_with_backlog, retain_context_snapshots
 from endpoint_server.db.models import Device
 
 
@@ -163,5 +163,32 @@ async def test_retention_waits_for_the_same_postgresql_profile_lock(
         async with factory() as verification_session:
             remaining = set(await verification_session.scalars(select(ContextSnapshot.id)))
         assert {previous.id, current.id} <= remaining
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_raw_cleanup_age_counts_only_rows_in_its_postgresql_batch(postgresql_url):
+    engine = create_async_engine(postgresql_url)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with factory.begin() as seed:
+            _, previous, current = await _seed(seed)
+            for snapshot, received_at in (
+                (previous, NOW - timedelta(minutes=30)), (current, NOW),
+            ):
+                collection = await seed.get(ContextCollection, snapshot.collection_id)
+                collection.result_received_at = received_at
+        async with factory.begin() as holder:
+            await holder.scalar(
+                select(ContextSnapshot).where(ContextSnapshot.id == previous.id).with_for_update()
+            )
+            async with factory.begin() as cleanup:
+                async with asyncio.timeout(3):
+                    batch = await cleanup_raw_context_payloads_with_backlog(cleanup, now=NOW + timedelta(hours=2))
+                assert (batch.collections, batch.snapshots, batch.oldest_due_age_seconds) == (0, 1, 3600)
+        async with factory.begin() as cleanup:
+            batch = await cleanup_raw_context_payloads_with_backlog(cleanup, now=NOW + timedelta(hours=2))
+            assert (batch.collections, batch.snapshots, batch.oldest_due_age_seconds) == (0, 1, 5400)
     finally:
         await engine.dispose()

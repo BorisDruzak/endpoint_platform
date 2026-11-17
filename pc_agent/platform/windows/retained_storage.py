@@ -168,6 +168,40 @@ def _verify_residue(root, record):
             _fail()
 
 
+def begin_native_recapture(paths, archive, expected):
+    """Called only after exact current native package/source/capture validation."""
+    if not _present(archive / 'receipt.json'):
+        if _present(archive / 'storage.json'):
+            _fail()
+        return None
+    captured, record, receipt_hash = _capture(paths, archive.name)
+    if captured != archive or record != expected:
+        _fail()
+    value = _read_storage(archive, record, receipt_hash)
+    if value is None:
+        return None
+    durable_state.installer_mutation_checkpoint(required=True)
+    # A native reinstall cannot resume an unsettled publication.
+    if value['phase'] not in {'published', 'staged'}:
+        _fail()
+    if value['legacy_materialization'] == 'complete':
+        from .runtime_identity import verify_retained_archive
+        verify_retained_archive(paths, archive.name)
+    payload = archive / 'payload'
+    if _present(payload):
+        _verify_residue(payload, record)
+    if value['phase'] == 'staged':
+        return None
+    value = {**value, 'legacy_materialization': 'copying'}
+    _write(archive, value)
+    return value
+
+
+def complete_native_recapture(archive, value):
+    # Caller has revalidated both complete trees, marker and native inventory.
+    _write(archive, {**value, 'legacy_materialization': 'complete'})
+
+
 def promote_retained_payload(paths, archive_id: str, operation_id: str) -> Path:
     from .msi_inventory import NativeMsi
     from .runtime_identity import verify_retained_archive, verify_retained_runtime, _retained_bytes

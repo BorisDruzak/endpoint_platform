@@ -66,6 +66,7 @@ def begin_staged_trial(paths, operation_id: str, *, owner=None) -> str:
             or core.identity.source_revision != binding.candidate_source_revision
             or core.identity.tree_sha256 != binding.candidate_tree_sha256):
         raise ValueError('PROVENANCE_CONFLICT')
+    raw = provenance._selector_bytes(core.identity)
     observed = paths.current_path.read_bytes()
     if observed != binding.selected_before and state._selector(observed) != selector:
         raise ValueError('PROVENANCE_CONFLICT')

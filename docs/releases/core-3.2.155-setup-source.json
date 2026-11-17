@@ -1,0 +1,17 @@
+{
+  "version": "3.2.155",
+  "purpose": "Immutable compatible Core return for Foundation156 full Setup preparation",
+  "primary_release": false,
+  "build_identifier": "endpoint-windows-core-3.2.155-setup-source-725739f",
+  "source_revision": "725739f19757d13942658fc07b8489b799b9f520",
+  "minimum_foundation_version": "3.2.155",
+  "archive_sha256": "f000675abfa68210dc54b5cdfcb7c1b2a95ff83677a06fa8d7c7c1369ba4decd",
+  "archive_size": 22851526,
+  "original_msi_sha256": "0fdfcc917e4e23d7efd8283da566c2e30044b41da563a5313b72874d55877715",
+  "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+  "verification": "Original signed MSI inventory, exact release binding and full ZIP/runtime tree verified; unchanged archive applied as canonical return on clean Foundation156 before successful full Setup158.",
+  "update_build_id": "7300a086-1d3e-49a1-947b-0c41893446aa",
+  "channel": "stable",
+  "artifact_url": "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/endpoint-windows-core-3.2.155-setup-source-725739f",
+  "verification_record": "docs/verification/2026-11-04-test120-clean156-full158.md"
+}

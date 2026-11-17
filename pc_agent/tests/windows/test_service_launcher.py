@@ -629,7 +629,7 @@ def test_tray_shutdown_uses_the_fixed_program_files_target(
     import win32event
     import win32process
 
-    from pc_agent.platform.windows import service_launcher
+    from pc_agent.platform.windows import companion_processes, service_launcher
 
     tray = tmp_path / "Endpoint Platform" / "Agent" / "EndpointAgentTray.exe"
     tray.parent.mkdir(parents=True)
@@ -649,7 +649,12 @@ def test_tray_shutdown_uses_the_fixed_program_files_target(
         return _Handle()
 
     monkeypatch.setattr(win32api, "OpenProcess", open_process)
-    monkeypatch.setattr(win32process, "GetModuleFileNameEx", lambda *_args: str(tray))
+
+    def unavailable_with_limited_access(*_args: object) -> str:
+        raise win32api.error(5, "GetModuleFileNameEx", "Access is denied")
+
+    monkeypatch.setattr(win32process, "GetModuleFileNameEx", unavailable_with_limited_access)
+    monkeypatch.setattr(companion_processes, "_process_path", lambda _: str(tray))
     monkeypatch.setattr(
         win32process, "TerminateProcess", lambda _handle, code: terminated.append(code)
     )
@@ -676,7 +681,7 @@ def test_companion_shutdown_stops_only_installed_tray_and_user_sensor(
     import win32event
     import win32process
 
-    from pc_agent.platform.windows import service_launcher
+    from pc_agent.platform.windows import companion_processes, service_launcher
 
     root = tmp_path / "Endpoint Platform" / "Agent"
     root.mkdir(parents=True)
@@ -698,13 +703,28 @@ def test_companion_shutdown_stops_only_installed_tray_and_user_sensor(
     monkeypatch.setenv("ProgramW6432", str(tmp_path))
     monkeypatch.setattr(win32process, "EnumProcesses", lambda: list(images))
     monkeypatch.setattr(win32api, "OpenProcess", lambda _a, _b, pid: Handle(pid))
-    monkeypatch.setattr(win32process, "GetModuleFileNameEx", lambda h, _i: str(images[h.process_id]))
+    monkeypatch.setattr(companion_processes, "_process_path", lambda h: str(images[h.process_id]))
     monkeypatch.setattr(win32process, "TerminateProcess", lambda h, _c: terminated.append(h.process_id))
     monkeypatch.setattr(win32event, "WaitForSingleObject", lambda *_: win32event.WAIT_OBJECT_0)
 
     service_launcher.stop_tray_companions(WindowsUpdatePaths(root,tmp_path/'updates/pending_update.json'))
 
     assert terminated == [101, 102]
+
+
+def test_companion_image_query_reads_a_limited_process_handle():
+    win32api = pytest.importorskip("win32api", reason="native Windows process handle contract")
+    import win32con
+
+    from pc_agent.platform.windows import companion_processes
+
+    process = win32api.OpenProcess(
+        win32con.PROCESS_QUERY_LIMITED_INFORMATION, False, win32api.GetCurrentProcessId()
+    )
+    try:
+        assert Path(companion_processes._process_path(process)).samefile(win32api.GetModuleFileName(0))
+    finally:
+        process.Close()
 
 
 def test_boot_rejects_executable_without_any_ownership_evidence(tmp_path,monkeypatch):
@@ -825,3 +845,91 @@ def test_installer_diagnostics_work_from_frozen_script_entry(monkeypatch):
     assert service_launcher.main(['--installer-phase', 'msi-enter', '--installer-session',
         '11111111-1111-4111-8111-111111111111']) == 63
     assert reported == ['msi-enter']
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows Job and service pipe")
+def test_service_host_stops_only_owned_tree_when_core_ignores_pipe(monkeypatch, tmp_path):
+    import time
+
+    import psutil
+    from pc_agent.platform.windows import service_launcher
+
+    ready = tmp_path / "ready"
+    script = """
+import pathlib, subprocess, sys, time
+child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+pathlib.Path(sys.argv[1]).write_text(str(child.pid))
+time.sleep(120)
+"""
+    monkeypatch.setattr(service_launcher, "build_agent_child_command", lambda _: [
+        sys.executable, "-c", script, str(ready),
+    ])
+    monkeypatch.setattr(service_launcher, "_CORE_STOP_GRACE_SECONDS", 0.25, raising=False)
+    updates = []
+    monkeypatch.setattr(service_launcher, "trigger_pending_updater", lambda: updates.append(True))
+    coordinator = service_launcher.ChildProcessCoordinator()
+    exits = []
+    thread = threading.Thread(target=lambda: exits.append(coordinator.run()), daemon=True)
+    unrelated = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    child = None
+    thread.start()
+    try:
+        end = time.monotonic() + 5
+        while (not ready.exists() or not ready.stat().st_size) and time.monotonic() < end:
+            time.sleep(0.02)
+        child = psutil.Process(int(ready.read_text()))
+        coordinator.stop()
+        thread.join(3)
+        assert not thread.is_alive()
+        assert exits == [0]
+        child.wait(timeout=2)
+        assert updates == []
+        assert unrelated.poll() is None
+
+        # The replacement starts only after the old Job is empty.
+        monkeypatch.setattr(service_launcher, "build_agent_child_command", lambda _: [
+            sys.executable, "-c", "raise SystemExit(42)",
+        ])
+        assert service_launcher.ChildProcessCoordinator().run() == EXIT_UPDATE_PENDING
+        assert updates == [True]
+    finally:
+        unrelated.terminate()
+        unrelated.wait(timeout=2)
+        if child is not None and child.is_running():
+            child.kill()
+        if thread.is_alive():
+            process = coordinator._process
+            if process is not None:
+                terminate = getattr(process, "terminate_tree", None) or process.kill
+                terminate()
+            thread.join(3)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows frozen service-child protocol")
+def test_service_child_exits_when_runtime_ignores_cancellation():
+    script = """
+import asyncio
+from pc_agent.runtime import main
+async def runtime(_settings):
+    print("ready", flush=True)
+    while True:
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            continue
+main.run_runtime = runtime
+main._SERVICE_CHILD_STOP_SECONDS = 0.25
+raise SystemExit(main.main([
+    "--windows-service-child", "--launcher-version", "3.2.82", "--data-dir", "data",
+    "--install-root", "install", "--ca-file", "ca.crt",
+]))
+"""
+    with subprocess.Popen(
+        [sys.executable, "-c", script], stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    ) as process:
+        try:
+            assert process.communicate(input=b"", timeout=5)[0].strip() == b"ready"
+            assert process.returncode == 0
+        except subprocess.TimeoutExpired:
+            process.kill()
+            pytest.fail("Core ignored cancellation and did not exit by the stop deadline")

@@ -519,6 +519,9 @@ async def _lock_assignable_devices(
     ).all()
     if len(devices) != len(device_ids):
         raise UpdateNotFound("one or more update devices were not found")
+    from endpoint_server.installation_lifecycle.models import InstallationState
+    if await session.scalar(select(InstallationState.id).where(InstallationState.device_id.in_(device_ids), InstallationState.state == "removed").limit(1)):
+        raise UpdateConflict("one or more installations are removed")
     ownership_query = select(UpdateTarget).where(
         UpdateTarget.device_id.in_(device_ids),
         UpdateTarget.status.in_(_ACTIVE_TARGET_STATUSES),
@@ -534,6 +537,15 @@ async def _lock_assignable_devices(
     ).all()
     if owned:
         raise UpdateConflict("one or more devices already have an active update")
+    from endpoint_server.setup_updates.models import SetupAssignment, SetupPreparation
+    from endpoint_contracts.setup_updates import ACTIVE_SETUP_PHASES
+    setup_owned = await session.scalar(select(SetupAssignment.id).where(
+        SetupAssignment.device_id.in_(device_ids), SetupAssignment.status.in_(ACTIVE_SETUP_PHASES)))
+    preparation_owned = await session.scalar(select(SetupPreparation.id).where(
+        SetupPreparation.device_id.in_(device_ids),
+        SetupPreparation.status.in_(['preparing_client', 'restoring_core'])))
+    if setup_owned or preparation_owned:
+        raise UpdateConflict("one or more devices already have an active full Setup update")
 
 
 async def _require_completed_canary(session: AsyncSession, build_id: UUID) -> None:
@@ -933,6 +945,10 @@ async def recommendation_for_device(
     now: datetime | None = None,
 ) -> AgentUpdateRecommendationV1 | None:
     """Return the one visible active recommendation for a device and platform."""
+    from endpoint_server.installation_lifecycle.service import removed
+    await session.scalar(select(Device).where(Device.id == _uuid(device_id, "device id")).with_for_update())
+    if await removed(session, _uuid(device_id, "device id")):
+        return None
     _timestamp(now)
     if platform not in _PLATFORMS:
         return None

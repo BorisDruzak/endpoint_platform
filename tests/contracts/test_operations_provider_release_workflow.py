@@ -29,7 +29,7 @@ def test_operations_provider_release_workflow_covers_required_gate_surface() -> 
         "tests/operations/**",
         "tests/gateway/**",
         "tests/context/**",
-        "python -m pytest tests pc_agent/tests -q -o faulthandler_timeout=120",
+        "python -m pytest tests pc_agent/tests -q -o faulthandler_timeout=120 --ignore=pc_agent/tests/windows",
         '"pc_agent/**"',
         '"packaging/**"',
         '"tools/**"',
@@ -47,6 +47,16 @@ def test_operations_provider_release_workflow_covers_required_gate_surface() -> 
         "--junitxml=artifacts/endpoint-operations-provider.xml",
         "actions/upload-artifact@v4",
         "endpoint-operations-provider",
+        "windows-release-gate:",
+        "runs-on: windows-latest",
+        "-r requirements/build-windows.txt",
+        "          pc_agent/tests/windows",
+        "tests/deploy/test_keycloak_ad_pilot.py",
+        "tests/packaging/test_setup_preflight_process.py",
+        "tests/packaging/test_support_access_signing.py",
+        "tests/packaging/test_support_staged_payload.py",
+        "tests/canary/test_legacy_fixture_schema.py",
+        "--junitxml=artifacts/windows-release-gate.xml",
     ):
         assert required in workflow
 

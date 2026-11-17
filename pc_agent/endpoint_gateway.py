@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 import aiohttp
 
@@ -33,7 +34,12 @@ from pc_agent.transport.http_pull import (
 )
 from pc_agent.transport.protocol import compatibility_agent_hello
 from pc_agent.update_adapter import EndpointRecommendation, EndpointUpdateAdapter
-from pc_agent.update_schedule import UPDATE_POLL_INTERVAL_SEC
+from pc_agent.update_schedule import (
+    CORE_ARTIFACT_CONNECT_SECONDS,
+    CORE_ARTIFACT_IDLE_SECONDS,
+    CORE_ARTIFACT_TOTAL_SECONDS,
+    UPDATE_POLL_INTERVAL_SEC,
+)
 from pc_agent.version import EXIT_UPDATE_PENDING
 from pc_agent.platform.windows.disk_readiness import download_required_bytes, require_disk_space
 
@@ -41,6 +47,11 @@ _ORIGIN = DEFAULT_ENDPOINT_ORIGIN
 _ALT_CURRENT_SELECTOR = Path("/opt/endpoint-agent/current.json")
 # Compatibility alias for existing Linux/migration consumers.
 GATEWAY_UPDATE_POLL_INTERVAL_SEC = UPDATE_POLL_INTERVAL_SEC
+_CORE_ARTIFACT_TIMEOUT = aiohttp.ClientTimeout(
+    total=CORE_ARTIFACT_TOTAL_SECONDS,
+    connect=CORE_ARTIFACT_CONNECT_SECONDS,
+    sock_read=CORE_ARTIFACT_IDLE_SECONDS,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,7 +102,7 @@ async def _download_gateway_artifact(
     if (parsed.scheme, parsed.netloc) != (origin_scheme, origin_netloc):
         raise ValueError("Gateway update artifact must use the Endpoint origin")
     require_disk_space(destination, download_required_bytes(item.size))
-    temporary = destination.with_name(f".{destination.name}.tmp")
+    temporary = destination.with_name(f".{destination.name}.{uuid4().hex}.tmp")
     digest = hashlib.sha256()
     size = 0
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -100,11 +111,12 @@ async def _download_gateway_artifact(
             item.artifact_url,
             headers={"Authorization": f"Bearer {load_credential()}"},
             allow_redirects=False,
+            timeout=_CORE_ARTIFACT_TIMEOUT,
         ) as response:
             require_gateway_response(response)
             if response.status != 200:
                 raise ValueError("Gateway update artifact is unavailable")
-            with temporary.open("wb") as output:
+            with temporary.open("xb") as output:
                 async for chunk in response.content.iter_chunked(1024 * 1024):
                     size += len(chunk)
                     if size > item.size:
@@ -243,7 +255,7 @@ def create_http_pull_transport(
             update_result = await update_runtime.run_once()
             if on_update_poll_complete is not None:
                 on_update_poll_complete()
-            if update_result.status == "scheduled":
+            if update_result.status == "scheduled" and os.getenv("ENDPOINT_AGENT_ALT_UPDATE_MODE") != "1":
                 raise SystemExit(EXIT_UPDATE_PENDING)
     return HttpPullGatewayTransport(
         ca_file=ca_file,

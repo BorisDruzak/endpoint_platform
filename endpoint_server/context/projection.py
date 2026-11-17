@@ -26,7 +26,9 @@ def collection_projection(collection: ContextCollection) -> dict[str, object]:
     }
 
 
-def snapshot_projection(snapshot: ContextSnapshot) -> dict[str, object] | None:
+def snapshot_projection(
+    snapshot: ContextSnapshot, *, include_server_health: bool = False,
+) -> dict[str, object] | None:
     """Return a validated safe profile, refusing diagnostics and malformed JSON."""
     if snapshot.profile == "diagnostic_v1":
         return None
@@ -36,13 +38,16 @@ def snapshot_projection(snapshot: ContextSnapshot) -> dict[str, object] | None:
         return None
     if envelope.profile == "diagnostic_v1":
         return None
+    sections = envelope.sections.model_dump(mode="json")
+    if envelope.profile == "health_v1" and not include_server_health:
+        sections.pop("server", None)
     return {
         "id": str(snapshot.id),
         "profile": envelope.profile,
         "collected_at": envelope.collected_at,
         "semantic_hash": snapshot.semantic_hash,
         "warnings": envelope.warnings,
-        "sections": envelope.sections.model_dump(mode="json"),
+        "sections": sections,
     }
 
 

@@ -1,0 +1,245 @@
+{
+  "schema_version": 1,
+  "version": "3.2.174",
+  "platform": "windows_amd64",
+  "status": "diagnostic_native_qualified_not_primary_support_bootstrap_defect",
+  "runtime_source_commit": "87e27008d070599711ed30b0418ed36090d8079e",
+  "windows_packaging_commit": "b122c2d9ee0d3cb7678a13353169049d4ec961f3",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.174.json",
+  "producer_root": "C:/endpoint-platform-wix-build/setup174-restoration-87e2700",
+  "initial_runtime": {
+    "file_count": 119,
+    "tree_sha256": "4aa7bd7b9130b13a9510fa43b1273b9a00384daa14ca255157dc782f170b3600",
+    "component_guid": "A91DC9A0-EB69-4E59-BFFA-1B1E67214AFC",
+    "source_file_count": 291,
+    "native_helpers_reuse_allowed": false
+  },
+  "setup": {
+    "filename": "EndpointAgentSetup-3.2.174-x64.exe",
+    "sha256": "28c2f4c35a45a16ffca47e8d0d91d836ecb07202dc9ca8d8d3d36de7ee7db41d",
+    "size": 166112040,
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776"
+  },
+  "msi": {
+    "filename": "EndpointAgent-3.2.174-x64.msi",
+    "sha256": "5711f7714072d63fd7bdf1cef243f92d77d94b51f9989342b0d0bd2429e8dfa4",
+    "size": 124506112,
+    "authenticode": "Valid with timestamp"
+  },
+  "support": {
+    "version": "1.0.0",
+    "sha256": "8ea64e764a51ff1007b94c1abd2132bf6b082e5680d93c7cd4555f02c769f007",
+    "size": 10089768,
+    "authenticode": "Valid with timestamp",
+    "active_payload_owned_by_msi": false,
+    "msi_stages_helper": true,
+    "private_state_independent_of_core": true,
+    "default_policy_enabled": false,
+    "maximum_lease_hours": 8
+  },
+  "packaged_observer": {
+    "client_version": "1.0.7",
+    "script_sha256": "8a1a30e7d208fbb431e2f715967d8a21eb82eac43edbfb4e97433a83049a6247"
+  },
+  "full_setup": {
+    "schema_version": "windows_setup_release_v1",
+    "release_identifier": "endpoint-windows-full-setup-3.2.174-87e2700",
+    "version": "3.2.174",
+    "artifact_name": "EndpointAgentSetup-3.2.174-x64.exe",
+    "sha256": "28c2f4c35a45a16ffca47e8d0d91d836ecb07202dc9ca8d8d3d36de7ee7db41d",
+    "size": 166112040,
+    "source_revision": "87e27008d070599711ed30b0418ed36090d8079e",
+    "msi_sha256": "5711f7714072d63fd7bdf1cef243f92d77d94b51f9989342b0d0bd2429e8dfa4",
+    "tray_sha256": "568a1baa201b05993c6966bbe7005e81b1c3070594bf181fffed5c806dbad07a",
+    "sensor_sha256": "eac012ef03ac4cfb47687add39581a340d4b09c60e1777ce2cbd1a6e2a38de0a",
+    "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610"
+  },
+  "qualification": {
+    "id": "909d671d-6f25-45df-b0d0-96d48ea81367",
+    "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+    "source_foundation": "3.2.172",
+    "evidence_assignment_id": "f9c1d078-986f-458a-b49f-246906f7abff",
+    "qualified_at": "2026-11-06T15:36:28.336580+00:00",
+    "expires_at": "2026-12-06T15:36:28.336580+00:00"
+  },
+  "canary": {
+    "device_id": "943c87ef-f121-40b9-a31f-003e9459e292",
+    "hostname": "DESKTOP-9ST5HO2",
+    "ip": "192.168.101.120",
+    "assignment_id": "f9c1d078-986f-458a-b49f-246906f7abff",
+    "source_foundation": "3.2.172",
+    "status": "applied",
+    "native_exit_code": 0,
+    "stable_observation_seconds": 185.281,
+    "samples": 6,
+    "sensor_count": 1,
+    "private_four_preserved": true,
+    "new_support_core_updater_stopped_ssh_renewal_seconds": 108.833542
+  },
+  "automatic_rollback": {
+    "assignment_id": "3cd5c791-8342-4e38-951e-511ce9c1a6ae",
+    "parent_operation_id": "b2e23618-fd35-4a31-8c15-7f543115be49",
+    "status": "rolled_back",
+    "native_exit_code": 67,
+    "pending": false,
+    "successful_strict_ssh_commands": 64,
+    "ssh_errors": 0,
+    "additional_repair_used": false
+  },
+  "fleet": {
+    "revision": 9,
+    "enabled": false,
+    "release_id": "993b6b7f-678a-4ba3-88ee-020296b20610",
+    "scope": "all_active",
+    "device_ids": [],
+    "max_parallel": 2,
+    "reason": "Pause new assignments while verifying missing independent support component registrations in the first two fleet updates",
+    "updated_at": "2026-11-06T15:41:53.641991+00:00",
+    "safe_code": null
+  },
+  "verification": {
+    "receipt": "docs/verification/2026-11-06-independent-support-access.md",
+    "full_suite_command": "python -m pytest -q",
+    "full_suite_passed": 6500,
+    "full_suite_skipped": 454,
+    "full_suite_duration_seconds": 874.59,
+    "postgresql_support_tests_passed": 2,
+    "frontend_tests_passed": 88,
+    "frontend_build": "passed",
+    "source_review": "No actionable P1 or P2 findings at 8488fefe6548cad99da2ade725d107e26430284a",
+    "compiled_support_and_recovery_source_match": true
+  },
+  "publication": {
+    "windows_primary_unchanged": "3.2.172",
+    "default_campaign_unchanged": true
+  },
+  "linux": {
+    "version": "3.2.156",
+    "changed_by_this_release": false
+  },
+  "limits": [
+    "Qualification is exact target bytes and source Foundation172 only.",
+    "Historical173 remains diagnostic and unqualified; original rollback history is preserved.",
+    "Offline and unsupported sources are not claimed updated.",
+    "Support is installed independently but access requires an explicit temporary policy lease."
+  ],
+  "fleet_support_defect": {
+    "confirmed_at": "2026-11-06T15:43:00Z",
+    "affected_hosts": [
+      "A2-MUNSLU-N",
+      "A2-IAO"
+    ],
+    "native_result": "applied_native0",
+    "support_registered": false,
+    "cause": "Historical enrolled profiles may omit endpoint-origin and use the canonical compiled default; Support incorrectly requires the optional file.",
+    "private_agent_files_modified_for_recovery": false,
+    "next_release_required": "3.2.175"
+  },
+  "first_fleet_wave": {
+    "maximum_observed_concurrency": 2,
+    "jobs": [
+      {
+        "device_id": "13f38b93-cc73-4130-b58c-41f534b1893e",
+        "hostname": "A2-MUNSLU-N",
+        "assignment_id": "1fd492d4-a889-435a-9a89-881dcd26ce61",
+        "status": "applied",
+        "safe_code": "setup_post_restart_confirmed",
+        "updated_at": "2026-11-06T15:43:22.978984+00:00",
+        "finished_at": "2026-11-06T15:43:22.978984+00:00",
+        "native_exit": 0,
+        "native_phase": "accepted",
+        "foundation_version": "3.2.174",
+        "core_version": "3.2.174",
+        "private": {
+          "credential": true,
+          "identity": true,
+          "origin": true,
+          "ca": true
+        },
+        "soak": {
+          "duration_seconds": 181.909,
+          "samples": 6,
+          "sensor_count": 1,
+          "sensor_cpu_percent_max": 0.0032,
+          "services_stable": true,
+          "companions_stable": true,
+          "connected": true
+        },
+        "client": {
+          "client_version": "1.0.7",
+          "foundation_version": "3.2.174",
+          "core_version": "3.2.174",
+          "ready": true,
+          "safe_code": null,
+          "last_seen_at": "2026-11-06T15:45:28.426656+00:00"
+        },
+        "support_after_applied": {
+          "registered": false,
+          "error_type": "RuntimeError",
+          "http_status": "404",
+          "telemetry": {
+            "agent_version": "3.2.174",
+            "launcher_version": "3.2.174",
+            "online": true,
+            "last_seen_at": "2026-11-06T15:45:03.936304Z",
+            "last_activity_observed_at": "2026-11-06T15:45:27.107768Z"
+          }
+        }
+      },
+      {
+        "device_id": "7e89a328-1595-4cfe-aefb-3dcca72d0083",
+        "hostname": "A2-IAO",
+        "assignment_id": "1bda1d02-9d84-4881-a380-17c562b2a987",
+        "status": "applied",
+        "safe_code": "setup_post_restart_confirmed",
+        "updated_at": "2026-11-06T15:43:24.034463+00:00",
+        "finished_at": "2026-11-06T15:43:24.034463+00:00",
+        "native_exit": 0,
+        "native_phase": "accepted",
+        "foundation_version": "3.2.174",
+        "core_version": "3.2.174",
+        "private": {
+          "credential": true,
+          "identity": true,
+          "origin": true,
+          "ca": true
+        },
+        "soak": {
+          "duration_seconds": 182.687,
+          "samples": 6,
+          "sensor_count": 1,
+          "sensor_cpu_percent_max": 0.0032,
+          "services_stable": true,
+          "companions_stable": true,
+          "connected": true
+        },
+        "client": {
+          "client_version": "1.0.7",
+          "foundation_version": "3.2.174",
+          "core_version": "3.2.174",
+          "ready": true,
+          "safe_code": null,
+          "last_seen_at": "2026-11-06T15:45:28.694221+00:00"
+        },
+        "support_after_applied": {
+          "registered": false,
+          "error_type": "RuntimeError",
+          "http_status": "404",
+          "telemetry": {
+            "agent_version": "3.2.174",
+            "launcher_version": "3.2.174",
+            "online": true,
+            "last_seen_at": "2026-11-06T15:45:04.371854Z",
+            "last_activity_observed_at": "2026-11-06T15:45:27.081264Z"
+          }
+        }
+      }
+    ],
+    "remaining_eligible_not_assigned": [
+      "c450fc70-63e6-4c2b-baf6-7de79820d63f",
+      "d3ed13cd-1b40-4ccc-b035-240a184cf247",
+      "ff6fd7b0-ad25-419f-83ad-cf5e683ed1bc"
+    ]
+  }
+}

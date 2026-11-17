@@ -58,11 +58,12 @@
           "endpoint.recovery-update.v2",
           "endpoint.telemetry-results.v1",
           "endpoint.power-events.v1",
-          "endpoint.policy-readiness.v1"
+          "endpoint.policy-readiness.v1",
+          "endpoint.command-journal.v1"
         ],
         "type": "string"
       },
-      "maxItems": 9,
+      "maxItems": 10,
       "title": "Protocol Features",
       "type": "array"
     },

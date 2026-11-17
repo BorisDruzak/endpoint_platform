@@ -51,7 +51,7 @@ class WindowsUpdaterServiceInstallSpec:
 
 
 def restrict_updater_start_permissions() -> None:
-    """Replace the updater service DACL with its fixed SERVICE_START policy.
+    """Apply the fixed updater DACL for management, start and status reads.
 
     This is an MSI custom-action boundary.  It accepts no service name or
     principal arguments, so a corrupted install property cannot grant service
@@ -75,6 +75,7 @@ def restrict_updater_start_permissions() -> None:
         for principal, mask in updater_start_access_policy(
             service_all_access=win32service.SERVICE_ALL_ACCESS,
             service_start=win32service.SERVICE_START,
+            service_query_status=win32service.SERVICE_QUERY_STATUS,
         ).items():
             if principal.startswith("S-"):
                 sid = win32security.ConvertStringSidToSid(principal)
@@ -173,13 +174,43 @@ def _configure_service_recovery_with(run, executable: Path) -> None:
             raise RuntimeError("Windows SCM recovery configuration failed")
 
 
-def updater_start_access_policy(*, service_all_access: int, service_start: int) -> dict[str, int]:
-    """Normal SCM management for SYSTEM/Admins; start-only for EndpointAgent."""
+def updater_start_access_policy(
+    *, service_all_access: int, service_start: int, service_query_status: int,
+) -> dict[str, int]:
+    """Allow EndpointAgent to start the updater and read only its status."""
     return {
         "S-1-5-18": service_all_access,
         "S-1-5-32-544": service_all_access,
-        "NT SERVICE\\EndpointAgent": service_start,
+        "NT SERVICE\\EndpointAgent": service_start | service_query_status,
     }
+
+
+def read_updater_service_status() -> str:
+    """Read the updater state with SERVICE_QUERY_STATUS access."""
+    try:
+        import pywintypes  # type: ignore[import-not-found]
+        import win32service  # type: ignore[import-not-found]
+    except ImportError:
+        return "unknown"
+
+    try:
+        manager = win32service.OpenSCManager(None, None, win32service.SC_MANAGER_CONNECT)
+        try:
+            updater = win32service.OpenService(
+                manager, UPDATER_SERVICE_NAME, win32service.SERVICE_QUERY_STATUS,
+            )
+            try:
+                state = win32service.QueryServiceStatus(updater)[1]
+            finally:
+                win32service.CloseServiceHandle(updater)
+        finally:
+            win32service.CloseServiceHandle(manager)
+    except (OSError, pywintypes.error):
+        return "unknown"
+    return {
+        win32service.SERVICE_RUNNING: "active",
+        win32service.SERVICE_STOPPED: "inactive",
+    }.get(state, "unknown")
 
 
 def trigger_pending_updater() -> None:
@@ -233,6 +264,7 @@ __all__ = [
     "configure_service_sids",
     "WindowsServiceInstallSpec",
     "WindowsUpdaterServiceInstallSpec",
+    "read_updater_service_status",
     "restrict_updater_start_permissions",
     "service_dacl_write_access",
     "updater_start_access_policy",

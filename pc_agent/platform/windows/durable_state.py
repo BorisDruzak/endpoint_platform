@@ -202,6 +202,26 @@ def _copy_identity(details):
     return (details.st_dev, details.st_ino, details.st_size, details.st_mtime_ns, timestamp)
 
 
+def execution_metadata_identity(descriptor, details):
+    """Bind actual image security/attributes, not Windows loader ChangeTime.
+
+    The caller must retain its deny-write/delete pin and separately validate
+    path/handle identity and authenticated bytes throughout execution.
+    """
+    if not _WINDOWS:
+        return details.st_ctime_ns
+    import msvcrt
+    import win32security
+    flags = (win32security.OWNER_SECURITY_INFORMATION |
+             win32security.GROUP_SECURITY_INFORMATION |
+             win32security.DACL_SECURITY_INFORMATION)
+    security = win32security.GetSecurityInfo(
+        msvcrt.get_osfhandle(descriptor), win32security.SE_FILE_OBJECT, flags)
+    return (details.st_file_attributes,
+            win32security.ConvertSecurityDescriptorToStringSecurityDescriptor(
+                security, win32security.SDDL_REVISION_1, flags))
+
+
 @contextmanager
 def _pinned_copy_source(path: Path):
     if _WINDOWS:
@@ -436,6 +456,48 @@ def durable_rename_directory(source: Path, destination: Path, *, trusted_root: P
     flush_directory(source.parent)
     if destination.parent != source.parent:
         flush_directory(destination.parent)
+
+
+def flush_existing_file(path: Path, *, trusted_root: Path, verified_identity: tuple | None = None) -> None:
+    """Flush an existing file within a caller-validated Windows directory."""
+    import pywintypes
+    import win32con
+    import win32file
+    import win32timezone  # noqa: F401
+
+    path = _checked_path(path, trusted_root)
+    installer_mutation_checkpoint()
+    try:
+        handle = win32file.CreateFile(
+            str(path), win32con.GENERIC_WRITE, win32con.FILE_SHARE_READ, None,
+            win32con.OPEN_EXISTING, win32file.FILE_FLAG_OPEN_REPARSE_POINT, None,
+        )
+        try:
+            attributes = win32file.GetFileInformationByHandle(handle)[0]
+            if attributes & (_REPARSE_POINT | win32con.FILE_ATTRIBUTE_DIRECTORY):
+                raise ValueError("state handle is not a regular file")
+            if verified_identity is None:
+                win32file.FlushFileBuffers(handle)
+            else:
+                import msvcrt
+
+                raw = handle.Detach()
+                try:
+                    descriptor = msvcrt.open_osfhandle(raw, os.O_WRONLY | os.O_BINARY)
+                except BaseException:
+                    win32file.CloseHandle(raw)
+                    raise
+                try:
+                    details = os.fstat(descriptor)
+                    if (_copy_identity(details), details.st_ctime_ns) != verified_identity:
+                        raise ValueError('state file identity changed between verification and flush')
+                    win32file.FlushFileBuffers(msvcrt.get_osfhandle(descriptor))
+                finally:
+                    os.close(descriptor)
+        finally:
+            handle.Close()
+    except pywintypes.error as error:
+        raise OSError(None, str(error), str(path), error.winerror) from error
 
 
 def flush_directory(path: Path) -> None:

@@ -1,0 +1,117 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "device_id": {
+      "format": "uuid",
+      "title": "Device Id",
+      "type": "string"
+    },
+    "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+    },
+    "expires_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Expires At"
+    },
+    "gateway_host": {
+      "title": "Gateway Host",
+      "type": "string"
+    },
+    "gateway_host_public_key": {
+      "title": "Gateway Host Public Key",
+      "type": "string"
+    },
+    "gateway_port": {
+      "title": "Gateway Port",
+      "type": "integer"
+    },
+    "linux_admin_uid": {
+      "anyOf": [
+        {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Linux Admin Uid"
+    },
+    "linux_admin_username": {
+      "anyOf": [
+        {
+          "maxLength": 32,
+          "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Linux Admin Username"
+    },
+    "local_port": {
+      "const": 22222,
+      "default": 22222,
+      "title": "Local Port",
+      "type": "integer"
+    },
+    "operator_public_keys": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Operator Public Keys",
+      "type": "array"
+    },
+    "platform": {
+      "const": "linux_amd64",
+      "default": "linux_amd64",
+      "title": "Platform",
+      "type": "string"
+    },
+    "poll_after_seconds": {
+      "const": 30,
+      "default": 30,
+      "title": "Poll After Seconds",
+      "type": "integer"
+    },
+    "remote_port": {
+      "title": "Remote Port",
+      "type": "integer"
+    },
+    "revision": {
+      "title": "Revision",
+      "type": "integer"
+    },
+    "tunnel_user": {
+      "title": "Tunnel User",
+      "type": "string"
+    }
+  },
+  "required": [
+    "device_id",
+    "revision",
+    "enabled",
+    "expires_at",
+    "gateway_host",
+    "gateway_port",
+    "gateway_host_public_key",
+    "tunnel_user",
+    "remote_port",
+    "operator_public_keys",
+    "linux_admin_username",
+    "linux_admin_uid"
+  ],
+  "title": "LinuxSupportPolicy",
+  "type": "object"
+}

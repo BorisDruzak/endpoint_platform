@@ -17,6 +17,7 @@ param(
     [string]$TimestampServer,
     [string]$ExistingMsi,
     [string]$ExistingMsiReleaseManifest,
+    [string]$ExistingCoreArchive,
     [string]$WixBuildRoot
 )
 
@@ -156,6 +157,22 @@ function Set-SetupAuthenticodeSignature {
     }
 }
 
+function Finalize-SetupMsiSignature {
+    param([string]$Path, [string]$Thumbprint, [string]$Timestamp, [bool]$ReuseExisting)
+    if (-not $ReuseExisting) {
+        Set-SetupAuthenticodeSignature -Path $Path -Thumbprint $Thumbprint -Timestamp $Timestamp
+        return
+    }
+    # Re-signing an already published MSI changes its package digest and breaks
+    # equal-package reconciliation against the installed native authority.
+    if (-not $Thumbprint) { return }
+    $signature = Get-AuthenticodeSignature -LiteralPath $Path
+    if ($signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate -or
+        $signature.SignerCertificate.Thumbprint -ine $Thumbprint) {
+        throw 'Reused MSI must retain its valid timestamped publisher signature.'
+    }
+}
+
 function Resolve-VerifiedExistingMsi {
     param(
         [Parameter(Mandatory)][string]$MsiPath,
@@ -231,7 +248,9 @@ foreach ($optional in @(
     @{ name = 'InitialRuntimeManifest'; value = $InitialRuntimeManifest },
     @{ name = 'InitialRuntimeStageRoot'; value = $InitialRuntimeStageRoot },
     @{ name = 'InitialRuntimeStageEvidence'; value = $InitialRuntimeStageEvidence },
-    @{ name = 'WixBuildRoot'; value = $WixBuildRoot }
+    @{ name = 'WixBuildRoot'; value = $WixBuildRoot },
+    @{ name = 'CodeSigningCertificateThumbprint'; value = $CodeSigningCertificateThumbprint },
+    @{ name = 'TimestampServer'; value = $TimestampServer }
 )) {
     if ($optional.value) { $msiParameters[$optional.name] = $optional.value }
 }
@@ -271,7 +290,7 @@ else {
     if ($LASTEXITCODE -ne 0) { throw "MSI build failed." }
 }
 if (-not (Test-Path -LiteralPath $msiPath -PathType Leaf)) { throw "MSI output is missing." }
-Set-SetupAuthenticodeSignature -Path $msiPath -Thumbprint $CodeSigningCertificateThumbprint -Timestamp $TimestampServer
+Finalize-SetupMsiSignature -Path $msiPath -Thumbprint $CodeSigningCertificateThumbprint -Timestamp $TimestampServer -ReuseExisting $hasExistingMsi
 $releaseMsi = Join-Path $releaseRoot "EndpointAgent-$Version-x64.msi"
 Copy-Item -LiteralPath $msiPath -Destination $releaseMsi -Force
 $releaseMsiSha256 = (Get-FileHash -LiteralPath $releaseMsi -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -313,9 +332,21 @@ if (-not (Test-Path -LiteralPath $setupRuntimeRoot -PathType Container)) {
     if (-not $InitialRuntimeStageRoot) { throw 'Setup requires the exact MSI Core payload for online preparation.' }
     $setupRuntimeRoot = $InitialRuntimeStageRoot
 }
-& (Join-Path $PSScriptRoot 'build-update-zip.ps1') -RuntimeRoot $setupRuntimeRoot `
-    -Version $Version -SourceRevision $msiSourceCommit -MinimumLauncherVersion $Version -OutputPath $setupCoreArchive
-if ($LASTEXITCODE -ne 0) { throw 'Setup Core archive build failed.' }
+if ($ExistingCoreArchive) {
+    # Recompression changes ZIP timestamps. A reused native package must retain
+    # its already published transport bytes, bound to the same full MSI tree.
+    & python -m tools.release.verify_setup_core_archive --archive $ExistingCoreArchive `
+        --runtime $setupRuntimeRoot --release $releaseMsiManifestPath
+    if ($LASTEXITCODE -ne 0) { throw 'Existing Setup Core archive does not match the MSI runtime.' }
+    Copy-Item -LiteralPath $ExistingCoreArchive -Destination $setupCoreArchive
+    if ((Get-FileHash -LiteralPath $ExistingCoreArchive).Hash -cne (Get-FileHash -LiteralPath $setupCoreArchive).Hash) {
+        throw 'Existing Setup Core archive changed during copy.'
+    }
+} else {
+    & (Join-Path $PSScriptRoot 'build-update-zip.ps1') -RuntimeRoot $setupRuntimeRoot `
+        -Version $Version -SourceRevision $msiSourceCommit -MinimumLauncherVersion $Version -OutputPath $setupCoreArchive
+    if ($LASTEXITCODE -ne 0) { throw 'Setup Core archive build failed.' }
+}
 $setupCa = Join-Path $payloadRoot 'endpoint-ca.crt'
 $setupConfig = Join-Path $payloadRoot 'setup-config.json'
 $setupMsiReleaseManifest = Join-Path $payloadRoot 'EndpointAgent.release.json'

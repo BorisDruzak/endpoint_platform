@@ -153,6 +153,7 @@ async def test_gateway_download_accepts_only_endpoint_artifacts_with_matching_di
             {
                 "headers": {"Authorization": "Bearer device-token"},
                 "allow_redirects": False,
+                "timeout": endpoint_gateway._CORE_ARTIFACT_TIMEOUT,
             },
         )
     ]
@@ -195,6 +196,7 @@ async def test_gateway_artifact_download_disables_redirects(
             {
                 "headers": {"Authorization": "Bearer device-token"},
                 "allow_redirects": False,
+                "timeout": endpoint_gateway._CORE_ARTIFACT_TIMEOUT,
             },
         )
     ]
@@ -219,6 +221,7 @@ async def test_gateway_artifact_download_rejects_redirect_without_following_it(
             {
                 "headers": {"Authorization": "Bearer device-token"},
                 "allow_redirects": False,
+                "timeout": endpoint_gateway._CORE_ARTIFACT_TIMEOUT,
             },
         )
     ]
@@ -301,7 +304,7 @@ class _UpdateAdapter:
         self.calls.append((operation_id, status))
         return True
 
-    async def record_scheduled_handoff(
+    def prepare_scheduled_handoff(
         self, operation_id: str, *, assigned_version: str, rollback_version: str
     ) -> bool:
         self.calls.append(
@@ -327,10 +330,12 @@ async def test_gateway_stages_an_atomic_pending_update(
     """A controlled update exit is permitted only after durable pending state exists."""
     adapter = _UpdateAdapter()
     replace_events: list[tuple[str, str, bool, bool, dict[str, object]]] = []
-    original_replace = Path.replace
+    original_replace = os.replace
 
-    def observe_pending_replace(source: Path, target: Path) -> Path:
-        if source.name == ".pending_alt_update.json.tmp":
+    def observe_pending_replace(source: Path, target: Path) -> None:
+        source, target = Path(source), Path(target)
+        if target.name == "pending_alt_update.json":
+            assert adapter.calls[-1] == (_OPERATION_ID, "scheduled:3.1.77-rc.1:3.1.76")
             replace_events.append(
                 (
                     source.name,
@@ -342,7 +347,7 @@ async def test_gateway_stages_an_atomic_pending_update(
             )
         return original_replace(source, target)
 
-    monkeypatch.setattr(gateway_update_runtime.Path, "replace", observe_pending_replace)
+    monkeypatch.setattr(os, "replace", observe_pending_replace)
 
     async def download(
         item: EndpointRecommendation, destination: Path
@@ -376,10 +381,12 @@ async def test_gateway_stages_an_atomic_pending_update(
         "target": "linux_amd64",
         "version": "3.1.77-rc.1",
     }
-    assert not (pending_path.parent / ".pending_alt_update.json.tmp").exists()
+    assert not list(pending_path.parent.glob(".pending_alt_update.json.*.tmp"))
+    assert len(replace_events) == 1
+    assert replace_events[0][0].startswith(".pending_alt_update.json.")
     assert replace_events == [
         (
-            ".pending_alt_update.json.tmp",
+            replace_events[0][0],
             "pending_alt_update.json",
             True,
             False,
@@ -391,6 +398,7 @@ async def test_gateway_stages_an_atomic_pending_update(
         ("linux_amd64", "canary"),
         (_OPERATION_ID, "requested"),
         (_OPERATION_ID, "scheduled:3.1.77-rc.1:3.1.76"),
+        (_OPERATION_ID, "scheduled_retry"),
     ]
 
 
@@ -517,3 +525,122 @@ def test_alt_rollback_can_select_an_existing_immutable_release(
         "source_revision": "deadbeef",
         "version": "3.1.76",
     }
+
+
+@pytest.mark.asyncio
+async def test_artifact_request_uses_own_transfer_budget(tmp_path):
+    session = _ArtifactSession(b"verified ALT artifact")
+    await endpoint_gateway._download_gateway_artifact(
+        session, _recommendation(), tmp_path / "candidate.tar.gz",
+        credential_source=lambda: "test-bearer",
+    )
+    timeout = session.requests[0][1]["timeout"]
+    assert timeout.total > 120
+    assert timeout.connect <= 20
+    assert timeout.sock_read <= 20
+
+
+@pytest.mark.parametrize("stalled", [False, True])
+@pytest.mark.asyncio
+async def test_artifact_stream_uses_transfer_deadlines(tmp_path, monkeypatch, stalled):
+    from dataclasses import replace
+    from io import BytesIO
+    from socket import AF_INET, SOCK_STREAM, socket
+    from zipfile import ZipFile
+
+    import aiohttp
+    from aiohttp import web
+
+    duration = float(os.getenv("ENDPOINT_TEST_SLOW_ARTIFACT_SECONDS", "0.4"))
+    production_deadlines = duration > 20
+    control = 20.0 if production_deadlines else duration / 2
+    if stalled and not production_deadlines:
+        monkeypatch.setattr(endpoint_gateway, "_CORE_ARTIFACT_TIMEOUT", aiohttp.ClientTimeout(
+            total=2.0, connect=1.0, sock_read=0.15,
+        ))
+    idle_timeout = endpoint_gateway._CORE_ARTIFACT_TIMEOUT.sock_read
+    core_payload = b"synthetic Core for stream verification"
+    archive = BytesIO()
+    with ZipFile(archive, "w") as core_zip:
+        core_zip.writestr("EndpointCore.exe", core_payload)
+    data = archive.getvalue()
+    digest = hashlib.sha256(data).hexdigest()
+    release_peer = asyncio.Event()
+    server_tls, client_tls = _loopback_artifact_tls(tmp_path)
+
+    async def stream(request):
+        response = web.StreamResponse()
+        await response.prepare(request)
+        await response.write(data[:1])
+        if stalled:
+            await release_peer.wait()
+        else:
+            for chunk in (data[1:8], data[8:]):
+                await asyncio.sleep(duration / 2)
+                await response.write(chunk)
+        return response
+
+    app = web.Application()
+    app.router.add_get("/artifact", stream)
+    runner = web.AppRunner(app)
+    with socket(AF_INET, SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+        await runner.setup()
+        origin = f"https://127.0.0.1:{port}"
+        item = replace(_recommendation(), artifact_url=f"{origin}/artifact", sha256=digest, size=len(data))
+        destination = tmp_path / "EndpointCore.zip"
+        try:
+            await web.SockSite(runner, listener, ssl_context=server_tls).start()
+            async with aiohttp.ClientSession(
+                connector=aiohttp.TCPConnector(ssl=client_tls), timeout=aiohttp.ClientTimeout(total=control),
+            ) as session:
+                download = endpoint_gateway._download_gateway_artifact(
+                    session, item, destination, endpoint_origin=origin, credential_source=lambda: "test",
+                )
+                loop = asyncio.get_running_loop()
+                started = loop.time()
+                if stalled:
+                    with pytest.raises(aiohttp.SocketTimeoutError):
+                        await asyncio.wait_for(download, timeout=idle_timeout + 3)
+                    assert loop.time() - started >= idle_timeout
+                    assert not destination.exists()
+                else:
+                    assert await asyncio.wait_for(download, timeout=duration + 5) == (digest, len(data))
+                    assert loop.time() - started > control
+                    assert destination.read_bytes() == data
+                    with ZipFile(destination) as downloaded:
+                        assert downloaded.read("EndpointCore.exe") == core_payload
+                assert not list(tmp_path.glob(".*.tmp"))
+        finally:
+            release_peer.set()
+            await runner.cleanup()
+
+
+def _loopback_artifact_tls(tmp_path):
+    import ssl
+    from datetime import UTC, datetime, timedelta
+    from ipaddress import IPv4Address
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    subject = x509.Name([x509.NameAttribute(x509.NameOID.COMMON_NAME, "127.0.0.1")])
+    now = datetime.now(UTC)
+    certificate = (
+        x509.CertificateBuilder().subject_name(subject).issuer_name(subject)
+        .public_key(key.public_key()).serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(minutes=1)).not_valid_after(now + timedelta(hours=1))
+        .add_extension(x509.SubjectAlternativeName([x509.IPAddress(IPv4Address("127.0.0.1"))]), critical=False)
+        .sign(key, hashes.SHA256())
+    )
+    cert_file, key_file = tmp_path / "cert.pem", tmp_path / "key.pem"
+    cert_file.write_bytes(certificate.public_bytes(serialization.Encoding.PEM))
+    key_file.write_bytes(key.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption(),
+    ))
+    server = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server.load_cert_chain(cert_file, key_file)
+    return server, ssl.create_default_context(cafile=str(cert_file))

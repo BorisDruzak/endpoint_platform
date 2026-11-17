@@ -1,0 +1,33 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "component_version": {
+      "const": "1.0.0",
+      "title": "Component Version",
+      "type": "string"
+    },
+    "host_public_key": {
+      "maxLength": 128,
+      "title": "Host Public Key",
+      "type": "string"
+    },
+    "platform": {
+      "const": "linux_amd64",
+      "default": "linux_amd64",
+      "title": "Platform",
+      "type": "string"
+    },
+    "tunnel_public_key": {
+      "maxLength": 128,
+      "title": "Tunnel Public Key",
+      "type": "string"
+    }
+  },
+  "required": [
+    "tunnel_public_key",
+    "host_public_key",
+    "component_version"
+  ],
+  "title": "LinuxSupportRegistration",
+  "type": "object"
+}

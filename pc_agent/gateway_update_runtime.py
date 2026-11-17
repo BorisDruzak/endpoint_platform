@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from pc_agent.platform.windows.durable_state import flush_directory, write_json_atomic
+from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+from pc_agent.platform.windows.update_transaction import UpdateInProgress, update_transaction
 from pc_agent.update_adapter import EndpointRecommendation
 from pc_agent.update_eligibility import (
     _SEMVER, _is_eligible_recommendation, _parse_semver, _compare_prerelease,
@@ -47,6 +49,9 @@ class GatewayUpdateRuntime:
         self._download = download
 
     async def run_once(self) -> GatewayUpdateRunResult:
+        pending_path = self._data_root / "updates" / "pending_alt_update.json"
+        if pending_path.exists() or pending_path.is_symlink():
+            return GatewayUpdateRunResult("handoff_pending")
         recommendation_result = await self._adapter.fetch_recommendation(
             platform="linux_amd64", channel="canary"
         )
@@ -76,27 +81,38 @@ class GatewayUpdateRuntime:
                 pass
             return GatewayUpdateRunResult("download_rejected")
 
-        pending_path = self._data_root / "updates" / "pending_alt_update.json"
-        _write_json_atomically(
-            pending_path,
-            {
-                "archive_type": recommendation.archive_type,
-                "artifact_path": str(artifact_path),
-                "channel": recommendation.channel,
-                "operation_id": recommendation.operation_id,
-                "requested_by": "gateway",
-                "requested_reason": recommendation.reason,
-                "sha256": sha256,
-                "size": size,
-                "target": recommendation.platform,
-                "version": recommendation.version,
-            },
-        )
-        await self._adapter.record_scheduled_handoff(
-            recommendation.operation_id,
-            assigned_version=recommendation.version,
-            rollback_version=self._current_version,
-        )
+        paths = WindowsUpdatePaths(pending_path=pending_path)
+        try:
+            with update_transaction(paths, timeout_ms=0):
+                if pending_path.exists() or pending_path.is_symlink():
+                    return GatewayUpdateRunResult("handoff_pending")
+                flush_directory(downloads_dir)
+                if not self._adapter.prepare_scheduled_handoff(
+                    recommendation.operation_id,
+                    assigned_version=recommendation.version,
+                    rollback_version=self._current_version,
+                ):
+                    return GatewayUpdateRunResult("handoff_pending")
+                write_json_atomic(
+                    pending_path,
+                    {
+                        "archive_type": recommendation.archive_type,
+                        "artifact_path": str(artifact_path),
+                        "channel": recommendation.channel,
+                        "operation_id": recommendation.operation_id,
+                        "requested_by": "gateway",
+                        "requested_reason": recommendation.reason,
+                        "sha256": sha256,
+                        "size": size,
+                        "target": recommendation.platform,
+                        "version": recommendation.version,
+                    },
+                    trusted_root=pending_path.parent,
+                    max_bytes=16 * 1024,
+                )
+        except UpdateInProgress:
+            return GatewayUpdateRunResult("handoff_pending")
+        await self._adapter.retry_scheduled_acknowledgement(recommendation.operation_id)
         return GatewayUpdateRunResult("scheduled")
 
     async def report_startup_outcome(self) -> bool:
@@ -124,16 +140,6 @@ class GatewayUpdateRuntime:
 
 def _archive_extension(archive_type: str) -> str:
     return "tar.gz" if archive_type in {"tar.gz", "tgz"} else "zip"
-
-
-def _write_json_atomically(path: Path, payload: dict[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp")
-    temporary.write_text(
-        json.dumps(payload, ensure_ascii=False, sort_keys=True), encoding="utf-8"
-    )
-    os.chmod(temporary, 0o600)
-    temporary.replace(path)
 
 
 def _is_strictly_newer(candidate: str, installed: str) -> bool:

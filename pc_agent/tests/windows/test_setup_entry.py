@@ -20,8 +20,24 @@ from pc_agent.windows_setup import (
 )
 
 
-@pytest.mark.parametrize('defect', [None, 'not-frozen', 'foreign-executable', 'owner-alive', 'changed-wrapper'])
-def test_frozen_staged_watchdog_uses_package_imports_and_preserves_admission(tmp_path, monkeypatch, defect):
+@pytest.mark.parametrize('defect,wrapper_exit,terminal,receipt', [
+    (None, 0, 'accepted', ('UPDATED', 0, 'SERVICE', 'SERVICE_RUNNING')),
+    (None, 67, 'rolled-back', ('ROLLED_BACK', 67, 'MSI', 'CANDIDATE_ROLLED_BACK')),
+    (None, 3010, 'switching', None),
+    (None, 61, 'switching', None),
+    (None, 0, 'other-operation', None),
+    (None, 0, 'switching', None),
+    (None, 0, 'busy', None),
+    ('damaged', 0, 'accepted', ('UPDATED', 0, 'SERVICE', 'SERVICE_RUNNING')),
+    ('damaged-busy', 0, 'accepted', None),
+    ('damaged-foreign', 0, 'accepted', None),
+    ('not-frozen', 0, 'accepted', None),
+    ('foreign-executable', 0, 'accepted', None),
+    ('owner-alive', 0, 'accepted', None),
+    ('changed-wrapper', 0, 'accepted', None),
+])
+def test_frozen_staged_watchdog_uses_package_imports_and_preserves_admission(
+        tmp_path, monkeypatch, defect, wrapper_exit, terminal, receipt):
     """Exercise the real file entry, not its package-imported function."""
     from pc_agent.platform.windows import staged_recovery, update_paths
 
@@ -38,13 +54,43 @@ def test_frozen_staged_watchdog_uses_package_imports_and_preserves_admission(tmp
         (cache/name).write_bytes(b'changed' if defect == 'changed-wrapper' and name.endswith('.ps1') else b'reviewed embedded input')
     operation = '11111111-1111-4111-8111-111111111111'
     record = SimpleNamespace(binding=SimpleNamespace(operation_id=operation), owner={'pid':42})
+    finished_binding = SimpleNamespace(operation_id='foreign') if terminal == 'other-operation' else record.binding
+    finished = SimpleNamespace(binding=finished_binding, phase=terminal, owner=record.owner)
     events = []
+    results = []
+    from contextlib import contextmanager
+
+    @contextmanager
+    def transaction(actual_paths, *, timeout_ms):
+        assert actual_paths is paths and timeout_ms == 0
+        if terminal == 'busy':
+            raise setup_entry.UpdateInProgress('UPDATE_IN_PROGRESS')
+        events.append('receipt-lock')
+        try:
+            yield
+        finally:
+            events.append('receipt-unlock')
+
+    scope['update_transaction'] = transaction
+    scope['_finish'] = lambda _, **fields: results.append(fields) or fields['code']
+    scope['_install_support_after_native'] = lambda root: events.append(('post-install', root))
     monkeypatch.setattr(setup_entry.sys, 'frozen', defect != 'not-frozen', raising=False)
-    monkeypatch.setattr(setup_entry.sys, 'executable', str(tmp_path/'foreign.exe' if defect == 'foreign-executable' else cache/'EndpointAgentSetup.exe'))
+    monkeypatch.setattr(setup_entry.sys, 'executable', str(tmp_path/'foreign.exe' if defect in ('foreign-executable', 'damaged-foreign') else cache/'EndpointAgentSetup.exe'))
     scope['WindowsUpdatePaths'] = SimpleNamespace(production=lambda: paths)
     scope['_resource_root'] = lambda: resource
     scope['_verify_embedded_msi'] = lambda _: (resource/'EndpointAgent.release.json', resource/'Install-EndpointAgentCanary.ps1')
-    monkeypatch.setattr(staged_recovery.state, 'read_staged_update', lambda _: record)
+    monkeypatch.setattr(staged_recovery.state, 'read_staged_update', lambda _: finished if 'launch' in events else record)
+    if defect in ('damaged', 'damaged-busy', 'damaged-foreign'):
+        def read_damaged(actual_paths, operation_id):
+            assert actual_paths is paths and operation_id == operation
+            return record, b'INDX'
+        def restore_damaged(actual_paths, actual_record, damaged):
+            assert actual_paths is paths and actual_record is record and damaged == b'INDX'
+            events.append('restore-journal')
+            if defect == 'damaged-busy':
+                raise setup_entry.UpdateInProgress('UPDATE_IN_PROGRESS')
+        monkeypatch.setattr(staged_recovery, 'read_recoverable_stage', read_damaged)
+        monkeypatch.setattr(staged_recovery, 'restore_damaged_stage', restore_damaged)
     monkeypatch.setattr(staged_recovery, '_validate_recovery_inputs', lambda *_: {'package_sha256':digest})
     monkeypatch.setattr(staged_recovery, 'wait_for_original_owner', lambda *a, **k: events.append('wait'))
     def dead(_):
@@ -59,15 +105,28 @@ def test_frozen_staged_watchdog_uses_package_imports_and_preserves_admission(tmp
         assert command[command.index('-Operation')+1] == 'RecoverStagedUpdate'
         assert command[command.index('-StagedOperationId')+1] == operation
         assert kwargs['shell'] is False
-        return SimpleNamespace(returncode=0)
+        return SimpleNamespace(returncode=wrapper_exit)
     monkeypatch.setattr(setup_entry.subprocess, 'run', invoke)
     result = entry['_run_staged_recovery'](operation)
-    if defect is None:
-        assert result == 0
-        assert events == ['wait','dead','launch']
+    if defect in (None, 'damaged'):
+        expected = ['wait', 'dead']
+        if defect == 'damaged':
+            expected.append('restore-journal')
+        expected.append('launch')
+        if wrapper_exit in (0, 67) and terminal != 'busy':
+            expected.extend(['receipt-lock', 'receipt-unlock'])
+        if receipt is not None and wrapper_exit == 0:
+            expected.append(('post-install', paths.pending_path.parents[1]))
+        assert events == expected
     else:
-        assert result == setup_entry.EXIT_REPAIR_REQUIRED
         assert 'launch' not in events
+        assert ('restore-journal' in events) is (defect == 'damaged-busy')
+    if receipt is None:
+        assert results == []
+        assert result == (3010 if wrapper_exit == 3010 else setup_entry.EXIT_REPAIR_REQUIRED)
+    else:
+        assert results == [dict(zip(('status', 'code', 'stage', 'detail'), receipt))]
+        assert result == wrapper_exit
 
 
 @pytest.mark.parametrize(
@@ -306,6 +365,278 @@ def test_setup_entry_installs_embedded_msi_before_enrollment(
     assert setup_entry.main(["--quiet"]) == 0
     assert order == ["EndpointAgent.msi", "enrollment"]
     assert observed_config[0].endpoint_origin == "https://endpoint.sosnadmin.local"
+
+
+def test_completed_native_install_resumes_original_enrollment_without_msi(tmp_path, monkeypatch):
+    _write_public_payload(tmp_path)
+    transaction = 'd5839dc6-fcf7-41f6-8603-5aca9dce1186'
+    executable = tmp_path / 'endpoint-agent-provision.exe'
+    monkeypatch.setattr(setup_entry, '_resource_root', lambda: tmp_path)
+    monkeypatch.setattr(setup_entry, '_data_root', lambda: tmp_path / 'agent-data')
+    monkeypatch.setattr(setup_entry, '_resume_unenrolled_installation', lambda *_: transaction, raising=False)
+    monkeypatch.setattr(setup_entry, '_installed_provisioner', lambda: executable)
+    monkeypatch.setattr(setup_entry, '_require_setup_disk', lambda _: pytest.fail('resume must not cost MSI'))
+    monkeypatch.setattr(setup_entry, '_install_embedded_msi', lambda _: pytest.fail('resume must not replay MSI'))
+    monkeypatch.setattr(setup_entry, 'HttpsSetupTransport', lambda *_: object())
+    delivered = []
+
+    class Setup:
+        def __init__(self, _, *, provision_claim, **kwargs):
+            self.provision_claim = provision_claim
+            self.installation_id_factory = lambda: 'win-test'
+
+        def run(self):
+            assert self.installation_id_factory() == 'win-test'
+            self.provision_claim('claim')
+            return SetupOutcome('provisioned')
+
+    def provision(path, config, data, installation_id, claim, *, native_transaction_id):
+        delivered.append((path, installation_id, claim, native_transaction_id))
+
+    monkeypatch.setattr(setup_entry, 'UniversalWindowsSetup', Setup)
+    monkeypatch.setattr(setup_entry, '_run_provisioner', provision)
+    assert setup_entry.main(['--quiet']) == 0
+    assert delivered == [(executable, 'win-test', 'claim', transaction)]
+
+
+def test_resume_without_installer_state_leaves_first_install_eligible(tmp_path, monkeypatch):
+    from contextlib import nullcontext
+    from pc_agent.platform.windows.installer_fence import state_root
+
+    paths = setup_entry.WindowsUpdatePaths.production()
+    assert not state_root(paths).exists()
+    monkeypatch.setattr(setup_entry, 'update_transaction', lambda *_a, **_kw: nullcontext())
+    monkeypatch.setattr(setup_entry, 'active_update_state', lambda _: None)
+    assert setup_entry._resume_unenrolled_installation(tmp_path / 'EndpointAgent.msi', paths) is None
+    assert not state_root(paths).exists()
+
+
+@pytest.mark.parametrize('defect', [None, 'different-release', 'receipt', 'selection'])
+def test_resume_requires_exact_pending_fact_and_settled_native_receipt(tmp_path, monkeypatch, defect):
+    from contextlib import nullcontext
+    from pc_agent.platform.windows import installation_lifecycle, installation_provenance as provenance
+    from pc_agent.platform.windows import installer_fence, msi_inventory
+
+    paths = setup_entry.WindowsUpdatePaths.production()
+    transaction = 'd5839dc6-fcf7-41f6-8603-5aca9dce1186'
+    digest = 'a' * 64
+    product = '{44A74469-6221-459A-8946-8CCA6F214127}'
+    release = {'package_sha256': digest}
+    media = tmp_path / 'EndpointAgent.msi'
+    media.with_name('EndpointAgent.release.json').write_text(json.dumps(release))
+    identity = SimpleNamespace(source_revision='b' * 40, version='3.2.232')
+    package = SimpleNamespace(sha256=digest, product_code=product,
+                              package_code=product, version=identity.version)
+    fact = {'transaction_id': transaction, 'native': {
+        'msi_sha256': 'c' * 64 if defect == 'different-release' else digest,
+        'product_code': product, 'source_revision': identity.source_revision,
+        'version': identity.version, 'exit_code': 0,
+    }}
+    root = installer_fence.state_root(paths) / 'transactions' / transaction
+    root.mkdir(parents=True)
+    receipt = {
+        'schema_version': 1, 'transaction_id': transaction, 'operation': 'install',
+        'phase': 'reconciling' if defect == 'receipt' else 'complete',
+        'package': {'sha256': digest, 'product_code': product, 'package_code': product,
+                    'version': identity.version, 'source_revision': identity.source_revision},
+        'selected': None, 'previous': None, 'startup_restored': True, 'sequence': 10,
+        'service_states': {'EndpointAgent': 'absent', 'EndpointAgentUpdater': 'absent'},
+        'service_startup': {'EndpointAgent': None, 'EndpointAgentUpdater': None}, 'helpers': [],
+    }
+    (root / 'completed.json').write_text(json.dumps(receipt))
+    monkeypatch.setattr(setup_entry, 'update_transaction', lambda *_a, **_kw: nullcontext())
+    monkeypatch.setattr(setup_entry, 'active_update_state', lambda _: None)
+    monkeypatch.setattr(installation_lifecycle, 'outbox_for',
+                        lambda _: SimpleNamespace(awaiting_enrollment=lambda: fact))
+    monkeypatch.setattr(installer_fence, 'assert_state_security', lambda _: None)
+    monkeypatch.setattr(msi_inventory, 'read_expected_package',
+                        lambda *_: SimpleNamespace(package=package, identity=identity))
+    monkeypatch.setattr(msi_inventory, 'verify_registered_cache', lambda *_: None)
+    monkeypatch.setattr(msi_inventory, 'verify_installed', lambda *_: None)
+    monkeypatch.setattr(provenance, 'verified_foundation_release', lambda _: release)
+    monkeypatch.setattr(provenance, 'inspect_installed_core', lambda *_, **_kw: SimpleNamespace(
+        current=SimpleNamespace(identity=identity, origin='zip' if defect == 'selection' else 'msi')))
+
+    if defect in ('receipt', 'selection'):
+        with pytest.raises(setup_entry.SetupInstallError) as error:
+            setup_entry._resume_unenrolled_installation(media, paths)
+        assert error.value.detail == 'PROVENANCE_CONFLICT'
+    else:
+        expected = None if defect == 'different-release' else transaction
+        assert setup_entry._resume_unenrolled_installation(media, paths) == expected
+
+
+@pytest.mark.parametrize("case", [
+    "live", "denied", "wrong-pc", "wrong-origin", "existing", "unprotected", "reboot", "race", "short-claim", "bad-expiry",
+])
+def test_inventory_assignment_requires_exact_windows_claim_before_msi(tmp_path, monkeypatch, case):
+    from datetime import UTC, datetime, timedelta
+
+    _write_public_payload(tmp_path)
+    config = tmp_path / "setup-config.json"
+    if case != "wrong-origin":
+        public = json.loads(config.read_text())
+        public["endpoint_origin"] = "https://endpoint-staging.sosnadmin.local"
+        config.write_text(json.dumps(public))
+    data_root = tmp_path / "agent-data"
+    assignment = tmp_path / "assignment.json"
+    installation_id = "inventory-11111111-1111-4111-8111-111111111111-22222222-2222-4222-8222-222222222222-" + "a" * 32
+    fingerprint = "sha256:" + "b" * 64
+    assignment.write_text(json.dumps({
+        "schema_version": "endpoint_windows_inventory_assignment_v1",
+        "installation_id": installation_id,
+        "hardware_fingerprint": fingerprint,
+    }))
+    order = []
+    request_id = "33333333-3333-4333-8333-333333333333"
+
+    class Transport:
+        def create_request(self, body):
+            assert body["installation_id"] == installation_id
+            assert body["hardware_fingerprint"] == fingerprint and body["platform"] == "windows"
+            order.append("request")
+            return {"request_id": request_id, "status": "denied" if case == "denied" else "auto_approved"}
+
+        def request_claim(self, _request_id, proof):
+            assert proof["installation_id"] == installation_id and proof["hardware_fingerprint"] == fingerprint
+            order.append("claim")
+            expires = datetime.now(UTC) + timedelta(minutes=1 if case == "short-claim" else 14)
+            return {"claim": "ic_test", "expires_at": "invalid" if case == "bad-expiry" else expires.isoformat()}
+
+        def request_verification(self, _request_id, _capability):
+            order.append("heartbeat")
+            return {"status": "completed"}
+
+    def check_acl(_self, path):
+        assert path == assignment
+        if case == "unprotected":
+            raise setup_entry.WindowsAclError("fixture private error")
+
+    monkeypatch.setattr(setup_entry.PyWin32AclAdapter, "assert_inventory_assignment_file", check_acl)
+    monkeypatch.setattr(setup_entry, "_resource_root", lambda: tmp_path)
+    monkeypatch.setattr(setup_entry, "_data_root", lambda: data_root)
+    monkeypatch.setattr(setup_entry, "_agent_service_installed", lambda: False)
+    monkeypatch.setattr("pc_agent.platform.windows.msi_inventory.NativeMsi", lambda: SimpleNamespace(related_products=lambda _: ()))
+    monkeypatch.setattr(setup_entry, "_classify_installation_state", lambda *_a, **_kw: "valid" if case == "existing" else "clean")
+    def derive(probe):
+        assert probe is setup_entry.collect_windows_inventory_fingerprint
+        return "sha256:" + "c" * 64 if case == "wrong-pc" else fingerprint
+
+    monkeypatch.setattr(setup_entry, "_derive_hardware_fingerprint", derive)
+    def native_install(_path, *, inventory_fresh_only):
+        assert inventory_fresh_only
+        order.append("msi")
+        if case == "race":
+            raise setup_entry.SetupInstallError("INVENTORY_ASSIGNMENT_INELIGIBLE")
+        return 3010 if case == "reboot" else 0
+    monkeypatch.setattr(setup_entry, "_install_embedded_msi", native_install)
+    monkeypatch.setattr(setup_entry, "_installed_provisioner", lambda: tmp_path / "provision.exe")
+    monkeypatch.setattr(setup_entry, "_wait_for_agent_service_running", lambda: True)
+    def make_transport(*_args, allow_redirects):
+        assert allow_redirects is False
+        return Transport()
+    monkeypatch.setattr(setup_entry, "HttpsSetupTransport", make_transport)
+    monkeypatch.setattr(setup_entry, "_run_provisioner", lambda *a, **kw: order.append("provision"))
+
+    result = setup_entry.main(["--quiet", "--inventory-assignment-file", str(assignment)])
+    assert result == {"live": 0, "denied": 30, "reboot": 3010, "short-claim": 40, "bad-expiry": 40}.get(case, 20)
+    assert order == {
+        "live": ["request", "claim", "msi", "provision", "heartbeat"],
+        "denied": ["request"],
+        "reboot": ["request", "claim", "msi"],
+        "race": ["request", "claim", "msi"],
+        "short-claim": ["request", "claim"],
+        "bad-expiry": ["request", "claim"],
+    }.get(case, [])
+    for log in (tmp_path / "diagnostics").glob("*"):
+        assert installation_id not in log.read_text() and fingerprint not in log.read_text()
+
+
+@pytest.mark.parametrize("staging", [True, False])
+def test_signed_setup_inventory_probe_is_read_only_and_staging_scoped(tmp_path, monkeypatch, capsys, staging):
+    _write_public_payload(tmp_path)
+    path = tmp_path / "setup-config.json"
+    config = json.loads(path.read_text())
+    if staging:
+        config["endpoint_origin"] = "https://endpoint-staging.sosnadmin.local"
+        path.write_text(json.dumps(config))
+    fingerprint = "sha256:" + "b" * 64
+    monkeypatch.setattr(setup_entry, "_resource_root", lambda: tmp_path)
+    def derive(probe):
+        assert probe is setup_entry.collect_windows_inventory_fingerprint
+        return fingerprint
+
+    monkeypatch.setattr(setup_entry, "_derive_hardware_fingerprint", derive)
+    monkeypatch.setattr(setup_entry, "_data_root", lambda: pytest.fail("installer state accessed during probe"))
+    assert setup_entry.main(["--inventory-fingerprint"]) == (0 if staging else 20)
+    output = capsys.readouterr().out
+    assert (json.loads(output) if output else None) == ({"hardware_fingerprint": fingerprint} if staging else None)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native Windows ACL")
+def test_inventory_file_acl_uses_only_builtin_admin_and_system_sids(tmp_path, monkeypatch):
+    import ctypes
+    from pc_agent.platform.windows.inventory_setup import read_assignment
+
+    if not ctypes.windll.shell32.IsUserAnAdmin():
+        pytest.skip("setting the builtin Administrators owner requires elevation")
+    security = pytest.importorskip("win32security")
+    assignment = tmp_path / "assignment.json"
+    installation_id = "inventory-11111111-1111-4111-8111-111111111111-22222222-2222-4222-8222-222222222222-" + "a" * 32
+    fingerprint = "sha256:" + "b" * 64
+    assignment.write_text(json.dumps({
+        "schema_version": "endpoint_windows_inventory_assignment_v1",
+        "installation_id": installation_id,
+        "hardware_fingerprint": fingerprint,
+    }))
+    monkeypatch.setattr(security, "LookupAccountName", lambda *_: pytest.fail("uninstalled service SID lookup"))
+
+    def set_acl(extra=""):
+        descriptor = security.ConvertStringSecurityDescriptorToSecurityDescriptor(
+            "O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)" + extra, 1,
+        )
+        security.SetNamedSecurityInfo(
+            str(assignment), security.SE_FILE_OBJECT,
+            security.OWNER_SECURITY_INFORMATION | security.DACL_SECURITY_INFORMATION | security.PROTECTED_DACL_SECURITY_INFORMATION,
+            descriptor.GetSecurityDescriptorOwner(), None, descriptor.GetSecurityDescriptorDacl(), None,
+        )
+
+    set_acl()
+    assert read_assignment(assignment) == (installation_id, fingerprint)
+    set_acl("(A;;FR;;;BU)")
+    with pytest.raises(setup_entry.WindowsAclError):
+        read_assignment(assignment)
+
+
+def test_inventory_provisioner_handoff_keeps_assignment_and_claim_in_stdin(tmp_path, monkeypatch):
+    installation_id = "inventory-11111111-1111-4111-8111-111111111111-22222222-2222-4222-8222-222222222222-" + "a" * 32
+    config = SetupConfig("https://endpoint-staging.sosnadmin.local", tmp_path / "ca", "1.0.0", "1.0.0")
+    calls = []
+    def run(command, **kwargs):
+        calls.append((command, kwargs["input"]))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+    setup_entry._run_provisioner(tmp_path / "provision.exe", config, tmp_path, installation_id, "ic_test", run=run)
+    command, material = calls[0]
+    assert "--inventory-stdin" in command and "--installation-id" not in command
+    assert installation_id not in command and "ic_test" not in command
+    assert json.loads(material) == {"installation_id": installation_id, "claim": "ic_test"}
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Win32 inherited handles")
+def test_windowed_installer_inherited_pipe_handles_roundtrip():
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-c",
+         "from pc_agent.platform.windows import installer_stdio as s; "
+         "s.write_inherited_pipe(s.read_inherited_pipe(30).encode('ascii'))"],
+        input=b"fixture-only",
+        capture_output=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == b"fixture-only"
 
 
 def test_setup_entry_records_started_before_installing_embedded_msi(
@@ -1220,3 +1551,54 @@ def test_wrapper_rollback_is_reported_separately(tmp_path, monkeypatch):
     _write_public_payload(tmp_path)
     monkeypatch.setattr(setup_entry.subprocess, 'run', lambda *_a, **_k: SimpleNamespace(returncode=67))
     assert setup_entry._install_embedded_msi(tmp_path / 'EndpointAgent.msi') == 67
+
+
+def test_accepted_native_upgrade_attempts_support_before_core_health_check(monkeypatch,tmp_path):
+    from pc_agent.platform.windows import provision
+    from pc_agent.platform.windows import installation_notification
+    _write_public_payload(tmp_path)
+    monkeypatch.setattr(setup_entry,'_data_root',lambda:tmp_path/'data')
+    monkeypatch.setattr(setup_entry,'_resource_root',lambda:tmp_path)
+    monkeypatch.setattr(setup_entry,'_classify_installation_state',lambda *_a,**_kw:'valid')
+    monkeypatch.setattr(setup_entry,'_installed_msi_version',lambda:'1.0.0')
+    monkeypatch.setattr(setup_entry,'_msi_reconciliation_required',lambda _:True)
+    events=[]
+    monkeypatch.setattr(installation_notification,'sync_enrolled_installation',lambda _:events.append('lifecycle') or 'delivered')
+    monkeypatch.setattr(setup_entry,'_install_embedded_msi',lambda _:events.append('native-accepted') or 0)
+    monkeypatch.setattr(provision,'install_enrolled_support',lambda root:events.append('support') or {'installed':False})
+    monkeypatch.setattr(setup_entry,'_wait_for_agent_service_running',lambda:events.append('core-health') or False)
+    assert setup_entry.main(['--quiet']) == setup_entry.EXIT_SERVICE_FAILED
+    assert events == ['native-accepted','lifecycle','support','core-health']
+    result=json.loads((tmp_path/'diagnostics'/'support-install-result.json').read_text())
+    assert result['installed'] is False
+    assert result['status'] == 'unavailable'
+
+
+def test_fresh_provisioner_reports_support_failure_separately_without_changing_success(tmp_path):
+    config=SetupConfig(endpoint_origin='https://endpoint.sosnadmin.local',ca_file=tmp_path/'ca.pem',
+        installer_version='1.0.0',installer_release_id='1.0.0')
+    setup_entry._run_provisioner(tmp_path/'provision.exe',config,tmp_path/'data','win-test','claim',
+        run=lambda *a,**kw:SimpleNamespace(returncode=0,stdout='{"support_access_status":"unavailable"}',stderr=''))
+    result=json.loads((tmp_path/'diagnostics'/'support-install-result.json').read_text())
+    assert result['installed'] is False
+    assert result['status']=='unavailable'
+
+
+def test_same_version_setup_retries_only_support_without_msi_or_enrollment(monkeypatch,tmp_path):
+    from pc_agent.platform.windows import provision
+    from pc_agent.platform.windows import installation_notification
+    _write_public_payload(tmp_path)
+    monkeypatch.setattr(setup_entry,'_data_root',lambda:tmp_path/'data')
+    monkeypatch.setattr(setup_entry,'_resource_root',lambda:tmp_path)
+    monkeypatch.setattr(setup_entry,'_classify_installation_state',lambda *_a,**_kw:'valid')
+    monkeypatch.setattr(setup_entry,'_installed_msi_version',lambda:'1.0.2')
+    monkeypatch.setattr(setup_entry,'_msi_reconciliation_required',lambda _:False)
+    events=[]
+    monkeypatch.setattr(installation_notification,'sync_enrolled_installation',lambda _:events.append('lifecycle-retry') or 'delivered')
+    monkeypatch.setattr(setup_entry,'_install_embedded_msi',lambda _:events.append('MSI'))
+    monkeypatch.setattr(setup_entry,'_run_provisioner',lambda *a,**k:events.append('enrollment'))
+    monkeypatch.setattr(provision,'install_enrolled_support',lambda root:events.append('support') or {'installed':True})
+    monkeypatch.setattr(setup_entry,'_wait_for_agent_service_running',lambda:events.append('core-health') or True)
+    assert setup_entry.main(['--quiet'])==setup_entry.EXIT_ALREADY_INSTALLED
+    assert events==['lifecycle-retry','support','core-health']
+    assert json.loads((tmp_path/'diagnostics'/'support-install-result.json').read_text())['installed'] is True

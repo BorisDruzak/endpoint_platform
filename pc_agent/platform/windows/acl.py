@@ -255,6 +255,32 @@ class PyWin32AclAdapter:
         if not allowed or not allowed.issubset(_expected_sid_strings(win32security)):
             raise WindowsAclError("enrollment material is not protected")
 
+    def assert_inventory_assignment_file(self, path: Path) -> None:
+        """Protect installer input before any Endpoint service accounts exist."""
+        self._require_windows()
+        self._reject_reparse_point(path)
+        win32security, _ = self._modules()
+        trusted = {"S-1-5-18", "S-1-5-32-544"}
+        try:
+            descriptor = win32security.GetNamedSecurityInfo(
+                str(path), win32security.SE_FILE_OBJECT,
+                win32security.OWNER_SECURITY_INFORMATION | win32security.DACL_SECURITY_INFORMATION,
+            )
+            owner = win32security.ConvertSidToStringSid(descriptor.GetSecurityDescriptorOwner())
+            dacl = descriptor.GetSecurityDescriptorDacl()
+            protected = descriptor.GetSecurityDescriptorControl()[0] & win32security.SE_DACL_PROTECTED
+            if owner not in trusted or not protected or dacl is None or dacl.GetAceCount() == 0:
+                raise WindowsAclError("inventory assignment ACL is invalid")
+            for index in range(dacl.GetAceCount()):
+                ace = dacl.GetAce(index)
+                if (ace[0][0] != win32security.ACCESS_ALLOWED_ACE_TYPE
+                    or win32security.ConvertSidToStringSid(ace[2]) not in trusted):
+                    raise WindowsAclError("inventory assignment ACL is invalid")
+        except WindowsAclError:
+            raise
+        except Exception as error:
+            raise WindowsAclError("could not inspect inventory assignment ACL") from error
+
     def _apply(self, path: Path, rules: tuple[AccessRule, ...]) -> None:
         if os.name != "nt":
             # Test hosts cannot model Windows virtual accounts.  Restrict the
