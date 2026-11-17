@@ -36,6 +36,10 @@ _RETIREMENT_CURSOR = ".core-retirement-cursor.json"
 _SHARING_ERRORS = {32, 33}  # ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION
 
 
+class CoreDownloadContentChanged(RuntimeError):
+    """A protected archive has different bytes from its publication record."""
+
+
 def _assert_cache_security(path: Path) -> None:
     try:
         _assert_state_security(path)
@@ -150,8 +154,9 @@ def retire_update_download(
     *,
     assert_security: Callable[[Path], None] | None = None,
     protect_receipt: Callable[[Path], None] | None = None,
+    signal_changed_content: bool = False,
 ) -> bool:
-    """Delete one authenticated operation cache leaf under the update mutex."""
+    """Delete a verified cache leaf or signal a content change to its writer."""
     artifact = _download_path(paths, pending)
     if artifact is None:
         return False
@@ -159,10 +164,14 @@ def retire_update_download(
     try:
         _checked_path(artifact, paths.updates_root)
         details = artifact.lstat()
-        if not stat.S_ISREG(details.st_mode) or details.st_nlink != 1 or details.st_size != size:
+        if not stat.S_ISREG(details.st_mode) or details.st_nlink != 1:
             return False
         if assert_security is not None:
             assert_security(artifact)
+        if details.st_size != size:
+            if signal_changed_content:
+                raise CoreDownloadContentChanged("Core download archive size differs")
+            return False
         with artifact.open("rb") as stream:
             opened = os.fstat(stream.fileno())
             if not os.path.samestat(details, opened) or opened.st_size != size:
@@ -175,7 +184,7 @@ def retire_update_download(
                     return False
                 actual.update(chunk)
                 remaining -= len(chunk)
-            if stream.read(1) or actual.hexdigest() != digest:
+            if stream.read(1):
                 return False
         observed = artifact.lstat()
         if (
@@ -184,6 +193,10 @@ def retire_update_download(
             or observed.st_mtime_ns != details.st_mtime_ns
             or observed.st_ctime_ns != details.st_ctime_ns
         ):
+            return False
+        if actual.hexdigest() != digest:
+            if signal_changed_content:
+                raise CoreDownloadContentChanged("Core download archive digest differs")
             return False
         durable_unlink(artifact, trusted_root=paths.updates_root)
         return True

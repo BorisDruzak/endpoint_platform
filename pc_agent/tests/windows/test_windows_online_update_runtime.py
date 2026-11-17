@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -25,7 +26,9 @@ _OPERATION_ID = "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e"
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("state", ["abandoned", "pending", "changed_bytes"])
+@pytest.mark.parametrize("state", [
+    "abandoned", "pending", "changed_bytes", "changed_size", "hardlinked", "conflicting_evidence",
+])
 async def test_restart_reclaims_only_archive_with_unconsumed_publication_record(
     tmp_path, monkeypatch, state,
 ):
@@ -73,22 +76,55 @@ async def test_restart_reclaims_only_archive_with_unconsumed_publication_record(
         pending = _pending_payload()
         pending.update(artifact_path=str(archive), size=len(payload), sha256=item.sha256)
         paths.pending_path.write_text(json.dumps(pending))
-    if state == "changed_bytes":
-        archive.write_bytes(b"x" * len(payload))
+    original = payload
+    if state in {"changed_bytes", "changed_size", "conflicting_evidence"}:
+        original = b"x" if state == "changed_size" else b"x" * len(payload)
+        archive.write_bytes(original)
+    if state == "hardlinked":
+        os.link(archive, archive.with_name("hardlinked-control.zip"))
     historical = paths.downloads_root / "build-3.1.9-241fe64c-9639-47ca-b2c5-c36b36b11f9a.zip"
     historical.write_bytes(payload)
+    prepared = paths.updates_root / "prepared-core-download.json"
+    prepared_bytes = prepared.read_bytes()
+    if state == "conflicting_evidence":
+        retained = paths.updates_root / f"rejected-prepared-{hashlib.sha256(prepared_bytes).hexdigest()}.json"
+        retained.write_bytes(b"{}")
 
     fresh = online_update_runtime.WindowsOnlineUpdateRuntime(
         adapter=_Adapter(None), paths=paths, acl=_Acl(), download=None,
     )
-    if state == "changed_bytes":
-        with pytest.raises(ValueError, match="cannot be verified"):
+    if state in {"hardlinked", "conflicting_evidence"}:
+        message = "cannot be verified" if state == "hardlinked" else "Retained Core download evidence differs"
+        with pytest.raises(ValueError, match=message):
             await fresh.run_once()
-        assert archive.read_bytes() == b"x" * len(payload)
-    else:
-        assert (await fresh.run_once()).status == ("pending" if state == "pending" else "idle")
+        assert archive.read_bytes() == original
+        assert prepared.read_bytes() == prepared_bytes
+        assert not paths.pending_path.exists()
+        if state == "hardlinked":
+            assert archive.with_name("hardlinked-control.zip").read_bytes() == original
+            assert not list(paths.updates_root.glob("rejected-prepared-*.json"))
+        else:
+            assert retained.read_bytes() == b"{}"
+        return
+    result = await fresh.run_once()
+    assert result.status == ("pending" if state == "pending" else "idle")
+    if state in {"changed_bytes", "changed_size"}:
+        assert result.authenticated_check
+        assert archive.read_bytes() == original
+        rejected, = paths.updates_root.glob("rejected-prepared-*.json")
+        assert rejected.read_bytes() == prepared_bytes
+        assert not prepared.exists()
+        retry = online_update_runtime.WindowsOnlineUpdateRuntime(
+            adapter=_Adapter(item), paths=paths, acl=_Acl(), download=download,
+        )
+        assert (await retry.run_once()).status == "scheduled"
+        publication = json.loads(paths.pending_path.read_bytes())
+        replacement = Path(publication["artifact_path"])
+        assert replacement != archive and replacement.read_bytes() == payload
+        assert archive.read_bytes() == original
+        assert rejected.read_bytes() == prepared_bytes
     assert archive.exists() is (state != "abandoned")
-    assert (paths.updates_root / "prepared-core-download.json").exists() is (state != "abandoned")
+    assert prepared.exists() is (state == "pending")
     assert historical.read_bytes() == payload
 
 

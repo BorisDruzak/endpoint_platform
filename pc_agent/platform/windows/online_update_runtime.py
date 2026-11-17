@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -21,7 +22,8 @@ from pc_agent.transport.base import GatewayCredentialRejected, GatewayTerminalEr
 
 from .update_paths import WindowsUpdatePaths
 from .update_download_retention import (
-    TRANSFER_PREFIX, _assert_cache_security, own_core_download, retire_interrupted_core_downloads,
+    TRANSFER_PREFIX, CoreDownloadContentChanged, _assert_cache_security, own_core_download,
+    retire_interrupted_core_downloads,
     retire_update_download, retry_deferred_core_downloads,
 )
 from .update_transaction import update_transaction, UpdateInProgress, _read_state
@@ -339,7 +341,10 @@ class WindowsOnlineUpdateRuntime:
         if not self._prepared_download_present():
             return
         _assert_cache_security(root)
-        metadata = _read_state(prepared, _PENDING_LIMIT)
+        raw = _read_state(prepared, _PENDING_LIMIT, return_bytes=True)
+        if raw is None:
+            raise ValueError("Prepared Core download metadata is missing")
+        metadata = json.loads(raw)
         if not isinstance(metadata, dict) or metadata.keys() != _PENDING_FIELDS:
             raise ValueError("Prepared Core download metadata is invalid")
         version, operation, raw_path = (
@@ -361,7 +366,21 @@ class WindowsOnlineUpdateRuntime:
         except FileNotFoundError:
             pass
         else:
-            if not retire_update_download(self._paths, metadata, assert_security=_assert_cache_security):
+            try:
+                retired = retire_update_download(
+                    self._paths, metadata, assert_security=_assert_cache_security, signal_changed_content=True,
+                )
+            except CoreDownloadContentChanged:
+                # This writer never exposed a pending update. Keep the ZIP and
+                # its original record while releasing the preparation slot.
+                rejected = root / f"rejected-prepared-{hashlib.sha256(raw).hexdigest()}.json"
+                retained = _read_state(rejected, _PENDING_LIMIT, return_bytes=True)
+                if retained is not None and retained != raw:
+                    raise ValueError("Retained Core download evidence differs")
+                publish_prepared(prepared, rejected, expected_bytes=raw, trusted_root=root,
+                                 max_bytes=_PENDING_LIMIT, validate=_assert_cache_security)
+                return
+            if not retired:
                 raise ValueError("Prepared Core download cannot be verified")
         # A previous attempt may have unlinked the ZIP but failed to flush it.
         flush_directory(artifact.parent)
