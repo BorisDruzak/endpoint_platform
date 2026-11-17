@@ -515,8 +515,9 @@ The production artifact catalog has 107 files registered by name and 11
 other files. Seven historical MSI files match the catalog by SHA-256 and
 the Gateway keeps its lease file open. The
 inventory now lists canonical MSI filenames and expected digests separately.
-Two historical ZIPs match operator-held build copies. A third has an
-off-volume copy and still needs source verification. At 14:28 UTC the
+Two historical ZIPs match operator-held build copies. The off-volume
+Windows 3.2.3 archive matches the historical manifest for all 2,492 runtime
+files. The source commit for that build remains open. At 14:28 UTC the
 volume had 7,250,735,104 free bytes. The earlier 30-tree estimate is short
 by 165,830,656 bytes at that reading. Previous block measurements imply
 32 trees before revalidation.
