@@ -723,6 +723,9 @@ fixture and connected to the repository host over SSH. The second used
 the production signing script for a saved Noble Release. Linux gpgv
 verified the pinned publisher and exact Release bytes. Both probes were
 removed. A run after owner sign-out remains open.
+The 01:18 UTC timed run after publication exited 0 and verified both
+live indexes as fresh. Task Scheduler events confirm the time trigger
+and action completion. Independent HTTPS downloads matched both hashes.
 Release evidence requires an exact-source CI receipt before publication.
 STAB-15: the [release qualification matrix](docs/verification/2026-11-14-agent-release-qualification-matrix.md)
 records installed canary evidence by OS, exact source and signed artifact.
