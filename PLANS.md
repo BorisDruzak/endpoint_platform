@@ -1689,9 +1689,20 @@ fixture its own key and propagates task errors. All 47 tests in the
 delivery module passed with PostgreSQL. The new Windows workflow test set
 passed 2,920 tests with four skips across two invocations, Console passed
 125, and the two new archives matched. All 335 archive files match
-`8939fff82014`. The ten-worker comparison runs with the same server source
-and database pool as the eight-worker baseline. The full Ubuntu rerun of
-`34b9178ace8a` follows that comparison on the same staging host.
+`8939fff82014`. The ten-worker comparison used the same server source
+and database pool as the eight-worker baseline. Online p95 was
+4.703–5.456 s, with one of three waves meeting 5 s in each configuration.
+The ten-worker trial recorded a reconnect result ACK p95 of 1.0013 s in
+the second wave. Connection acquisition p95 rose from 186.5 to 237.2 ms.
+Keep the eight-worker limit. Both trials verified 768 results, 512
+snapshots and 2,700 Helpdesk requests. The comparison fixture was
+removed. The full Ubuntu rerun of `34b9178ace8a` passed 5,341 tests
+and two subtests with 722 skips. Migration 0051 to 0056 and the archived
+API, Console and worker passed. The fixture was removed. The combined
+release receipt has SHA-256
+`38b11b180fb739e1bd1b2148cbff6de77d559d6537bdc9a1205bc870b24e97d2`.
+GitHub Actions returned no run for this SHA. Production had 7,444,590,592
+bytes free against the 10 GiB release gate.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
