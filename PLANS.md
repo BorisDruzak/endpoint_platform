@@ -1640,8 +1640,11 @@ Both exact-source server archives matched. A separate 192-client run
 paired both commands on each device. The first worker wait averaged
 1.280–1.503 s in the nine slowest chains per wave, and the second
 averaged 1.094–1.489 s. Reconnect ACK p95 stayed below 1 s and online
-p95 remained 5.549–5.916 s. The next isolated comparison uses ten
-dispatch workers with the same 15-slot pool.
+p95 remained 5.549–5.916 s. Ten dispatch workers at the same 15-slot
+database cap shortened the first queue wait in all waves. Online p95
+was 5.058–5.827 s. Database checkout p95 rose from 192 to 237 ms, and
+reconnect ACK p95 remained below 1 s. The next isolated run keeps ten
+workers and 15 total slots, all retained in the pool between bursts.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
