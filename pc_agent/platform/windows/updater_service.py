@@ -25,7 +25,10 @@ from typing import Any, Callable, Protocol
 from pc_agent.update_eligibility import _is_eligible_recommendation
 
 from .acl import EXPECTED_PRINCIPALS, PyWin32AclAdapter, WindowsAclError, preserve_state_file_permissions, assert_state_file_permissions_match
-from .durable_state import durable_unlink, flush_directory, write_bytes_atomic, write_json_atomic, publish_prepared
+from .durable_state import (
+    durable_unlink, flush_directory, flush_existing_file, publish_prepared,
+    write_bytes_atomic, write_json_atomic,
+)
 from .disk_readiness import allocation_required_bytes, apply_required_bytes, is_disk_full, require_disk_space
 from .service_control import SERVICE_NAME, UPDATER_SERVICE_NAME
 from .update_paths import UPDATE_EXECUTABLE_NAME, WindowsUpdatePaths
@@ -1304,11 +1307,10 @@ def _write_terminal_outcome(
 
 
 def _quarantine_invalid_pending(paths: WindowsUpdatePaths, security: UpdatePathSecurity) -> None:
-    """Move one malformed local handoff away from the active fixed leaf.
+    """Durably retain the rejected bytes before removing the active handoff.
 
-    No network report is possible because an invalid document has no trusted
-    operation id.  A unique same-directory publication preserves forensic bytes
-    without leaving the agent in an infinite `pending` state.
+    A digest names each distinct record so a sharing violation can be retried
+    against the same evidence.
     """
     pending = paths.pending_path
     try:
@@ -1321,12 +1323,38 @@ def _quarantine_invalid_pending(paths: WindowsUpdatePaths, security: UpdatePathS
         # The shared lifecycle primitive deliberately refuses a reparse leaf.
         # Keep unsafe state for operator repair rather than deleting a target.
         return
-    destination = paths.updates_root / f"rejected-pending-{uuid.uuid4().hex}.json"
+    limit = 16 * 1024
     try:
-        if details.st_size > 16 * 1024:
+        if not stat.S_ISREG(details.st_mode) or details.st_size > limit:
             return
-        write_bytes_atomic(destination, pending.read_bytes(), trusted_root=paths.updates_root,
-            max_bytes=16 * 1024, protect=PyWin32AclAdapter().protect_update_path)
+        with pending.open("rb") as source:
+            if not os.path.samestat(details, os.fstat(source.fileno())):
+                return
+            rejected = source.read(limit + 1)
+        if len(rejected) > limit:
+            return
+        digest = hashlib.sha256(rejected).hexdigest()
+        destination = paths.updates_root / f"rejected-pending-{digest}.json"
+        try:
+            retained = destination.lstat()
+        except FileNotFoundError:
+            write_bytes_atomic(destination, rejected, trusted_root=paths.updates_root,
+                max_bytes=limit, protect=PyWin32AclAdapter().protect_update_path)
+        else:
+            _reject_reparse_chain(paths.updates_root, destination)
+            security.assert_update_path(destination)
+            if not stat.S_ISREG(retained.st_mode) or retained.st_nlink != 1 or retained.st_size != len(rejected):
+                return
+            with destination.open("rb") as source:
+                if source.read(limit + 1) != rejected:
+                    return
+            flush_existing_file(destination, trusted_root=paths.updates_root)
+            flush_directory(paths.updates_root)
+        current = pending.lstat()
+        if (not os.path.samestat(details, current)
+                or current.st_mtime_ns != details.st_mtime_ns
+                or current.st_size != details.st_size):
+            return
         durable_unlink(pending, trusted_root=paths.updates_root)
     except (OSError, ValueError, WindowsAclError):
         # Preserve the original handoff if it cannot be moved safely.  The

@@ -883,6 +883,84 @@ def test_updater_quarantines_an_invalid_pending_handoff_before_exiting(
     assert quarantined[0].read_text(encoding="utf-8") == '{"unexpected":true}'
 
 
+def test_quarantine_reuses_evidence_while_pending_is_locked(tmp_path: Path) -> None:
+    win32file = pytest.importorskip("win32file")
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+
+    paths = _paths(tmp_path)
+    paths.updates_root.mkdir(parents=True)
+    rejected = b'{"unexpected":true}'
+    paths.pending_path.write_bytes(rejected)
+    updater = WindowsUpdater(paths, acl=_Acl())
+
+    handle = win32file.CreateFile(
+        str(paths.pending_path), win32file.GENERIC_READ,
+        win32file.FILE_SHARE_READ | win32file.FILE_SHARE_WRITE,
+        None, win32file.OPEN_EXISTING, 0, None,
+    )
+    try:
+        for _ in range(3):
+            assert updater.run_once().status == "rejected"
+            assert paths.pending_path.read_bytes() == rejected
+        copies = list(paths.updates_root.glob("rejected-pending-*.json"))
+        assert len(copies) == 1
+        assert copies[0].read_bytes() == rejected
+    finally:
+        handle.Close()
+
+    assert updater.run_once().status == "rejected"
+    assert not paths.pending_path.exists()
+    assert list(paths.updates_root.glob("rejected-pending-*.json")) == copies
+
+
+def test_quarantine_completes_previous_evidence_flush_before_removing_pending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pc_agent.platform.windows import durable_state, updater_service
+
+    paths = _paths(tmp_path)
+    paths.updates_root.mkdir(parents=True)
+    rejected = b'{"unexpected":true}'
+    paths.pending_path.write_bytes(rejected)
+    updater = updater_service.WindowsUpdater(paths, acl=_Acl())
+
+    def fail_directory_flush(path):
+        if path == paths.updates_root:
+            raise OSError("injected directory flush failure")
+        return flush(path)
+
+    flush = durable_state.flush_directory
+    with monkeypatch.context() as patches:
+        patches.setattr(durable_state, "flush_directory", fail_directory_flush)
+        assert updater.run_once().status == "rejected"
+    assert paths.pending_path.read_bytes() == rejected
+    copy, = paths.updates_root.glob("rejected-pending-*.json")
+    assert copy.read_bytes() == rejected
+    mtime = copy.stat().st_mtime_ns
+
+    assert updater.run_once().status == "rejected"
+    assert not paths.pending_path.exists()
+    assert list(paths.updates_root.glob("rejected-pending-*.json")) == [copy]
+    assert copy.stat().st_mtime_ns == mtime
+
+
+def test_quarantine_preserves_conflicting_evidence_and_pending(tmp_path: Path) -> None:
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+
+    paths = _paths(tmp_path)
+    paths.updates_root.mkdir(parents=True)
+    rejected = b'{"unexpected":true}'
+    paths.pending_path.write_bytes(rejected)
+    digest = hashlib.sha256(rejected).hexdigest()
+    copy = paths.updates_root / f"rejected-pending-{digest}.json"
+    unrelated = b"x" * len(rejected)
+    copy.write_bytes(unrelated)
+
+    assert WindowsUpdater(paths, acl=_Acl()).run_once().status == "rejected"
+    assert paths.pending_path.read_bytes() == rejected
+    assert copy.read_bytes() == unrelated
+
+
 def test_pending_validator_rejects_different_bytes_for_existing_target_version(
     tmp_path: Path,
 ) -> None:
