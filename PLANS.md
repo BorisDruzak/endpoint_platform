@@ -1477,6 +1477,14 @@ results, 384 snapshots and 96 current session observations. Online
 delivery p95 was 4.289–4.304 s. Result ACK after reconnect met 1 s
 in all three waves. Reconnect start ACK reached 1.308 s in the third
 wave. Both histories survived and the isolated environment was removed.
+A further sustained 144-client run traced all 576 start acknowledgements.
+Reconnect start p95 was 0.686, 0.925 and 1.161 s. For the four slowest
+reconnect starts per wave, the median share before handler entry was
+64.5%, 67.9% and 51.2%; connection acquisition accounted for 25.0%,
+24.8% and 42.7%. Commit accounted for 1.7–2.3%. The same-host clocks
+bound each phase to its command and all result, replay, history and
+cleanup checks passed. The pre-handler interval still includes proxy
+transport, frame processing and earlier work on the same socket.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
