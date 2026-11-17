@@ -1790,6 +1790,15 @@ checkout wait, pre-ping, and new connections. The 5 s online p95 target
 held in one of three waves. Both reconnect ACKs stayed within 1 s. The
 fixture passed completeness checks and was removed.
 
+The pool-phase rerun found 17,116 Gateway acquisitions. Queue calls
+accounted for 522.326 of 609.628 cumulative seconds, pre-ping for 81.310 s,
+and physical opens for 5.055 s. In the 23 slowest scan-origin deliveries,
+mean queue wait was 400.632 ms of 418.935 ms for acquisition. No new
+connection was opened for these 23. Result-only empty checks took 32.206
+worker-seconds over 139 attempts. Two of three online p95 waves met 5 s
+and both reconnect ACKs met 1 s throughout. The isolated environment
+passed cleanup.
+
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
 running, worker restart and forced process or PostgreSQL exit. A separate
