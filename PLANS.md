@@ -1772,6 +1772,15 @@ Baseline online p95 was 5.547/4.905/5.418 s and candidate p95 was
 The candidate's slowest chains still wait 1.042–1.220 s for the
 first dispatch worker. The delivery target in all waves remains open.
 
+A test-only dispatch selection allowed one confirmed result wake to pass
+the oldest eligible request, followed by an oldest-first claim. On the same
+candidate and service projection it promoted 116 of 2,309 claims. The
+192-client p95 was 5.446/4.503/5.252 s. In the slowest chains, average
+first-command worker wait rose to 1.836–2.273 s while second-command wait
+fell to 0.052–0.172 s. The ordinary queue stays in use. Both environments
+passed correctness checks and cleanup. The third-wave interval was about
+360 s for priority and 300 s for the earlier FIFO trial.
+
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
 running, worker restart and forced process or PostgreSQL exit. A separate
