@@ -121,6 +121,12 @@ tests, and contract artifacts checked cleanly. Two new archives
 matched, all 335 member digests matched the prior tested candidate,
 125 Console tests passed, and the merge archive started API and
 worker on schema 0056. GitHub Actions has no receipt for the merge SHA.
+Candidate `2b2297228baa` passed the local Windows workflow task
+(2,912 passed, four skipped) and Console (125 passed). Two clean
+server builds matched across all 335 files. Since the verified merge
+archive, only the scheduler and two Gateway payload files changed.
+The archived process smoke and hosted CI receipt remain open for this
+candidate.
 STAB-01 source: WSS bounded FIFO and separate command task, fixed worker
 process with capability budgets, deadline admission and owned process-tree
 cleanup. HTTP pull remains sequential. Windows source fault injection covers

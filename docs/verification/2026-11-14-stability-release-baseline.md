@@ -732,3 +732,25 @@ Console прошла 125 тестов. При стендовом запуске 
 имеет SHA-256 `a1b9e030c0f43069156137b816ac38869cbbd84b645bbf03bf5363507b9e0c5a`.
 В том же каталоге находится `archive-smoke.log` с SHA-256
 `96a9f81aeb9a66b47f1a7aafe521a7137e7d74a55968a90c56306c9da7bd4370`.
+
+## Архив кандидата с ограничением открытия WSS
+
+Из коммита `2b2297228baa76b1230559cd5d818eb882758b79` собраны два
+побайтно одинаковых архива в отдельных чистых checkout. Для сборки
+использовали Node.js 24.15.0, npm 11.12.1 и Python 3.12.16.
+Из 335 файлов архива 332 сверены с Git и три с результатом сборки
+Console. По сравнению с архивом `a47d15d38e2b` изменились только
+`endpoint_server/context/scheduler.py`,
+`endpoint_server/gateway/connection_registry.py` и
+`endpoint_server/gateway/ws_routes.py`. Список совпал с diff Git для
+файлов, входящих в архив.
+
+Задача Windows release gate на точном коммите дала 2 912 проходов
+и четыре пропуска. `npm test` дал 125 проходов. Проверки запуска
+из архива и hosted CI для этого кандидата остаются открытыми.
+
+`endpoint-platform-2b2297228baa.tar.gz` и `archive-receipt.json`
+находятся в
+`C:/endpoint-platform-wix-build/stab19-wss-opening-limit-192-r2-20261117/server-release`.
+SHA-256 архива —
+`2100406e443f5774c891d12c575cbd491a94a0683477ba16059eb842747f3494`.
