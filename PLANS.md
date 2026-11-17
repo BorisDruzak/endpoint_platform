@@ -266,6 +266,12 @@ an injected serial-cleanup implementation on handshake ordering. The
 combined route, limits and reconnect suites passed 36 tests on Ubuntu
 with disposable PostgreSQL 16 and 33 on Windows. One SQLite case on
 Ubuntu and four PostgreSQL-only cases on Windows were skipped.
+STAB-06 follow-up `41e3fd4bd380` rechecks the WSS owner inside the send
+lock immediately before starting a command frame. With a committed delivery
+held at the lock, the replaced connection sent zero frames and the new owner
+replayed the same command and delivery row. The focused Windows set passed
+579 tests with 26 skips. The Windows release gate passed 2,915 tests with four
+skips, Console passed 125 and two exact-source server archives matched.
 STAB-08 source: per-job execution deadlines and PostgreSQL lock/statement
 budgets, bounded rollback, redacted attempt/last-success/lag logging and
 conservative commit uncertainty. PostgreSQL row-lock regression verified.
