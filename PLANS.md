@@ -1382,6 +1382,14 @@ reconnect start p95 was 1.070–1.136 s. Both 168-client runs missed the
 two reconnect ACK targets. For the nine slowest reconnect start
 requests the median connection-acquisition share was 25–40% at 144
 and 90.3–91.3% at 168. All snapshots and preserved history were verified.
+At 168 clients, a four-run comparison with a lab limit of eight on
+WSS opening database stages reduced online delivery p95 by 0.946–1.165 s.
+Result handler connection acquisition p95 fell from 777–781 ms to
+463–465 ms, and reconnect result ACK met 1 s in both limited runs.
+Reconnect start was 1.022 and 0.845 s. Last hello took 0.100–0.724 s
+longer under the limit, and queue recovery improved by about 0.33 s.
+All four runs verified 224 snapshots and both histories. This is
+evidence for the tested lab limit on a mixed production-shaped load.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
