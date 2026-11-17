@@ -1709,6 +1709,19 @@ release receipt has SHA-256
 GitHub Actions returned no run for this SHA. Production had 7,444,590,592
 bytes free against the 10 GiB release gate.
 
+The conditional Device lock in `a986c3d626a7` combined WSS work detection
+with `SELECT FOR UPDATE`. PostgreSQL verified that an empty queue bypasses
+a held Device row lock and that a newly committed module is still found
+after a lock wait. At 192 clients it saved 768 SELECTs, with 3,840 reads
+in delivery transactions and all 768 results and 512 snapshots verified.
+Online delivery p95 was 5.856, 5.491 and 5.165 s. The third wave followed a
+300-second interval instead of the baseline's 360 seconds. The first two
+waves were slower than their baseline and all three missed 5 s. Commit
+`18433ecc471b` restored the separately tested runtime. The Gateway test
+files passed 67 tests with three PostgreSQL-only skips after the revert.
+Compare queue admission and worker wait for second commands before making
+another change to SQL in the delivery transaction.
+
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
 running, worker restart and forced process or PostgreSQL exit. A separate
