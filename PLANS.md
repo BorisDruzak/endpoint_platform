@@ -431,6 +431,17 @@ removed both 6.61 seconds after release of the handle. The same device
 accepted Core 3.2.240 on Foundation 3.2.239 and retained all four private
 files. The native run covers successful acceptance; failure and rollback
 remain source-tested. VM136 and its isolated provider state were removed.
+Rejected Windows pending handoffs now use one protected copy per
+distinct SHA-256. A retry validates the retained bytes and flushes the
+copy and its directory before unlinking the active handoff. A live NTFS
+handle without delete sharing produced three identical copies on the
+previous code. The regression now retains one copy across three retries
+and clears the active handoff after release. Separate tests cover the
+interrupted directory flush and conflicting evidence. The focused
+Windows suite passed 355 tests with one skip. The local Windows
+workflow on `423a73aad289` passed 2,915 tests with four skips.
+`C:/endpoint-platform-wix-build/stab13-pending-quarantine-20261117/windows-workflow-receipt.json`
+has SHA-256 `54278328bfe7bc3ee1c2aace99d375a844078aca219a7c6e8bb7d90b8997f8a6`.
 Historical Core caches, scratch files from writers without the lock and archives tied to
 quarantined handoff records remain open, along with server deployment releases
 and retirement of catalog artifacts. The server archive ships both storage
