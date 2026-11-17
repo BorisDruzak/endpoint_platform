@@ -516,6 +516,95 @@ async def test_scheduled_dispatch_counts_work_toward_next_scan_interval(monkeypa
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["exception", "return"])
+async def test_gateway_dispatch_recovers_after_unexpected_exit(session_provider, tmp_path, monkeypatch, caplog, failure):
+    import endpoint_server.main as endpoint_main
+    from endpoint_contracts import AgentHelloV1
+    from endpoint_server.gateway.connection_registry import GatewayConnection
+    from endpoint_server.gateway.presence_service import PresenceService
+
+    device = await seed_device(session_provider)
+    hello = AgentHelloV1.model_validate(agent_hello(device.id, instance_id=uuid4()))
+    presence = PresenceService(session_provider)
+    first = await presence.open_session(device_id=device.id, hello=hello, source_address="192.168.101.20")
+    async with session_provider() as db:
+        db.add(ContextCollection(
+            device_id=device.id, profile="health_v1", requested_by="scheduler",
+            idempotency_key="dispatch-exit", status="requested", requested_at=datetime.now(UTC),
+        ))
+        await db.commit()
+    service = CommandService(session_provider)
+    capabilities = frozenset({"context.health.collect"})
+    failed, restarted, stopped = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    attempts = 0
+
+    async def dispatch(*_):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            await failed.wait()
+
+            async def lose_frame(_envelope):
+                if failure == "exception":
+                    raise RuntimeError("sensitive fixture value")
+
+            await service.deliver_next(
+                device.id, first.session_id, lose_frame, allowed_capabilities=capabilities,
+            )
+            return
+        restarted.set()
+        try:
+            await asyncio.Future()
+        finally:
+            stopped.set()
+
+    class Socket:
+        def __init__(self):
+            self.sent = []
+            self.closed = []
+
+        async def send_json(self, payload):
+            self.sent.append(payload)
+
+        async def close(self, code):
+            self.closed.append(code)
+
+    monkeypatch.setattr(endpoint_main, "run_scheduled_dispatch", dispatch)
+    app = create_app(gateway_settings(artifact_root=tmp_path), session_provider)
+    registry = app.state.gateway_connection_registry
+    socket = Socket()
+    owner = GatewayConnection(device.id, first.session_id, socket, effective_capabilities=capabilities)
+    async with app.router.lifespan_context(app):
+        await registry.publish(owner)
+        owner.ready_for_dispatch.set()
+        await registry.request_dispatch(owner)
+        failed.set()
+        await asyncio.wait_for(restarted.wait(), timeout=3)
+        assert attempts == 2
+        assert await registry.get(owner.device_id) is None
+        assert socket.closed == [1001]
+        assert [message["kind"] for message in socket.sent] == ["server_shutdown_notice"]
+        async with session_provider() as db:
+            committed = (await db.scalars(select(CommandDelivery))).one()
+            assert committed.device_session_id == first.session_id
+
+        replacement = await presence.open_session(
+            device_id=device.id, hello=hello, source_address="192.168.101.20",
+        )
+        sent = []
+        assert await service.deliver_next(
+            device.id, replacement.session_id, sent.append, allowed_capabilities=capabilities,
+        )
+        assert [message.payload.command_id for message in sent] == [committed.command_id]
+        async with session_provider() as db:
+            replayed = (await db.scalars(select(CommandDelivery))).one()
+            assert replayed.id == committed.id and replayed.device_session_id == replacement.session_id
+    assert stopped.is_set()
+    assert "Gateway dispatch stopped" in caplog.text
+    assert "sensitive fixture value" not in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_cancelled_dispatch_shutdown_releases_worker_lease(session_provider, tmp_path, monkeypatch):
     import endpoint_server.main as endpoint_main
 

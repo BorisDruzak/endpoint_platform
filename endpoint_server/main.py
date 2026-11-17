@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -88,10 +89,28 @@ from endpoint_server.setup_updates.fleet_routes import router as setup_fleet_rou
 from endpoint_server.updates.admin_transaction import UpdateAdminTransactionProvider
 
 
+logger = logging.getLogger(__name__)
+
+
+async def _supervise_gateway_dispatch(registry: ConnectionRegistry, provider: SessionProvider) -> None:
+    while True:
+        try:
+            await run_scheduled_dispatch(registry, provider)
+        except Exception as error:
+            logger.error("Gateway dispatch stopped safe_error=%s", type(error).__name__)
+        else:
+            logger.error("Gateway dispatch stopped safe_error=unexpected_return")
+
+        # A worker stopped between commit and send may still own the saved
+        # delivery. A new socket session can replay it under the normal checks.
+        await registry.shutdown_all()
+        await asyncio.sleep(1.0)
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.gateway_worker_lease.acquire()
-    dispatch = asyncio.create_task(run_scheduled_dispatch(
+    dispatch = asyncio.create_task(_supervise_gateway_dispatch(
         app.state.gateway_connection_registry, app.state.session_provider,
     ))
     try:
