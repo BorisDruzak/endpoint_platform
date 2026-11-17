@@ -461,6 +461,18 @@ Windows suite passed 355 tests with one skip. The local Windows
 workflow on `423a73aad289` passed 2,915 tests with four skips.
 `C:/endpoint-platform-wix-build/stab13-pending-quarantine-20261117/windows-workflow-receipt.json`
 has SHA-256 `54278328bfe7bc3ee1c2aace99d375a844078aca219a7c6e8bb7d90b8997f8a6`.
+Windows deferred Core ZIP cleanup now checkpoints its position atomically
+when its attempt or byte budget is exhausted. The next idle check continues
+through the bounded scan and wraps back to retained entries. Real NTFS tests
+recreated the updater for each check and passed both budget cases. Two
+archives with changed bytes and their receipts were preserved, a later
+verified ZIP was retired on the second check, and a restored earlier ZIP
+was retired after wraparound. New cursor state only orders the existing
+verification. It grants no deletion authority. Source `b14b97fc39ae` passed
+315 targeted tests with one skip and 2,917 Windows release gate tests with
+four skips. No new installed release was exercised.
+`C:/endpoint-platform-wix-build/stab13-deferred-retirement-rotation-20261117/windows-workflow-receipt.json`
+has SHA-256 `3f13b965ff952d66c85ba2722293b257ea2b9142d5dbb97366ae19e37d4bfa89`.
 Historical Core caches, scratch files from writers without the lock and archives tied to
 quarantined handoff records remain open, along with server deployment releases
 and retirement of catalog artifacts. The server archive ships both storage
