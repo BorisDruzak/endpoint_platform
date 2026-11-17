@@ -1614,8 +1614,11 @@ Empty socket probes occupied 1.61–2.28 of eight workers during those windows.
 Candidate `bf2fd44c49fe` reads possible command work from the heartbeat
 session query and skips empty heartbeat wakeups. A focused 669-test local
 set passed with 35 skips. PostgreSQL preflight passed 33 tests with one
-SQLite lock-test skip. The 192-client comparison is active. Windows passed
-2,917 tests with four skips.
+SQLite lock-test skip. The 192-client comparison reduced empty socket probes
+from 6,890 to 2,236. Online delivery p95 remained 5.420–5.977 s. Both
+reconnect ACKs stayed under 1 s. The sampled tail consists of second
+commands awaiting the previous result ACK and then a dispatch worker.
+Windows passed 2,917 tests with four skips.
 Console passed 125 tests on a two-worker repeat after one pagination failure.
 Both exact-source server archives matched.
 
