@@ -1561,10 +1561,12 @@ Architecture and agent set passed 578 tests with 26 skips on the
 restored code. The lab-only 192-client trial with ten delivery workers
 measured 5.812–6.533 s online p95 versus 5.828–6.139 s in the earlier
 eight-worker run. All reconnect ACK p95 values stayed below 1 s. The
-configured count remains eight. A local scheduler probe on 192 devices
-counted 256 repeat Device row reads for 256 created requests. The next
-scheduler change will test reuse of the row that the scheduler already
-locked in the transaction.
+configured count remains eight. Candidate `857a75d0ecb2` reuses the
+Device row already locked by the scheduler or reconnect producer. The
+same local 192-device probe created 256 requests and reduced Device row
+reads from 448 to 192. The 15-test PostgreSQL preflight confirmed Device
+ownership and removal-before-reconnect ordering. The 192-client shared
+capacity run is active with per-wave Device row counts.
 
 [Gateway recovery drills](docs/verification/2026-11-14-stab19-gateway-recovery.md)
 verified replay after API restart, database interruption with the API
