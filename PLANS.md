@@ -104,8 +104,12 @@ upgrade paths that must run for each qualified artifact.
   independently reviewed Lab evidence matches the exact native source,
   profile, route and environment. The planner keeps the required case and
   uses the live Console eligibility. The projection matched the actual
-  Windows 11 Evaluation qualification in Lab PostgreSQL. Full production
-  profile collection and ALT transition evidence remain open.
+  Windows 11 Evaluation qualification in Lab PostgreSQL. A fresh production
+  census joined the current inventory to native state and WSS. It identified
+  live Windows build families beyond the tested Windows 10 and Windows 11
+  Evaluation profiles, plus ALT 11.2 and 11.5 alongside 11.4. The current
+  planner held 14 Windows and 3 ALT connections for incomplete native
+  profiles. Local edition, state, ACL and transaction evidence remain open.
 - EP-RE-04 has an explicit [qualification build](tools/release/CODEMAP.md#run-the-qualification-build)
   from the bound reservation. It previews the selected Windows/ALT builder and
   records output hashes after execution. Its native Lab matrix rechecks the
