@@ -60,9 +60,12 @@ upgrade paths that must run for each qualified artifact.
   and replayed the same ID. The cold run also proved that the baseline gate
   uses the server-stored command result and accepts bounded device clock skew.
   The activation replay passed on real Nginx with the byte-identical
-  repository snippet in an isolated mount namespace. Add an explicit,
-  scope-reviewed grant to one existing ALT native campaign under the
-  canonical campaign lock. Revocation remains open.
+  repository snippet in an isolated mount namespace.
+  `include-alt-enrollment-release` previews the exact native source and binds
+  execution to the reviewed authority of one existing ALT campaign. The
+  isolated PostgreSQL trial preserved the campaign scope, quota and usage,
+  rejected overlaps and produced one audit event across retries. Revocation
+  remains open.
 - EP-RE-03 has a read-only [compatibility planner](tools/release/CODEMAP.md#plan-native-qualification)
   and provider snapshot for exact native events, active operations, enrollment
   and catalog exposure. The planner binds Console preview to the exact release

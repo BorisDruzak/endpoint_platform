@@ -28,6 +28,10 @@ reviewed guide digest and activates the immutable version directory with one
 rename. Existing primary and campaign controls are managed through their own
 release procedures.
 
+Use the [explicit ALT campaign workflow](../../tools/release/CODEMAP.md#include-a-qualified-alt-release-in-one-enrollment-campaign)
+for an approved enrollment addition. Select the existing RPM campaign on
+the chosen provider and review its scope before applying the grant.
+
 Only publish public kit archives, detached archive/manifest signatures, manifest,
 checksums, public RPM key and operator guide. All directories must be root-owned
 0755, files root-owned 0644 and regular (no symlinks). Never copy the signer home,

@@ -415,6 +415,26 @@ created by that invocation and preserves the private prepared bytes. A retry
 requires the exact same public files. Release authority for the primary
 pointer, new enrollment campaigns and existing-device work is separate.
 
+### Include a qualified ALT release in one enrollment campaign
+
+Set `DATABASE_URL` for the provider that owns the existing, authorized RPM
+campaign. The provider independently registers the same native pair and may
+use a different native source UUID from the Lab.
+
+```bash
+python tools/release/agent_release.py include-alt-enrollment-release --request-id "$request" \
+  --qualification-id "$qualification" --campaign-id "$campaign"
+```
+
+The read-only preview returns the target source and `scope_sha256` for the
+kit, campaign ID, network ranges, mode, expiry, quota and other allowed RPM
+sources. Apply the separately authorized grant with `--execute --scope-sha256
+"$reviewed_scope_sha256"`. The provider rechecks the reviewed scope and the
+exact active source under the campaign lock. It holds overlapping campaigns
+for the same source and rejects campaigns for non-RPM sources. It appends
+only the approved source and retains the campaign's expiry, mode, quota and
+usage. A repeated grant returns the same state and leaves one audit event.
+
 ## Plan native qualification
 
 Capture a fresh provider snapshot using `agent_catalog_snapshot.sql`. Keep this
