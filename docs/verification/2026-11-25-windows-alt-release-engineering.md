@@ -132,6 +132,12 @@ launcher и исходного профиля. Подписание и нати�
 регистрации подписанного комплекта в изолированной БД вернула прежний UUID.
 [Квитанция испытания](C:/endpoint-platform-wix-build/release-native-publisher-20261125/isolated-alt-download.json)
 
+На изолированном HTTPS-сервере в госте `verify-alt-download` выполнил HEAD и
+GET для всех семи файлов комплекта 3.2.274. Хэши ответов совпали с журналом.
+Отдельные прогоны отклонили изменённый манифест того же размера, перенаправление,
+несовпадение имени сертификата и неизвестный CA. Сервер слушал loopback гостя.
+[Квитанция HTTPS](C:/endpoint-platform-wix-build/release-native-publisher-20261125/verified-download-https.json) · [Отрицательные сценарии](C:/endpoint-platform-wix-build/release-native-publisher-20261125/download-https-fixture.json)
+
 ## Проверка публикации Windows
 
 На ревизии `9cd2953feb3c0515eb1102791dea746e598f3f82` прошли hosted-гейты

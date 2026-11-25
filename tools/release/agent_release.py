@@ -190,6 +190,8 @@ def main() -> None:
     agent_alt_native.add_arguments(native_alt)
     alt_download = commands.add_parser("prepare-alt-download", help="prepare a private copy of the verified ALT kit")
     agent_alt_download.add_arguments(alt_download)
+    alt_https = commands.add_parser("verify-alt-download", help="check exact ALT download bytes over trusted HTTPS")
+    agent_alt_download.add_https_arguments(alt_https)
     candidate = commands.add_parser("record-candidate", help="pin native candidate bytes to a reservation")
     candidate.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
     candidate.add_argument("--request-id", required=True, type=UUID)
@@ -222,6 +224,8 @@ def main() -> None:
             result = agent_alt_native.register(args)
         elif args.command == "prepare-alt-download":
             result = agent_alt_download.prepare(args)
+        elif args.command == "verify-alt-download":
+            result = agent_alt_download.verify_https(args)
         elif args.command == "record-candidate":
             result = agent_reservations.record_candidate(args)
         else:

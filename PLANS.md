@@ -43,8 +43,10 @@ upgrade paths that must run for each qualified artifact.
   offline verification and an exact retry against an isolated native registry
   on ALT 11.4. `prepare-alt-download` stages its seven exact download files in
   a private version directory. Signed .274 passed concurrent exact retries and
-  the staging failure exercise on ALT 11.4. Bind public activation to exact Lab
-  acceptance and scoped authority. Campaign scope and revocation remain open.
+  the staging failure exercise on ALT 11.4. `verify-alt-download` checked all
+  seven served files over an isolated HTTPS endpoint against the same recorded
+  kit. Bind public activation to exact Lab acceptance and scoped authority.
+  Campaign scope and revocation remain open.
 - EP-RE-03 has a read-only [compatibility planner](tools/release/CODEMAP.md#plan-native-qualification)
   and provider snapshot for exact native events, active operations, enrollment
   and catalog exposure. The planner binds Console preview to the exact release

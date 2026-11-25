@@ -1,4 +1,5 @@
 """Exercise reservation through the CLI and a real shared Git remote."""
+from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import errno
@@ -583,3 +584,64 @@ def test_alt_download_partial_copy_can_retry_and_cannot_overwrite_conflict(tmp_p
     with pytest.raises(ValueError, match="conflicts"):
         download._prepare_directory(incoming, destination, paths, proofs, execute=True)
     assert (destination / name).read_bytes() == b"x" * source.stat().st_size
+
+
+def test_alt_download_https_checks_response_bytes_and_never_follows_redirect(tmp_path, monkeypatch):
+    from tools.release import agent_alt_download as download
+
+    name = "endpoint-alt-pilot-3.2.274-1"
+    payload = {f"{name}.tar.gz": b"archive", f"{name}.manifest.json": b"manifest"}
+    payload.update({f"{filename}.sig": b"signature" for filename in list(payload)})
+    key = (CLI.parents[2] / "packaging/alt/pilot/endpoint-rpm-release.asc").read_bytes()
+    proofs = {filename: {"filename": filename, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+              for filename, data in payload.items()}
+    candidate = {"request_id": str(uuid4()), "state": "candidate", "version": "3.2.274",
+                 "artifacts": dict(zip(("archive", "manifest", "archive_signature", "manifest_signature"), proofs.values())),
+                 "members": {"endpoint-rpm-release.asc": {"size": len(key), "sha256": hashlib.sha256(key).hexdigest()}}}
+    for ext in (".tar.gz", ".manifest.json"):
+        filename = name + ext
+        payload[filename + ".sha256"] = f"{proofs[filename]['sha256']}  {filename}\n".encode("ascii")
+    payload["endpoint-rpm-release.asc"] = key
+    monkeypatch.setattr(download.agent_alt_native.agent_reservations, "reservation_status",
+                        lambda args: {"candidates": {"alt": candidate}})
+    calls = []
+    response_status = {}
+
+    class Response(io.BytesIO):
+        def getheader(self, name):
+            return str(len(payload[self.filename])) if name == "Content-Length" else None
+
+    class Connection:
+        def __init__(self, host, port, *, context, timeout):
+            assert host == "stage.example.org" and port == 9443 and context is trusted_context
+
+        def request(self, method, path, headers):
+            assert path.startswith(f"/downloads/alt/{name}/")
+            calls.append((method, path))
+
+        def getresponse(self):
+            method, path = calls[-1]
+            filename = path.rsplit("/", 1)[-1]
+            result = Response(payload[filename] if method == "GET" else b"")
+            result.status = response_status.get(filename, 200)
+            result.filename = filename
+            return result
+
+        def close(self):
+            pass
+
+    trusted_context = object()
+    monkeypatch.setattr(download.ssl, "create_default_context", lambda *, cafile: trusted_context)
+    monkeypatch.setattr(download, "HTTPSConnection", Connection)
+    args = Namespace(origin="https://stage.example.org:9443", ca_file=tmp_path / "lab-ca.pem")
+    assert len(download.verify_https(args)["files"]) == 7
+    assert sorted(method for method, _ in calls) == ["GET"] * 7 + ["HEAD"] * 7
+
+    payload[f"{name}.tar.gz"] = b"ARCHIVE"
+    with pytest.raises(ValueError, match="digest"):
+        download.verify_https(args)
+    calls.clear()
+    response_status[f"{name}.tar.gz"] = 302
+    with pytest.raises(ValueError, match="302"):
+        download.verify_https(args)
+    assert calls == [("HEAD", f"/downloads/alt/{name}/{name}.tar.gz")]

@@ -154,12 +154,17 @@ def inspect_candidate(args: Namespace, reservation: dict) -> dict:
     return _inspect_alt(args, reservation)
 
 
-def verify_recorded_candidate(reservation: dict, platform: str, directory: Path) -> dict:
+def get_recorded_candidate(reservation: dict, platform: str) -> dict:
     candidate = reservation.get("candidates", {}).get(platform)
     if candidate is None:
         raise ValueError("Record the native candidate before using its artifacts")
     if candidate["state"] != "candidate":
         raise ValueError("Candidate is rejected; use a new candidate")
+    return candidate
+
+
+def verify_recorded_candidate(reservation: dict, platform: str, directory: Path) -> dict:
+    candidate = get_recorded_candidate(reservation, platform)
     for proof in candidate["artifacts"].values():
         filename = proof["filename"]
         if filename in ("", ".", "..") or any(separator in filename for separator in ("/", "\\", ":")):

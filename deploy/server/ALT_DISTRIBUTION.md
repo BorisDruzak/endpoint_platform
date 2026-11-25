@@ -36,8 +36,12 @@ Verify the full publisher fingerprint independently:
 Follow `packaging/alt/pilot/README.ru.md` for client verification and installation.
 Validate canonical HTTPS GET/HEAD with the environment CA, download hashes and
 detached signatures, rejected writes and disabled directory listing after
-publication. A fleet rollout still requires an explicit target group, unique
-enrollment and its environment configuration; publishing does not enroll hosts.
+publication. Use
+[`agent_release.py verify-alt-download`](../../tools/release/CODEMAP.md#verify-the-served-alt-download)
+for the seven files tied to a recorded candidate. Also check the operator
+guide and the access rules on the public location. A fleet rollout still
+requires an explicit target group, unique enrollment and its environment
+configuration; publishing does not enroll hosts.
 
 The dedicated operator GnuPG key and encrypted recovery export stay outside Git
 and build hosts. Its passphrase is protected for the operator's Windows account

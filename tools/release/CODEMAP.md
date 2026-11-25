@@ -350,6 +350,21 @@ report. Conflicts require operator review. Use the reviewed version-specific
 operator guide and the separately authorized activation procedure in
 [ALT distribution](../../deploy/server/ALT_DISTRIBUTION.md).
 
+### Verify the served ALT download
+
+After authorized activation, use the environment CA and canonical origin.
+
+```bash
+python tools/release/agent_release.py verify-alt-download --request-id "$request" \
+  --origin "$endpoint_origin" --ca-file "$endpoint_ca"
+```
+
+The command uses the same recorded candidate to check HEAD, GET size and
+SHA-256 for all seven files over HTTPS. The report gives the URL prefix,
+request ID and observed check time. It fails on redirects, TLS name or
+authority failure and any different byte sequence. Complete the additional
+download-path checks from the [distribution runbook](../../deploy/server/ALT_DISTRIBUTION.md).
+
 ## Plan native qualification
 
 Capture a fresh provider snapshot using `agent_catalog_snapshot.sql`. Keep this
