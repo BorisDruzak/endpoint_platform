@@ -7,13 +7,14 @@ import json
 from pathlib import Path, PurePosixPath
 import re
 import subprocess
+import sys
 from typing import Any
 from uuid import UUID
 
-if __package__:
-    from . import agent_reservations
-else:
-    import agent_reservations
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from tools.release import agent_reservations
 
 
 CATALOG = "docs/releases/current-agent-release.json"
@@ -175,14 +176,24 @@ def main() -> None:
     bind = commands.add_parser("bind-source", help="pin the candidate build commit to a reservation")
     bind.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
     bind.add_argument("--request-id", required=True, type=UUID)
+    candidate = commands.add_parser("record-candidate", help="pin native candidate bytes to a reservation")
+    candidate.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
+    candidate.add_argument("--request-id", required=True, type=UUID)
+    candidate.add_argument("--platform", required=True, choices=("windows", "alt"))
+    candidate.add_argument("--manifest", required=True, type=Path, help="Setup sidecar or ALT kit manifest")
+    candidate.add_argument("--expected-publisher", help="trusted Windows Setup/MSI publisher")
+    candidate.add_argument("--archive-signature", type=Path, help="detached ALT kit signature")
+    candidate.add_argument("--manifest-signature", type=Path, help="detached ALT manifest signature")
     args = parser.parse_args()
     try:
         if args.command == "status":
             result = status(args.repo_root)
         elif args.command == "reserve":
             result = agent_reservations.reserve(args)
-        else:
+        elif args.command == "bind-source":
             result = agent_reservations.bind_source(args)
+        else:
+            result = agent_reservations.record_candidate(args)
     except (OSError, KeyError, TypeError, ValueError, AttributeError, SyntaxError, subprocess.TimeoutExpired) as exc:
         parser.exit(1, f"Agent release {args.command} failed: {exc}\n")
     print(json.dumps(result, ensure_ascii=True, indent=2, sort_keys=True))

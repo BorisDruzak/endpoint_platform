@@ -141,3 +141,31 @@ and its `--core`, `--sensor`, `--setup`, `--public-key`, and `--output` paths.
 The kit assembler verifies both signed RPMs, their common native manifest,
 and the Setup digest carried by Core. Use the existing detached-signature
 procedure and source-specific Lab checks before registration or publication.
+
+### Record the exact candidate artifacts
+
+After the normal native build and signature checks, record its fingerprints
+under the same request ID. Keep the candidate inputs in a read-only build
+output while recording. Place the Windows EXE, MSI and inspected MSI manifest
+beside the Setup sidecar. Place the ALT archive beside its outer manifest.
+Keep the canonical output filenames.
+
+```powershell
+python tools/release/agent_release.py record-candidate --request-id $request --platform windows `
+  --manifest $setupSidecar --expected-publisher $trustedPublisher
+python tools/release/agent_release.py record-candidate --request-id $request --platform alt `
+  --manifest $kitManifest --archive-signature $kitSignature --manifest-signature $manifestSignature
+```
+
+The command checks the reserved version, bound source and exact artifact
+digests. Windows also checks the inspected MSI metadata against the Setup
+sidecar. ALT checks each archive member and the bundled manifest against the
+outer manifest, pins the publisher key digest and records the detached
+signature artifacts. The ledger retains one artifact set per reserved
+platform. An identical retry returns the existing record. A different artifact
+set requires a new reservation.
+
+The ledger entry supplies fingerprints for exact-artifact Lab verification.
+Signature authenticity and timestamps are verified through the existing
+native gates. Registration, qualification and promotion retain their current
+publisher and Console requirements.

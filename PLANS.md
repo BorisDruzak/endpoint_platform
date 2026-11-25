@@ -25,8 +25,10 @@ upgrade paths that must run for each qualified artifact.
   source binding. Concurrent reservation, retries, and source binding are
   covered against real isolated Git remotes. The live reservation preview
   still needs a staging catalog export and the signing-host inventory.
-  Exact-artifact lifecycle operations remain open. Keep the existing
-  publisher authoritative.
+  `record-candidate` binds exact Windows or ALT artifact hashes to the reserved
+  build revision. Windows 3.2.276 and ALT 3.2.274 matched their historical
+  receipts in read-only checks. Qualification, promotion and revocation
+  remain open. Keep the existing publisher authoritative.
 - EP-RE-03 plans required transitions from read-only observed profiles,
   pending/unknown assignments, recovery holds and enrollment availability.
 - EP-RE-04 composes existing builders, Lab checks and publishers around the
@@ -37,11 +39,9 @@ upgrade paths that must run for each qualified artifact.
   candidate remain open.
 - EP-RE-05 chooses the delivery artifact based on the actual source and
   dependency changes.
-- Before qualification, resolve failing checks on the base
-  [provider gate run](https://github.com/BorisDruzak/endpoint_platform/actions/runs/45593470857).
-  Linux APT expiry tests invoked the real curl with the production CA path on
-  the hosted runner. The Windows job stopped at exact-source evidence before
-  producing test results because its artifacts directory already existed.
+- The release engineering branch resolved both hosted failures in the base
+  gate. The [follow-up provider gate](https://github.com/BorisDruzak/endpoint_platform/actions/runs/45612060556)
+  passed on Linux and Windows with version reservation and build binding.
 - Production inspection on 25 November found Windows 3.2.205 primary, its
   default AUTO campaign active, Full Setup revision 21 paused and one
   `recovery_required` assignment. The provider selector was

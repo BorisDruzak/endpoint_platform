@@ -1,10 +1,13 @@
 """Exercise reservation through the CLI and a real shared Git remote."""
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+import hashlib
+import io
 import json
 from pathlib import Path
 import subprocess
 import sys
+import tarfile
 from uuid import uuid4
 
 import pytest
@@ -204,3 +207,126 @@ def test_bind_source_requires_reserved_version_and_cannot_rebind(release_inputs)
     assert rejected.returncode != 0
     assert "already bound" in rejected.stderr
     assert git(repo, "ls-remote", "origin", LEDGER) == before
+
+
+def record_candidate(repo, request, platform, manifest, *options):
+    return subprocess.run(
+        [sys.executable, str(CLI), "record-candidate", "--repo-root", str(repo),
+         "--request-id", str(request), "--platform", platform, "--manifest", str(manifest), *options],
+        capture_output=True, text=True, encoding="utf-8", timeout=90,
+    )
+
+
+def prepare_bound_source(inputs):
+    repo, _ = inputs
+    request = uuid4()
+    reservation = value(reserve(inputs, request, "both"))
+    (repo / "pc_agent/version.py").write_text(
+        f'AGENT_VERSION = "{reservation["version"]}"\n', encoding="utf-8",
+    )
+    git(repo, "add", "pc_agent/version.py")
+    git(repo, "commit", "-m", "test: prepare candidate source")
+    return request, value(bind_source(repo, request))
+
+
+def windows_candidate(folder, version, revision, setup_content=b"setup bytes"):
+    setup = folder / f"EndpointAgentSetup-{version}-x64.exe"
+    msi = folder / f"EndpointAgent-{version}-x64.msi"
+    setup.write_bytes(setup_content)
+    msi.write_bytes(b"msi bytes")
+    setup_sha, msi_sha = [hashlib.sha256(path.read_bytes()).hexdigest() for path in (setup, msi)]
+    sidecar = setup.with_suffix(".release.json")
+    write(sidecar, {
+        "schema_version": "endpoint_windows_setup_release_v1", "version": version,
+        "agent_version": version, "source_commit": revision, "msi_source_commit": revision,
+        "filename": setup.name, "setup_sha256": setup_sha, "msi_sha256": msi_sha,
+        "authenticode_status": "valid", "msi_authenticode_status": "valid",
+        "authenticode_publisher": "CN=Endpoint Fixture", "msi_authenticode_publisher": "CN=Endpoint Fixture",
+    })
+    write(msi.with_suffix(".release.json"), {
+        "schema_version": "endpoint_windows_release_v1", "version": version,
+        "source_revision": revision, "package_sha256": msi_sha,
+        "product_code": "{00000000-0000-0000-0000-000000000001}",
+    })
+    return setup, sidecar
+
+
+def test_record_windows_candidate_is_idempotent_and_rejects_replacement(release_inputs):
+    repo, folder = release_inputs
+    request, bound = prepare_bound_source(release_inputs)
+    setup, manifest = windows_candidate(folder, bound["version"], bound["build_revision"])
+    publisher = ("--expected-publisher", "CN=Endpoint Fixture")
+    candidate = value(record_candidate(repo, request, "windows", manifest, *publisher))
+    assert candidate["state"] == "candidate"
+    assert candidate["evidence"] == "artifact_fingerprints"
+    assert candidate["build_revision"] == bound["build_revision"]
+    assert candidate["artifacts"]["setup"]["sha256"] == hashlib.sha256(setup.read_bytes()).hexdigest()
+    before = git(repo, "ls-remote", "origin", LEDGER)
+    assert value(record_candidate(repo, request, "windows", manifest, *publisher)) == candidate
+    setup.write_bytes(b"changed after validation")
+    mismatch = record_candidate(repo, request, "windows", manifest, *publisher)
+    assert mismatch.returncode != 0
+    assert "digest" in mismatch.stderr
+    windows_candidate(folder, bound["version"], bound["build_revision"], b"different consistent build")
+    replacement = record_candidate(repo, request, "windows", manifest, *publisher)
+    assert replacement.returncode != 0
+    assert "already recorded" in replacement.stderr
+    assert git(repo, "ls-remote", "origin", LEDGER) == before
+
+
+def test_record_windows_candidate_rejects_a_different_source_commit(release_inputs):
+    repo, folder = release_inputs
+    request, bound = prepare_bound_source(release_inputs)
+    _, manifest = windows_candidate(folder, bound["version"], bound["source_revision"])
+    before = git(repo, "ls-remote", "origin", LEDGER)
+    rejected = record_candidate(repo, request, "windows", manifest,
+                                "--expected-publisher", "CN=Endpoint Fixture")
+    assert rejected.returncode != 0
+    assert "differs from the bound build" in rejected.stderr
+    assert git(repo, "ls-remote", "origin", LEDGER) == before
+
+
+def test_record_alt_candidate_verifies_archive_members_against_the_manifest(release_inputs):
+    repo, folder = release_inputs
+    request, bound = prepare_bound_source(release_inputs)
+    version = bound["version"]
+    name = f"endpoint-alt-pilot-{version}-1"
+    public_key = CLI.parents[2] / "packaging/alt/pilot/endpoint-rpm-release.asc"
+    files = {
+        f"endpoint-agent-{version}-alt6.x86_64.rpm": b"core",
+        f"endpoint-agent-user-sensor-{version}-alt6.x86_64.rpm": b"sensor",
+        "endpoint-agent-setup": b"setup",
+        public_key.name: public_key.read_bytes(),
+    }
+    manifest = folder / f"{name}.manifest.json"
+    write(manifest, {
+        "schema_version": "endpoint_alt_native_kit_v3", "kit_name": name,
+        "agent_version": version, "agent_source_revision": bound["build_revision"],
+        "frozen_manifest_sha256": "f"*64, "publisher_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+        "files": {filename: {"size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+                  for filename, data in files.items()},
+    })
+    archive = folder / f"{name}.tar.gz"
+    archive_signature = folder / f"{name}.tar.gz.sig"
+    manifest_signature = folder / f"{manifest.name}.sig"
+    archive_signature.write_bytes(b"detached archive signature fixture")
+    manifest_signature.write_bytes(b"detached manifest signature fixture")
+    options = ("--archive-signature", str(archive_signature), "--manifest-signature", str(manifest_signature))
+    files["native-kit-manifest.json"] = manifest.read_bytes()
+
+    def write_archive(payload):
+        with tarfile.open(archive, "w:gz") as bundle:
+            for filename, data in payload.items():
+                member = tarfile.TarInfo(f"{name}/{filename}")
+                member.size = len(data)
+                bundle.addfile(member, io.BytesIO(data))
+
+    write_archive({**files, "endpoint-agent-setup": b"wrong"})
+    rejected = record_candidate(repo, request, "alt", manifest, *options)
+    assert rejected.returncode != 0
+    assert "digest" in rejected.stderr
+    write_archive(files)
+    candidate = value(record_candidate(repo, request, "alt", manifest, *options))
+    assert candidate["state"] == "candidate"
+    assert candidate["artifacts"]["archive"]["sha256"] == hashlib.sha256(archive.read_bytes()).hexdigest()
+    assert candidate["artifacts"]["manifest_signature"]["sha256"] == hashlib.sha256(manifest_signature.read_bytes()).hexdigest()

@@ -288,3 +288,41 @@ def bind_source(args: Namespace) -> dict:
         if _remote_head(root) == head:
             raise ValueError("Git rejected the binding; retry with the same request ID")
     raise ValueError("Reservation ledger is busy; retry with the same request ID")
+
+
+def record_candidate(args: Namespace) -> dict:
+    """Record one immutable artifact set for a platform of the bound build."""
+    from tools.release.agent_candidate_artifacts import inspect_candidate
+
+    root, request_id = args.repo_root, str(args.request_id)
+    proof = None
+    for _ in range(8):
+        head = _remote_head(root)
+        entries = _ledger(root, head)
+        reserved = next((entry for entry in entries if entry["request_id"] == request_id), None)
+        if reserved is None:
+            raise ValueError("Reservation request ID was not found")
+        if reserved["platform"] not in (args.platform, "both"):
+            raise ValueError("Platform is outside the reservation")
+        if "build_revision" not in reserved:
+            raise ValueError("Bind the build source before recording artifacts")
+        binding = {key: reserved[key] for key in ("request_id", "version", "build_revision")}
+        if proof is None:
+            proof = {**binding, "platform": args.platform, "state": "candidate", "evidence": "artifact_fingerprints",
+                     **inspect_candidate(args, reserved)}
+        elif any(proof[key] != value for key, value in binding.items()):
+            raise ValueError("Reservation changed while checking candidate artifacts")
+        candidates = reserved.get("candidates", {})
+        if args.platform in candidates:
+            existing = candidates[args.platform]
+            if {key: value for key, value in existing.items() if key != "recorded_at"} != proof:
+                raise ValueError("Different artifacts are already recorded for this platform")
+            return existing
+        recorded = {**proof, "recorded_at": datetime.now(timezone.utc).isoformat()}
+        updated = {**reserved, "candidates": {**candidates, args.platform: recorded}}
+        if _append(root, head, [updated if entry is reserved else entry for entry in entries],
+                   f"record {args.platform} agent candidate"):
+            return recorded
+        if _remote_head(root) == head:
+            raise ValueError("Git rejected the candidate record; retry with the same request ID")
+    raise ValueError("Reservation ledger is busy; retry with the same request ID")
