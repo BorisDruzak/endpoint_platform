@@ -27,8 +27,10 @@ upgrade paths that must run for each qualified artifact.
   still needs a staging catalog export and the signing-host inventory.
   `record-candidate` binds exact Windows or ALT artifact hashes to the reserved
   build revision. Windows 3.2.276 and ALT 3.2.274 matched their historical
-  receipts in read-only checks. Qualification, promotion and revocation
-  remain open. Keep the existing publisher authoritative.
+  receipts in read-only checks. `status --request-id` reads the ledger and
+  `reject` records a refusal for one exact candidate digest without changing
+  the provider. Qualification, promotion and revocation remain open. Keep the
+  existing publisher authoritative.
 - EP-RE-03 plans required transitions from read-only observed profiles,
   pending/unknown assignments, recovery holds and enrollment availability.
 - EP-RE-04 composes existing builders, Lab checks and publishers around the

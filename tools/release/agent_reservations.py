@@ -22,6 +22,8 @@ NATIVE_RECORD = re.compile(rf"(?:windows|linux|alt|agent|initial-runtime)-({VERS
 SOURCE_VERSION = re.compile(rf"^[+-]\s*AGENT_VERSION\s*=\s*[\"']({VERSION})[\"']", re.MULTILINE)
 PLATFORMS = ("windows", "alt", "both")
 GIT_OID = re.compile(r"[0-9a-f]{40}")
+ARTIFACT_SHA = re.compile(r"[0-9a-f]{64}")
+PRIMARY_ARTIFACT = {"windows": "setup", "alt": "archive"}
 Version = tuple[int, int, int]
 
 
@@ -97,6 +99,13 @@ def _ledger(root: Path, oid: str | None) -> list[dict]:
             raise ValueError("Invalid record in reservation ledger")
         if "build_revision" in entry and not GIT_OID.fullmatch(entry["build_revision"]):
             raise ValueError("Invalid build revision in reservation ledger")
+        for platform, candidate in entry.get("candidates", {}).items():
+            if (platform not in PRIMARY_ARTIFACT or entry["platform"] not in (platform, "both")
+                    or candidate["platform"] != platform or candidate["state"] not in ("candidate", "rejected")
+                    or any(candidate[key] != entry[key] for key in ("version", "request_id", "build_revision"))
+                    or not ARTIFACT_SHA.fullmatch(candidate["artifacts"][PRIMARY_ARTIFACT[platform]]["sha256"])
+                    or (candidate["state"] == "rejected") != ("rejection" in candidate)):
+                raise ValueError("Invalid candidate in reservation ledger")
         versions.add(version)
         requests.add(request_id)
     return entries
@@ -109,6 +118,18 @@ def _bound_request(entries: list[dict], binding: dict) -> dict | None:
                 raise ValueError("Reservation request ID is already bound to different inputs")
             return entry
     return None
+
+
+def _find_request(entries: list[dict], request_id: str) -> dict:
+    for entry in entries:
+        if entry["request_id"] == request_id:
+            return entry
+    raise ValueError("Reservation request ID was not found")
+
+
+def reservation_status(args: Namespace) -> dict:
+    root = args.repo_root
+    return _find_request(_ledger(root, _remote_head(root)), str(args.request_id))
 
 
 def _observed(path: Path, now: datetime) -> tuple[dict, dict]:
@@ -268,10 +289,7 @@ def bind_source(args: Namespace) -> dict:
     for _ in range(8):
         head = _remote_head(root)
         entries = _ledger(root, head)
-        matches = [entry for entry in entries if entry["request_id"] == request_id]
-        if not matches:
-            raise ValueError("Reservation request ID was not found")
-        reserved, = matches
+        reserved = _find_request(entries, request_id)
         if "build_revision" in reserved:
             if reserved["build_revision"] != revision:
                 raise ValueError("Reservation is already bound to a different build revision")
@@ -290,6 +308,11 @@ def bind_source(args: Namespace) -> dict:
     raise ValueError("Reservation ledger is busy; retry with the same request ID")
 
 
+def _with_candidate(entries: list[dict], reserved: dict, candidate: dict) -> list[dict]:
+    updated = {**reserved, "candidates": {**reserved.get("candidates", {}), candidate["platform"]: candidate}}
+    return [updated if entry is reserved else entry for entry in entries]
+
+
 def record_candidate(args: Namespace) -> dict:
     """Record one immutable artifact set for a platform of the bound build."""
     from tools.release.agent_candidate_artifacts import inspect_candidate
@@ -299,30 +322,62 @@ def record_candidate(args: Namespace) -> dict:
     for _ in range(8):
         head = _remote_head(root)
         entries = _ledger(root, head)
-        reserved = next((entry for entry in entries if entry["request_id"] == request_id), None)
-        if reserved is None:
-            raise ValueError("Reservation request ID was not found")
+        reserved = _find_request(entries, request_id)
         if reserved["platform"] not in (args.platform, "both"):
             raise ValueError("Platform is outside the reservation")
         if "build_revision" not in reserved:
             raise ValueError("Bind the build source before recording artifacts")
         binding = {key: reserved[key] for key in ("request_id", "version", "build_revision")}
         if proof is None:
-            proof = {**binding, "platform": args.platform, "state": "candidate", "evidence": "artifact_fingerprints",
+            proof = {**binding, "platform": args.platform, "evidence": "artifact_fingerprints",
                      **inspect_candidate(args, reserved)}
         elif any(proof[key] != value for key, value in binding.items()):
             raise ValueError("Reservation changed while checking candidate artifacts")
         candidates = reserved.get("candidates", {})
         if args.platform in candidates:
             existing = candidates[args.platform]
-            if {key: value for key, value in existing.items() if key != "recorded_at"} != proof:
+            if any(existing.get(key) != value for key, value in proof.items()):
                 raise ValueError("Different artifacts are already recorded for this platform")
             return existing
-        recorded = {**proof, "recorded_at": datetime.now(timezone.utc).isoformat()}
-        updated = {**reserved, "candidates": {**candidates, args.platform: recorded}}
-        if _append(root, head, [updated if entry is reserved else entry for entry in entries],
+        recorded = {**proof, "state": "candidate", "recorded_at": datetime.now(timezone.utc).isoformat()}
+        if _append(root, head, _with_candidate(entries, reserved, recorded),
                    f"record {args.platform} agent candidate"):
             return recorded
         if _remote_head(root) == head:
             raise ValueError("Git rejected the candidate record; retry with the same request ID")
+    raise ValueError("Reservation ledger is busy; retry with the same request ID")
+
+
+def reject_candidate(args: Namespace) -> dict:
+    """Record an operator rejection without drawing conclusions about exposure."""
+    from endpoint_contracts.update_safety import validate_public_update_prose
+
+    digest = args.sha256.lower()
+    if not ARTIFACT_SHA.fullmatch(digest):
+        raise ValueError("Reject requires the exact SHA-256 digest")
+    reason = validate_public_update_prose(args.reason, field_name="reason", max_length=256, required=True)
+    root, request_id = args.repo_root, str(args.request_id)
+    for _ in range(8):
+        head = _remote_head(root)
+        entries = _ledger(root, head)
+        reserved = _find_request(entries, request_id)
+        candidate = reserved.get("candidates", {}).get(args.platform)
+        if candidate is None:
+            raise ValueError("Record the platform candidate before rejecting it")
+        if candidate["artifacts"][PRIMARY_ARTIFACT[args.platform]]["sha256"] != digest:
+            raise ValueError("Requested digest differs from the recorded candidate")
+        if candidate["state"] == "rejected":
+            if candidate["rejection"]["reason"] != reason:
+                raise ValueError("Candidate already rejected with a different reason")
+            return candidate
+        if candidate["state"] != "candidate":
+            raise ValueError("Rejection requires a recorded candidate")
+        rejected = {**candidate, "state": "rejected", "rejection": {
+            "reason": reason, "rejected_at": datetime.now(timezone.utc).isoformat(),
+        }}
+        if _append(root, head, _with_candidate(entries, reserved, rejected),
+                   f"reject {args.platform} agent candidate"):
+            return rejected
+        if _remote_head(root) == head:
+            raise ValueError("Git rejected the lifecycle record; retry with the same request ID")
     raise ValueError("Reservation ledger is busy; retry with the same request ID")

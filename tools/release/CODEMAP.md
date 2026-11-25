@@ -169,3 +169,19 @@ The ledger entry supplies fingerprints for exact-artifact Lab verification.
 Signature authenticity and timestamps are verified through the existing
 native gates. Registration, qualification and promotion retain their current
 publisher and Console requirements.
+
+Read the reservation and its artifact history with
+`python tools/release/agent_release.py status --request-id REQUEST`. To retire a
+candidate from this release attempt, record the exact Windows EXE or ALT archive
+digest as follows:
+
+```powershell
+python tools/release/agent_release.py reject --request-id $request --platform windows `
+  --sha256 $setupSha256 --reason 'Native recovery verification failed'
+```
+
+Rejection is specific to that platform and digest. It preserves the version,
+source, artifact fingerprints and the original rejection reason across retries.
+The Git record changes independently of provider availability, policy and
+assignments. Verify exposure and any required Lab reset through their owning
+systems before excluding the source profile from future qualification.

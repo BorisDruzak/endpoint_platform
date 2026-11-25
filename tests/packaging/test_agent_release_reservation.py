@@ -286,6 +286,42 @@ def test_record_windows_candidate_rejects_a_different_source_commit(release_inpu
     assert git(repo, "ls-remote", "origin", LEDGER) == before
 
 
+def test_reject_candidate_is_digest_bound_and_keeps_the_artifact_history(release_inputs):
+    repo, folder = release_inputs
+    request, bound = prepare_bound_source(release_inputs)
+    _, manifest = windows_candidate(folder, bound["version"], bound["build_revision"])
+    publisher = ("--expected-publisher", "CN=Endpoint Fixture")
+    candidate = value(record_candidate(repo, request, "windows", manifest, *publisher))
+
+    def run(command, *options):
+        return subprocess.run(
+            [sys.executable, str(CLI), command, "--repo-root", str(repo), "--request-id", str(request), *options],
+            capture_output=True, text=True, encoding="utf-8", timeout=90,
+        )
+
+    def reject(digest, reason="Native recovery verification failed"):
+        return run("reject", "--platform", "windows", "--sha256", digest, "--reason", reason)
+
+    before = git(repo, "ls-remote", "origin", LEDGER)
+    mismatch = reject("0" * 64)
+    assert mismatch.returncode != 0
+    assert "digest" in mismatch.stderr
+    assert git(repo, "ls-remote", "origin", LEDGER) == before
+
+    digest = candidate["artifacts"]["setup"]["sha256"]
+    rejected = value(reject(digest))
+    assert rejected["state"] == "rejected"
+    assert rejected["artifacts"] == candidate["artifacts"]
+    assert rejected["rejection"]["reason"] == "Native recovery verification failed"
+    after = git(repo, "ls-remote", "origin", LEDGER)
+    assert after != before
+    assert value(reject(digest)) == rejected
+    assert value(record_candidate(repo, request, "windows", manifest, *publisher)) == rejected
+    assert value(run("status"))["candidates"] == {"windows": rejected}
+    assert reject(digest, "Different reason").returncode != 0
+    assert git(repo, "ls-remote", "origin", LEDGER) == after
+
+
 def test_record_alt_candidate_verifies_archive_members_against_the_manifest(release_inputs):
     repo, folder = release_inputs
     request, bound = prepare_bound_source(release_inputs)

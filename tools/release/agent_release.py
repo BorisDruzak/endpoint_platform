@@ -170,6 +170,7 @@ def main() -> None:
     commands = parser.add_subparsers(dest="command", required=True)
     inspect = commands.add_parser("status", help="show the checked-in release pointers as JSON")
     inspect.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
+    inspect.add_argument("--request-id", type=UUID, help="read one reservation and its candidates from Git")
     reserve = commands.add_parser("reserve", help="reserve the next Windows/ALT version in Git")
     reserve.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
     agent_reservations.add_arguments(reserve)
@@ -184,16 +185,24 @@ def main() -> None:
     candidate.add_argument("--expected-publisher", help="trusted Windows Setup/MSI publisher")
     candidate.add_argument("--archive-signature", type=Path, help="detached ALT kit signature")
     candidate.add_argument("--manifest-signature", type=Path, help="detached ALT manifest signature")
+    reject = commands.add_parser("reject", help="record the rejection of an exact candidate digest")
+    reject.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
+    reject.add_argument("--request-id", required=True, type=UUID)
+    reject.add_argument("--platform", required=True, choices=("windows", "alt"))
+    reject.add_argument("--sha256", required=True, help="digest of the Windows EXE or ALT kit archive")
+    reject.add_argument("--reason", required=True, help="bounded reason for the release record")
     args = parser.parse_args()
     try:
         if args.command == "status":
-            result = status(args.repo_root)
+            result = agent_reservations.reservation_status(args) if args.request_id else status(args.repo_root)
         elif args.command == "reserve":
             result = agent_reservations.reserve(args)
         elif args.command == "bind-source":
             result = agent_reservations.bind_source(args)
-        else:
+        elif args.command == "record-candidate":
             result = agent_reservations.record_candidate(args)
+        else:
+            result = agent_reservations.reject_candidate(args)
     except (OSError, KeyError, TypeError, ValueError, AttributeError, SyntaxError, subprocess.TimeoutExpired) as exc:
         parser.exit(1, f"Agent release {args.command} failed: {exc}\n")
     print(json.dumps(result, ensure_ascii=True, indent=2, sort_keys=True))
