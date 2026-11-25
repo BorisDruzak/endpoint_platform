@@ -1,4 +1,4 @@
-"""Project checked-in agent release pointers for inspection."""
+"""Inspect release pointers and reserve Windows or ALT build versions."""
 
 from __future__ import annotations
 
@@ -6,8 +6,14 @@ import argparse
 import json
 from pathlib import Path, PurePosixPath
 import re
+import subprocess
 from typing import Any
 from uuid import UUID
+
+if __package__:
+    from . import agent_reservations
+else:
+    import agent_reservations
 
 
 CATALOG = "docs/releases/current-agent-release.json"
@@ -163,11 +169,22 @@ def main() -> None:
     commands = parser.add_subparsers(dest="command", required=True)
     inspect = commands.add_parser("status", help="show the checked-in release pointers as JSON")
     inspect.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
+    reserve = commands.add_parser("reserve", help="reserve the next Windows/ALT version in Git")
+    reserve.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
+    agent_reservations.add_arguments(reserve)
+    bind = commands.add_parser("bind-source", help="pin the candidate build commit to a reservation")
+    bind.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
+    bind.add_argument("--request-id", required=True, type=UUID)
     args = parser.parse_args()
     try:
-        result = status(args.repo_root)
-    except (OSError, KeyError, TypeError, ValueError, AttributeError) as exc:
-        parser.exit(1, f"Cannot project release status: {exc}\n")
+        if args.command == "status":
+            result = status(args.repo_root)
+        elif args.command == "reserve":
+            result = agent_reservations.reserve(args)
+        else:
+            result = agent_reservations.bind_source(args)
+    except (OSError, KeyError, TypeError, ValueError, AttributeError, SyntaxError, subprocess.TimeoutExpired) as exc:
+        parser.exit(1, f"Agent release {args.command} failed: {exc}\n")
     print(json.dumps(result, ensure_ascii=True, indent=2, sort_keys=True))
 
 

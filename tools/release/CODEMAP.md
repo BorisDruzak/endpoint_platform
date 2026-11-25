@@ -76,3 +76,51 @@ installations by exact native source and package digests. Session presence is
 a separate count. Use this as input to compatibility planning. OS build,
 companion versions, pending local transactions and other profile details
 still require their own evidence.
+
+## Reserve and bind a Windows or ALT version
+
+In QUALIFY, capture a fresh production and a fresh staging JSON snapshot with
+`agent_catalog_snapshot.sql`. Collect the occupied versions from every Windows
+and ALT signing host used by the release. Include previously signed native
+candidates even if they were never registered with a provider. Supply the
+candidate inventory as a JSON object with `schema_version` 1, an ISO 8601
+`observed_at` timestamp with a timezone, and `windows` and `alt` arrays of version
+strings. Use an empty array for a platform after checking its signing sources.
+
+Use the same operation ID when repeating a command after an interruption.
+
+```powershell
+$request = [guid]::NewGuid()
+$inputs = @(
+  '--platform', 'both', '--after', '3.2.205',
+  '--request-id', $request, '--production-snapshot', $productionSnapshot,
+  '--staging-snapshot', $stagingSnapshot, '--candidate-inventory', $signingInventory
+)
+python tools/release/agent_release.py reserve @inputs --dry-run
+```
+
+The preview reads the current origin refs and local history. It calculates a
+proposal while leaving the remote ledger untouched. To reserve it, repeat the
+command with the same arguments and omit the preview switch. The actual version
+can advance if another operator reserved a number in the meantime. Windows and
+ALT use the same namespace on origin under the `codex/agent-release-reservations`
+branch. Append using the tool to preserve its compare-and-retry behavior. Git
+identity is required to write the ledger.
+
+The version advances within the series selected by `--after` and above the
+applicable native and stable history. Every known version is treated as
+occupied. Historical Core canaries block their own numbers while leaving the
+native version floor below a synthetic number such as `3.2.60000`. Capture all
+three input files within the preceding 30 minutes. The ledger stores their
+hashes and observation times.
+
+Commit the reviewed version change in the candidate checkout, then run:
+
+```powershell
+python tools/release/agent_release.py bind-source --request-id $request
+```
+
+Use the returned `build_revision` for the build and for exact-artifact evidence.
+The command verifies that the checkout is clean, descends from the reserved
+source, and carries the reserved `AGENT_VERSION`. The binding is write-once.
+Use the existing signing and publication flow for the resulting bytes.

@@ -13,6 +13,11 @@ A sent assignment, version report or process start alone does not prove
 acceptance. Confirm the installed artifact, preserved identity, healthy services
 and companions, fresh Gateway telemetry, and any required rollback evidence.
 
+For a Windows or ALT native candidate, use the
+[shared reservation workflow](../../tools/release/CODEMAP.md#reserve-and-bind-a-windows-or-alt-version).
+Reserve the number before editing the version. Bind the reviewed build commit
+before producing distributable bytes.
+
 ## Choose the release cycle
 
 - **Windows Core OTA.** Use [the Windows packaging tools](../../packaging/windows/README.md)

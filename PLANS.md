@@ -21,7 +21,11 @@ upgrade paths that must run for each qualified artifact.
   which live source must be checked next. The read-only provider DB export was
   verified on production and includes Core platform/channel occupancy. The
   catalog contains high-numbered canary fixtures away from the release series.
-  Atomic reservation and lifecycle operations remain open. Keep the existing
+  Windows and ALT share Git-backed version reservation and one-time build
+  source binding. Concurrent reservation, retries, and source binding are
+  covered against real isolated Git remotes. The live reservation preview
+  still needs a staging catalog export and the signing-host inventory.
+  Exact-artifact lifecycle operations remain open. Keep the existing
   publisher authoritative.
 - EP-RE-03 plans required transitions from read-only observed profiles,
   pending/unknown assignments, recovery holds and enrollment availability.
