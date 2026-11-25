@@ -228,6 +228,16 @@ prebuilt frozen binaries, use `--setup-executable` together with
 `--support-directory`. The RPM builder checks the build revision and component
 versions before staging them.
 
+For a stock ALT 11.4 target, record the exact Qt/KF6 development inputs and the
+OpenSSL libraries used by the frozen components. The reviewed KDE sysroot can
+be selected with `CMAKE_TOOLCHAIN_FILE` on the build worker. Compare the
+contained OpenSSL bytes and the KDE probe's symbol versions with the reviewed
+inputs. Run `rpm -U --test` on the exact pair on stock 11.4 and updated p11.
+The first full DEVELOP pair could run when extracted but failed RPM dependency
+resolution on stock. The rebuild with the stock OpenSSL input passed both
+dependency probes with unchanged RPM inventories. See the
+[ALT build receipt](../../docs/verification/2026-11-25-windows-alt-release-engineering.md#полная-сборка-нативной-пары-alt-в-develop).
+
 After signing the Core and UserSensor RPMs, assemble the kit using
 `python -m tools.build_alt_native_kit --version VERSION --source-revision SHA`
 and its `--core`, `--sensor`, `--setup`, `--public-key`, and `--output` paths.

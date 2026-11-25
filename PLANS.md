@@ -117,8 +117,13 @@ upgrade paths that must run for each qualified artifact.
   artifact digest. ALT native Setup, RPM manifests and kit assembly accept the
   bound candidate version. ALT 11.4 verified staging of synthetic 3.2.278,
   rejection of a mismatched Setup, and RPM spec builds of Core and UserSensor
-  for both 3.2.183 and 3.2.278. Signing and Lab acceptance of a distributable
-  candidate remain open.
+  for both 3.2.183 and 3.2.278. The full DEVELOP builder produced Core with
+  Setup and Support, and UserSensor, from one clean Git SHA. The first pair
+  failed stock ALT 11.4 dependency admission due to OpenSSL 3.4 symbols.
+  Rebuilding against the stock OpenSSL and Qt inputs passed `rpm -U --test`
+  on stock 11.4 and updated p11. Core, Setup, Support and the KDE probe ran
+  from the same extracted packages on stock. Signing and Lab acceptance of
+  a distributable candidate remain open.
 - EP-RE-05 has a read-only [delivery planner](tools/release/CODEMAP.md#choose-windows-or-alt-delivery)
   for Windows, ALT, Browser Sensor and provider changes. It compares both
   revisions' build dependencies, reports migrations and holds unknown inputs

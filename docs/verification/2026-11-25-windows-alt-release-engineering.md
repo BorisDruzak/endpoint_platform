@@ -144,6 +144,74 @@ launcher и исходного профиля. Подписание и нати�
 синтетических версий находятся за пределами прогона.
 [Квитанция Core OTA](C:/endpoint-platform-wix-build/release-qualify-alt-stage-20261125/alt-core-qualification-build.json)
 
+### Полная сборка нативной пары ALT в DEVELOP
+
+26 ноября из чистого исходника `0813175ba8713125c19e879ca92f5fe773619ea7`
+собраны Core и UserSensor с нативным Setup и Support. Сборка выполнена
+обычной учётной записью на ALT Workstation K 11.4 в VM486 без сетевых
+адаптеров. Нативный сборщик `packaging/alt/build-rpm.sh --with-native-setup
+--with-user-sensor` завершился за 143 с. Версия из исходника осталась
+`3.2.205`. Квитанции относятся к неподписанным байтам с указанным Git SHA.
+
+Сборочный стенд использовал CMake 3.31.7, GCC 13.2.1, Python 3.12.13 и
+PyInstaller 6.19.0. Для KDE использованы подписанные RPM Qt 6.10.3 и
+KF6IdleTime 6.26.0, извлечённые отдельно от системных библиотек стенда.
+Перед сборкой Qt/KF6 и Python wheels сверены с сохранёнными хэшами.
+`CMAKE_TOOLCHAIN_FILE` направил только сборку KDE на этот набор. Проверка
+ELF подтвердила символы `Qt_6.10` и отсутствие `RPATH` и `RUNPATH`.
+[CMake 3.31](https://cmake.org/cmake/help/v3.31/envvar/CMAKE_TOOLCHAIN_FILE.html)
+
+| Неподписанный артефакт | Байты | SHA-256 |
+| --- | ---: | --- |
+| `endpoint-agent-3.2.205-alt6.x86_64.rpm` | 53 875 671 | `54e466e2d43319cc89ef8a3bb6dc21a2c0b41d3a0f4b1f9f987ddb14a8e6838b` |
+| `endpoint-agent-user-sensor-3.2.205-alt6.x86_64.rpm` | 41 780 | `b276904a704198f3442a3086d5b56edd2b526494d9f5e9e96857623994335ef6` |
+
+Из каждого конечного RPM прочитан CPIO и проверены хэши и режимы файлов
+по общему манифесту нативного источника. Сошлись 177 файлов Core и 18
+файлов UserSensor. Общий манифест совпал побайтно и привязал оба пакета к
+Git SHA. Хэши вложенных Setup и KDE-пробы совпали со сборочными файлами.
+Проверка обязательных подписей издателя отклонила оба пакета.
+[Квитанция состава](C:/endpoint-platform-wix-build/release-alt-native-dev486-20261126/audit-builder-result.json)
+
+На чистом ALT Workstation K 11.4 в VM487 команда `rpm -U --test` с первой
+парой завершилась кодом 2. Core RPM требовал набор символов `libcrypto.so.3`
+и `OPENSSL_3.4.0`, которых нет в штатном OpenSSL 3.3.3. При извлечении тех
+же RPM Core, Setup, Support и KDE-проба запустились. Это подтвердило,
+что прямая проверка запуска пропускает ограничение RPM. Каталоги `opt` и
+`usr/lib` внутри тестовой распаковки получили доступ на проход после
+первого диагностического отказа. Проверка подписи, содержимое пакетов и
+RPM DB остались прежними.
+[Отказ RPM](C:/endpoint-platform-wix-build/release-alt-native-dev486-20261126/audit-stock-result.json) · [Запуск извлечённых компонентов](C:/endpoint-platform-wix-build/release-alt-native-dev486-20261126/first-pair-runtime-result-v2.json)
+
+Тот же чистый Git SHA пересобран за 120 с с `libssl.so.3` и
+`libcrypto.so.3` из подписанных RPM 3.3.3-alt1 штатного образа. Хэши
+библиотек проверены до PyInstaller и в замороженных Core и Support
+конечного RPM. Оба RPM снова прошли проверку состава. SHA-256
+KDE-пробы совпал с первой сборкой.
+
+| Неподписанный артефакт со штатным OpenSSL | Байты | SHA-256 |
+| --- | ---: | --- |
+| Core RPM | 53 122 843 | `94389c0b4fc510d58c13546b0a22f1565fb17906e043f088b76f0e1c7cdb72cd` |
+| UserSensor RPM | 41 769 | `af1057efb42fe2d0aa4e5d75e433a414cd17552e93bfb5b87bdb80ba4871c9ce` |
+
+[Квитанция повторной сборки](C:/endpoint-platform-wix-build/release-alt-native-dev486-20261126/audit-builder-stock-openssl-result.json)
+
+Команда `rpm -U --test` с этой парой вернула 0 на исходном ALT 11.4
+с OpenSSL 3.3.3, Qt 6.10.3 и KF6IdleTime 6.26.0. На обновлённом p11 с
+OpenSSL 3.5.7, Qt 6.11.2 и KF6IdleTime 6.30.0 она также вернула 0.
+Опись установленных пакетов совпала до и после на обеих ВМ. На чистом
+11.4 непривилегированный процесс проверил Git SHA в Core, Setup и
+Support, а KDE-проба с системными библиотеками вернула два образца XCB
+схемы 1 в отдельном сеансе D-Bus и Xvfb.
+[Чистый ALT 11.4](C:/endpoint-platform-wix-build/release-alt-native-dev486-20261126/audit-compatible-stock-result.json) · [Обновлённый p11](C:/endpoint-platform-wix-build/release-alt-native-dev486-20261126/updated-p11-dependency-test-result.json)
+
+Проверка закрывает сборку пары и проверку зависимостей на этих двух
+профилях. Подписанный комплект, установка, первая регистрация и нативный
+переход остаются отдельными проверками режима QUALIFY.
+
+Проверены 28 файлов [архива доказательств](C:/endpoint-platform-wix-build/release-alt-native-dev486-20261126/alt-native-stock-build-evidence.zip).
+SHA-256 архива `512129007462b87f2c979771adabd074c6ea84c6e9cf9497483fd1e3e644ab0c`.
+
 ## Проверка подписанного ALT-комплекта перед регистрацией
 
 В изолированном Git-журнале повторно связали исходный комплект ALT 3.2.274
