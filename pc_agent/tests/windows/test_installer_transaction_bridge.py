@@ -1,9 +1,87 @@
 """Execute the actual owner-thread policy with modeled process evidence."""
 from pathlib import Path
 import os
+import struct
 import subprocess
+from uuid import uuid4
 import pytest
 from pc_agent.tests.windows.test_installer_fence import native_protected_root
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='Windows byte-mode named pipe')
+def test_pipe_receive_reuses_bytes_from_one_native_read(monkeypatch):
+    import pywintypes
+    import win32file
+    import win32pipe
+    import winerror
+    from pc_agent.platform.windows.installer_transaction_bridge import PipeTransport
+
+    name = f'EndpointInstaller-test-{uuid4().hex}'
+    server = win32pipe.CreateNamedPipe(
+        rf'\\.\pipe\{name}', win32pipe.PIPE_ACCESS_DUPLEX,
+        win32pipe.PIPE_TYPE_BYTE | win32pipe.PIPE_READMODE_BYTE | win32pipe.PIPE_WAIT,
+        1, 65536, 65536, 1000, None,
+    )
+    try:
+        client = PipeTransport(name)
+        try:
+            try:
+                win32pipe.ConnectNamedPipe(server, None)
+            except pywintypes.error as error:
+                if error.winerror != winerror.ERROR_PIPE_CONNECTED:
+                    raise
+            bodies = (b'{"sequence":1}', b'{"sequence":2}')
+            prefetched = b''.join(struct.pack('<I', len(body)) + body for body in bodies)
+            assert win32file.WriteFile(server, prefetched) == (0, len(prefetched))
+            original_io = client._io
+            reads = []
+
+            def count_reads(size, *, writing):
+                result = original_io(size, writing=writing)
+                if not writing:
+                    reads.append(len(result))
+                return result
+
+            monkeypatch.setattr(client, '_io', count_reads)
+            assert client.receive() == {'sequence': 1}
+            assert client.receive() == {'sequence': 2}
+            assert reads == [len(prefetched)]
+        finally:
+            client.close()
+    finally:
+        server.Close()
+
+
+@pytest.mark.parametrize('size', [1, 32756], ids=['short', 'maximum'])
+def test_pipe_receive_handles_a_fragmented_header_and_body(size):
+    from pc_agent.platform.windows.installer_transaction_bridge import PipeTransport
+
+    body = b'{"value":"' + b'a' * size + b'"}'
+    frame = struct.pack('<I', len(body)) + body
+    fragments = iter((frame[:1], frame[1:3], frame[3:10], frame[10:]))
+    client = PipeTransport.__new__(PipeTransport)
+    client._received = bytearray()
+
+    def read(size, *, writing):
+        assert not writing
+        data = next(fragments)
+        assert len(data) <= size
+        return data
+
+    client._io = read
+    assert client.receive() == {'value': 'a' * size}
+
+
+@pytest.mark.parametrize('length', [0, 32769])
+def test_pipe_receive_rejects_invalid_frame_length(length):
+    from pc_agent.platform.windows.installer_transaction_bridge import PipeTransport
+
+    client = PipeTransport.__new__(PipeTransport)
+    client._received = bytearray()
+    frame = iter((struct.pack('<I', length),))
+    client._io = lambda size, *, writing: next(frame)
+    with pytest.raises(ValueError, match='OWNER_AUTH_FAILED'):
+        client.receive()
 
 
 @pytest.mark.skipif(os.name != 'nt', reason='Windows PowerShell installer finalization')

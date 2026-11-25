@@ -315,6 +315,7 @@ class PipeTransport:
         # Read/write data without FILE_CREATE_PIPE_INSTANCE, overlapped and no
         # impersonation grant. All messages have an explicit upper bound.
         self.handle=win32file.CreateFile(pipe_path,0x0012019B,0,None,3,0x40000000|0x00100000,None)
+        self._received = bytearray()
 
     def _io(self,data,*,writing):
         import pywintypes
@@ -349,15 +350,20 @@ class PipeTransport:
         while frame:
             frame=frame[self._io(frame,writing=True):]
 
+    def _read_exact(self, size):
+        # Byte-mode reads can return a header and its body together. Keep any
+        # following bytes for the next read without changing frame boundaries.
+        while len(self._received) < size:
+            available = self._io(max(4096, size - len(self._received)), writing=False)
+            self._received.extend(available)
+        result = bytes(self._received[:size])
+        del self._received[:size]
+        return result
+
     def receive(self):
-        def exact(size):
-            result=bytearray()
-            while len(result)<size:
-                result.extend(self._io(size-len(result),writing=False))
-            return bytes(result)
-        length=struct.unpack('<I',exact(4))[0]
+        length=struct.unpack('<I',self._read_exact(4))[0]
         if not 0<length<=32768: _failed()
-        return read_json(exact(length),32768)
+        return read_json(self._read_exact(length),32768)
 
     def close(self):
         self.handle.Close()
