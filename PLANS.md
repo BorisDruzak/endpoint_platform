@@ -9,10 +9,11 @@ upgrade paths that must run for each qualified artifact.
   [agent release workflow](pc_agent/docs/AGENT_UPDATE_WORKFLOW.md). It preserves
   artifact identity, existing gates and the distinction between tested and
   exposed source profiles.
-- EP-RE-02 starts with the existing Windows Setup, Core, Linux native and APT
-  catalogs. Add a compatible current-pointer view and an atomic reservation
-  mechanism before adding lifecycle operations. Preserve immutable receipts and
-  use the existing publisher as the authority for promotion.
+- EP-RE-02 has a read-only, backward-compatible current-pointer projection
+  via `python tools/release/agent_release.py status`.
+  [Catalog owners](tools/release/CODEMAP.md#agent-release-status) identify
+  which live source must be checked next. Atomic reservation and lifecycle
+  operations remain open. Keep the existing publisher authoritative.
 - EP-RE-03 plans required transitions from read-only observed profiles,
   pending/unknown assignments, recovery holds and enrollment availability.
 - EP-RE-04 composes existing builders, Lab checks and publishers around the
@@ -23,6 +24,12 @@ upgrade paths that must run for each qualified artifact.
   Linux APT expiry tests invoked the real curl with the production CA path on
   the hosted runner. The Windows job stopped at exact-source evidence before
   producing test results because its artifacts directory already existed.
+- Production inspection on 25 November found Windows 3.2.205 primary, its
+  default AUTO campaign active, Full Setup revision 21 paused and one
+  `recovery_required` assignment. The provider selector was
+  `endpoint-platform-44d96b5cce41`, schema `0056_context_collection_history`.
+  Both HTTPS APT indexes had expired. In UTC, Noble expired on 23 November at
+  19:13:09 and Bookworm at 08:19:13. Renewal is a separate production action.
 
 ## Agent and server stability (2026-11-14)
 

@@ -35,3 +35,27 @@ the server archive normalizer. Historical qualified bytes remain immutable.
   archive/digests, private capsule, fresh request, no in-flight operations, verified
   DB backup and unchanged personnel/grants. Additive migration44 stays applied on
   selector rollback. It never targets production or enables the feature flag.
+
+## Agent release status
+
+Run `python tools/release/agent_release.py status` from a checkout to read the
+compact JSON projection. The tool reads the existing records and linked
+receipts. The root version remains a historical checkpoint. JSON marked
+`repository_record` describes observations made at the recorded times.
+Unknown fields require a current observation from their owning catalog.
+
+| Pointer | Checked-in source | Live authority |
+| --- | --- | --- |
+| Windows primary download | `primary_windows_release` and linked Setup receipt | Console installer catalog, newest active published row |
+| Windows enrollment | No current campaign pointer in the checked-in projection | Single active default Windows AUTO campaign and trusted installer catalog |
+| Windows existing devices | `current_windows_rollout` with an exact-ID receipt join for digest | Full Setup release, policy and coverage preview; Core has a separate builds and rollout catalog |
+| ALT primary and native enrollment source | `linux`, linked signed kit receipt and its production native-source record | Published kit bytes, Linux native registry and applicable platform-bound enrollment campaign |
+| ALT existing devices | No current delivery pointer in the checked-in projection | Native acceptance and Core OTA builds and rollouts |
+| Ubuntu Noble and Debian Bookworm | `ubuntu_servers_197` and `proxmox_debian` | Per-suite verified signed `InRelease` and its hash-bound package index |
+| Provider | `current_provider` | Deployed selector/source, schema and verified archive receipt |
+
+The Windows download and fleet policy use distinct release UUIDs. A target that
+differs from the primary receipt has an unknown digest in this projection.
+The ALT native registry identifies source bytes. Campaign eligibility is
+verified at enrollment. APT package entries alone do not prove that the signed
+index is current; verify signature and expiry before using that delivery path.

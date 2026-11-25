@@ -1,0 +1,87 @@
+import json
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+
+ROOT = Path(__file__).resolve().parents[2]
+CLI = ROOT / "tools/release/agent_release.py"
+CATALOG = Path("docs/releases/current-agent-release.json")
+
+
+def release_status(root):
+    return subprocess.run(
+        [sys.executable, str(CLI), "status", "--repo-root", str(root)],
+        capture_output=True, text=True, encoding="utf-8", check=False,
+    )
+
+
+def copy_release_records(tmp_path):
+    shutil.copytree(ROOT / "docs/releases", tmp_path / "docs/releases")
+    return tmp_path / CATALOG
+
+
+def test_status_projects_current_pointers_without_confusing_channels():
+    result = release_status(ROOT)
+    assert result.returncode == 0, result.stderr
+    status = json.loads(result.stdout)
+    assert status["freshness"] == "repository_record"
+    records = json.loads((ROOT / CATALOG).read_text(encoding="utf-8"))
+    assert status["historical_checkpoint_version"] == records["version"]
+
+    windows = status["windows"]
+    assert windows["primary"]["version"] == records["primary_windows_release"]["version"]
+    assert windows["primary"]["release_id"] != windows["existing_device_delivery"]["release_id"]
+    assert windows["existing_device_delivery"]["enabled"] is records["current_windows_rollout"]["policy"]["enabled"]
+    assert windows["enrollment"]["state"] == "unknown"
+
+    assert status["alt"]["primary"]["version"] == records["linux"]["version"]
+    assert status["alt"]["enrollment"]["release_id"]
+    assert status["alt"]["enrollment"]["state"] == "catalog_recorded"
+    assert status["ubuntu"]["apt"]["version"] == records["ubuntu_servers_197"]["version"]
+    assert status["debian"]["apt"]["version"] == records["proxmox_debian"]["version"]
+    assert status["provider"]["source_revision"]
+
+
+def test_status_does_not_copy_primary_digest_to_a_different_rollout(tmp_path):
+    catalog = copy_release_records(tmp_path)
+    records = json.loads(catalog.read_text(encoding="utf-8"))
+    delivery = records["current_windows_rollout"]
+    delivery["release"] = "3.2.264"
+    delivery["policy"]["release_id"] = "a9789ad6-353d-4d1f-a11e-9f7292736d62"
+    catalog.write_text(json.dumps(records), encoding="utf-8")
+
+    result = release_status(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    windows = json.loads(result.stdout)["windows"]
+    assert windows["primary"]["version"] == records["primary_windows_release"]["version"]
+    assert windows["existing_device_delivery"]["version"] == "3.2.264"
+    assert windows["existing_device_delivery"]["sha256"] is None
+
+
+def test_status_rejects_an_inconsistent_primary_receipt(tmp_path):
+    catalog = copy_release_records(tmp_path)
+    records = json.loads(catalog.read_text(encoding="utf-8"))
+    records["primary_windows_release"]["version"] = "0.0.0"
+    catalog.write_text(json.dumps(records), encoding="utf-8")
+
+    result = release_status(tmp_path)
+
+    assert result.returncode != 0
+    assert "Windows primary release version differs from its receipt" in result.stderr
+    assert result.stdout == ""
+
+
+def test_status_rejects_primary_receipt_outside_release_directory(tmp_path):
+    catalog = copy_release_records(tmp_path)
+    records = json.loads(catalog.read_text(encoding="utf-8"))
+    records["primary_windows_release"]["record"] = "docs/releases/../escape.json"
+    catalog.write_text(json.dumps(records), encoding="utf-8")
+
+    result = release_status(tmp_path)
+
+    assert result.returncode != 0
+    assert "Expected a separate JSON receipt under docs/releases" in result.stderr
+    assert result.stdout == ""
