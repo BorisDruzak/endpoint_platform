@@ -375,6 +375,31 @@ def test_prepare_only_accepts_the_task8_archive_and_rejects_changed_bytes(
     assert "release archive digest mismatch" in rejected.stderr
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="KDE sensor builds require Linux")
+def test_sensor_toolchain_failure_precedes_freezing(tmp_path):
+    tools = tmp_path / "bin"
+    tools.mkdir()
+    cmake = tools / "cmake"
+    cmake.write_text("#!/bin/sh\nprintf 'KDE configure failed\\n' >&2\nexit 42\n", encoding="utf-8")
+    python = tools / "python"
+    python.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$1\" = '-m' ]; then printf 'unexpected freeze\\n' >&2; exit 17; fi\n"
+        f"exec {shlex.quote(sys.executable)} \"$@\"\n",
+        encoding="utf-8",
+    )
+    cmake.chmod(0o700)
+    python.chmod(0o700)
+    output = tmp_path / "output"
+    result = subprocess.run(["bash", str(BUILD), "--with-user-sensor", "--output", str(output)],
+                            cwd=ROOT, env={**os.environ, "PATH": f"{tools}{os.pathsep}{os.environ['PATH']}",
+                                           "PYTHON": str(python)}, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 42
+    assert "KDE configure failed" in result.stderr
+    assert "unexpected freeze" not in result.stderr
+    assert not output.exists()
+
+
 def test_prepare_only_canonicalizes_relative_output_before_passing_it_to_rpmbuild(
     tmp_path: Path,
 ) -> None:

@@ -45,9 +45,11 @@ rpm -qpl output/endpoint-agent-*.rpm
 For KDE Plasma 6 workstations, also install the native compiler, `cmake`,
 `qt6-base-devel` and `kf6-kidletime-devel`, then build with
 `bash packaging/alt/build-rpm.sh --with-user-sensor`. This emits the Core RPM
-and an optional `endpoint-agent-user-sensor` RPM. Qt/KF6 runtime dependencies
-belong to that optional package; the Core remains headless. Install both RPMs
-together on a workstation. The sensor starts through KDE autostart at login.
+and an optional `endpoint-agent-user-sensor` RPM. The builder configures the KDE
+probe before freezing the runtime so an incomplete toolchain fails early.
+Qt/KF6 runtime dependencies belong to the optional package. The Core remains
+headless. Install both RPMs together on a workstation. The sensor starts
+through KDE autostart at login.
 For an existing session, run `systemctl --user daemon-reload` followed by
 `/usr/lib/endpoint-agent/start-user-sensor --autostart` from that user's
 graphical session. The wrapper writes only its own private graphical environment

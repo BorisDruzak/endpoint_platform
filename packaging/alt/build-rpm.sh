@@ -72,8 +72,30 @@ PY
 temporary=$(mktemp -d "${TMPDIR:-/tmp}/endpoint-agent-rpm.XXXXXX")
 trap 'rm -rf -- "$temporary"' EXIT
 
+configure_user_sensor() {
+    local sensor_version=$1
+    [[ "$(uname -s)" == Linux ]] || die 'KDE sensor builds require Linux'
+    "$python_command" - "$sensor_version" <<'PY' || die 'KDE/browser sensor package requires Agent 3.2.123 or newer'
+import re, sys
+version = sys.argv[1]
+if re.fullmatch(r'(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)', version) is None:
+    raise SystemExit(1)
+raise SystemExit(0 if tuple(map(int, version.split('.'))) >= (3, 2, 123) else 1)
+PY
+    command -v cmake >/dev/null 2>&1 || die 'cmake and Qt6/KF6 development packages are required'
+    cmake -S "$project_root/pc_agent/platform/linux/kde_probe" \
+        -B "$temporary/kde-build" -DCMAKE_BUILD_TYPE=Release
+}
+
 if [[ "$provided" -eq 0 ]]; then
     [[ "$(uname -s)" == Linux ]] || die 'default artifact builds require Linux'
+    version=$(
+        "$python_command" -c \
+            'from pc_agent.version import AGENT_VERSION; print(AGENT_VERSION)'
+    )
+    if [[ "$with_user_sensor" == true ]]; then
+        configure_user_sensor "$version"
+    fi
     "$python_command" -m PyInstaller --noconfirm \
         --distpath "$temporary/dist" --workpath "$temporary/build-core" \
         "$project_root/pc_agent/pyinstaller_endpoint_core_linux.spec"
@@ -88,10 +110,6 @@ if [[ "$provided" -eq 0 ]]; then
     find "$temporary/dist/endpoint-agent" -type f ! -path \
         "$temporary/dist/endpoint-agent/endpoint-agent" -exec chmod 0644 {} +
     chmod 0755 "$temporary/dist/endpoint-agent/endpoint-agent" "$temporary/dist/launcher"
-    version=$(
-        "$python_command" -c \
-            'from pc_agent.version import AGENT_VERSION; print(AGENT_VERSION)'
-    )
     revision=${SOURCE_REVISION:-}
     if [[ -z "$revision" ]]; then
         revision=$(git -C "$project_root" rev-parse HEAD) || \
@@ -241,6 +259,9 @@ mapfile -t release_details <<< "$details"
 [[ ${#release_details[@]} -eq 2 ]] || die 'release verifier returned invalid metadata'
 version=${release_details[0]%$'\r'}
 revision=${release_details[1]%$'\r'}
+if [[ "$provided" -eq 3 && "$with_user_sensor" == true ]]; then
+    configure_user_sensor "$version"
+fi
 
 # The RPM version comes from the sidecar.  Query both frozen executables at
 # this boundary so an internally consistent archive cannot mask mismatched
@@ -333,17 +354,6 @@ elif [[ -n "$support_directory" || -n "$setup_executable" ]]; then
     die 'frozen Support and Setup inputs require --with-native-setup'
 fi
 if [[ "$with_user_sensor" == true ]]; then
-    [[ "$(uname -s)" == Linux ]] || die 'KDE sensor builds require Linux'
-    "$python_command" - "$version" <<'PY' || die 'KDE/browser sensor package requires Agent 3.2.123 or newer'
-import re, sys
-version = sys.argv[1]
-if re.fullmatch(r'(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)', version) is None:
-    raise SystemExit(1)
-raise SystemExit(0 if tuple(map(int, version.split('.'))) >= (3, 2, 123) else 1)
-PY
-    command -v cmake >/dev/null 2>&1 || die 'cmake and Qt6/KF6 development packages are required'
-    cmake -S "$project_root/pc_agent/platform/linux/kde_probe" \
-        -B "$temporary/kde-build" -DCMAKE_BUILD_TYPE=Release
     cmake --build "$temporary/kde-build" --parallel 2
     stage_file 0755 "$temporary/kde-build/endpoint-kde-probe" "$build_root/SOURCES/endpoint-kde-probe"
     stage_file 0644 "$project_root/pc_agent/platform/linux/kde_probe/foreground.js" "$build_root/SOURCES/foreground.js"
