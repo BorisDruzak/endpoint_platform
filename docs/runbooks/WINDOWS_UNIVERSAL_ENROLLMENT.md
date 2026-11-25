@@ -58,6 +58,15 @@ artifact uses:
 EndpointAgentSetup-3.2.49-x64.exe
 ```
 
+For a signed release, check Authenticode on the destination in the identity
+that will run Setup. This includes `SYSTEM` when using software deployment.
+Confirm `Valid`, the approved publisher and a timestamp before invoking Setup.
+Resolve an untrusted chain through the organization's certificate deployment.
+
+```powershell
+Get-AuthenticodeSignature -FilePath .\EndpointAgentSetup-3.2.49-x64.exe
+```
+
 Run interactively or with the identical non-interactive flow:
 
 ```powershell
