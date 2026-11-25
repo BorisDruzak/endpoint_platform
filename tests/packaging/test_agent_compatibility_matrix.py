@@ -89,8 +89,10 @@ def test_plan_keeps_pending_enrollment_as_a_separate_source(tmp_path):
 
 
 def test_plan_groups_only_exact_profiles_and_keeps_canonical_blockers(tmp_path):
-    ids = ("device-1", "device-2", "device-3", "device-4")
+    ids = ("device-1", "device-2", "device-3", "device-4", "device-5", "device-6")
     source = snapshot(*({**device(id, "3.2.205", online=True), "native_event_id": f"{id}-native"} for id in ids))
+    source["release_planning"]["devices"][4]["foundation_version"] = "3.2.192"
+    source["release_planning"]["devices"][5]["core_version"] = "3.2.264"
     source["observed_at"] = (datetime.now(timezone.utc) + timedelta(seconds=2)).isoformat()
     source["release_planning"]["windows_targets"] = [{"release_id": "target", "version": "3.2.278", "sha256": SHA}]
     profile = {
@@ -103,10 +105,12 @@ def test_plan_groups_only_exact_profiles_and_keeps_canonical_blockers(tmp_path):
         {"device_id": id, "native_event_id": f"{id}-native", "profile": dict(profile)} for id in ids
     ]}
     evidence["devices"][2]["profile"].update(os_name="Windows 11", os_build="26100")
+    evidence["devices"][4]["profile"]["foundation_version"] = "3.2.192"
+    evidence["devices"][5]["profile"]["core_version"] = "3.2.264"
     preview = {"observed_at": TIME, "scope": "all_active", "release_id": "target", "sha256": SHA,
                "response": {"read_only": True, "truncated": False, "evaluated_count": len(ids), "data": [
                    {"device_id": id, "status": "blocked", "safe_code": "source_not_qualified"} for id in ids]}}
-    preview["response"]["data"][-1].update(status="waiting", safe_code="waiting_source_confirmation")
+    preview["response"]["data"][3].update(status="waiting", safe_code="waiting_source_confirmation")
     preview_path = tmp_path / "preview.json"
     evidence_path = tmp_path / "profiles.json"
     preview_path.write_text(json.dumps(preview), encoding="utf-8")
@@ -116,10 +120,9 @@ def test_plan_groups_only_exact_profiles_and_keeps_canonical_blockers(tmp_path):
     assert result.returncode == 0, result.stderr
     report = json.loads(result.stdout)
     transitions = [case for case in report["cases"] if case.get("test") == "native_transition"]
-    assert [case["device_ids"] for case in transitions] == [list(ids[:2]), [ids[2]]]
-    hold, = [case for case in report["cases"] if case["category"] == "HOLD"]
-    assert hold["device_id"] == ids[3]
-    assert hold["reason"] == "waiting_source_confirmation"
+    assert [case["device_ids"] for case in transitions] == [list(ids[:2]), [ids[2]], [ids[5]]]
+    holds = {case["device_id"]: case["reason"] for case in report["cases"] if case["category"] == "HOLD"}
+    assert holds == {ids[3]: "waiting_source_confirmation", ids[4]: "native_foundation_mismatch"}
 
     preview["sha256"] = "f" * 64
     preview_path.write_text(json.dumps(preview), encoding="utf-8")

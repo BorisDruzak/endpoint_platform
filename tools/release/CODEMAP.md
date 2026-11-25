@@ -521,6 +521,10 @@ truncated preview cannot support the matrix. A Console `source_not_qualified`
 result identifies a Lab test to perform for the matching profile. The Console
 continues to own operational admission.
 
+The Windows source Foundation must agree with the confirmed native MSI event.
+An observed mismatch yields `HOLD / native_foundation_mismatch`. An OTA Core
+version stays independent and forms a separate profile when it differs.
+
 Supply independently verified native profile observations via
 `--profile-evidence`. The JSON has `observed_at` and `devices`. Each device
 entry contains `device_id`, `native_event_id`, and a `profile` with the following

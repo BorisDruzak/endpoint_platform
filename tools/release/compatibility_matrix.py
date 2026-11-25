@@ -109,6 +109,8 @@ def _case(row, target, decision, evidence):
     elif decision and (decision["status"], decision["safe_code"]) not in (
             ("eligible", "eligible"), ("blocked", "source_not_qualified")):
         reason = decision["safe_code"]
+    elif platform == "windows" and profile["foundation_version"] != row["native"]["version"]:
+        reason = "native_foundation_mismatch"
     else:
         return {**case, "category": "REQUIRED", "reason": "observed_native_source",
                 "test": "native_transition"}
