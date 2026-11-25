@@ -3722,6 +3722,10 @@ try {
         $proof=[EndpointInstallerBridge.NativeTransaction]::EstablishSettlement($bridge.Owner)
         $bridge.Policy.AuthorizeNativeRecoveryPreparation($proof)
     }
+    if (!$stagedOnline -and $SetupImagePath) {
+        # Trust and retain the exact recovery inputs before prepare writes the native fence.
+        Copy-InstallerRecoveryInputs -Bridge $bridge -SetupImage $SetupImagePath -WrapperPath $PSCommandPath -ManifestPath $ReleaseManifest -CacheRoot $executionCacheRoot | Out-Null
+    }
     $preparation=Invoke-InstallerHelper -Bridge $bridge -Phase 'prepare'
     if ($null -ne $preparation.PSObject.Properties['legacy_archive_id']) {
         if ($null -ne $compoundDetails -or $null -ne $oldPackagePin -or
@@ -3747,11 +3751,6 @@ try {
         $stagedAttemptBridge.Policy.MarkQuiescent()
         $pendingAttempt=Invoke-InstallerHelper -Bridge $stagedAttemptBridge -Phase 'record-staged-native-start'
         if($pendingAttempt.operation_id -cne $attemptOperation -or $pendingAttempt.result -cne 'native-attempt-unresolved'){throw 'RECOVERY_REQUIRED'}
-    }
-    if(!$stagedOnline -and $SetupImagePath){
-        # Fresh native installs retain the same signed Setup and exact wrapper
-        # inputs needed by continuation-only recovery after owner death.
-        Copy-InstallerRecoveryInputs -Bridge $bridge -SetupImage $SetupImagePath -WrapperPath $PSCommandPath -ManifestPath $ReleaseManifest -CacheRoot $executionCacheRoot | Out-Null
     }
     Start-WindowsInstaller
     if ($null -ne $compoundDetails) {

@@ -269,6 +269,13 @@ def test_staged_removal_mode_preserves_unowned_original_runtime():
     assert 'reverse!=null ? "REMOVE=ALL ENDPOINT_STAGED_REMOVE=1 REBOOT=ReallySuppress' in source
 
 
+def test_manual_setup_validates_recovery_inputs_before_creating_native_fence():
+    source = (WINDOWS_PACKAGING / "Install-EndpointAgentCanary.ps1").read_text(encoding="utf-8")
+    manual_recovery_inputs = source.index("Copy-InstallerRecoveryInputs -Bridge $bridge -SetupImage $SetupImagePath")
+    native_prepare = source.index("$preparation=Invoke-InstallerHelper -Bridge $bridge -Phase 'prepare'")
+    assert manual_recovery_inputs < native_prepare
+
+
 def _trees() -> dict[str, ET.Element]:
     return {
         name: ET.parse(WIX_ROOT / name).getroot()  # noqa: S314 - repository XML only
