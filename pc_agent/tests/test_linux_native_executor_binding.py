@@ -115,7 +115,7 @@ def test_retained_executor_accepts_only_current_frozen_setup_identity(tmp_path,m
 
 @pytest.mark.parametrize('existing_target', [False, True])
 def test_executor_releases_all_snapshots_before_exec_handoff(tmp_path, monkeypatch, existing_target):
-    from contextlib import contextmanager
+    from contextlib import contextmanager, nullcontext
     import hashlib
     from pathlib import Path
     from types import SimpleNamespace
@@ -153,14 +153,15 @@ def test_executor_releases_all_snapshots_before_exec_handoff(tmp_path, monkeypat
     # Windows lacks this POSIX flag; real node guards run in the native harness.
     if not hasattr(c.os, 'O_NOFOLLOW'):
         monkeypatch.setattr(c.os, 'O_NOFOLLOW', 0, raising=False)
+        monkeypatch.setattr(c, '_sync_directory', lambda _path: None)
     monkeypatch.setattr(c, 'snapshot', snapshot)
     monkeypatch.setattr(c.os, 'execv', execv)
     with pytest.raises(Handoff):
-        c.retain_executor(SimpleNamespace(paths=SimpleNamespace(private=private)))
+        c.retain_executor(SimpleNamespace(paths=SimpleNamespace(private=private), locked=nullcontext))
 
 
 def test_executor_preserves_conflicting_retained_target(tmp_path, monkeypatch):
-    from contextlib import contextmanager
+    from contextlib import contextmanager, nullcontext
     import hashlib
     from types import SimpleNamespace
     from pc_agent.platform.linux import installation_coordinator as c
@@ -180,5 +181,66 @@ def test_executor_preserves_conflicting_retained_target(tmp_path, monkeypatch):
     monkeypatch.setattr(c, 'snapshot', snapshot)
     monkeypatch.setattr(c.os, 'execv', execv)
     with pytest.raises(InstallationPending, match='executor_conflict'):
-        c.retain_executor(SimpleNamespace(paths=SimpleNamespace(private=tmp_path)))
+        c.retain_executor(SimpleNamespace(paths=SimpleNamespace(private=tmp_path), locked=nullcontext))
     assert target.read_bytes() == b'foreign retained bytes'
+
+
+@pytest.mark.parametrize("input_kind", ["rpm", "executor"])
+def test_interrupted_retention_leaves_no_final_file_and_allows_retry(tmp_path, monkeypatch, input_kind):
+    from contextlib import contextmanager, nullcontext
+    import errno
+    import hashlib
+    import os
+    from types import SimpleNamespace
+
+    from pc_agent.platform.linux import installation_coordinator as coordinator
+
+    original = tmp_path / "vendor-input"
+    payload = b"verified and immutable vendor bytes"
+    original.write_bytes(payload)
+    digest = hashlib.sha256(payload).hexdigest()
+    private = tmp_path / "private"
+    private.mkdir()
+    store = SimpleNamespace(paths=SimpleNamespace(private=private), locked=nullcontext)
+    expected = private / (digest + ".rpm" if input_kind == "rpm" else "setup-" + digest)
+    reached_exec = []
+
+    @contextmanager
+    def verified_snapshot(path):
+        yield path, hashlib.sha256(path.read_bytes()).hexdigest()
+
+    monkeypatch.setattr(coordinator, "snapshot", verified_snapshot)
+    monkeypatch.setattr(os, "O_NOFOLLOW", getattr(os, "O_NOFOLLOW", 0), raising=False)
+    monkeypatch.setattr(coordinator.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(coordinator.sys, "executable", str(original))
+    monkeypatch.setattr(os, "execv", lambda path, _argv: reached_exec.append(path))
+    if os.name == "nt":
+        monkeypatch.setattr(coordinator, "_sync_directory", lambda _path: None)
+
+    def retain():
+        if input_kind == "rpm":
+            assert coordinator.retain_inputs([original], store, lambda _source: None) == [expected]
+        else:
+            coordinator.retain_executor(store)
+
+    original_fdopen = os.fdopen
+
+    @contextmanager
+    def interrupted_stream(fd, mode):
+        with original_fdopen(fd, mode) as stream:
+            def partial_write(data):
+                stream.write(data[:4])
+                raise OSError(errno.ENOSPC, "fixture interrupted retained copy")
+
+            yield SimpleNamespace(write=partial_write)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "fdopen", interrupted_stream)
+        with pytest.raises(OSError, match="interrupted retained copy"):
+            retain()
+
+    assert list(private.iterdir()) == []
+    assert reached_exec == []
+    retain()
+    assert expected.read_bytes() == payload
+    assert reached_exec == ([str(expected)] if input_kind == "executor" else [])

@@ -32,6 +32,11 @@ runs the packaged Core prerequisite checker before completing native install or
 upgrade reconciliation. A missing or unusable runtime selection keeps the
 recorded native result pending and withholds enrollment. Remove verifies the
 installed RPM source before erase and the package absence after erase.
+Before RPM runs, verified retained packages and the frozen Setup executor are
+written to temporary siblings under the installation lock. Setup flushes the
+file, atomically publishes its digest-named copy and flushes the directory.
+A failed write leaves the final name available for retry. Existing conflicting
+copies and transaction ownership are preserved.
 
 `platform/windows/acl.preserve_state_file_permissions` preserves selector owner
 and DACL using an already-held restore privilege on the effective thread/process

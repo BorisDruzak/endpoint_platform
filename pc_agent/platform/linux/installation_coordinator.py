@@ -15,6 +15,7 @@ from uuid import UUID, uuid4
 from pc_agent.platform.linux.installation_lifecycle import (
     InstallationPending, InstallationStore, LifecycleJournal)
 from pc_agent.platform.linux.installation_durability import NativeDurability
+from pc_agent.platform.linux.support_access_native import _sync_directory
 from tools.release.linux_native_verifier import (
     NativeRPMVerifier, snapshot, run, ENV, LEGACY_SOURCE, LEGACY_MANIFEST, LEGACY_RPMS, PUBLISHER)
 from pc_agent.platform.linux.installation_configuration import (
@@ -712,6 +713,28 @@ class RPMBackend:
             os.close(directory)
 
 
+def _retain_verified_copy(source, destination, digest, *, mode, conflict):
+    """Publish a durable, digest-named copy while holding the installation lock."""
+    if os.path.lexists(destination):
+        with snapshot(destination) as (_, existing):
+            if existing != digest:
+                raise InstallationPending(conflict)
+    else:
+        temporary = destination.parent / ('.retain-' + uuid4().hex)
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        try:
+            with os.fdopen(fd, 'wb') as target, source.open('rb') as original:
+                while chunk := original.read(1024 * 1024):
+                    target.write(chunk)
+                target.flush()
+                os.chmod(temporary, mode)
+                os.fsync(target.fileno())
+            os.replace(temporary, destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+    _sync_directory(destination.parent)
+
+
 def retain_inputs(paths, store, verifier):
     """Keep exact signed native inputs outside removed/OTA-owned payload."""
     result = []
@@ -719,17 +742,8 @@ def retain_inputs(paths, store, verifier):
         with snapshot(original) as (private, digest):
             verifier(private)
             destination = store.paths.private / (digest + '.rpm')
-            if destination.exists():
-                with snapshot(destination) as (_, existing):
-                    if existing != digest:
-                        raise InstallationPending('retained_archive_conflict')
-            else:
-                fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o400)
-                with os.fdopen(fd, 'wb') as target, private.open('rb') as source:
-                    while chunk := source.read(1024 * 1024):
-                        target.write(chunk)
-                    target.flush()
-                    os.fsync(target.fileno())
+            _retain_verified_copy(private, destination, digest, mode=0o400,
+                                  conflict='retained_archive_conflict')
             result.append(destination)
     return result
 
@@ -750,17 +764,9 @@ def retain_executor(store):
                 register_retained_executor(store, {'path':str(target),'sha256':digest,
                     'source_revision':identity['source_revision'],'version':identity['version']})
             return
-        if target.exists():
-            with snapshot(target) as (_, existing):
-                if existing != digest:
-                    raise InstallationPending('executor_conflict')
-        else:
-            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o500)
-            with os.fdopen(fd, 'wb') as output, retained.open('rb') as source:
-                while chunk := source.read(1024 * 1024):
-                    output.write(chunk)
-                output.flush()
-                os.fsync(output.fileno())
+        with store.locked():
+            _retain_verified_copy(retained, target, digest, mode=0o500,
+                                  conflict='executor_conflict')
     # A successful exec never unwinds Python contexts. Validate the source again
     # and remove every temporary verification copy before handing off.
     os.execv(str(target), [str(target), *sys.argv[1:]])
