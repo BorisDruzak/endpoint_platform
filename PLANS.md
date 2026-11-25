@@ -10,7 +10,14 @@ from primary 3.2.205 to signed 3.2.276 passed exact-source Lab qualification.
 The [Windows 11 active-MSI trial](docs/verification/2026-11-25-windows11-205-to-276-active-msi.md)
 confirmed stock exit 21, a retained native operation and running local
 Support on exact .205 → .276. Core recovery and the Windows 11 network
-transition remain open. Signed ALT 3.2.274 passed native factory
+transition remain open. The [Windows 11 evaluation lab](docs/verification/2026-11-25-windows11-ltsc-evaluation-lab.md)
+verified activated Enterprise LTSC Evaluation x64 build 26100.9457 over QEMU
+guest access and an isolated Gateway with exact Setup 3.2.205 and 3.2.276.
+The Evaluation edition is a separate qualification profile from Enterprise
+LTSC. The first signed 3.2.205 Setup on a clean Evaluation guest exited 21
+before native acceptance. Its protected MSI fence and exact cache are retained
+in a stopped snapshot. The DEVELOP wrapper validates recovery media before
+native preparation. Signed ALT 3.2.274 passed native factory
 registration with ACK1, fresh WSS, accepted baseline and two real samples
 from a logged-in graphical session. The provider request remained
 `device_registered`. APT publication is deferred.
@@ -100,7 +107,10 @@ upgrade paths that must run for each qualified artifact.
   contract selected Core-only on Foundation 3.2.158 and held Foundation 3.2.156.
   The historical Windows Lab evidence confirms the native Foundation survived.
   The CUPS merge selects provider migration 0040 and ALT Core OTA. New native
-  update and rollback evidence for the CUPS journal remains open.
+  update and rollback evidence for the CUPS journal remains open. The signed
+  3.2.274 candidate source `9f9dc4f17820` predates the CUPS actions in
+  `5a0aa728eb`. The nine CUPS development tests pass. Native CUPS acceptance
+  needs a build containing the merge.
 - The release engineering branch resolved both hosted failures in the base
   gate. The [follow-up provider gate](https://github.com/BorisDruzak/endpoint_platform/actions/runs/45612060556)
   passed on Linux and Windows with version reservation and build binding.
