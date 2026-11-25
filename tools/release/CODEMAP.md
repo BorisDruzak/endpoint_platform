@@ -533,6 +533,35 @@ The Windows source Foundation must agree with the confirmed native MSI event.
 An observed mismatch yields `HOLD / native_foundation_mismatch`. An OTA Core
 version stays independent and forms a separate profile when it differs.
 
+For a direct Windows transition, supply `--windows-lab-evidence` and
+`--qualification-environment` to reuse an existing qualification in the plan.
+The latter is the SHA-256 of the reviewed current environment manifest. Keep
+the provider revision, database revision and relevant trust and Setup policy
+inputs in that manifest without credentials. The original Lab receipt must
+identify the same environment. Capture an updated provider snapshot that
+includes `release_planning.windows_qualifications`.
+
+The evidence file has a fresh `observed_at` and `qualifications` array. Each
+reviewed entry contains `qualification_id`, `evidence_assignment_id`,
+`target_sha256`, `environment_sha256`, `receipt_sha256`, the full source
+`native` object as `source`, the source `profile` described below and
+`native_route`. The receipt digest identifies the retained Lab evidence
+reviewed by the operator. The planner checks the live qualification and its
+applied assignment, the exact EXE, source Core/Foundation/Setup Client, native
+source, complete profile and route. The provider qualification must still be
+valid and Console must return `eligible` for that device. A match preserves
+`REQUIRED` and adds `satisfied_by` with the qualification, assignment, receipt
+digest and expiry. Factory, bridge and ALT transitions keep their own test
+requirements. This report grants no operational admission.
+
+```powershell
+$environmentHash = (Get-FileHash -LiteralPath $currentEnvironment -Algorithm SHA256).Hash.ToLowerInvariant()
+python tools/release/compatibility_matrix.py --snapshot $productionSnapshot `
+  --platform windows --target-version 3.2.276 --target-sha256 $setupSha256 `
+  --windows-preview $coverage --profile-evidence $profiles `
+  --windows-lab-evidence $reviewedLabEvidence --qualification-environment $environmentHash
+```
+
 Supply independently verified native profile observations via
 `--profile-evidence`. The JSON has `observed_at` and `devices`. Each device
 entry contains `device_id`, `native_event_id`, and a `profile` with the following

@@ -158,6 +158,20 @@ SELECT jsonb_build_object(
         'devices', coalesce((SELECT jsonb_agg(to_jsonb(d) ORDER BY d.device_id) FROM planning_devices d), '[]'::jsonb),
         'windows_targets', coalesce((SELECT jsonb_agg(jsonb_build_object('release_id', id, 'version', version,
             'sha256', sha256) ORDER BY id) FROM setup_update_releases), '[]'::jsonb),
+        -- Only direct assignments can currently satisfy a matrix case.
+        'windows_qualifications', coalesce((
+            SELECT jsonb_agg(jsonb_build_object('qualification_id', q.id, 'release_id', q.release_id,
+                'sha256', q.sha256, 'source_foundation', q.source_foundation,
+                'source_core', j.source_core_version, 'source_setup_client', j.source_client_version,
+                'evidence_assignment_id', q.evidence_assignment_id, 'qualified_at', q.qualified_at,
+                'expires_at', q.expires_at) ORDER BY q.id)
+            FROM setup_fleet_qualifications q
+            JOIN setup_update_releases r ON r.id = q.release_id AND r.sha256 = q.sha256
+            JOIN setup_update_assignments j ON j.id = q.evidence_assignment_id AND j.release_id = r.id
+            WHERE j.status = 'applied' AND j.source_foundation_version = q.source_foundation
+              AND q.qualified_at <= transaction_timestamp() AND q.expires_at >= transaction_timestamp()
+              AND NOT EXISTS (SELECT 1 FROM setup_update_preparations p WHERE p.assignment_id = j.id)
+        ), '[]'::jsonb),
         'enrollment_sources', coalesce((SELECT jsonb_agg(to_jsonb(e) ORDER BY e.platform, e.version, e.release_id)
             FROM planning_enrollment e), '[]'::jsonb),
         'pending_enrollments', coalesce((SELECT jsonb_agg(to_jsonb(r) ORDER BY r.platform, r.version, r.release_id, r.status)

@@ -169,3 +169,74 @@ def test_reset_lab_candidate_is_excluded_only_without_operational_exposure(tmp_p
     report = json.loads(run(tmp_path, source, "windows", *options).stdout)
     assert "EXCLUDED" not in report["counts"]
     assert any(case["reason"] == "lab_claim_conflicts_with_observed_exposure" for case in report["cases"])
+
+
+def test_reuse_requires_current_provider_proof_and_the_exact_reviewed_profile(tmp_path):
+    row = {**device("eval", "3.2.205", online=True), "native_event_id": "accepted-eval"}
+    other = {**row, "device_id": "enterprise", "native_event_id": "accepted-enterprise"}
+    provider = snapshot(row, other)
+    planning = provider["release_planning"]
+    release_id = "31d59cee-1f80-4caf-9151-504a9b21cdba"
+    assignment_id = "efbca67f-f720-4c5a-86c1-606afe603341"
+    qualification_id = "38eb913f-4b2c-4806-8b1a-b51a62f80a6c"
+    environment = "d" * 64
+    planning["windows_targets"] = [{"release_id": release_id, "version": "3.2.278", "sha256": SHA}]
+    now = datetime.now(timezone.utc)
+    qualification = {
+        "qualification_id": qualification_id, "release_id": release_id, "evidence_assignment_id": assignment_id,
+        "source_foundation": "3.2.205", "source_core": "3.2.205", "source_setup_client": "1.0.11", "sha256": SHA,
+        "qualified_at": (now - timedelta(days=1)).isoformat(), "expires_at": (now + timedelta(days=29)).isoformat(),
+    }
+    planning["windows_qualifications"] = [qualification]
+    route = {"kind": "direct", "steps": []}
+    preview = {"observed_at": TIME, "scope": "all_active", "release_id": release_id, "sha256": SHA,
+               "response": {"read_only": True, "truncated": False, "evaluated_count": 2, "data": [
+                   {"device_id": value["device_id"], "status": "eligible", "safe_code": "eligible",
+                    "native_route": route} for value in (row, other)]}}
+    profile = {"os_name": "Windows 11", "os_build": "26100.1742", "os_edition": "EnterpriseSEval",
+               "architecture": "x86_64", "core_version": "3.2.205", "foundation_version": "3.2.205",
+               "setup_client_version": "1.0.11", "support_version": "1.1.8", "state_schema": "v1",
+               "acl_profile": "service_sid", "local_transaction": "settled"}
+    profiles = {"observed_at": TIME, "devices": [
+        {"device_id": "eval", "native_event_id": "accepted-eval", "profile": profile},
+        {"device_id": "enterprise", "native_event_id": "accepted-enterprise",
+         "profile": {**profile, "os_edition": "EnterpriseS", "os_build": "26100.9457"}},
+    ]}
+    lab = {"qualification_id": qualification_id, "evidence_assignment_id": assignment_id,
+           "target_sha256": SHA, "source": row["native"], "profile": profile, "native_route": route,
+           "environment_sha256": environment, "receipt_sha256": "e" * 64}
+
+    def matrix(*, evidence=lab, live=qualification):
+        planning["windows_qualifications"] = [live]
+        files = {"windows-preview": preview, "profile-evidence": profiles,
+                 "windows-lab-evidence": {"observed_at": TIME, "qualifications": [evidence]}}
+        options = ["--qualification-environment", environment]
+        for name, content in files.items():
+            path = tmp_path / f"{name}.json"
+            path.write_text(json.dumps(content), encoding="utf-8")
+            options.extend([f"--{name}", str(path)])
+        result = run(tmp_path, provider, "windows", *options)
+        assert result.returncode == 0, result.stderr
+        return json.loads(result.stdout)["cases"]
+
+    cases = matrix()
+    matching, = [case for case in cases if "satisfied_by" in case]
+    assert matching["device_ids"] == ["eval"]
+    assert matching["category"] == "REQUIRED"
+    assert matching["satisfied_by"] == {
+        "qualification_id": qualification_id, "evidence_assignment_id": assignment_id,
+        "receipt_sha256": lab["receipt_sha256"], "expires_at": qualification["expires_at"],
+    }
+    assert sum(case["category"] == "REQUIRED" for case in cases) == 3
+    assert all("satisfied_by" not in case for case in matrix(evidence={**lab, "target_sha256": "f" * 64}))
+    assert all("satisfied_by" not in case for case in matrix(evidence={**lab, "environment_sha256": "f" * 64}))
+    changed_source = {**lab, "source": {**row["native"], "msi_sha256": "f" * 64}}
+    assert all("satisfied_by" not in case for case in matrix(evidence=changed_source))
+    assert all("satisfied_by" not in case for case in matrix(evidence={**lab, "native_route": None}))
+    assert all("satisfied_by" not in case for case in matrix(live={**qualification, "expires_at": TIME}))
+    assert all("satisfied_by" not in case for case in matrix(live={**qualification, "evidence_assignment_id": release_id}))
+    assert all("satisfied_by" not in case for case in matrix(live={**qualification, "source_setup_client": "1.0.6"}))
+    preview["response"]["data"][0].update(status="waiting", safe_code="waiting_source_confirmation")
+    holds = matrix()
+    assert any(case["category"] == "HOLD" and case["device_id"] == "eval" for case in holds)
+    assert all("satisfied_by" not in case for case in holds)

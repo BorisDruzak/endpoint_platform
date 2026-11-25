@@ -93,8 +93,13 @@ upgrade paths that must run for each qualified artifact.
   incomplete evidence and recovery holds. Console route evidence distinguishes
   direct Setup, legacy bridge/return and the registered Core166 bootstrap.
   Exact Core step digests remain bound to the Console target. The live snapshot
-  was verified for Windows 3.2.276 and ALT 3.2.274. Collection of full device
-  profiles and reuse of unexpired exact-target Lab results remain open.
+  was verified for Windows 3.2.276 and ALT 3.2.274. A direct Windows case can
+  now reference an unexpired qualification and its applied assignment when
+  independently reviewed Lab evidence matches the exact native source,
+  profile, route and environment. The planner keeps the required case and
+  uses the live Console eligibility. The projection matched the actual
+  Windows 11 Evaluation qualification in Lab PostgreSQL. Full production
+  profile collection and ALT transition evidence remain open.
 - EP-RE-04 has an explicit [qualification build](tools/release/CODEMAP.md#run-the-qualification-build)
   from the bound reservation. It previews the selected Windows/ALT builder and
   records output hashes after execution. Its native Lab matrix rechecks the

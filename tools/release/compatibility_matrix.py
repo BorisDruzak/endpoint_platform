@@ -176,6 +176,50 @@ def _group_cases(cases):
     return result
 
 
+def _reuse_windows_evidence(cases, planning, target, preview, reviewed, environment, now):
+    if target["platform"] != "windows" or preview is None or not SHA256.fullmatch(environment or ""):
+        raise ValueError("Windows Lab evidence requires an exact Windows preview and qualification environment SHA-256")
+    _observed_at(reviewed, now)
+    active = {row["qualification_id"]: row for row in _array(planning, "windows_qualifications")
+              if row["release_id"] == preview["release_id"] and row["sha256"] == target["sha256"]
+              and datetime.fromisoformat(row["qualified_at"]) <= now <= datetime.fromisoformat(row["expires_at"])}
+    reviewed_ids = set()
+    by_foundation = {}
+    for row in _array(reviewed, "qualifications"):
+        qualification_id = row["qualification_id"]
+        if qualification_id in reviewed_ids or any(str(UUID(row[key])) != row[key]
+                                                     for key in ("qualification_id", "evidence_assignment_id")):
+            raise ValueError("Windows Lab evidence requires unique canonical qualification and assignment IDs")
+        reviewed_ids.add(qualification_id)
+        if any(not SHA256.fullmatch(row[key]) for key in ("target_sha256", "environment_sha256", "receipt_sha256")):
+            raise ValueError("Windows Lab evidence requires exact target, environment and receipt digests")
+        _validate_native_route(row["native_route"])
+        current = active.get(qualification_id)
+        if (current is None or current["evidence_assignment_id"] != row["evidence_assignment_id"]
+                or row["target_sha256"] != target["sha256"] or row["environment_sha256"] != environment):
+            continue
+        foundation = current["source_foundation"]
+        if foundation in by_foundation:
+            raise ValueError("Provider returned multiple current qualifications for the same Setup source")
+        by_foundation[foundation] = current, row
+
+    for case in cases:
+        if (case.get("native_route") != {"kind": "direct", "steps": []}
+                or case["console"] != {"status": "eligible", "safe_code": "eligible"}):
+            continue
+        profile = case["profile"]
+        match = by_foundation.get(profile["foundation_version"])
+        if match is None:
+            continue
+        current, review = match
+        if (current["source_core"], current["source_setup_client"]) != (profile["core_version"], profile["setup_client_version"]):
+            continue
+        if (review["source"], review["profile"], review["native_route"]) != (case["source"], profile, case["native_route"]):
+            continue
+        case["satisfied_by"] = {**{key: review[key] for key in (
+            "qualification_id", "evidence_assignment_id", "receipt_sha256")}, "expires_at": current["expires_at"]}
+
+
 def _lab_cases(rows, platform, planning, pending, enrollment):
     setup_versions = {row["release_id"]: row["version"] for row in _array(planning, "windows_targets")}
     exposed = {row["version"] for row in pending}
@@ -215,7 +259,8 @@ def _lab_cases(rows, platform, planning, pending, enrollment):
                 yield {"category": "REGRESSION", "reason": "targeted_lab_regression", "source": source, "test": regression}
 
 
-def plan(snapshot, target, *, now, preview=None, profiles=None, lab_candidates=None):
+def plan(snapshot, target, *, now, preview=None, profiles=None, lab_candidates=None,
+         windows_lab_evidence=None, qualification_environment=None):
     if type(snapshot["schema_version"]) is not int or snapshot["schema_version"] != 1:
         raise ValueError("Unsupported provider snapshot schema")
     _observed_at(snapshot, now)
@@ -231,6 +276,10 @@ def plan(snapshot, target, *, now, preview=None, profiles=None, lab_candidates=N
         for key, row in sorted(_by_device(_array(planning, "devices")).items())
         if _relevant(row, platform)
     )
+    if windows_lab_evidence is not None:
+        _reuse_windows_evidence(cases, planning, target, preview, windows_lab_evidence, qualification_environment, now)
+    elif qualification_environment is not None:
+        raise ValueError("Qualification environment requires reviewed Windows Lab evidence")
     pending = [row for row in _array(planning, "pending_enrollments") if row["platform"] == platform]
     for source in sorted(pending, key=lambda row: (row["version"], row["release_id"], row["status"])):
         cases.append({"category": "HOLD", "reason": "pending_enrollment", "source": source})
@@ -257,6 +306,8 @@ def brief(report):
             caption += " " + route["kind"]
             if route["steps"]:
                 caption += " [" + " -> ".join(step["version"] for step in route["steps"]) + "]"
+        if "satisfied_by" in row:
+            caption += " (existing qualification)"
         summary[caption] += 1
     lines = [f'{target["platform"]} {target["version"]} ({target["sha256"]})',
              f'Provider snapshot {report["observed_at"]}']
@@ -269,6 +320,8 @@ def add_observation_arguments(parser):
     parser.add_argument("--windows-preview", type=Path)
     parser.add_argument("--profile-evidence", type=Path)
     parser.add_argument("--lab-candidates", type=Path)
+    parser.add_argument("--windows-lab-evidence", type=Path, help="Reviewed evidence for direct Windows transitions")
+    parser.add_argument("--qualification-environment", help="SHA-256 of the reviewed current environment manifest")
     parser.add_argument("--format", choices=("json", "brief"), default="json")
 
 
@@ -278,6 +331,8 @@ def plan_from_files(args, target):
         preview=json.loads(args.windows_preview.read_bytes()) if args.windows_preview else None,
         profiles=json.loads(args.profile_evidence.read_bytes()) if args.profile_evidence else None,
         lab_candidates=json.loads(args.lab_candidates.read_bytes()) if args.lab_candidates else None,
+        windows_lab_evidence=json.loads(args.windows_lab_evidence.read_bytes()) if args.windows_lab_evidence else None,
+        qualification_environment=args.qualification_environment,
     )
 
 
