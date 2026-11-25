@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+from types import SimpleNamespace
 from uuid import uuid4
 from zipfile import ZipFile
 
@@ -266,6 +267,84 @@ def test_qualify_build_plans_the_canonical_native_builder_without_writing(releas
     wrong_source = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", timeout=90)
     assert wrong_source.returncode != 0 and "bound build revision" in wrong_source.stderr
     assert not output.exists()
+
+
+@pytest.mark.parametrize("matching_pair", [True, False])
+def test_qualify_build_checks_alt_rpm_source_closure(release_inputs, monkeypatch, matching_pair):
+    from tools.release import agent_qualification, linux_native_verifier
+
+    repo, folder = release_inputs
+    baseline = git(repo, "rev-parse", "HEAD")
+    recipe = repo / "packaging/alt/build-rpm.sh"
+    recipe.parent.mkdir(parents=True)
+    recipe.write_text("exit 99\n", encoding="utf-8")
+    git(repo, "add", "packaging/alt/build-rpm.sh")
+    git(repo, "commit", "-m", "test: change ALT native recipe")
+    request, bound = prepare_bound_source(release_inputs)
+    version, revision = bound["version"], bound["build_revision"]
+    output = folder / "native-build"
+    core, sensor = linux_native_verifier.NATIVE_PATHS
+    core_manifest_path = f"/opt/endpoint-agent/versions/{version}/manifest.json"
+    setup_path = "/usr/lib/endpoint-agent-setup/endpoint-agent-setup"
+    core_manifest = json.dumps({"source_revision": revision}).encode()
+    setup_digest = hashlib.sha256(b"fixture setup").hexdigest()
+    files = {
+        core: {core_manifest_path: {"sha256": hashlib.sha256(core_manifest).hexdigest(), "mode": "0644"},
+               setup_path: {"sha256": setup_digest, "mode": "0755"}},
+        sensor: {"/usr/lib/endpoint-agent/endpoint-kde-probe": {"sha256": "1" * 64, "mode": "0755"}},
+    }
+    manifest = {"schema_version": "endpoint_linux_native_source_v1", "version": version,
+                "source_revision": revision, "core_manifest_sha256": files[core][core_manifest_path]["sha256"],
+                "packages": files}
+    common = json.dumps(manifest).encode()
+    # Both package closures remain valid. Only the shared Core binding differs.
+    sensor_manifest = common if matching_pair else json.dumps({**manifest, "core_manifest_sha256": "d" * 64}).encode()
+    filenames = {f"{package}-{version}-alt6.x86_64.rpm": package for package in files}
+
+    def build_rpms(command, *, cwd, stdout, **kwargs):
+        assert cwd == repo and command[-1] == str(output)
+        stdout.write(b"built Core and UserSensor\n")
+        for filename in filenames:
+            (output / filename).write_bytes(filename.encode())
+        return SimpleNamespace(returncode=0)
+
+    def rpm_read(command, *, output_file=None, **kwargs):
+        package = filenames[Path(command[-1]).name]
+        if command[0] == "/usr/bin/rpm":
+            return f"{package}\t{version}\talt6\tx86_64\t(none)".encode()
+        assert command[0] == "/usr/bin/rpm2cpio"
+        output_file.write(package.encode())
+        output_file.seek(0)
+        return b""
+
+    def cpio_read(payload):
+        package = payload.read().decode()
+        native_path = linux_native_verifier.NATIVE_PATHS[package]
+        if package == core:
+            metadata = {native_path: common, core_manifest_path: core_manifest}
+        else:
+            metadata = {native_path: sensor_manifest}
+        return {**files[package], native_path: {"sha256": "0" * 64, "mode": "0644"}}, metadata
+
+    monkeypatch.setattr(agent_qualification, "_build_host", lambda platform: platform == "alt")
+    monkeypatch.setattr(agent_qualification, "subprocess", SimpleNamespace(run=build_rpms, STDOUT=subprocess.STDOUT))
+    monkeypatch.setattr(linux_native_verifier, "run", rpm_read)
+    monkeypatch.setattr(linux_native_verifier, "read_cpio", cpio_read)
+    args = Namespace(repo_root=repo, request_id=request, platform="alt", base=baseline,
+                     output_root=output, inputs=None, runtime_contract=None, observed_launcher=None, execute=True)
+
+    if matching_pair:
+        receipt = agent_qualification.build(args)
+        assert receipt["alt_native"] == {"frozen_manifest_sha256": hashlib.sha256(common).hexdigest(),
+                                         "setup_sha256": setup_digest}
+        assert {record["filename"] for record in receipt["outputs"]} == filenames.keys()
+        assert json.loads((output / "qualification-build.json").read_bytes()) == receipt
+    else:
+        with pytest.raises(ValueError, match="same native source manifest"):
+            agent_qualification.build(args)
+        assert {path.name for path in output.glob("*.rpm")} == filenames.keys()
+        assert (output / "builder.log").is_file()
+        assert not (output / "qualification-build.json").exists()
 
 
 @pytest.mark.skipif(sys.platform != "win32" or not shutil.which("pwsh"), reason="Windows Core packaging needs PowerShell 7")

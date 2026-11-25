@@ -202,6 +202,15 @@ The builder writes `builder.log`. On success `qualification-build.json` pins the
 reserved version, source, baseline and output SHA-256 values. Keep failed logs
 and partial output in the original directory. Preserve already recorded
 candidate bytes for subsequent checks.
+
+For the ALT native pair, `qualify-build` checks each finished RPM's package
+identity and manifest against its CPIO payload. Core and UserSensor must share
+the bound source revision and the same native source manifest. The receipt
+includes `alt_native.frozen_manifest_sha256` and `alt_native.setup_sha256`
+from the package contents. The publisher can match the embedded Setup and both
+RPM digests to this receipt before signing. The kit registration step still
+verifies the actual signatures and signed package digests.
+
 Paths in the local inputs JSON are relative to its own directory unless absolute.
 
 | Selected artifact | Local `--inputs` fields |

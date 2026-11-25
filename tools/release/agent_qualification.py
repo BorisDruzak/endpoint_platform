@@ -1,15 +1,18 @@
 """Run the selected canonical builder from a bound release checkout."""
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
 import platform
+import re
 import subprocess
 import sys
+import tempfile
 from uuid import UUID
 
-from tools.release import agent_reservations, compatibility_matrix, release_plan
+from tools.release import agent_reservations, compatibility_matrix, linux_native_verifier, release_plan
 from tools.release.agent_candidate_artifacts import _fingerprint, verify_recorded_candidate
 
 
@@ -147,6 +150,52 @@ def _build_host(selected: str) -> bool:
             and platform.freedesktop_os_release().get("ID") == "altlinux")
 
 
+def _inspect_built_alt_pair(paths: list[Path], version: str, revision: str) -> tuple[list[dict], dict]:
+    """Verify builder output before handing the pair to the publisher."""
+    if len(paths) != 2:
+        raise ValueError("Expected the Core and UserSensor RPM pair")
+    native = linux_native_verifier
+    pair = {}
+    outputs = []
+    for path in paths:
+        fingerprint = _fingerprint(path, native.MAX_RPM)
+        query = "%{NAME}\\t%{VERSION}\\t%{RELEASE}\\t%{ARCH}\\t%{EPOCH}"
+        package, rpm_version, release, arch, epoch = native.run(
+            ["/usr/bin/rpm", "-qp", "--qf", query, str(path)]
+        ).decode().split("\t")
+        if (package not in native.NATIVE_PATHS or package in pair or rpm_version != version
+                or not re.fullmatch(r"[A-Za-z0-9._]+", release) or arch != "x86_64" or epoch not in {"(none)", "0"}
+                or path.name != f"{package}-{version}-{release}.{arch}.rpm"):
+            raise ValueError(f"Unexpected ALT build RPM identity: {path.name}")
+        with tempfile.TemporaryFile() as payload:
+            native.run(["/usr/bin/rpm2cpio", str(path)], output_file=payload, limit=native.MAX_PAYLOAD, timeout=90)
+            files, metadata = native.read_cpio(payload)
+        source_path = native.NATIVE_PATHS[package]
+        source = metadata.get(source_path)
+        if source is None:
+            raise ValueError(f"ALT RPM is missing its native source manifest: {path.name}")
+        del files[source_path]
+        core_manifest = metadata.get(f"/opt/endpoint-agent/versions/{version}/manifest.json")
+        digest = hashlib.sha256(core_manifest).hexdigest() if core_manifest is not None else None
+        source_revision, manifest_sha = native.inspect_source(source, package, version, files,
+                                                              core_manifest_digest=digest)
+        if (source_revision != revision or
+                (core_manifest is not None and native._json(core_manifest).get("source_revision") != revision)):
+            raise ValueError(f"ALT RPM source differs from the bound revision: {path.name}")
+        pair[package] = (release, manifest_sha)
+        if package == "endpoint-agent":
+            setup = files.get("/usr/lib/endpoint-agent-setup/endpoint-agent-setup")
+            if setup is None or setup["mode"] != "0755":
+                raise ValueError("ALT Core RPM is missing the executable native Setup")
+            setup_sha = setup["sha256"]
+        if fingerprint != _fingerprint(path, native.MAX_RPM):
+            raise ValueError(f"ALT RPM changed while checking build output: {path.name}")
+        outputs.append({**fingerprint, "path": path.name})
+    if len(set(pair.values())) != 1:
+        raise ValueError("ALT Core and UserSensor must share the release and the same native source manifest")
+    return outputs, {"frozen_manifest_sha256": manifest_sha, "setup_sha256": setup_sha}
+
+
 def build(args: argparse.Namespace) -> dict:
     root, output = args.repo_root.resolve(), args.output_root.resolve()
     if output.is_relative_to(root):
@@ -208,10 +257,9 @@ def build(args: argparse.Namespace) -> dict:
         raise ValueError(f"Canonical builder exited {status.returncode}; see {log_path}")
     _assert_source(root, revision)
     if artifact == "alt_native_rpm":
-        paths = sorted(output.glob("*.rpm"))
-        if len(paths) != 2:
-            raise ValueError("Expected the Core and UserSensor RPM pair")
-    result.update(state="built", outputs=[{**_fingerprint(path), "path": path.relative_to(output).as_posix()}
-                                         for path in paths])
+        outputs, result["alt_native"] = _inspect_built_alt_pair(sorted(output.glob("*.rpm")), version, revision)
+    else:
+        outputs = [{**_fingerprint(path), "path": path.relative_to(output).as_posix()} for path in paths]
+    result.update(state="built", outputs=outputs)
     (output / "qualification-build.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return result
