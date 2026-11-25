@@ -6,7 +6,10 @@ Current scope: Windows and ALT. See the
 [Windows and ALT verification](docs/verification/2026-11-25-windows-alt-release-engineering.md)
 for actual enrolled source versions, signed candidate identity and the ALT
 retained-input write result. Continue exact-source Lab qualification for
-Windows 3.2.205 and factory ALT first registration. APT publication is deferred.
+Windows 3.2.205. Signed ALT 3.2.274 passed native factory registration with
+ACK1 and fresh WSS on a disposable ALT 11.4 clone. The provider request remained
+`device_registered` after baseline. Review Linux completion and active-user
+telemetry as separate gates. APT publication is deferred.
 
 Goal: separate normal development from releases and reduce the install and
 upgrade paths that must run for each qualified artifact.

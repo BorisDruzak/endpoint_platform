@@ -38,8 +38,9 @@ Windows Full Setup revision 21 остаётся на паузе с целью .2
   остаётся открытым. [Квитанция Windows](../releases/windows-3.2.276-candidate.json)
 - **ALT 3.2.274.** Хэши комплекта, манифеста и отсоединённых подписей совпали
   с квитанцией. GnuPG проверил обе подписи и точный отпечаток издателя.
-  Первая сетевая регистрация заводской ALT Workstation K 11.4 остаётся
-  отдельной нативной проверкой. [Квитанция ALT](../releases/alt-3.2.274-candidate.json)
+  Первая сетевая регистрация заводской ALT Workstation K 11.4 прошла до
+  native ACK1, свежей WSS и baseline. Статус заявки остался
+  `device_registered`. [Квитанция ALT](../releases/alt-3.2.274-candidate.json) · [Испытание первой регистрации](2026-11-25-alt274-first-network-enrollment.md)
 
 ## Результат исправления ALT Setup
 
