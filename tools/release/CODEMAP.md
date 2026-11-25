@@ -185,3 +185,58 @@ source, artifact fingerprints and the original rejection reason across retries.
 The Git record changes independently of provider availability, policy and
 assignments. Verify exposure and any required Lab reset through their owning
 systems before excluding the source profile from future qualification.
+
+## Plan native qualification
+
+Capture a fresh provider snapshot using `agent_catalog_snapshot.sql`. Keep this
+snapshot and the planner JSON in operator storage. They include device and
+native event IDs. The snapshot distinguishes installed evidence, open WSS,
+active assignments, preparation, recovery, pending enrollment and catalog
+campaign references. Campaign counts show active allowlist references with
+quota remaining. Enrollment still depends on the owning provider, source
+network, policy and request state.
+
+```powershell
+python tools/release/compatibility_matrix.py --snapshot $productionSnapshot `
+  --platform windows --target-version 3.2.276 --target-sha256 $setupSha256 --format brief
+python tools/release/compatibility_matrix.py --snapshot $productionSnapshot `
+  --platform alt --target-version 3.2.274 --target-sha256 $kitSha256
+```
+
+The default JSON retains every held device, its source evidence and reason.
+`--format brief` counts cases by reason. The factory first-registration test
+remains required. A matching, settled and connected source profile adds a
+native transition test. Identical source profiles, native package hashes and
+Console decisions share one test case.
+
+For Windows, capture the authenticated read-only Console fleet preview with
+`scope=all_active` for the intended release. Pass `--windows-preview` a JSON
+object with the capture time `observed_at`, the request `scope` and `release_id`,
+the SHA-256 of that registered release, and the unchanged `response` from the
+Console. The planner verifies the capture against the provider catalog. A
+truncated preview cannot support the matrix. A Console `source_not_qualified`
+result identifies a Lab test to perform for the matching profile. The Console
+continues to own operational admission.
+
+Supply independently verified native profile observations via
+`--profile-evidence`. The JSON has `observed_at` and `devices`. Each device
+entry contains `device_id`, `native_event_id`, and a `profile` with the following
+fields. Use `absent` only when absence was confirmed locally.
+
+- `os_name`, `os_build`, `os_edition`, `architecture`
+- `core_version`, `foundation_version`, `setup_client_version`, `support_version`
+- `state_schema`, `acl_profile`, `local_transaction` (`settled` or observed hold)
+
+`--lab-candidates` accepts a separately reviewed inventory with `observed_at`
+and `candidates`. Each entry contains `platform`, `version`, artifact
+`sha256`, the hash of the reviewed reset/exposure receipt `receipt_sha256`,
+`exposure` and `reset`, plus an optional `regression_test` identifier. Use
+`lab_only` and `verified` only after checking current and historical exposure
+including staging, offline or pending work, and a completed Lab reset. A
+conflicting provider observation keeps the candidate in `HOLD`. Otherwise the
+verified Lab source can be `EXCLUDED` from mandatory transitions. An explicit
+`regression_test` keeps that targeted scenario in the plan.
+
+Input observations must be within 30 minutes of execution with a 30-second
+clock tolerance. Use the canonical preview and Lab evidence for the actual
+artifact and source route before a delivery decision.

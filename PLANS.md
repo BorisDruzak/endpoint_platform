@@ -31,8 +31,13 @@ upgrade paths that must run for each qualified artifact.
   `reject` records a refusal for one exact candidate digest without changing
   the provider. Qualification, promotion and revocation remain open. Keep the
   existing publisher authoritative.
-- EP-RE-03 plans required transitions from read-only observed profiles,
-  pending/unknown assignments, recovery holds and enrollment availability.
+- EP-RE-03 has a read-only [compatibility planner](tools/release/CODEMAP.md#plan-native-qualification)
+  and provider snapshot for exact native events, active operations, enrollment
+  and catalog exposure. The planner binds Console preview to the exact release
+  ID and digest, groups matching profiles and preserves offline cards,
+  incomplete evidence and recovery holds. The live snapshot was verified for
+  Windows 3.2.276 and ALT 3.2.274. Collection of full device profiles, explicit
+  direct/bridge routing and reuse of unexpired exact-target Lab results remain open.
 - EP-RE-04 composes existing builders, Lab checks and publishers around the
   qualified digest. ALT native Setup, RPM manifests and kit assembly now accept
   the bound candidate version. ALT 11.4 verified staging of synthetic 3.2.278,

@@ -24,6 +24,96 @@ WITH primary_download AS (
 ), core_versions AS (
     SELECT DISTINCT platform, channel, version
     FROM update_builds
+), active_native_jobs AS (
+    SELECT device_id, status, release_id
+    FROM setup_update_assignments
+    WHERE status IN ('assigned', 'downloading', 'verified', 'installing', 'verifying', 'recovery_required')
+), active_preparations AS (
+    SELECT device_id, status, release_id
+    FROM setup_update_preparations
+    WHERE status IN ('preparing_client', 'restoring_core', 'recovering_client', 'recovering_source')
+), active_core_jobs AS (
+    SELECT t.device_id, t.status, b.version, b.sha256_digest AS sha256
+    FROM update_targets t
+    JOIN update_rollouts r ON r.id = t.rollout_id
+    JOIN update_builds b ON b.id = r.build_id
+    WHERE t.status IN ('assigned', 'requested', 'scheduled')
+), planning_devices AS (
+    SELECT d.id AS device_id, i.platform, i.agent_version AS core_version,
+           i.launcher_version AS foundation_version, i.last_seen_at AS core_observed_at,
+           s.state AS installation_state, s.event_id AS native_event_id,
+           e.payload->>'schema_version' AS native_contract, e.payload->'native' AS native,
+           CASE WHEN enrollment.installer_release_id LIKE 'ubuntu-deb:%'
+                  OR enrollment.installer_release_id LIKE 'debian-deb:%' THEN 'deb' END AS enrollment_package_kind,
+           c.client_version AS setup_client_version, c.last_seen_at AS setup_client_observed_at,
+           sa.component_version AS support_version, sa.reported_at AS support_observed_at,
+           j.status AS setup_status, j.release_id AS setup_target_id,
+           p.status AS preparation_status, p.release_id AS preparation_target_id,
+           u.status AS core_status, u.version AS core_target_version, u.sha256 AS core_target_sha256,
+           coalesce(i.last_seen_at BETWEEN transaction_timestamp() - interval '90 seconds'
+                         AND transaction_timestamp() + interval '30 seconds' AND EXISTS (
+               SELECT 1 FROM device_sessions w
+               WHERE w.device_instance_id = i.id AND w.device_id = d.id AND w.closed_at IS NULL
+                 AND w.session_identifier LIKE 'gateway-%' AND w.expires_at > transaction_timestamp()
+                 AND w.last_seen_at BETWEEN transaction_timestamp() - interval '90 seconds'
+                         AND transaction_timestamp() + interval '30 seconds'
+           ), false) AS seen_wss
+    FROM devices d
+    LEFT JOIN LATERAL (
+        SELECT * FROM device_instances
+        WHERE device_id = d.id
+        ORDER BY last_seen_at DESC NULLS LAST, id DESC LIMIT 1
+    ) i ON true
+    LEFT JOIN installation_states s ON s.device_id = d.id
+    LEFT JOIN installation_events e ON e.id = s.event_id
+    LEFT JOIN LATERAL (
+        SELECT r.installer_release_id FROM enrollment_requests r
+        WHERE r.device_id = d.id AND r.platform = 'linux' AND r.status = 'completed'
+        ORDER BY r.updated_at DESC, r.id DESC LIMIT 1
+    ) enrollment ON i.platform = 'linux_amd64'
+    LEFT JOIN setup_update_clients c ON c.device_id = d.id
+    LEFT JOIN support_access sa ON sa.device_id = d.id
+    LEFT JOIN active_native_jobs j ON j.device_id = d.id
+    LEFT JOIN LATERAL (
+        SELECT a.status, a.release_id
+        FROM active_preparations a
+        WHERE a.device_id = d.id
+        ORDER BY (a.status IN ('recovering_source', 'recovering_client')) DESC, a.release_id LIMIT 1
+    ) p ON true
+    LEFT JOIN active_core_jobs u ON u.device_id = d.id
+    WHERE d.retired_at IS NULL OR j.device_id IS NOT NULL OR p.release_id IS NOT NULL OR u.device_id IS NOT NULL
+), eligible_campaign_sources AS (
+    SELECT c.target_platform, release.key, count(*) AS catalog_campaign_count
+    FROM enrollment_campaigns c
+    CROSS JOIN LATERAL jsonb_array_elements_text(
+        CASE WHEN jsonb_typeof(c.policy->CASE c.target_platform
+            WHEN 'windows' THEN 'allowed_installer_releases' ELSE 'allowed_native_releases' END) = 'array'
+        THEN c.policy->CASE c.target_platform
+            WHEN 'windows' THEN 'allowed_installer_releases' ELSE 'allowed_native_releases' END
+        ELSE '[]'::jsonb END
+    ) AS release(key)
+    WHERE c.target_platform IN ('windows', 'linux') AND c.revoked_at IS NULL AND c.disabled_at IS NULL
+      AND c.expires_at > transaction_timestamp() AND c.use_count < c.max_uses
+    GROUP BY c.target_platform, release.key
+), planning_enrollment AS (
+    SELECT 'windows' AS platform, w.id AS release_id, w.agent_version AS version, w.version AS installer_version,
+           w.source_commit AS source_revision,
+           w.setup_sha256 AS sha256, w.msi_sha256 AS package_sha256, NULL AS sensor_sha256,
+           w.download_published, coalesce(c.catalog_campaign_count, 0) AS catalog_campaign_count, w.retired_at
+    FROM windows_setup_releases w LEFT JOIN eligible_campaign_sources c ON c.target_platform = 'windows' AND c.key = w.version
+    UNION ALL
+    SELECT 'alt', a.id, a.version, a.version, a.source_revision, NULL, a.core_rpm_sha256, a.user_sensor_rpm_sha256,
+           NULL, coalesce(c.catalog_campaign_count, 0), a.retired_at
+    FROM linux_native_releases a LEFT JOIN eligible_campaign_sources c ON c.target_platform = 'linux' AND c.key = a.id::text
+), planning_requests AS (
+    SELECT CASE WHEN r.platform = 'windows' THEN 'windows' ELSE 'alt' END AS platform,
+           r.installer_version AS version, r.installer_release_id AS release_id, r.status, count(*) AS count
+    FROM enrollment_requests r
+    LEFT JOIN linux_enrollment_bindings b ON b.enrollment_request_id = r.id
+    WHERE (r.platform = 'windows' OR b.native_release_id IS NOT NULL)
+      AND r.status IN ('created', 'validating', 'auto_approved', 'waiting_approval', 'review_required',
+                       'claim_issued', 'enrolling', 'device_registered', 'waiting_wss')
+    GROUP BY r.platform, r.installer_version, r.installer_release_id, r.status
 ), accepted_native_sources AS (
     SELECT e.payload->>'schema_version' AS native_contract,
            e.payload->'native'->>'version' AS version,
@@ -63,6 +153,15 @@ SELECT jsonb_build_object(
         (SELECT jsonb_agg(to_jsonb(accepted_native_groups)
                           ORDER BY native_contract, version, source_revision, package_sha256, sensor_rpm_sha256)
          FROM accepted_native_groups), '[]'::jsonb
+    ),
+    'release_planning', jsonb_build_object(
+        'devices', coalesce((SELECT jsonb_agg(to_jsonb(d) ORDER BY d.device_id) FROM planning_devices d), '[]'::jsonb),
+        'windows_targets', coalesce((SELECT jsonb_agg(jsonb_build_object('release_id', id, 'version', version,
+            'sha256', sha256) ORDER BY id) FROM setup_update_releases), '[]'::jsonb),
+        'enrollment_sources', coalesce((SELECT jsonb_agg(to_jsonb(e) ORDER BY e.platform, e.version, e.release_id)
+            FROM planning_enrollment e), '[]'::jsonb),
+        'pending_enrollments', coalesce((SELECT jsonb_agg(to_jsonb(r) ORDER BY r.platform, r.version, r.release_id, r.status)
+            FROM planning_requests r), '[]'::jsonb)
     ),
     'occupied_versions', jsonb_build_object(
         'windows_installer', ARRAY(SELECT DISTINCT version FROM windows_setup_releases ORDER BY version),
