@@ -9,9 +9,9 @@ retained-input write result. The [Windows 10 network transition](docs/verificati
 from primary 3.2.205 to signed 3.2.276 passed exact-source Lab qualification.
 The Windows 11 network transition and service recovery after active MSI
 interruption remain open. Signed ALT 3.2.274 passed native factory
-registration with ACK1 and fresh WSS. The provider request remained
-`device_registered` after baseline. Review Linux completion and active-user
-telemetry as separate gates. APT publication is deferred.
+registration with ACK1, fresh WSS, accepted baseline and two real samples
+from a logged-in graphical session. The provider request remained
+`device_registered`. APT publication is deferred.
 
 Goal: separate normal development from releases and reduce the install and
 upgrade paths that must run for each qualified artifact.
@@ -48,10 +48,12 @@ upgrade paths that must run for each qualified artifact.
   kit. Bind public activation to exact Lab acceptance and scoped authority.
   `qualify-alt-enrollment` checks first native enrollment against the bound RPM
   registry, consumed claim, causal ACK, fresh WSS, baseline and interactive
-  activity on the Lab provider. Verified with the original signed .274 kit and
-  synthetic observation scenarios on isolated migrated PostgreSQL. The actual
-  factory .274 path still needs accepted interactive activity in a logged-in session.
-  Campaign scope and revocation remain open.
+  activity on the Lab provider. Verified with the original signed .274 kit on
+  isolated PostgreSQL and with a factory installation on ALT Workstation K
+  11.4. The exact .274 first-enrollment route returned `accepted` twice on
+  one native event and one WSS after correction of the disposable guest clock.
+  Preserve exact scope when applying the evidence. Campaign scope and
+  revocation remain open.
 - EP-RE-03 has a read-only [compatibility planner](tools/release/CODEMAP.md#plan-native-qualification)
   and provider snapshot for exact native events, active operations, enrollment
   and catalog exposure. The planner binds Console preview to the exact release
