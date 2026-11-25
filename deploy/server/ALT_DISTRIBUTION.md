@@ -35,7 +35,9 @@ the chosen provider and review its scope before applying the grant.
 Use the [ALT withdrawal workflow](../../tools/release/CODEMAP.md#withdraw-an-alt-first-enrollment-download)
 to record revocation and archive the exact version outside the public alias.
 Verify the public URLs through HTTPS after the move and retain the original
-publication and withdrawal receipts.
+publication and withdrawal receipts. Use the
+[provider campaign withdrawal](../../tools/release/CODEMAP.md#withdraw-existing-alt-enrollment-grants)
+for grants already issued to the revoked kit.
 
 Only publish public kit archives, detached archive/manifest signatures, manifest,
 checksums, public RPM key and operator guide. All directories must be root-owned

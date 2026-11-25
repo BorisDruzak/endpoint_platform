@@ -68,8 +68,11 @@ upgrade paths that must run for each qualified artifact.
   `record-alt-revocation` blocks first-enrollment qualification, publication
   and fresh grants through the release CLI for the exact revoked kit.
   `withdraw-alt-download` moved the same signed files into a private archive
-  and verified 404 on real Nginx. Removal of existing campaign authority
-  remains open. Preserve the RPM source and installed-device identity.
+  and verified 404 on real Nginx. `withdraw-alt-enrollment-grants` removed
+  the exact source through the provider campaign gate. An isolated
+  PostgreSQL trial verified three campaigns, including a disabled one,
+  a hold for pending credential delivery, other-source eligibility and
+  replay of the stored native ACK with the original device credential.
 - EP-RE-03 has a read-only [compatibility planner](tools/release/CODEMAP.md#plan-native-qualification)
   and provider snapshot for exact native events, active operations, enrollment
   and catalog exposure. The planner binds Console preview to the exact release

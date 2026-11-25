@@ -465,8 +465,29 @@ python tools/release/agent_release.py withdraw-alt-download --request-id "$reque
 With `--execute` the command verifies the exact eight files, archives the
 public directory with one rename and requires HTTPS 404 for HEAD and GET
 on each URL. Failed HTTPS verification leaves the files private and is
-safe to retry. Keep the withdrawal receipt and track existing campaign
-grants and installed devices with their owning provider records.
+safe to retry. Keep the withdrawal receipt and use the campaign procedure
+for current provider grants.
+
+### Withdraw existing ALT enrollment grants
+
+Set `DATABASE_URL` for the provider that owns the RPM campaigns. Use the
+same revoked reservation and kit digest. The read-only preview shows
+the affected campaigns and their actions, including disabled or expired
+campaigns, plus any pending delivery.
+
+```bash
+python tools/release/agent_release.py withdraw-alt-enrollment-grants --request-id "$request" \
+  --sha256 "$kit_sha256"
+```
+
+Apply the approved scope with `--execute --scope-sha256 "$reviewed_scope_sha256"`.
+The provider rechecks the exact RPM source and campaign scope under lock.
+It removes the source from campaigns with alternatives, and canonically
+revokes campaigns that allow only that source. A pending credential delivery
+blocks execution until acknowledgement or expiry. Existing unconsumed
+claims follow the canonical eligibility check. The native source, installed
+device credentials and historical events support continued lifecycle
+reporting. A replay returns the audited scope once that grant set is absent.
 
 ## Plan native qualification
 

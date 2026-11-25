@@ -209,6 +209,12 @@ def main() -> None:
     alt_revocation.add_argument("--execute", action="store_true", help="Record revocation in the shared release ledger")
     alt_withdrawal = commands.add_parser("withdraw-alt-download", help="archive the exact revoked ALT download")
     agent_alt_publication.add_withdrawal_arguments(alt_withdrawal)
+    alt_grant_withdrawal = commands.add_parser("withdraw-alt-enrollment-grants", help="withdraw a revoked kit from provider campaigns")
+    alt_grant_withdrawal.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
+    alt_grant_withdrawal.add_argument("--request-id", required=True, type=UUID)
+    alt_grant_withdrawal.add_argument("--sha256", required=True, help="Exact revoked ALT kit archive SHA-256")
+    alt_grant_withdrawal.add_argument("--scope-sha256", help="Reviewed withdrawal scope digest returned by preview")
+    alt_grant_withdrawal.add_argument("--execute", action="store_true", help="Withdraw the source from the reviewed provider campaigns")
     alt_enrollment = commands.add_parser("qualify-alt-enrollment", help="inspect exact first-install Lab evidence")
     agent_alt_native.add_kit_arguments(alt_enrollment)
     alt_enrollment.add_argument("--enrollment-request-id", type=UUID, required=True)
@@ -259,6 +265,10 @@ def main() -> None:
             result = agent_alt_qualification.record_revocation(args)
         elif args.command == "withdraw-alt-download":
             result = agent_alt_publication.withdraw(args)
+        elif args.command == "withdraw-alt-enrollment-grants":
+            from tools.release.agent_alt_campaign import campaign_withdrawal
+
+            result = campaign_withdrawal(args)
         elif args.command == "qualify-alt-enrollment":
             from tools.release.agent_alt_enrollment import qualify
 
