@@ -26,6 +26,11 @@ seconds. The direct 3.2.276 transition took 711 seconds, preserved identity
 and session, and received Lab qualification after ACK2, fresh WSS and
 UserSensor, an accepted health command and 183 seconds of observation.
 Support 1.1.9 reported healthy on its first install attempt in that trial.
+The signed 3.2.276 phase profile on a separate clone identified online
+preparation, compound finalization and companion restoration as the largest
+helper phases. DEVELOP buffers short reads on the authenticated Setup pipe.
+A Windows transport fixture confirmed half as many native read calls.
+Full Setup timing for a build containing the change remains open.
 The separate Enterprise LTSC network profile remains open.
 Signed ALT 3.2.274 passed native factory
 registration with ACK1, fresh WSS, accepted baseline and two real samples
