@@ -5,9 +5,11 @@
 Current scope: Windows and ALT. See the
 [Windows and ALT verification](docs/verification/2026-11-25-windows-alt-release-engineering.md)
 for actual enrolled source versions, signed candidate identity and the ALT
-retained-input write result. Continue exact-source Lab qualification for
-Windows 3.2.205. Signed ALT 3.2.274 passed native factory registration with
-ACK1 and fresh WSS on a disposable ALT 11.4 clone. The provider request remained
+retained-input write result. The [Windows 10 network transition](docs/verification/2026-11-25-windows10-205-to-276-network.md)
+from primary 3.2.205 to signed 3.2.276 passed exact-source Lab qualification.
+The Windows 11 network transition and service recovery after active MSI
+interruption remain open. Signed ALT 3.2.274 passed native factory
+registration with ACK1 and fresh WSS. The provider request remained
 `device_registered` after baseline. Review Linux completion and active-user
 telemetry as separate gates. APT publication is deferred.
 
