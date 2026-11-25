@@ -50,8 +50,14 @@ upgrade paths that must run for each qualified artifact.
   rejection of a mismatched Setup, and RPM spec builds of Core and UserSensor
   for both 3.2.183 and 3.2.278. Signing and Lab acceptance of a distributable
   candidate remain open.
-- EP-RE-05 chooses the delivery artifact based on the actual source and
-  dependency changes.
+- EP-RE-05 has a read-only [delivery planner](tools/release/CODEMAP.md#choose-windows-or-alt-delivery)
+  for Windows, ALT, Browser Sensor and provider changes. It compares both
+  revisions' build dependencies, reports migrations and holds unknown inputs
+  or incompatible Core profiles. Replay of the immutable Core 3.2.164 ZIP's
+  contract selected Core-only on Foundation 3.2.158 and held Foundation 3.2.156.
+  The historical Windows Lab evidence confirms the native Foundation survived.
+  The CUPS merge selects provider migration 0040 and ALT Core OTA. New native
+  update and rollback evidence for the CUPS journal remains open.
 - The release engineering branch resolved both hosted failures in the base
   gate. The [follow-up provider gate](https://github.com/BorisDruzak/endpoint_platform/actions/runs/45612060556)
   passed on Linux and Windows with version reservation and build binding.

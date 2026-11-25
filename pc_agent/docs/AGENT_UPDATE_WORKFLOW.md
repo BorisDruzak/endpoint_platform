@@ -20,6 +20,11 @@ before producing distributable bytes.
 
 ## Choose the release cycle
 
+For Windows and ALT, use the [delivery planner](../../tools/release/CODEMAP.md#choose-windows-or-alt-delivery)
+before selecting the builder. Run it over the qualified baseline and reviewed
+source of the proposed release, then combine the result with the current
+compatibility matrix and the owning catalog gates.
+
 - **Windows Core OTA.** Use [the Windows packaging tools](../../packaging/windows/README.md)
   for a compatible runtime payload. Verify minimum Foundation/launcher, signed
   payload and exact source constraints. For example, the

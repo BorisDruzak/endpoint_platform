@@ -77,6 +77,58 @@ a separate count. Use this as input to compatibility planning. OS build,
 companion versions, pending local transactions and other profile details
 still require their own evidence.
 
+## Choose Windows or ALT delivery
+
+Run the planner before selecting a builder in QUALIFY. Get the baseline Git
+revision from the relevant qualified release and the current profile from the
+owning catalog. The tool resolves both revisions to immutable commits. Use the
+selected delivery and the current exposure matrix to choose Lab scenarios.
+
+```powershell
+python tools/release/release_plan.py --platform windows --base $qualifiedSource --target $buildRevision
+python tools/release/release_plan.py --platform alt --base $qualifiedSource --target $buildRevision
+```
+
+`changed_components` traces changed inputs through the old and new PyInstaller
+specs, their transitive local imports, and the native builder inputs. Use
+`artifact_reasons` to see which component required each deliverable. Treat
+`unclassified` as a hold until the owner is established. Review dynamic build
+inputs against the builder, and use the canonical gates to qualify its output.
+An aggregate diff can include changes for several releases. Confirm which
+changes already shipped through the separate owning catalogs before defining a
+smaller candidate scope.
+
+| Change | Delivery and qualification |
+| --- | --- |
+| Windows Core runtime | Core ZIP through the Core update catalog for a verified compatible Foundation. |
+| Windows launcher, MSI, Setup or native services | Full Setup via the existing exact-source Console workflow. Check Support and the signed Setup observer separately when their inputs change. |
+| ALT Core runtime | ALT Core OTA and the existing Linux admission checks. |
+| ALT launcher, native service/helper, or RPM payload | ALT native RPM, signed kit and native Setup in the existing release cycle. |
+| Browser extension | Browser Sensor release. The extension ID is also a Core and native package input where the builders include it. |
+| Endpoint contracts, provider or Console | Review changed contracts and migration IDs. Qualify compatibility with old and new agents and rehearse migrations and rollback. Provider-only changes require no agent build. |
+
+For each candidate Core profile, repeat with `--runtime-contract` and
+`--observed-launcher`. For Windows, use `endpoint-runtime-contract.json` from
+the digest-verified Core ZIP. For ALT, use the source-bound OTA receipt with
+`source_revision` and the canonical `update_build_manifest_v1` under `build`.
+The reported minimum must match the target commit and agent version. A missing
+contract, unknown launcher, or version below the floor leaves the profile on
+hold. Check the canonical build registration and updater admission independently
+before using the exact payload. Native enrollment and existing-agent delivery
+retain their own acceptance gates.
+
+The earlier [Core 3.2.164 qualification](../../docs/verification/2026-11-05-power27-sensor187-core164.md)
+demonstrated delivery on Foundation 3.2.158 including the retained Windows Lab
+VM, with private identity and native Foundation preserved. The planner was
+replayed against that Core change and the contract extracted from its unchanged
+ZIP. Foundation 3.2.156 was held. The full diff from the old 3.2.158 runtime
+source also includes separately released Setup and provider changes.
+
+CUPS changes require the provider and ALT agent capability to agree. The CUPS
+merge reports ALT Core OTA and provider migration `0040_cups_operations`.
+Check that `cups-actions.sqlite3` survives the candidate's update and rollback
+before admitting the new payload to a CUPS deployment.
+
 ## Reserve and bind a Windows or ALT version
 
 In QUALIFY, capture a fresh production and a fresh staging JSON snapshot with
