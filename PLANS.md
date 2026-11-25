@@ -7,8 +7,10 @@ Current scope: Windows and ALT. See the
 for actual enrolled source versions, signed candidate identity and the ALT
 retained-input write result. The [Windows 10 network transition](docs/verification/2026-11-25-windows10-205-to-276-network.md)
 from primary 3.2.205 to signed 3.2.276 passed exact-source Lab qualification.
-The Windows 11 network transition and service recovery after active MSI
-interruption remain open. Signed ALT 3.2.274 passed native factory
+The [Windows 11 active-MSI trial](docs/verification/2026-11-25-windows11-205-to-276-active-msi.md)
+confirmed stock exit 21, a retained native operation and running local
+Support on exact .205 → .276. Core recovery and the Windows 11 network
+transition remain open. Signed ALT 3.2.274 passed native factory
 registration with ACK1, fresh WSS, accepted baseline and two real samples
 from a logged-in graphical session. The provider request remained
 `device_registered`. APT publication is deferred.
