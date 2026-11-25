@@ -159,7 +159,7 @@ jobs:
       - name: Record exact source and dependency evidence
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path artifacts | Out-Null
+          [System.IO.Directory]::CreateDirectory((Join-Path (Get-Location) artifacts)) | Out-Null
           $head = (git rev-parse HEAD).Trim()
           if ($LASTEXITCODE -ne 0 -or $head -cne $env:GITHUB_SHA) {
             throw "Checkout differs from dispatched source"

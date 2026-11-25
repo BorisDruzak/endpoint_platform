@@ -7,6 +7,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
 import shutil
+import ssl
 import subprocess
 import tempfile
 from threading import Thread
@@ -23,8 +24,9 @@ class QuietHandler(SimpleHTTPRequestHandler):
 
 
 @unittest.skipUnless(
-    os.name == "posix" and all(shutil.which(name) for name in ("curl", "gpg", "gpgv", "gpgconf", "sh")),
-    "requires POSIX shell, curl and GnuPG",
+    os.name == "posix"
+    and all(shutil.which(name) for name in ("curl", "gpg", "gpgv", "gpgconf", "openssl", "sh")),
+    "requires POSIX shell, curl, GnuPG and OpenSSL",
 )
 class TestAptExpiryMonitor(unittest.TestCase):
     @classmethod
@@ -49,6 +51,19 @@ class TestAptExpiryMonitor(unittest.TestCase):
         cls.http_root = http_root
         server = ThreadingHTTPServer(("127.0.0.1", 0), partial(QuietHandler, directory=http_root))
         cls.addClassCleanup(server.server_close)
+        cls.ca = cls.root / "localhost.crt"
+        key = cls.root / "localhost.key"
+        subprocess.run(
+            [
+                "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+                "-subj", "/CN=localhost", "-addext", "subjectAltName=IP:127.0.0.1",
+                "-keyout", key, "-out", cls.ca,
+            ],
+            check=True, capture_output=True,
+        )
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(cls.ca, key)
+        server.socket = context.wrap_socket(server.socket, server_side=True)
         thread = Thread(target=server.serve_forever, daemon=True)
         thread.start()
         cls.addClassCleanup(thread.join, 5)
@@ -81,7 +96,8 @@ class TestAptExpiryMonitor(unittest.TestCase):
         self._index("debian", debian)
         env = {key: value for key, value in os.environ.items() if not key.startswith("ENDPOINT_APT_")}
         env.update(
-            ENDPOINT_APT_BASE_URL=f"http://127.0.0.1:{self.port}",
+            ENDPOINT_APT_BASE_URL=f"https://127.0.0.1:{self.port}",
+            ENDPOINT_APT_CA=str(self.ca),
             ENDPOINT_APT_KEYRING=str(self.keyring),
             ENDPOINT_APT_FINGERPRINT=self.old,
             NO_PROXY="127.0.0.1",
