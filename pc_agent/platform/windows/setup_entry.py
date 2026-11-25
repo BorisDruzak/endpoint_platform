@@ -314,6 +314,8 @@ def _run_staged_recovery(operation_id):
             raise SetupInstallError('RECOVERY_REQUIRED')
         recovery.wait_for_original_owner(record.owner, timeout_seconds=4 * 60 * 60)
         recovery._assert_owner_dead(record.owner)
+        if damaged is None and recovery.watchdog_cleanup_complete(paths, record):
+            return EXIT_SUCCESS
         manifest, wrapper = _verify_embedded_msi(_resource_root() / 'EndpointAgent.msi')
         # The exact signed Setup contains the authoritative owner program.
         for embedded, cached in ((manifest, cache / manifest.name), (wrapper, cache / wrapper.name)):

@@ -38,6 +38,7 @@ from pc_agent.windows_setup import (
     ('foreign-executable', 0, 'accepted', None),
     ('owner-alive', 0, 'accepted', None),
     ('changed-wrapper', 0, 'accepted', None),
+    ('watchdog-cleaned', 0, 'accepted', None),
 ])
 def test_frozen_staged_watchdog_uses_package_imports_and_preserves_admission(
         tmp_path, monkeypatch, defect, wrapper_exit, terminal, receipt):
@@ -101,6 +102,13 @@ def test_frozen_staged_watchdog_uses_package_imports_and_preserves_admission(
         if defect == 'owner-alive':
             raise ValueError('OWNER_AUTH_FAILED')
     monkeypatch.setattr(staged_recovery, '_assert_owner_dead', dead)
+    def cleanup_complete(actual_paths, admitted):
+        assert actual_paths is paths and admitted is record
+        if defect != 'watchdog-cleaned':
+            return False
+        events.append('cleanup-proof')
+        return True
+    monkeypatch.setattr(staged_recovery, 'watchdog_cleanup_complete', cleanup_complete, raising=False)
     monkeypatch.setattr(update_paths, '_native_folder', lambda _: tmp_path/'system32')
     def invoke(command, **kwargs):
         events.append('launch')
@@ -111,6 +119,11 @@ def test_frozen_staged_watchdog_uses_package_imports_and_preserves_admission(
         return SimpleNamespace(returncode=wrapper_exit)
     monkeypatch.setattr(setup_entry.subprocess, 'run', invoke)
     result = entry['_run_staged_recovery'](operation)
+    if defect == 'watchdog-cleaned':
+        assert events == ['wait', 'dead', 'cleanup-proof']
+        assert results == []
+        assert result == setup_entry.EXIT_SUCCESS
+        return
     if defect in (None, 'damaged'):
         expected = ['wait', 'dead']
         if defect == 'damaged':

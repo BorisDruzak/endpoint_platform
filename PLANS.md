@@ -30,6 +30,9 @@ The signed 3.2.276 phase profile on a separate clone identified online
 preparation, compound finalization and companion restoration as the largest
 helper phases. DEVELOP buffers short reads on the authenticated Setup pipe.
 A Windows transport fixture confirmed half as many native read calls.
+The Windows watchdog uses a protected receipt to exit after confirmed task
+retirement on the same accepted operation. Missing evidence preserves the
+normal recovery path. The native signed-artifact comparison remains open.
 Full Setup timing for a build containing the change remains open.
 The separate Enterprise LTSC network profile remains open.
 Signed ALT 3.2.274 passed native factory

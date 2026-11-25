@@ -1,6 +1,8 @@
 """Recovery keeps original capture authority and rejects guessed settlement."""
 import json
+import os
 from pathlib import Path
+import subprocess
 from dataclasses import replace
 from types import SimpleNamespace
 from uuid import uuid4
@@ -44,6 +46,117 @@ def test_owner_loss_before_switch_keeps_old_agent_running(recovery):
     assert paths.current_path.read_bytes() == selected
     assert state.read_staged_update(paths).phase == 'rolled-back'
     assert not (paths.install_root / 'installer-state/native-fence.json').exists()
+
+
+@pytest.mark.parametrize('case', [
+    'cleaned', 'bad-acl', 'foreign-receipt', 'different-sequence',
+    'foreign-stage', 'different-owner', 'pending-native', 'installer-busy',
+    'accepted-without-cleanup', 'switching',
+])
+def test_watchdog_cleanup_proves_only_the_exact_accepted_operation(tmp_path, monkeypatch, case):
+    from contextlib import contextmanager
+    from pc_agent.platform.windows import native_setup_continuation, staged_recovery, update_transaction
+
+    operation = str(uuid4())
+    package = 'a' * 64
+    paths = SimpleNamespace(install_root=tmp_path / 'Agent')
+    before = SimpleNamespace(
+        binding=SimpleNamespace(operation_id=operation, new_release={'package_sha256': package}),
+        owner={'pid': 42, 'created': 1100},
+    )
+    current = SimpleNamespace(binding=before.binding, owner=before.owner, phase='accepted', sequence=7)
+    if case == 'foreign-stage':
+        current.binding = SimpleNamespace(operation_id=str(uuid4()))
+    if case == 'different-owner':
+        current.owner = {'pid': 42, 'created': 1101}
+    if case == 'switching':
+        current.phase = 'switching'
+
+    receipt = staged_recovery._root(paths, operation) / 'watchdog-cleanup.json'
+    receipt.parent.mkdir(parents=True)
+    if case != 'accepted-without-cleanup':
+        receipt.write_text('fixture', encoding='utf-8')
+    locked = False
+
+    @contextmanager
+    def transaction(actual_paths, *, timeout_ms):
+        assert actual_paths is paths and timeout_ms == 5000
+        nonlocal locked
+        if case == 'installer-busy':
+            raise update_transaction.UpdateInProgress('INSTALLER_RECOVERY_REQUIRED')
+        locked = True
+        try:
+            yield
+        finally:
+            locked = False
+
+    def read_stage(actual_paths):
+        assert actual_paths is paths and locked
+        return current
+
+    def read_receipt(actual_path):
+        assert actual_path == receipt and locked
+        if case == 'bad-acl':
+            raise ValueError('UPDATE_STATE_INVALID')
+        return {
+            'schema_version': 'endpoint_windows_staged_watchdog_cleanup_v1',
+            'operation_id': str(uuid4()) if case == 'foreign-receipt' else operation,
+            'package_sha256': package,
+            'sequence': 8 if case == 'different-sequence' else 7,
+        }
+
+    def pending_continuation(actual_paths):
+        assert actual_paths is paths and locked
+        return {'transaction_id': operation} if case == 'pending-native' else None
+
+    monkeypatch.setattr(update_transaction, 'update_transaction', transaction)
+    monkeypatch.setattr(native_setup_continuation, 'pending_continuation', pending_continuation)
+    monkeypatch.setattr(staged_recovery.state, 'read_staged_update', read_stage)
+    monkeypatch.setattr(staged_recovery, '_read', read_receipt)
+    assert staged_recovery.watchdog_cleanup_complete(paths, before) is (case == 'cleaned')
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='real Windows mutex and PowerShell receipt ACL')
+def test_powershell_watchdog_receipt_round_trips_under_the_windows_update_gate(staged, tmp_path, monkeypatch):
+    from pc_agent.platform.windows import staged_recovery, update_transaction
+
+    _, paths, binding, _ = staged
+    begin(staged)
+    admitted = state.read_staged_update(paths)
+    move(staged, 'preparing', 'prepared')
+    move(staged, 'prepared', 'switching')
+    move(staged, 'switching', 'native-settled')
+    move(staged, 'native-settled', 'trial', attempt_id=str(uuid4()))
+    current = move(staged, 'trial', 'accepted')
+    staged_recovery._root(paths, binding.operation_id, create=True)
+    monkeypatch.setattr(update_transaction, '_MUTEX_NAME', 'Local\\EndpointWatchdogTest-' + uuid4().hex)
+    assert not staged_recovery.watchdog_cleanup_complete(paths, admitted)
+
+    source = Path(__file__).resolve().parents[3] / 'packaging/windows/Install-EndpointAgentCanary.ps1'
+    script = tmp_path / 'watchdog-receipt.ps1'
+    script.write_text(r'''param($Source,$StateRoot,$OperationId,$PackageHash,[int]$Sequence)
+$ErrorActionPreference='Stop'
+$env:PSModulePath=Join-Path $PSHOME 'Modules'
+Import-Module Microsoft.PowerShell.Security
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($Source,[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'wrapper parse failure'}
+$CacheSids=@('S-1-5-18','S-1-5-32-544')
+foreach($name in @('Initialize-InstallerBridgeTypes','Assert-InstallerPublicStateAcl','Get-InstallerReaderSids',
+ 'Assert-ExistingPathChain','Assert-ProtectedAcl','Assert-TrustedOwner','Get-SidValue','Write-StagedWatchdogCleanup')){
+ $function=$ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true)
+ Invoke-Expression $function.Extent.Text
+}
+Write-StagedWatchdogCleanup $StateRoot $OperationId $PackageHash $Sequence
+''', encoding='utf-8')
+    result = subprocess.run(
+        ['powershell.exe', '-NoProfile', '-NonInteractive', '-File', str(script), str(source),
+         str(staged_recovery.fence.state_root(paths)), binding.operation_id,
+         binding.new_release['package_sha256'], str(current.sequence)],
+        capture_output=True, text=True, timeout=25,
+    )
+    assert result.returncode == 0, result.stderr
+    assert staged_recovery.watchdog_cleanup_complete(paths, admitted)
 
 
 @pytest.mark.parametrize('defect', ['live-owner', 'forged-task', 'replaced-cache', 'native-unsettled'])

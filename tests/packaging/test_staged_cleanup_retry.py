@@ -8,9 +8,12 @@ import pytest
 
 @pytest.mark.skipif(os.name != 'nt', reason='actual PowerShell terminal cleanup decisions')
 @pytest.mark.parametrize('case, steps', [
-    ('accepted', 'restore,arm,retire'),
-    ('interrupted', 'restore,arm,restore,arm,retire'),
-    ('acknowledged', 'restore,existing-only,retire'),
+    ('accepted', 'restore,arm,retire,receipt'),
+    ('interrupted', 'restore,arm,restore,arm,retire,receipt'),
+    ('acknowledged', 'restore,existing-only,retire,receipt'),
+    ('already-absent', 'restore,existing-only'),
+    ('receipt-failure', 'restore,arm,retire,receipt'),
+    ('foreign-package', 'restore,arm,retire'),
     ('unknown', 'restore'),
     ('wrong-operation', 'restore'),
     ('wrong-response', 'restore'),
@@ -31,22 +34,23 @@ $id='11111111-1111-4111-8111-111111111111'
 $other='22222222-2222-4222-8222-222222222222'
 $script:steps=@()
 $script:interrupt=$Case -ceq 'interrupted'
-$script:watchdog=$true
+$script:watchdog=$Case -cne 'already-absent'
 function Read-UpdateGateState {
  $binding=if($Case -ceq 'wrong-operation'){$other}else{$id}
  $phase=if($Case -ceq 'unknown'){'switching'}else{'accepted'}
- @{Value=@{binding=@{operation_id=$binding};phase=$phase}}
+ $digest=if($Case -ceq 'foreign-package'){'b'*64}else{'a'*64}
+ @{Value=@{binding=@{operation_id=$binding;new_release=@{package_sha256=$digest}};phase=$phase;sequence=7}}
 }
 function Invoke-InstallerHelper {
  $script:steps+='restore'
  $operation=if($Case -ceq 'wrong-response'){$other}else{$id}
- $status=if($Case -ceq 'acknowledged'){'settled'}else{'pending'}
+ $status=if($Case -cin @('acknowledged','already-absent')){'settled'}else{'pending'}
  @{operation_id=$operation;installation_delivery=$status;services=@{EndpointAgent='running'};users='not-required'}
 }
 function Start-ManagedEndpointAgent {}
 function Register-InstallationEventRetry {
  param($Bridge,[switch]$ExistingOnly)
- if($Bridge.TransactionId -cne $id -or !$script:watchdog){throw 'delivery lost its original recovery owner'}
+ if($Bridge.TransactionId -cne $id -or (!$script:watchdog -and !$ExistingOnly)){throw 'delivery lost its original recovery owner'}
  if($Case -ceq 'conflict'){$script:steps+='conflict';throw 'INSTALLATION_RETRY_TASK_CONFLICT'}
  if($ExistingOnly){$script:steps+='existing-only';return}
  $script:steps+='arm'
@@ -56,7 +60,13 @@ function Unregister-ScheduledTask {
  if($script:interrupt){throw 'interrupted after arming and before retirement'}
  $script:steps+='retire';$script:watchdog=$false
 }
-$bridge=@{TransactionId=$id}
+function Write-StagedWatchdogCleanup($StateRoot,$OperationId,$PackageHash,$Sequence) {
+ if($script:watchdog -or $StateRoot -cne 'state' -or $OperationId -cne $id -or
+    $PackageHash -cne ('a'*64) -or $Sequence -ne 7){throw 'invalid retirement evidence'}
+ $script:steps+='receipt'
+ if($Case -ceq 'receipt-failure'){throw 'receipt storage unavailable'}
+}
+$bridge=@{TransactionId=$id; Capability=@{package=@{package_sha256=('a'*64)}}}
 if($Case -ceq 'interrupted'){
  try{Complete-StagedTerminalCleanup $bridge @{EndpointAgent='Running'} 'state' -RequireServices}
  catch{if($_.Exception.Message -cne 'RECOVERY_REQUIRED'){throw}}

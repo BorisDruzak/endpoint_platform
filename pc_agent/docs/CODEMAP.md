@@ -272,6 +272,11 @@ its original callback-free ABI.
 inputs, their hashes and the exact protected SYSTEM startup task before recovery.
 A hidden cached Setup watchdog retains the original process handle; a fresh
 owner must prove its death and establish a real empty MSI transaction barrier.
+For an accepted update the live owner can record completion after durable
+installation-event delivery handoff and successful retirement of the recovery
+task. After the original owner exits, the watchdog validates the protected
+receipt and exact accepted record under the update mutex before exiting.
+Missing or invalid evidence leaves the normal recovery path in control.
 Original capabilities/data captures remain immutable, with a separate protected
 fresh-owner receipt. Known interrupted forward work uses the existing genuine
 compound/standalone recovery route before compensation. Authenticated native

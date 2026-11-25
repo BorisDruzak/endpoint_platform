@@ -2256,6 +2256,17 @@ function Register-InstallationEventRetry {
     } finally { $pin.Dispose() }
 }
 
+function Write-StagedWatchdogCleanup {
+    param([string]$StateRoot,[string]$OperationId,[string]$PackageHash,[int]$Sequence)
+    $root = Join-Path (Join-Path $StateRoot 'staged-recovery') $OperationId
+    Assert-InstallerPublicStateAcl $root
+    $receipt = @{schema_version='endpoint_windows_staged_watchdog_cleanup_v1';
+        operation_id=$OperationId;package_sha256=$PackageHash;sequence=$Sequence}
+    [EndpointInstallerBridge.PackageHelper]::WriteCapability(
+        (Join-Path $root 'watchdog-cleanup.json'),
+        [Text.Encoding]::UTF8.GetBytes(($receipt | ConvertTo-Json -Compress)))
+}
+
 function Remove-StagedRecoveryTask {
     param($Bridge,[string]$StateRoot,$Restored)
     $OperationId = $Bridge.TransactionId
@@ -2279,7 +2290,18 @@ function Remove-StagedRecoveryTask {
         return
     }
     $name='EndpointStagedRecovery-'+$OperationId
-    if(Get-ScheduledTask -TaskName $name -TaskPath '\' -ErrorAction SilentlyContinue){Unregister-ScheduledTask -TaskName $name -TaskPath '\' -Confirm:$false}
+    if(Get-ScheduledTask -TaskName $name -TaskPath '\' -ErrorAction SilentlyContinue){
+        Unregister-ScheduledTask -TaskName $name -TaskPath '\' -Confirm:$false -ErrorAction Stop
+        if ($accepted) {
+            try {
+                $packageHash = $record.Value.binding.new_release.package_sha256
+                if ($packageHash -cnotmatch '^[0-9a-f]{64}$' -or
+                    $packageHash -cne $Bridge.Capability.package.package_sha256 -or
+                    $record.Value.sequence -isnot [int]) { throw 'RECOVERY_REQUIRED' }
+                Write-StagedWatchdogCleanup $StateRoot $OperationId $packageHash $record.Value.sequence
+            } catch { Write-Warning 'STAGED_WATCHDOG_CLEANUP_RECEIPT_UNAVAILABLE' }
+        }
+    }
 }
 
 function Assert-NoReservedNativeReplay {

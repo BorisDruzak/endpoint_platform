@@ -92,6 +92,36 @@ def read_recoverable_stage(paths, operation_id):
         return record, damaged.raw
 
 
+def watchdog_cleanup_complete(paths, admitted):
+    """Read the retiring owner's receipt without adopting any recovery work."""
+    from .native_setup_continuation import pending_continuation
+    from .update_transaction import update_transaction
+
+    operation = admitted.binding.operation_id
+    leaf = _root(paths, operation) / 'watchdog-cleanup.json'
+    try:
+        leaf.lstat()
+        # Stock artifacts have no receipt and never take this branch. The
+        # transaction gate also rejects active native and compound fences.
+        # Allow a concurrent post-install notification to release the mutex.
+        with update_transaction(paths, timeout_ms=5000):
+            current = state.read_staged_update(paths)
+            if (current is None or current.binding != admitted.binding or current.owner != admitted.owner
+                    or current.phase != 'accepted' or pending_continuation(paths) is not None):
+                return False
+            receipt = _read(leaf)
+            return receipt == {
+                'schema_version': 'endpoint_windows_staged_watchdog_cleanup_v1',
+                'operation_id': operation,
+                'package_sha256': current.binding.new_release['package_sha256'],
+                'sequence': current.sequence,
+            } and type(receipt['sequence']) is int
+    except Exception:
+        # A missing, inaccessible or invalid optional receipt leaves the
+        # original authenticated recovery path responsible for the attempt.
+        return False
+
+
 def _require_system_recovery():
     import win32api
     import win32security
