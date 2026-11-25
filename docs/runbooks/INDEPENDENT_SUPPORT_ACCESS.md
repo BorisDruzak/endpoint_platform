@@ -115,6 +115,12 @@ Endpoint Setup. Keep the system `sshd` and its default inbound TCP 22 rule
 under the existing workstation policy. Endpoint Support uses its own loopback
 listener and outbound tunnel. [Microsoft offline installation procedure](https://learn.microsoft.com/en-us/troubleshoot/windows-server/system-management-components/cant-install-openssh-features).
 
+When servicing Windows 11 24H2 offline after adding a Feature on Demand, keep
+the target cumulative MSU and its required checkpoint MSUs in one dedicated
+directory. Apply the target with DISM and verify Windows servicing has settled
+before starting Endpoint Setup. Microsoft documents this dependency even when
+Windows already lists the checkpoint as installed. [Microsoft checkpoint procedure](https://support.microsoft.com/en-us/servicing/os/windows/2024/09/operation-is-not-supported-error-installing-a-post-checkpoint-update-by-double-clicking-the-msu-pack).
+
 An `applied` Core update alone does not establish Support Access readiness.
 Record the Support install result, service state and a fresh provider report
 separately. A real administrator command over the independent channel is

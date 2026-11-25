@@ -19,8 +19,11 @@ interactive telemetry. The separate Support Access recovery used verified
 offline OpenSSH Server media. The first signed 3.2.205 Setup on Evaluation
 build 26100.9457 exited 21 before native acceptance and its protected MSI
 fence and exact cache remain in a stopped snapshot. The DEVELOP wrapper
-validates recovery media before native preparation. Network results for
-Evaluation 26100.9457 and the separate Enterprise LTSC profile remain open.
+validates recovery media before native preparation. A separate Evaluation
+26100.9457 VM completed offline servicing with OpenSSH provisioned. DISM
+required both checkpoint and target MSUs, and the guest confirmed the new
+build and settled CBS after restart. Network results for this profile and
+the separate Enterprise LTSC profile remain open.
 Signed ALT 3.2.274 passed native factory
 registration with ACK1, fresh WSS, accepted baseline and two real samples
 from a logged-in graphical session. The provider request remained
