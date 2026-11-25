@@ -15,8 +15,8 @@ if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from tools.release import (
-    agent_alt_download, agent_alt_native, agent_alt_publication, agent_promotion, agent_qualification, agent_reservations,
-    compatibility_matrix,
+    agent_alt_download, agent_alt_native, agent_alt_publication, agent_alt_qualification,
+    agent_promotion, agent_qualification, agent_reservations, compatibility_matrix,
 )
 
 
@@ -201,6 +201,14 @@ def main() -> None:
     alt_campaign.add_argument("--campaign-id", type=UUID, required=True)
     alt_campaign.add_argument("--scope-sha256", help="Reviewed scope digest returned by preview")
     alt_campaign.add_argument("--execute", action="store_true", help="Add the source to the selected existing campaign")
+    alt_revocation = commands.add_parser("record-alt-revocation", help="preview or record an exact ALT revocation")
+    alt_revocation.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
+    alt_revocation.add_argument("--request-id", required=True, type=UUID)
+    alt_revocation.add_argument("--sha256", required=True, help="Exact ALT kit archive SHA-256")
+    alt_revocation.add_argument("--reason", required=True, help="Bounded public reason for revoking first enrollment")
+    alt_revocation.add_argument("--execute", action="store_true", help="Record revocation in the shared release ledger")
+    alt_withdrawal = commands.add_parser("withdraw-alt-download", help="archive the exact revoked ALT download")
+    agent_alt_publication.add_withdrawal_arguments(alt_withdrawal)
     alt_enrollment = commands.add_parser("qualify-alt-enrollment", help="inspect exact first-install Lab evidence")
     agent_alt_native.add_kit_arguments(alt_enrollment)
     alt_enrollment.add_argument("--enrollment-request-id", type=UUID, required=True)
@@ -247,6 +255,10 @@ def main() -> None:
             from tools.release.agent_alt_campaign import campaign_release
 
             result = campaign_release(args)
+        elif args.command == "record-alt-revocation":
+            result = agent_alt_qualification.record_revocation(args)
+        elif args.command == "withdraw-alt-download":
+            result = agent_alt_publication.withdraw(args)
         elif args.command == "qualify-alt-enrollment":
             from tools.release.agent_alt_enrollment import qualify
 

@@ -30,6 +30,16 @@ def add_arguments(parser: ArgumentParser) -> None:
     parser.add_argument("--execute", action="store_true", help="Activate the qualified version directory")
 
 
+def add_withdrawal_arguments(parser: ArgumentParser) -> None:
+    download.add_https_arguments(parser)
+    parser.add_argument("--sha256", required=True, help="Exact revoked ALT kit archive SHA-256")
+    parser.add_argument("--distribution-root", type=Path, default=Path("/srv/endpoint-platform-distribution/alt"))
+    parser.add_argument("--archive-root", required=True, type=Path, help="Existing owner-only private archive")
+    parser.add_argument("--guide", required=True, type=Path, help="Retained reviewed public guide for this release")
+    parser.add_argument("--guide-sha256", required=True, help="Previously approved SHA-256 of the guide")
+    parser.add_argument("--execute", action="store_true", help="Move the revoked version outside the public alias")
+
+
 def _read_guide(path, expected):
     if not SHA256.fullmatch(expected) or not path.is_file() or path.is_symlink():
         raise ValueError("ALT publication requires a regular guide and its approved guide digest")
@@ -143,3 +153,53 @@ def publish(args: Namespace) -> dict:
     created = _activate(incoming, destination, paths, proofs, validate, check_worker, verify)
     return {**result, "state": "published", "new_directory": created,
             "url_prefix": f"https://{origin.netloc}/downloads/alt/{folder}/"}
+
+
+def _withdraw(published, retained, proofs, verify, *, execute=True):
+    from fcntl import LOCK_EX, flock
+
+    fd = os.open(published.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        flock(fd, LOCK_EX)
+        public_exists = os.path.lexists(published)
+        retained_exists = os.path.lexists(retained)
+        if public_exists and retained_exists:
+            raise ValueError("ALT withdrawal conflicts with an existing private copy and a public directory")
+        if public_exists or retained_exists:
+            download._check_payload(published if public_exists else retained, proofs, **_MODES)
+        if not execute:
+            return "public" if public_exists else "archived" if retained_exists else "absent"
+        if public_exists:
+            published.rename(retained)
+        if public_exists or retained_exists:
+            download._sync_directory(retained.parent)
+        os.fsync(fd)
+        # A failed network probe leaves the revoked bytes private. Retry verifies the same archive.
+        verify()
+        return public_exists
+    finally:
+        os.close(fd)
+
+
+def withdraw(args: Namespace) -> dict:
+    if sys.platform != "linux" or os.geteuid() != 0:
+        raise ValueError("ALT withdrawal requires the protected Linux distribution host")
+    candidate, revoked = agent_alt_qualification.require_revocation(args)
+    origin = download._https_origin(args.origin)
+    archive = Path(os.path.abspath(args.archive_root))
+    distribution = Path(os.path.abspath(args.distribution_root))
+    download._check_root(archive)
+    _check_distribution(distribution, archive)
+    folder, proofs, _ = download._download_proofs(candidate)
+    _, proofs[_GUIDE_NAME] = _read_guide(args.guide, args.guide_sha256)
+    published, retained = distribution / folder, archive / folder
+
+    def verify():
+        download.verify_https_withdrawal(origin, args.ca_file, folder, proofs)
+
+    result = {**revoked, "directory": str(published), "archive_directory": str(retained), "files": proofs}
+    outcome = _withdraw(published, retained, proofs, verify, execute=args.execute)
+    if not args.execute:
+        return {**result, "state": "preview", "local_visibility": outcome}
+    return {**result, "state": "withdrawn", "archived_now": outcome, "archive_exists": retained.exists(),
+            "https_status": 404}

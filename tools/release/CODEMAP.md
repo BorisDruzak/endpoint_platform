@@ -435,6 +435,39 @@ for the same source and rejects campaigns for non-RPM sources. It appends
 only the approved source and retains the campaign's expiry, mode, quota and
 usage. A repeated grant returns the same state and leaves one audit event.
 
+### Withdraw an ALT first-enrollment download
+
+Use the reservation request and signed kit archive SHA-256 to preview the
+revocation. The command returns its exact scope and reason. Add `--execute`
+to record the authorized revocation in the shared release ledger.
+
+```bash
+python tools/release/agent_release.py record-alt-revocation --request-id "$request" \
+  --sha256 "$kit_sha256" --reason "$approved_reason"
+```
+
+The record blocks new first-enrollment qualifications, download activations
+and enrollment grants through the release CLI for that exact kit. The
+ledger preserves the candidate and all prior qualifications. Inspect the
+record with `status --request-id "$request"`.
+
+On the distribution host, preview the local state using `withdraw-alt-download`.
+Use an existing operator-owned mode-0700 archive on the same filesystem,
+outside the public alias. Supply the approved guide and digest from the
+original publication evidence.
+
+```bash
+python tools/release/agent_release.py withdraw-alt-download --request-id "$request" \
+  --sha256 "$kit_sha256" --origin "$endpoint_origin" --ca-file "$trusted_ca" \
+  --archive-root "$private_archive" --guide "$guide" --guide-sha256 "$approved_guide_sha256"
+```
+
+With `--execute` the command verifies the exact eight files, archives the
+public directory with one rename and requires HTTPS 404 for HEAD and GET
+on each URL. Failed HTTPS verification leaves the files private and is
+safe to retry. Keep the withdrawal receipt and track existing campaign
+grants and installed devices with their owning provider records.
+
 ## Plan native qualification
 
 Capture a fresh provider snapshot using `agent_catalog_snapshot.sql`. Keep this

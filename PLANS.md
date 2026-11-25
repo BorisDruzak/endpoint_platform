@@ -64,8 +64,12 @@ upgrade paths that must run for each qualified artifact.
   `include-alt-enrollment-release` previews the exact native source and binds
   execution to the reviewed authority of one existing ALT campaign. The
   isolated PostgreSQL trial preserved the campaign scope, quota and usage,
-  rejected overlaps and produced one audit event across retries. Revocation
-  remains open.
+  rejected overlaps and produced one audit event across retries.
+  `record-alt-revocation` blocks first-enrollment qualification, publication
+  and fresh grants through the release CLI for the exact revoked kit.
+  `withdraw-alt-download` moved the same signed files into a private archive
+  and verified 404 on real Nginx. Removal of existing campaign authority
+  remains open. Preserve the RPM source and installed-device identity.
 - EP-RE-03 has a read-only [compatibility planner](tools/release/CODEMAP.md#plan-native-qualification)
   and provider snapshot for exact native events, active operations, enrollment
   and catalog exposure. The planner binds Console preview to the exact release

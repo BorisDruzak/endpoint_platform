@@ -1,4 +1,4 @@
-"""Keep exact first-enrollment acceptance in the protected release ledger."""
+"""Keep exact first-enrollment acceptance and revocation in the release ledger."""
 
 from argparse import Namespace
 from datetime import datetime, timedelta, timezone
@@ -9,6 +9,7 @@ from tools.release.agent_candidate_artifacts import get_recorded_candidate
 
 
 _FIELD = "alt_enrollment_qualifications"
+_REVOCATION = "alt_first_enrollment_revocation"
 _EVIDENCE_IDS = ("device_id", "enrollment_request_id", "native_release_id",
                  "native_event_id", "session_id", "baseline_snapshot_id")
 _FIELDS = ("schema_version", "platform", "scope", "state", "request_id", "version", "build_revision",
@@ -44,6 +45,73 @@ def _validated(record, candidate):
     return checked, expires
 
 
+def _revocation_binding(candidate):
+    return {
+        "schema_version": 1, "platform": "alt", "scope": "first_enrollment",
+        "request_id": candidate["request_id"], "version": candidate["version"],
+        "build_revision": candidate["build_revision"], "kit_sha256": candidate["artifacts"]["archive"]["sha256"],
+    }
+
+
+def _revocation(reserved, candidate):
+    if _REVOCATION not in reserved:
+        return None
+    record = reserved[_REVOCATION]
+    if (record["state"] != "revoked"
+            or any(record[key] != value for key, value in _revocation_binding(candidate).items())):
+        raise ValueError("ALT revocation belongs to a different candidate or scope")
+    _timestamp(record["revoked_at"])
+    return record
+
+
+def _revocable_candidate(reserved, digest):
+    candidate = reserved.get("candidates", {}).get("alt")
+    if candidate is None:
+        raise ValueError("Record the ALT candidate before revoking first enrollment")
+    if candidate["artifacts"]["archive"]["sha256"] != digest:
+        raise ValueError("Requested kit digest differs from the recorded ALT candidate")
+    return candidate
+
+
+def record_revocation(args: Namespace) -> dict:
+    from endpoint_contracts.update_safety import validate_public_update_prose
+
+    digest = args.sha256.lower()
+    if not ledger.ARTIFACT_SHA.fullmatch(digest):
+        raise ValueError("ALT revocation requires the exact kit SHA-256")
+    reason = validate_public_update_prose(args.reason, field_name="reason", max_length=256, required=True)
+    root = args.repo_root
+    for _ in range(8):
+        head = ledger._remote_head(root)
+        entries = ledger._ledger(root, head)
+        reserved = ledger._find_request(entries, str(args.request_id))
+        candidate = _revocable_candidate(reserved, digest)
+        if existing := _revocation(reserved, candidate):
+            if existing["reason"] != reason:
+                raise ValueError("ALT first enrollment was already revoked with a different reason")
+            return existing
+        record = {**_revocation_binding(candidate), "reason": reason}
+        if not args.execute:
+            return {**record, "state": "preview"}
+        record.update(state="revoked", revoked_at=datetime.now(timezone.utc).isoformat())
+        updated = {**reserved, _REVOCATION: record}
+        if ledger._append(root, head, [updated if entry is reserved else entry for entry in entries],
+                          "revoke ALT first-enrollment kit"):
+            return record
+        if ledger._remote_head(root) == head:
+            raise ValueError("Git rejected the ALT revocation; retry with the same request and digest")
+    raise ValueError("Reservation ledger is busy; retry with the same request and digest")
+
+
+def require_revocation(args: Namespace) -> tuple[dict, dict]:
+    reserved = ledger.reservation_status(args)
+    candidate = _revocable_candidate(reserved, args.sha256.lower())
+    record = _revocation(reserved, candidate)
+    if record is None:
+        raise ValueError("Record ALT first-enrollment revocation before withdrawing the exact kit")
+    return candidate, record
+
+
 def record(args: Namespace, receipt: dict, *, now=None) -> dict:
     """Append only evidence returned by the live verifier on the publisher."""
     root = args.repo_root
@@ -55,6 +123,8 @@ def record(args: Namespace, receipt: dict, *, now=None) -> dict:
         entries = ledger._ledger(root, head)
         reserved = ledger._find_request(entries, str(args.request_id))
         candidate = get_recorded_candidate(reserved, "alt")
+        if _revocation(reserved, candidate):
+            raise ValueError("ALT first enrollment for this exact kit is revoked")
         checked, expires = _validated(result, candidate)
         current = now or datetime.now(timezone.utc)
         if not current - timedelta(seconds=90) <= checked <= current < expires:
@@ -77,6 +147,8 @@ def record(args: Namespace, receipt: dict, *, now=None) -> dict:
 def require(args: Namespace, *, now=None) -> tuple[dict, dict]:
     reserved = ledger.reservation_status(args)
     candidate = get_recorded_candidate(reserved, "alt")
+    if _revocation(reserved, candidate):
+        raise ValueError("ALT first enrollment for this exact kit is revoked")
     qualification_id = str(args.qualification_id)
     qualification = reserved.get(_FIELD, {}).get(qualification_id)
     if qualification is None or qualification["qualification_id"] != qualification_id:

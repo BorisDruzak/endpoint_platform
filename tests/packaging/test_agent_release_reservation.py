@@ -684,10 +684,45 @@ def test_alt_qualification_stays_bound_to_the_candidate_and_expires(release_inpu
     with pytest.raises(ValueError, match="expired"):
         qualification.require(args, now=now+timedelta(hours=2))
     assert ledger._remote_head(repo) == recorded_head
+
+    second = Namespace(**{**vars(args), "qualification_id": uuid4()})
+    second_receipt = qualification.record(second, receipt, now=now)
+    after_qualification = ledger._remote_head(repo)
+
+    def revoke(digest, *options):
+        return subprocess.run(
+            [sys.executable, str(CLI), "record-alt-revocation", "--repo-root", str(repo),
+             "--request-id", str(request), "--sha256", digest, "--reason", "First enrollment withdrawn",
+             *options], capture_output=True, text=True, encoding="utf-8", timeout=90,
+        )
+
+    assert value(revoke("d" * 64))["state"] == "preview"
+    assert ledger._remote_head(repo) == after_qualification
+    wrong = revoke("e" * 64, "--execute")
+    assert wrong.returncode == 1 and "digest differs" in wrong.stderr
+    assert ledger._remote_head(repo) == after_qualification
+    revoked = value(revoke("d" * 64, "--execute"))
+    assert revoked["state"] == "revoked" and revoked["kit_sha256"] == "d" * 64
+    assert revoked["scope"] == "first_enrollment"
+    after_revoke = ledger._remote_head(repo)
+    assert value(revoke("d" * 64, "--execute")) == revoked
+    assert ledger._remote_head(repo) == after_revoke
+    retained = ledger.reservation_status(args)
+    assert retained["alt_enrollment_qualifications"] == {
+        stored["qualification_id"]: stored, second_receipt["qualification_id"]: second_receipt,
+    }
+    assert retained["candidates"]["alt"] == candidate
+    for selected in (args, second):
+        with pytest.raises(ValueError, match="revoked"):
+            qualification.require(selected, now=now)
+    with pytest.raises(ValueError, match="revoked"):
+        qualification.record(Namespace(**{**vars(args), "qualification_id": uuid4()}), receipt, now=now)
+
     ledger.reject_candidate(Namespace(repo_root=repo, request_id=request, platform="alt",
                                       sha256="d"*64, reason="Reviewed test rejection"))
     with pytest.raises(ValueError, match="rejected"):
         qualification.require(args, now=now)
+    assert value(revoke("d" * 64, "--execute")) == revoked
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="ALT static publication uses POSIX directory permissions")
@@ -743,3 +778,40 @@ def test_alt_publication_refuses_unreviewed_guide_bytes(tmp_path):
     guide.write_bytes(b"other guide")
     with pytest.raises(ValueError, match="guide digest"):
         publication._read_guide(guide, digest)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="ALT download withdrawal uses POSIX directory permissions")
+def test_alt_withdrawal_keeps_exact_archive_private_when_https_is_unverified(tmp_path):
+    from tools.release import agent_alt_publication as publication
+
+    archive = tmp_path / "archive"
+    archive.mkdir(mode=0o700)
+    distribution = tmp_path / "alt"
+    distribution.mkdir(mode=0o755)
+    published = distribution / "endpoint-alt-pilot-3.2.274-1"
+    retained = archive / published.name
+    sibling = distribution / "endpoint-alt-pilot-3.2.183-1"
+    sibling.mkdir()
+    body = b"verified archive"
+    payload = {"kit.tar.gz": body}
+    proofs = {"kit.tar.gz": {"filename": "kit.tar.gz", "size": len(body),
+                              "sha256": hashlib.sha256(body).hexdigest()}}
+    published.mkdir(mode=0o755)
+    published.chmod(0o755)
+    publication.download._write_payload(published, payload, proofs, **publication._MODES)
+    inode = published.stat().st_ino
+
+    def cannot_verify():
+        assert not published.exists() and retained.stat().st_ino == inode
+        raise ValueError("HTTPS unavailable")
+
+    (published / "kit.tar.gz").write_bytes(b"VERIFIED ARCHIVE")
+    with pytest.raises(ValueError, match="retained digest"):
+        publication._withdraw(published, retained, proofs, cannot_verify)
+    assert published.stat().st_ino == inode and not retained.exists()
+    (published / "kit.tar.gz").write_bytes(body)
+    with pytest.raises(ValueError, match="HTTPS unavailable"):
+        publication._withdraw(published, retained, proofs, cannot_verify)
+    assert not published.exists() and retained.stat().st_ino == inode and sibling.is_dir()
+    assert not publication._withdraw(published, retained, proofs, lambda: None)
+    assert (retained / "kit.tar.gz").read_bytes() == body and retained.stat().st_ino == inode

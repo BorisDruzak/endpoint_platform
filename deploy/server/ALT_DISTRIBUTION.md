@@ -32,6 +32,11 @@ Use the [explicit ALT campaign workflow](../../tools/release/CODEMAP.md#include-
 for an approved enrollment addition. Select the existing RPM campaign on
 the chosen provider and review its scope before applying the grant.
 
+Use the [ALT withdrawal workflow](../../tools/release/CODEMAP.md#withdraw-an-alt-first-enrollment-download)
+to record revocation and archive the exact version outside the public alias.
+Verify the public URLs through HTTPS after the move and retain the original
+publication and withdrawal receipts.
+
 Only publish public kit archives, detached archive/manifest signatures, manifest,
 checksums, public RPM key and operator guide. All directories must be root-owned
 0755, files root-owned 0644 and regular (no symlinks). Never copy the signer home,

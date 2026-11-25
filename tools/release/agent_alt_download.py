@@ -204,6 +204,22 @@ def _verify_https_files(origin, ca_file, folder, proofs, *, check_access=False) 
     return f"https://{origin.netloc}{prefix}"
 
 
+def verify_https_withdrawal(origin, ca_file, folder, filenames):
+    prefix = f"/downloads/alt/{folder}/"
+    context = ssl.create_default_context(cafile=str(ca_file))
+    try:
+        with closing(HTTPSConnection(origin.hostname, origin.port, context=context, timeout=15)) as connection:
+            for name in filenames:
+                for method in ("HEAD", "GET"):
+                    connection.request(method, prefix + name, headers={"Accept-Encoding": "identity"})
+                    with connection.getresponse() as response:
+                        if response.status != 404:
+                            raise ValueError(f"ALT withdrawal {method} returned {response.status}: {name}")
+                    connection.close()
+    except HTTPException as exc:
+        raise ValueError("Invalid ALT HTTPS withdrawal response") from exc
+
+
 def verify_https(args: Namespace) -> dict:
     origin = _https_origin(args.origin)
     candidate = get_recorded_candidate(agent_alt_native.agent_reservations.reservation_status(args), "alt")
