@@ -114,9 +114,11 @@ upgrade paths that must run for each qualified artifact.
   from the bound reservation. It previews the selected Windows/ALT builder and
   records output hashes after execution. For ALT native, the command verifies
   the paired RPM identity, payload and shared source manifest before writing a
-  build receipt with the sealed Setup hash. Its native Lab matrix rechecks the
-  recorded files and uses the existing compatibility planner for the same
-  artifact digest. ALT native Setup, RPM manifests and kit assembly accept the
+  build receipt with the sealed Setup hash. The kit assembler accepts this
+  receipt to compare signed RPMs against the verified build and uses the same
+  retained files for signature checks and packaging. The native Lab matrix
+  rechecks the recorded files and uses the existing compatibility planner for
+  the same artifact digest. ALT native Setup, RPM manifests and kit assembly accept the
   bound candidate version. ALT 11.4 verified staging of synthetic 3.2.278,
   rejection of a mismatched Setup, and RPM spec builds of Core and UserSensor
   for both 3.2.183 and 3.2.278. The full DEVELOP builder produced Core with

@@ -248,11 +248,15 @@ dependency probes with unchanged RPM inventories. See the
 [ALT build receipt](../../docs/verification/2026-11-25-windows-alt-release-engineering.md#полная-сборка-нативной-пары-alt-в-develop).
 
 After signing the Core and UserSensor RPMs, assemble the kit using
-`python -m tools.build_alt_native_kit --version VERSION --source-revision SHA`
-and its `--core`, `--sensor`, `--setup`, `--public-key`, and `--output` paths.
-The kit assembler verifies both signed RPMs, their common native manifest,
-and the Setup digest carried by Core. Use the existing detached-signature
-procedure and source-specific Lab checks before registration or publication.
+`python -m tools.build_alt_native_kit --version VERSION --source-revision SHA
+--build-receipt PATH` and its `--core`, `--sensor`, `--setup`, `--public-key`,
+and `--output` paths. Use the `qualification-build.json` from the same
+`qualify-build` execution. The assembler verifies both signed RPMs, compares
+their source and shared native manifest with the build receipt, and matches the
+Setup hash to both the signed Core and the receipt. It archives the retained
+copies it checked. Historical kit assembly can still run with its original
+arguments. Use the existing detached-signature procedure and source-specific
+Lab checks before registration or publication.
 
 ### Record the exact candidate artifacts
 

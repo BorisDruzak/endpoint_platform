@@ -89,3 +89,58 @@ def test_native_kit_builds_explicit_candidate_and_checks_bound_revision(tmp_path
     assert manifest['agent_source_revision'] == 'a'*40
     with tarfile.open(target) as archive:
         assert archive.extractfile('endpoint-alt-pilot-3.2.278-1/native-kit-manifest.json').read() == metadata.read_bytes()
+
+
+@pytest.mark.parametrize('changed', [None, 'build_revision', 'frozen_manifest_sha256', 'setup_sha256'])
+def test_native_kit_checks_the_qualification_build_receipt(tmp_path, monkeypatch, changed):
+    k, paths = kit_inputs(tmp_path, monkeypatch, '3.2.278')
+    receipt_path = tmp_path/'qualification-build.json'
+    receipt = {
+        'schema_version': 1, 'state': 'built', 'platform': 'alt', 'artifact': 'alt_native_rpm',
+        'version': '3.2.278', 'build_revision': 'a'*40,
+        'alt_native': {'frozen_manifest_sha256': 'b'*64, 'setup_sha256': hashlib.sha256(b'setup').hexdigest()},
+    }
+    if changed == 'build_revision':
+        receipt[changed] = 'd'*40
+    elif changed is not None:
+        receipt['alt_native'][changed] = 'd'*64
+    receipt_path.write_text(json.dumps(receipt), encoding='utf-8')
+    output = tmp_path/'output'
+    args = [f'--{flag}={path}' for flag, path in zip(('core', 'sensor', 'setup', 'public-key', 'output'), (*paths, output))]
+    args += ['--version=3.2.278', '--source-revision=' + 'a'*40, '--build-receipt=' + str(receipt_path)]
+    if changed is None:
+        k.main(args)
+        manifest = output/'endpoint-alt-pilot-3.2.278-1.manifest.json'
+        assert json.loads(manifest.read_bytes())['frozen_manifest_sha256'] == 'b'*64
+    else:
+        with pytest.raises(ValueError, match='QUALIFICATION_BUILD_RECEIPT_MISMATCH'):
+            k.main(args)
+        assert not output.exists()
+
+
+def test_native_kit_reads_verified_retained_rpms_during_assembly(tmp_path, monkeypatch):
+    k, paths = kit_inputs(tmp_path, monkeypatch, '3.2.278')
+    original_core = paths[0]
+
+    @contextmanager
+    def snapshot(path):
+        retained = tmp_path/'retained'/path.name
+        retained.parent.mkdir(exist_ok=True)
+        raw = path.read_bytes()
+        retained.write_bytes(raw)
+        yield retained, hashlib.sha256(raw).hexdigest()
+
+    original_verifier = k.NativeRPMVerifier(paths[3])
+
+    def verify(path):
+        verified = original_verifier(path)
+        original_core.write_bytes(b'replaced after signature check')
+        return verified
+
+    monkeypatch.setattr(k, 'snapshot', snapshot)
+    monkeypatch.setattr(k, 'NativeRPMVerifier', lambda _: verify)
+    target, metadata = k.build(*paths, tmp_path/'output', version='3.2.278', source_revision='a'*40)
+    contents = json.loads(metadata.read_bytes())['files']['core.rpm']
+    assert contents['sha256'] == hashlib.sha256(b'core.rpm').hexdigest()
+    with tarfile.open(target) as archive:
+        assert archive.extractfile('endpoint-alt-pilot-3.2.278-1/core.rpm').read() == b'core.rpm'
