@@ -70,3 +70,9 @@ versions such as `3.2.60000` or `99.0.3280`. Occupancy and the next version in
 the supported release series require separate checks. APT package inventories,
 Git records, signing-host candidates and concurrent reservations are additional
 inputs to version allocation.
+
+The provider snapshot also groups the latest accepted Windows MSI and Linux RPM
+installations by exact native source and package digests. Session presence is
+a separate count. Use this as input to compatibility planning. OS build,
+companion versions, pending local transactions and other profile details
+still require their own evidence.

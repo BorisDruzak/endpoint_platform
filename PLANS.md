@@ -2,6 +2,12 @@
 
 ## Agent release engineering (2026-11-25)
 
+Current scope: Windows and ALT. See the
+[Windows and ALT verification](docs/verification/2026-11-25-windows-alt-release-engineering.md)
+for actual enrolled source versions, signed candidate identity and the ALT
+retained-input write result. Continue exact-source Lab qualification for
+Windows 3.2.205 and factory ALT first registration. APT publication is deferred.
+
 Goal: separate normal development from releases and reduce the install and
 upgrade paths that must run for each qualified artifact.
 
