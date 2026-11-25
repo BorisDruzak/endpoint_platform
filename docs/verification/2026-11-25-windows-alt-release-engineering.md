@@ -110,6 +110,21 @@ launcher и исходного профиля. Подписание и нати�
 тестовый журнал. Штатная проверка подписи остановила операцию.
 [Квитанция отказа](C:/endpoint-platform-wix-build/release-native-publisher-20261125/tampered-error.log)
 
+На той же ALT 11.4 два запуска `register-alt-native --execute` с исходным
+подписанным комплектом вернули результат `registered` и один UUID
+`ea9f6568-4b16-4f63-8abe-bb1363e44a6d`. В изолированной SQLite остались
+одна запись реестра с точными хэшами RPM и одно событие
+`linux_native_release.registered`. Ответ на повторный запуск совпал побайтно.
+[Квитанция реестра](C:/endpoint-platform-wix-build/release-native-publisher-20261125/isolated-native-registry.json)
+
+## Проверка публикации Windows
+
+На ревизии `9cd2953feb3c0515eb1102791dea746e598f3f82` прошли hosted-гейты
+Windows и провайдера с PostgreSQL. В сценарии предпросмотра `promote` провайдер
+сверял назначение, квалификацию, сохранённый EXE и AUTO-кампанию. Тест сверял
+видимость, кампанию и аудит до и после предпросмотра.
+[Прогон CI](https://github.com/BorisDruzak/endpoint_platform/actions/runs/45638781417)
+
 ## Проверка планировщика на production
 
 Расширенный срез PostgreSQL выполнен в транзакции `READ ONLY` на схеме

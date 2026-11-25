@@ -39,8 +39,9 @@ upgrade paths that must run for each qualified artifact.
   qualification, applied assignment, stored artifact and enrollment gate.
   The Console owns canary delivery and fleet policy. `register-alt-native`
   verifies the recorded kit and signed RPMs and uses the existing Linux native
-  registry for explicit registration. Download publication, campaign scope and
-  revocation remain separate operations.
+  registry for explicit registration. The signed ALT 3.2.274 kit passed
+  offline verification and an exact retry against an isolated native registry
+  on ALT 11.4. Download publication, campaign scope and revocation remain open.
 - EP-RE-03 has a read-only [compatibility planner](tools/release/CODEMAP.md#plan-native-qualification)
   and provider snapshot for exact native events, active operations, enrollment
   and catalog exposure. The planner binds Console preview to the exact release
