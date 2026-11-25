@@ -99,7 +99,10 @@ def test_provider_change_reports_contracts_and_migration_without_agent_build(sou
     write(root, 'endpoint_server/gateway/ws_routes.py', 'SCHEMA = 2\n')
     write(root, 'endpoint_server/db/migrations/versions/0057_sample.py', 'revision: str = "0057_sample"\n')
     write(root, 'contracts/openapi/endpoint-platform-v1.yaml', 'openapi: 3.1.0\n')
+    write(root, 'pc_agent/AGENTS.md', 'Agent development guidance.\n')
     result = plan(source, commit(root), 'alt')
+    assert result['state'] == 'planned'
+    assert result['unclassified'] == []
     assert result['artifacts'] == ['provider']
     assert result['provider_migrations'] == ['0057_sample']
     assert result['changed_contracts'] == ['contracts/openapi/endpoint-platform-v1.yaml']

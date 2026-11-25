@@ -39,7 +39,7 @@ PACKAGED_INPUTS = {
 }
 REVIEW_ONLY = ('docs/', 'tests/', 'pc_agent/docs/', 'pc_agent/tests/', 'tools/release/', 'tools/contracts/',
                'tools/register_windows_setup_release.py', '.github/', 'PLANS.md', 'AGENTS.md', 'README.md',
-               'pytest.ini', 'requirements-ci.txt')
+               'pc_agent/AGENTS.md', 'pytest.ini', 'requirements-ci.txt')
 WINDOWS_PACKAGING_DOCS = ('packaging/windows/README.md', 'packaging/windows/support-openssh/QUALIFICATION.md')
 REVISION = re.compile(r'[0-9a-f]{40}')
 VERSION = re.compile(r'(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)')
