@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import ssl
 from collections.abc import Awaitable, Callable
+from contextlib import ExitStack
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 import aiohttp
 
@@ -18,8 +21,15 @@ from pc_agent.update_adapter import EndpointRecommendation, _is_operation_id
 from pc_agent.transport.base import GatewayCredentialRejected, GatewayTerminalError
 
 from .update_paths import WindowsUpdatePaths
+from .update_download_retention import (
+    TRANSFER_PREFIX, CoreDownloadContentChanged, _assert_cache_security, own_core_download,
+    retire_interrupted_core_downloads,
+    retire_update_download, retry_deferred_core_downloads,
+)
 from .update_transaction import update_transaction, UpdateInProgress, _read_state
-from .durable_state import durable_unlink, write_json_atomic
+from .durable_state import (
+    _checked_path, durable_unlink, flush_directory, publish_prepared, write_bytes_atomic,
+)
 from .disk_readiness import download_required_bytes, is_disk_full, require_disk_space
 
 
@@ -31,6 +41,8 @@ _TERMINAL_OUTCOME_CODES = {
     "rolled_back": "launcher_rolled_back",
 }
 _TERMINAL_OUTCOME_FILENAME = "terminal-outcome.json"
+_PREPARED_DOWNLOAD_FILENAME = "prepared-core-download.json"
+_PENDING_LIMIT = 16 * 1024
 _PENDING_FIELDS = {
     "archive_type", "artifact_path", "channel", "operation_id", "received_at",
     "requested_by", "requested_reason", "sha256", "size", "target", "version",
@@ -55,6 +67,8 @@ class WindowsUpdatePathAcl:
     """Apply the fixed updater DACL to agent-created update handoff paths."""
 
     def protect_update_path(self, path: Path) -> None: ...
+
+    def prepare_core_update_directories(self, updates: Path, *, existing_only: bool = False) -> bool: ...
 
 
 class WindowsOnlineUpdateRuntime:
@@ -149,6 +163,23 @@ class WindowsOnlineUpdateRuntime:
                         raise ValueError("Windows update startup attempt is invalid") from None
                 if not _is_eligible_recommendation(pending["version"], current, pending.get("requested_reason")):
                     raise ValueError("Windows pending update version is invalid")
+                # Finish a visible handoff's directory barrier before SCM can
+                # consume it, including after a failed publication flush.
+                flush_directory(self._paths.updates_root)
+            elif not self._has_update_recovery_state():
+                if self._acl.prepare_core_update_directories(self._paths.updates_root, existing_only=True):
+                    retry_deferred_core_downloads(self._paths, protect=self._acl.protect_update_path)
+                    prepared = self._prepared_download_present()
+                    try:
+                        if prepared or self._paths.downloads_root.is_dir():
+                            with own_core_download(self._paths):
+                                if prepared:
+                                    self._retire_prepared_download()
+                                retire_interrupted_core_downloads(self._paths)
+                    except (OSError, ValueError, UpdateInProgress):
+                        if prepared:
+                            # The publication record must be resolved before another transfer.
+                            raise
         if pending is not None:
             if not await self._adapter.record_scheduled_handoff(
                 pending["operation_id"], assigned_version=pending["version"], rollback_version=current,
@@ -176,37 +207,62 @@ class WindowsOnlineUpdateRuntime:
         if not await self._adapter.acknowledge(recommendation.operation_id, "requested"):
             return WindowsOnlineUpdateResult("request_ack_pending")
 
-        with update_transaction(self._paths, timeout_ms=0):
-            require_disk_space(self._paths.downloads_root, download_required_bytes(recommendation.size))
-            self._paths.updates_root.mkdir(parents=True, exist_ok=True)
-            self._acl.protect_update_path(self._paths.updates_root)
-            self._paths.downloads_root.mkdir(parents=True, exist_ok=True)
-            self._acl.protect_update_path(self._paths.downloads_root)
-        artifact = self._paths.downloads_root / (
-            f"build-{recommendation.version}-{recommendation.operation_id}.zip"
+        with ExitStack() as ownership:
+            with update_transaction(self._paths, timeout_ms=0):
+                if self._has_update_recovery_state():
+                    return WindowsOnlineUpdateResult("update_in_progress")
+                self._acl.prepare_core_update_directories(self._paths.updates_root)
+                ownership.enter_context(own_core_download(self._paths))
+                self._retire_prepared_download()
+                retire_interrupted_core_downloads(self._paths)
+                require_disk_space(self._paths.downloads_root, download_required_bytes(recommendation.size))
+            nonce = uuid4().hex
+            artifact = self._paths.downloads_root / (
+                f"build-{recommendation.version}-{recommendation.operation_id}-{nonce}.zip"
+            )
+            staging = artifact.with_name(f"{TRANSFER_PREFIX}{nonce}.staging")
+            try:
+                return await self._stage_download(recommendation, current, staging, artifact)
+            finally:
+                self._discard_unpublished_download(staging)
+
+    def _has_update_recovery_state(self) -> bool:
+        blockers = (
+            self._paths.pending_path, self._paths.transition_path,
+            self._paths.updates_root / _TERMINAL_OUTCOME_FILENAME,
+            self._paths.updates_root / "startup-attempt.json", self._paths.restore_path,
         )
+        for path in blockers:
+            try:
+                path.lstat()
+            except FileNotFoundError:
+                continue
+            return True
+        return False
+
+    async def _stage_download(
+        self, recommendation: EndpointRecommendation, current: str, staging: Path, artifact: Path,
+    ) -> WindowsOnlineUpdateResult:
         try:
-            actual_hash, actual_size = await self._download(recommendation, artifact)
+            actual_hash, actual_size = await self._download(recommendation, staging)
         except (aiohttp.ClientConnectorCertificateError, aiohttp.ClientConnectorSSLError, ssl.SSLError) as error:
-            artifact.unlink(missing_ok=True)
             raise GatewayTerminalError("Endpoint update artifact TLS trust failed") from error
         except (GatewayCredentialRejected, GatewayTerminalError):
-            artifact.unlink(missing_ok=True)
             raise
         except OSError as error:
-            artifact.unlink(missing_ok=True)
             if is_disk_full(error):
                 return WindowsOnlineUpdateResult("disk_insufficient")
             return WindowsOnlineUpdateResult("download_rejected")
         except Exception:
-            artifact.unlink(missing_ok=True)
             return WindowsOnlineUpdateResult("download_rejected")
         if actual_hash != recommendation.sha256 or actual_size != recommendation.size:
-            artifact.unlink(missing_ok=True)
             return WindowsOnlineUpdateResult("download_rejected")
-        self._acl.protect_update_path(artifact)
+        _checked_path(staging, self._paths.updates_root)
+        if staging.lstat().st_nlink != 1:
+            return WindowsOnlineUpdateResult("download_rejected")
+        self._acl.protect_update_path(staging)
         # Injected downloaders obey the same durability gate as the HTTP owner.
-        with artifact.open("r+b") as downloaded:
+        with staging.open("r+b") as downloaded:
             os.fsync(downloaded.fileno())
         # Persist operation metadata and acknowledge scheduled before publishing
         # the SCM request; a process crash must never strand terminal reporting.
@@ -217,35 +273,125 @@ class WindowsOnlineUpdateRuntime:
         ):
             return WindowsOnlineUpdateResult("request_ack_pending")
         with update_transaction(self._paths, timeout_ms=0):
-            if (self._paths.pending_path.exists() or self._paths.transition_path.exists()
-                or (self._paths.updates_root / _TERMINAL_OUTCOME_FILENAME).exists()):
+            if self._has_update_recovery_state():
                 return WindowsOnlineUpdateResult("update_in_progress")
             changed = _load_current_version(self._paths.current_path) != current
             if not changed:
-                write_json_atomic(
-                    self._paths.pending_path,
-                    {
-                        "archive_type": "zip",
-                        "artifact_path": str(artifact),
-                        "channel": recommendation.channel,
-                        "operation_id": recommendation.operation_id,
-                        "received_at": self._now().astimezone(UTC).isoformat(),
-                        "requested_by": "gateway",
-                        "requested_reason": recommendation.reason or "scheduled_rollout",
-                        "sha256": actual_hash,
-                        "size": actual_size,
-                        "target": "windows_amd64",
-                        "version": recommendation.version,
-                    },
-                    trusted_root=self._paths.updates_root,
-                    max_bytes=16 * 1024,
-                    protect=self._acl.protect_update_path,
-                )
+                self._publish_download(recommendation, staging, artifact)
         if changed:
             await self._adapter.report_terminal(recommendation.operation_id, status="failed",
                 reported_version=_load_current_version(self._paths.current_path), safe_code="launcher_apply_failed")
             return WindowsOnlineUpdateResult("update_in_progress")
         return WindowsOnlineUpdateResult("scheduled")
+
+    def _publish_download(self, recommendation: EndpointRecommendation, staging: Path, artifact: Path) -> None:
+        root = self._paths.updates_root
+        _checked_path(staging, root)
+        _checked_path(artifact, root)
+        prepared = root / _PREPARED_DOWNLOAD_FILENAME
+        if self._prepared_download_present() or artifact.exists():
+            raise ValueError("Core download publication slot is already occupied")
+        metadata = {
+            "archive_type": "zip",
+            "artifact_path": str(artifact),
+            "channel": recommendation.channel,
+            "operation_id": recommendation.operation_id,
+            "received_at": self._now().astimezone(UTC).isoformat(),
+            "requested_by": "gateway",
+            "requested_reason": recommendation.reason or "scheduled_rollout",
+            "sha256": recommendation.sha256,
+            "size": recommendation.size,
+            "target": "windows_amd64",
+            "version": recommendation.version,
+        }
+        payload = json.dumps(metadata, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        try:
+            write_bytes_atomic(
+                prepared, payload, trusted_root=root, max_bytes=_PENDING_LIMIT,
+                protect=self._acl.protect_update_path,
+            )
+            os.replace(staging, artifact)
+            flush_directory(artifact.parent)
+            publish_prepared(
+                prepared, self._paths.pending_path, expected_bytes=payload, trusted_root=root,
+                max_bytes=_PENDING_LIMIT,
+            )
+        except Exception:
+            try:
+                if not self._has_update_recovery_state():
+                    self._retire_prepared_download()
+            except (OSError, ValueError):
+                pass
+            raise
+
+    def _prepared_download_present(self) -> bool:
+        path = self._paths.updates_root / _PREPARED_DOWNLOAD_FILENAME
+        try:
+            path.lstat()
+        except FileNotFoundError:
+            return False
+        return True
+
+    def _retire_prepared_download(self) -> None:
+        """Reclaim one crash-abandoned publication under both ownership boundaries."""
+        root = self._paths.updates_root
+        prepared = root / _PREPARED_DOWNLOAD_FILENAME
+        if not self._prepared_download_present():
+            return
+        _assert_cache_security(root)
+        raw = _read_state(prepared, _PENDING_LIMIT, return_bytes=True)
+        if raw is None:
+            raise ValueError("Prepared Core download metadata is missing")
+        metadata = json.loads(raw)
+        if not isinstance(metadata, dict) or metadata.keys() != _PENDING_FIELDS:
+            raise ValueError("Prepared Core download metadata is invalid")
+        version, operation, raw_path = (
+            metadata["version"], metadata["operation_id"], metadata["artifact_path"],
+        )
+        if not all(isinstance(value, str) for value in (version, operation, raw_path)):
+            raise ValueError("Prepared Core download identity is invalid")
+        artifact = Path(raw_path)
+        stem = re.escape(f"build-{version}-{operation}")
+        if artifact.parent != self._paths.downloads_root or not re.fullmatch(
+            rf"{stem}-[0-9a-f]{{32}}\.zip", artifact.name,
+        ):
+            raise ValueError("Prepared Core download path is invalid")
+        _checked_path(artifact, root)
+        flush_directory(root)
+        _assert_cache_security(artifact.parent)
+        try:
+            artifact.lstat()
+        except FileNotFoundError:
+            pass
+        else:
+            try:
+                retired = retire_update_download(
+                    self._paths, metadata, assert_security=_assert_cache_security, signal_changed_content=True,
+                )
+            except CoreDownloadContentChanged:
+                # This writer never exposed a pending update. Keep the ZIP and
+                # its original record while releasing the preparation slot.
+                rejected = root / f"rejected-prepared-{hashlib.sha256(raw).hexdigest()}.json"
+                retained = _read_state(rejected, _PENDING_LIMIT, return_bytes=True)
+                if retained is not None and retained != raw:
+                    raise ValueError("Retained Core download evidence differs")
+                publish_prepared(prepared, rejected, expected_bytes=raw, trusted_root=root,
+                                 max_bytes=_PENDING_LIMIT, validate=_assert_cache_security)
+                return
+            if not retired:
+                raise ValueError("Prepared Core download cannot be verified")
+        # A previous attempt may have unlinked the ZIP but failed to flush it.
+        flush_directory(artifact.parent)
+        durable_unlink(prepared, trusted_root=root)
+
+    def _discard_unpublished_download(self, path: Path) -> None:
+        try:
+            _checked_path(path, self._paths.updates_root)
+            if path.lstat().st_nlink == 1:
+                durable_unlink(path, trusted_root=self._paths.updates_root)
+        except (OSError, ValueError):
+            # Retention must preserve the original update result.
+            pass
 
     async def report_startup_outcome(self) -> bool:
         try:
@@ -345,6 +491,11 @@ class WindowsOnlineUpdateRuntime:
                         return False
                     # The attempt uses DIRECTORY_ACL (Agent/Updater modify).
                     # Keep pending/outcome retry authority until it is retired.
+                    if pending is not None:
+                        retire_update_download(
+                            self._paths, pending, assert_security=_assert_cache_security,
+                            protect_receipt=self._acl.protect_update_path,
+                        )
                     durable_unlink(attempt_path, trusted_root=self._paths.updates_root, missing_ok=True)
                     durable_unlink(self._paths.pending_path, trusted_root=self._paths.updates_root, missing_ok=True)
                     durable_unlink(outcome_path, trusted_root=self._paths.updates_root, missing_ok=True)

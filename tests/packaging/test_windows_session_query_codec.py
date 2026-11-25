@@ -29,10 +29,20 @@ def test_frozen_query_user_ignores_localized_header_and_decodes_oem(tmp_path):
         "print(json.dumps({'native_oem_login_matches': result.get('current_user_login') == login, 'session_present': result.get('interactive_session_present')}))\n",
         encoding="utf-8",
     )
+    spec = script.with_suffix(".spec")
+    spec.write_text(
+        "import sys\n"
+        f"sys.path.insert(0, {str(repo)!r})\n"
+        "from tools.canary.ssl_payload import configure_ssl_resources\n"
+        f"a = Analysis([{str(script)!r}], pathex=[{str(repo)!r}])\n"
+        "configure_ssl_resources(a)\n"
+        "pyz = PYZ(a.pure)\n"
+        f"exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], name={script.stem!r}, console=True)\n",
+        encoding="utf-8",
+    )
     built = subprocess.run(
-        [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onefile",
-         "--console", "--paths", str(repo), "--distpath", str(tmp_path / "dist"),
-         "--workpath", str(tmp_path / "work"), "--specpath", str(tmp_path), str(script)],
+        [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
+         "--distpath", str(tmp_path / "dist"), "--workpath", str(tmp_path / "work"), str(spec)],
         capture_output=True, text=True, timeout=120, check=False,
     )
     assert built.returncode == 0, built.stderr[-4000:]

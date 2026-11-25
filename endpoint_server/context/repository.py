@@ -26,24 +26,26 @@ async def _advisory_lock(session: AsyncSession, key: str) -> None:
         await session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": key})
 
 
-async def expire_overdue_collections(
-    session: AsyncSession, device_id: UUID, *, now: datetime, profile: str | None = None,
-) -> None:
-    """Terminate overdue ordinary work before refreshing or delivering it.
-
-    Endpoint Operations retain their own deadline/audit state machine. Results
-    already received or validated are left to ingestion rather than expired.
-    """
-    expired_at = _now(now)
+def overdue_collection_statement(device_id: UUID, *, now: datetime, profile: str | None = None):
+    """Select ordinary work whose expiry must be evaluated by the owner."""
     query = select(ContextCollection).where(
         ContextCollection.device_id == device_id,
         ContextCollection.operation_id.is_(None),
         ContextCollection.status.in_(("requested", "queued", "delivered", "collecting")),
         ContextCollection.expires_at.is_not(None),
-        ContextCollection.expires_at <= expired_at,
+        ContextCollection.expires_at <= now,
     )
     if profile is not None:
         query = query.where(ContextCollection.profile == profile)
+    return query
+
+
+async def expire_overdue_collections(
+    session: AsyncSession, device_id: UUID, *, now: datetime, profile: str | None = None,
+) -> None:
+    """Terminate overdue ordinary work; operations and received results have their own lifecycle."""
+    expired_at = _now(now)
+    query = overdue_collection_statement(device_id, now=expired_at, profile=profile)
     overdue = (await session.scalars(query.order_by(ContextCollection.id).with_for_update())).all()
     for collection in overdue:
         collection.status = "expired"
@@ -93,19 +95,28 @@ async def request_collection_outcome(
     idempotency_key: str,
     *,
     now: datetime | None = None,
+    expires_at: datetime | None = None,
+    locked_device: Device | None = None,
 ) -> tuple[ContextCollection, bool]:
-    """Create one request and report whether this transaction inserted it."""
+    """Create one request and report whether this transaction inserted it.
+
+    Supply locked_device only after selecting this device FOR UPDATE in the
+    same, still-open transaction.
+    """
     checked_device_id = require_uuid(device_id, "device id")
     checked_profile = require_profile(profile)
     if not requested_by or len(requested_by) > 128 or not idempotency_key or len(idempotency_key) > 128:
         raise ContextValidationError("request identity must be bounded non-empty text")
+    if locked_device is not None and (locked_device.id != checked_device_id or locked_device not in session):
+        raise ValueError("locked device must match the request device and session")
     await _advisory_lock(
         session,
         f"context.request:{checked_device_id}:{checked_profile}:{requested_by}:{idempotency_key}",
     )
-    device = await session.scalar(select(Device).where(Device.id == checked_device_id).with_for_update())
-    if device is None:
-        raise ContextNotFound("device was not found")
+    if locked_device is None:
+        device = await session.scalar(select(Device).where(Device.id == checked_device_id).with_for_update())
+        if device is None:
+            raise ContextNotFound("device was not found")
     existing = await session.scalar(
         select(ContextCollection)
         .where(
@@ -122,27 +133,17 @@ async def request_collection_outcome(
         id=uuid4(), device_id=checked_device_id, profile=checked_profile,
         requested_by=requested_by, idempotency_key=idempotency_key,
         status="requested", requested_at=_now(now),
+        expires_at=_now(expires_at) if expires_at is not None else None,
     )
     session.add(collection)
     await session.flush()
     return collection, True
 
 
-async def link_collection_command(
-    session: AsyncSession, collection_id: UUID | str, command_id: UUID | str
-) -> ContextCollection:
-    """Bind a requested collection to one device-bound command before delivery."""
-    collection = await session.scalar(
-        select(ContextCollection).where(ContextCollection.id == require_uuid(collection_id, "collection id")).with_for_update()
-    )
-    command = await session.scalar(
-        select(Command).where(Command.id == require_uuid(command_id, "command id")).with_for_update()
-    )
-    if collection is None or command is None:
-        raise ContextNotFound("collection or command was not found")
+def link_collection_command(collection: ContextCollection, command: Command) -> None:
+    """Bind a locked collection to a command inserted in the same transaction."""
     if collection.device_id != command.device_id:
         raise ContextConflict("context command belongs to another device")
     if collection.command_id not in (None, command.id):
         raise ContextConflict("collection is already linked to another command")
     collection.command_id = command.id
-    return collection

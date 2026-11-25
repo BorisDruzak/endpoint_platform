@@ -32,6 +32,49 @@ try{Invoke-Expression $nodes[0].Extent.Text}catch{$rejected=$true}
     assert ('REINSTALL=ALL' in value['arguments']) is reinstall
 
 
+@pytest.mark.skipif(os.name != 'nt', reason='actual PowerShell wrapper argument selection')
+@pytest.mark.parametrize('foundation,service,operation,repair', [
+    ('exact', 'Absent', 'Install', True),
+    ('exact', 'Stopped', 'Install', False),
+    ('different', 'Absent', 'Install', False),
+    ('missing', 'Absent', 'Install', False),
+    ('exact', 'Absent', 'RecoverNativeContinuation', False),
+])
+def test_missing_core_service_reinstalls_only_the_exact_foundation(
+        tmp_path, foundation, service, operation, repair):
+    source = Path(__file__).resolve().parents[2] / 'packaging/windows/Install-EndpointAgentCanary.ps1'
+    script = tmp_path / 'repair-arguments.ps1'
+    script.write_text(r'''param($Source,$Foundation,$Service,$Operation)
+$ErrorActionPreference='Stop'
+Set-StrictMode -Version Latest
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($Source,[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'wrapper parse failed'}
+$nodes=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -eq '$null -ne $interruptedFence' -and $n.Extent.Text.Contains("'REINSTALL=ALL'")},$true))
+if($nodes.Count -ne 1){throw 'native install argument branch ambiguous'}
+$interruptedFence=$null
+$previousServiceStates=@{'EndpointAgent'=$Service}
+$inputHash='a'*64
+$initial=[pscustomobject]@{}
+if($Foundation -ne 'missing'){
+    $digest=if($Foundation -eq 'exact'){$inputHash}else{'b'*64}
+    $initial|Add-Member -NotePropertyName foundation_release -NotePropertyValue ([pscustomobject]@{package_sha256=$digest})
+}
+$msiArguments=@('ADDLOCAL=EndpointAgentFeature,EndpointAgentInitialRuntimeFeature')
+Invoke-Expression $nodes[0].Extent.Text
+ConvertTo-Json -InputObject @( $msiArguments ) -Compress
+''', encoding='utf-8')
+    result = subprocess.run(
+        ['powershell.exe', '-NoProfile', '-NonInteractive', '-File', str(script), str(source),
+         foundation, service, operation], capture_output=True, text=True, timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+    expected = ['ADDLOCAL=EndpointAgentFeature,EndpointAgentInitialRuntimeFeature']
+    if repair:
+        expected.extend(['REINSTALL=EndpointAgentFeature', 'REINSTALLMODE=amus'])
+    assert json.loads(result.stdout) == expected
+
+
 @pytest.mark.skipif(os.name!='nt',reason='actual PowerShell wrapper legacy routing')
 @pytest.mark.parametrize('kind,skipped',[('canonical-legacy',True),('modern',False),('missing',False),('unknown',False)])
 def test_only_authenticated_legacy_kind_skips_old_binary_callbacks(tmp_path,kind,skipped):

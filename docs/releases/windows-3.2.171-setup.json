@@ -1,0 +1,150 @@
+{
+  "schema_version": 1,
+  "version": "3.2.171",
+  "platform": "windows_amd64",
+  "status": "installer_source170_native_accepted_fleet_deferred_for_power_fix",
+  "runtime_source_commit": "3f71f5fca8c74eefab52aacc9c1a1c4cdb6a72dd",
+  "windows_packaging_commit": "b0d7cdb09cb34e6de3dc2f1869a85ec6ffe16ce4",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.171.json",
+  "producer_root": "C:\\endpoint-platform-wix-build\\setup171-3f71f5f",
+  "initial_runtime": {
+    "file_count": 119,
+    "tree_sha256": "773d7c54792342749e00d9d6be1f6e09c0c3b6bec5068dd42492183d8d2cea02",
+    "component_guid": "05EBB646-9616-5546-8508-198695ED7836",
+    "source_file_count": 280,
+    "native_helpers_reuse_allowed": false
+  },
+  "fixes": [
+    "d5cfb0daa61aff14f4cd4e9685c716a78300e1c3"
+  ],
+  "packaged_observer": {
+    "client_version": "1.0.7",
+    "schema_version": 1,
+    "script_sha256": "8a1a30e7d208fbb431e2f715967d8a21eb82eac43edbfb4e97433a83049a6247",
+    "source_sha256": "8165e3f4f3a71c8552e0234c39e04fa462e775bb460a56cace08b740b38520d7"
+  },
+  "native_helper": {
+    "inspection": {
+      "sha256": "251d095e95ecdc552fffe58c461501258154e6374de6a7ea22180674006cd323",
+      "build_tools_absent": true,
+      "python_module_count": 438,
+      "archive_member_count": 112
+    },
+    "observer_payload": {
+      "client_version": "1.0.7",
+      "schema_version": 1,
+      "script_sha256": "8a1a30e7d208fbb431e2f715967d8a21eb82eac43edbfb4e97433a83049a6247",
+      "source_sha256": "8165e3f4f3a71c8552e0234c39e04fa462e775bb460a56cace08b740b38520d7"
+    },
+    "canonical_selector_in_core_and_helper": true,
+    "strict_grant_reader_unchanged": true,
+    "tray_pair_and_foundation_pin_exact_in_core_and_helper": true,
+    "native_phase_diagnostics_exact_in_helper": true,
+    "execution_security_guard_and_native_optin_exact_in_core_helper_wrapper": true
+  },
+  "setup_update_release_id": "a6cb4f29-48f8-4a97-b396-8d282a1a9d01",
+  "setup_update_manifest": {
+    "schema_version": "windows_setup_release_v1",
+    "release_identifier": "endpoint-windows-full-setup-3.2.171-3f71f5f",
+    "version": "3.2.171",
+    "artifact_name": "EndpointAgentSetup-3.2.171-x64.exe",
+    "sha256": "e93743449aff7fee369fa60b274200929ab25075d392bf483a13ad23a7065a73",
+    "size": 146279336,
+    "source_revision": "3f71f5fca8c74eefab52aacc9c1a1c4cdb6a72dd",
+    "msi_sha256": "dd5f4facc2d8ace86e473243d3f4383d8d79e72eefef5b2242f2dc1fe2f57db4",
+    "tray_sha256": "07c482126e42b5842f7cb0eadf589f6b91b3501c5cec93cf187efb373821f1cb",
+    "sensor_sha256": "a485adc66ab12fc53cd314599ace2790822eb52ec08e76798c8f1b50f723d3cc"
+  },
+  "signatures": [
+    {
+      "File": "EndpointAgent-3.2.171-x64.msi",
+      "Size": 104456192,
+      "SHA256": "dd5f4facc2d8ace86e473243d3f4383d8d79e72eefef5b2242f2dc1fe2f57db4",
+      "Signature": "Valid",
+      "Publisher": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+      "Timestamped": true
+    },
+    {
+      "File": "EndpointAgentSetup-3.2.171-x64.exe",
+      "Size": 146279336,
+      "SHA256": "e93743449aff7fee369fa60b274200929ab25075d392bf483a13ad23a7065a73",
+      "Signature": "Valid",
+      "Publisher": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+      "Timestamped": true
+    }
+  ],
+  "qualification": {
+    "native_applied": true,
+    "active_user_telemetry": true,
+    "accepted_source_foundations": [
+      "3.2.170"
+    ],
+    "server_qualified_source_foundations": [],
+    "fleet_eligible": false
+  },
+  "fleet": {
+    "enabled": false,
+    "policy_revision": 3,
+    "max_parallel": 2,
+    "active_chains": 0
+  },
+  "enrollment": {
+    "published": false,
+    "existing_default_version": "3.2.165",
+    "auto_campaign_unchanged": true
+  },
+  "server_console_commit": "ce46fd47a3a929a2fe104f01fac2bc8cc619559d",
+  "live_canaries": [
+    {
+      "address": "192.168.101.187",
+      "device_id": "d3ed13cd-1b40-4ccc-b035-240a184cf247",
+      "assignment_id": "3693c482-ff08-4256-8cac-dac988df83e5",
+      "attempt_id": "acbdb310-7374-409a-9f48-8f4074191429",
+      "source_core": "3.2.170",
+      "source_foundation": "3.2.170",
+      "source_client": "1.0.7",
+      "assigned_at": "2026-11-06 08:17:04.910962+00:00",
+      "status": "applied",
+      "workstation_preparation_for_this_assignment": false,
+      "previous_administrative_recovery": true,
+      "finished_at": "2026-11-06 08:26:40.963796+00:00",
+      "safe_code": "setup_post_restart_confirmed",
+      "native_exit": 0,
+      "pending": false,
+      "private_preserved": true,
+      "soak": {
+        "duration_seconds": 183.381,
+        "samples": 6,
+        "sensor_count": 1,
+        "sensor_cpu_percent_max": 0.026,
+        "services_stable": true,
+        "companions_stable": true,
+        "connected": true
+      },
+      "observed_core": "3.2.171",
+      "observed_foundation": "3.2.171",
+      "observed_client": "1.0.7",
+      "user_sensor_last_seen_at": "2026-11-06 08:27:43.928267+00:00"
+    }
+  ],
+  "power_reader_fix_included": false,
+  "power_followup_plan": "docs/superpowers/plans/2026-11-06-power-stream-anchor.md",
+  "independent_support_tunnel_included": false,
+  "verification_record": "docs/verification/2026-11-06-setup171-installer-canary.md",
+  "artifacts": [
+    {
+      "filename": "EndpointAgent-3.2.171-x64.msi",
+      "operator_path": "C:\\endpoint-platform-wix-build\\setup171-3f71f5f\\native-setup-build\\releases\\EndpointAgent-3.2.171-x64.msi",
+      "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgent-3.2.171-x64.msi",
+      "sha256": "dd5f4facc2d8ace86e473243d3f4383d8d79e72eefef5b2242f2dc1fe2f57db4",
+      "size": 104456192
+    },
+    {
+      "filename": "EndpointAgentSetup-3.2.171-x64.exe",
+      "operator_path": "C:\\endpoint-platform-wix-build\\setup171-3f71f5f\\native-setup-build\\releases\\EndpointAgentSetup-3.2.171-x64.exe",
+      "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgentSetup-3.2.171-x64.exe",
+      "sha256": "e93743449aff7fee369fa60b274200929ab25075d392bf483a13ad23a7065a73",
+      "size": 146279336
+    }
+  ]
+}

@@ -94,7 +94,9 @@ async def list_setup_releases(
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
 ) -> SetupReleasePageResponse:
-    condition = WindowsSetupRelease.retired_at.is_(None) if active_only else None
+    condition = (
+        WindowsSetupRelease.retired_at.is_(None) & WindowsSetupRelease.download_published.is_(True)
+    ) if active_only else None
     async with request.app.state.session_provider() as session:
         count = select(func.count()).select_from(WindowsSetupRelease)
         listing = select(WindowsSetupRelease)

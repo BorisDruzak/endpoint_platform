@@ -10,6 +10,7 @@
            InstallerVersion="500">
     <MediaTemplate EmbedCab="yes" />
     <Binary Id="EndpointInstallerHost" SourceFile="$(var.InstallerHostPath)" />
+    <Binary Id="EndpointSupportAccessRemoval" SourceFile="$(var.SupportAccessPath)" />
     <Binary Id="EndpointInitialRuntimeInventory" SourceFile="$(var.InitialRuntimeInventoryPath)" />
     <Binary Id="EndpointNativeCurrentSelector" SourceFile="$(var.StagingDir)\ProgramFiles\current.json" />
     <Upgrade Id="D4F3045C-51CF-49D9-AF9C-3AEBF206ED1F">

@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.usefixtures("protected_update_state_root")
+pytestmark = pytest.mark.usefixtures("protected_update_state_root", "mock_verified_updater_core")
 
 
 def _setup(tmp_path: Path):
@@ -184,7 +184,7 @@ def test_updater_rolls_back_before_confirmation_after_an_early_crash(tmp_path: P
 
 
 def test_rollback_starts_previous_when_candidate_already_stopped(tmp_path: Path) -> None:
-    """Localized pywintypes error 1062 proves an already-crashed candidate is stopped."""
+    """Structured 1062 still requires SCM state and an independent stopped-owner proof."""
     from pc_agent.platform.windows.updater_service import WindowsUpdater
 
     paths, service = _setup(tmp_path), _Service(crash=True)
@@ -195,6 +195,7 @@ def test_rollback_starts_previous_when_candidate_already_stopped(tmp_path: Path)
         nonlocal calls
         calls += 1
         if calls == 2:
+            original_stop()
             raise _ScmError(1062, "Служба не была запущена")
         original_stop()
 
@@ -282,7 +283,7 @@ def test_rollback_refuses_selector_switch_when_candidate_stop_fails(tmp_path: Pa
         original_stop()
     service.stop = fail_second_stop  # type: ignore[method-assign]
     updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=False), deadline_seconds=0)
-    assert updater.run_once().status == "rejected"
+    assert updater.run_once().status == "core_stop_unverified"
     assert json.loads(paths.current_path.read_text()) == {
         "schema_version": 1,
         "source_revision": "a" * 40,
@@ -317,7 +318,7 @@ def test_rollback_rejects_error_name_without_structured_service_not_active_code(
         deadline_seconds=0,
     )
 
-    assert updater.run_once().status == "rejected"
+    assert updater.run_once().status == "core_stop_unverified"
     assert json.loads(paths.current_path.read_text()) == {
         "schema_version": 1,
         "source_revision": "a" * 40,
@@ -337,7 +338,7 @@ def test_rollback_refuses_selector_switch_when_stop_wait_is_false(tmp_path: Path
         return original_wait() if waits == 1 else False
     service.wait_stopped = uncertain_wait  # type: ignore[method-assign]
     updater = WindowsUpdater(paths, acl=_Acl(), service=service, verifier=_Verifier(service.events), confirmation=_Confirmation(service.events, confirmed=False), deadline_seconds=0)
-    assert updater.run_once().status == "rejected"
+    assert updater.run_once().status == "core_stop_unverified"
     assert json.loads(paths.current_path.read_text()) == {
         "schema_version": 1,
         "source_revision": "a" * 40,

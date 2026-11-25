@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -11,6 +12,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .models import ContextCollection, ContextCurrent, ContextSnapshot
 from .policy import CONTEXT_RETENTION_POLICIES, RAW_CONTEXT_TTL
 from .service import ContextNotFound, ContextValidationError, require_uuid
+
+
+@dataclass(frozen=True, slots=True)
+class ContextCleanupBatch:
+    collections: int
+    snapshots: int
+    oldest_due_age_seconds: float
 
 
 def _utc(value: datetime) -> datetime:
@@ -66,6 +74,15 @@ async def retain_context_snapshots(
     limit: int = 100,
     now: datetime | None = None,
 ) -> int:
+    return (await retain_context_snapshots_with_backlog(session, limit=limit, now=now)).snapshots
+
+
+async def retain_context_snapshots_with_backlog(
+    session: AsyncSession,
+    *,
+    limit: int = 100,
+    now: datetime | None = None,
+) -> ContextCleanupBatch:
     """Delete one bounded batch according to profile, preserving current state."""
     if not 1 <= limit <= 100:
         raise ValueError("retention limit must be between 1 and 100")
@@ -100,6 +117,7 @@ async def retain_context_snapshots(
         .order_by(ContextSnapshot.collected_at, ContextSnapshot.id).limit(limit * 4)
     )).all()
     deleted = 0
+    oldest_due_age = 0.0
     for snapshot_id, device_id, profile in (*hot_rows, *stable_rows, *diagnostic_rows):
         await _advisory_lock(session, f"context.current:{device_id}:{profile}")
         snapshot = await session.scalar(select(ContextSnapshot).where(ContextSnapshot.id == snapshot_id).with_for_update())
@@ -121,8 +139,11 @@ async def retain_context_snapshots(
                     ).order_by(ContextSnapshot.collected_at.desc(), ContextSnapshot.id.desc()).limit(1))
                     if snapshot_id == previous_id:
                         continue
-        elif _utc(snapshot.collected_at) >= when - CONTEXT_RETENTION_POLICIES[profile].ttl:
-            continue
+        else:
+            overdue = (when - _utc(snapshot.collected_at) - CONTEXT_RETENTION_POLICIES[profile].ttl).total_seconds()
+            if overdue <= 0:
+                continue
+            oldest_due_age = max(oldest_due_age, overdue)
         if profile == "diagnostic_v1" and current is not None and current.snapshot_id == snapshot_id:
             await session.delete(current)
             await session.flush()
@@ -131,12 +152,19 @@ async def retain_context_snapshots(
         if deleted >= limit:
             break
     await session.flush()
-    return deleted
+    return ContextCleanupBatch(0, deleted, oldest_due_age)
 
 
 async def cleanup_raw_context_payloads(
     session: AsyncSession, *, now: datetime | None = None, limit: int = 100,
 ) -> tuple[int, int]:
+    batch = await cleanup_raw_context_payloads_with_backlog(session, now=now, limit=limit)
+    return batch.collections, batch.snapshots
+
+
+async def cleanup_raw_context_payloads_with_backlog(
+    session: AsyncSession, *, now: datetime | None = None, limit: int = 100,
+) -> ContextCleanupBatch:
     """Scrub old transport JSON in separate bounded table batches."""
     if not 1 <= limit <= 1000:
         raise ValueError("cleanup limit must be between 1 and 1000")
@@ -147,20 +175,33 @@ async def cleanup_raw_context_payloads(
     ).order_by(ContextCollection.result_received_at, ContextCollection.id).limit(limit).with_for_update(skip_locked=True))).all()
     for collection in collections:
         collection.raw_result_payload = None
-    snapshots = (await session.scalars(select(ContextSnapshot)
+    snapshots = (await session.execute(select(ContextSnapshot, ContextCollection.result_received_at)
         .join(ContextCollection, ContextCollection.id == ContextSnapshot.collection_id)
         .where(ContextCollection.result_received_at < cutoff, ContextSnapshot.raw_payload.is_not(None))
         .order_by(ContextCollection.result_received_at, ContextSnapshot.id)
         .limit(limit).with_for_update(skip_locked=True, of=ContextSnapshot))).all()
-    for snapshot in snapshots:
+    for snapshot, _received_at in snapshots:
         snapshot.raw_payload = None
+    oldest = min(
+        (_utc(received_at) for received_at in (
+            collections[0].result_received_at if collections else None,
+            snapshots[0][1] if snapshots else None,
+        ) if received_at is not None),
+        default=cutoff,
+    )
     await session.flush()
-    return len(collections), len(snapshots)
+    return ContextCleanupBatch(len(collections), len(snapshots), (cutoff - oldest).total_seconds())
 
 
 async def cleanup_context_collections(
     session: AsyncSession, *, now: datetime | None = None, limit: int = 100,
 ) -> int:
+    return (await cleanup_context_collections_with_backlog(session, now=now, limit=limit)).collections
+
+
+async def cleanup_context_collections_with_backlog(
+    session: AsyncSession, *, now: datetime | None = None, limit: int = 100,
+) -> ContextCleanupBatch:
     """Remove old scheduler bookkeeping with no retained state or operation link."""
     if not 1 <= limit <= 1000:
         raise ValueError("cleanup limit must be between 1 and 1000")
@@ -174,10 +215,11 @@ async def cleanup_context_collections(
         ~snapshot_exists,
     ).order_by(ContextCollection.requested_at, ContextCollection.id)
         .limit(limit).with_for_update(skip_locked=True))).all()
+    oldest = _utc(rows[0].requested_at) if rows else cutoff
     for collection in rows:
         await session.delete(collection)
     await session.flush()
-    return len(rows)
+    return ContextCleanupBatch(len(rows), 0, (cutoff - oldest).total_seconds())
 
 
 __all__ = ["pin_context_snapshot", "retain_context_snapshots", "cleanup_raw_context_payloads", "cleanup_context_collections"]

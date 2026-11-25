@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)]
-    [string] $OutputPath
+    [string] $OutputPath,
+    [string] $PythonExecutable = 'python'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -15,6 +16,12 @@ $releaseCommit = (git rev-parse --short=12 HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $releaseCommit -notmatch '^[0-9a-f]{12}$') {
     throw 'Cannot resolve the release commit.'
 }
+$releaseEpoch = (git show -s --format=%ct HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or $releaseEpoch -notmatch '^\d+$') {
+    throw 'Cannot resolve the committed release timestamp.'
+}
+& $PythonExecutable -c "import sys; sys.exit(0 if sys.version_info[:2] == (3, 12) else 1)"
+if ($LASTEXITCODE -ne 0) { throw 'Server archive requires Python 3.12.' }
 
 Push-Location -LiteralPath (Join-Path $repositoryRoot 'webapp')
 try {
@@ -39,7 +46,7 @@ try {
     $releaseDirectory = Join-Path $stageResolved "endpoint-platform-$releaseCommit"
     New-Item -ItemType Directory -Path $releaseDirectory | Out-Null
     $sourceTar = Join-Path $stageResolved 'source.tar'
-    git archive --format=tar --output="$sourceTar" HEAD endpoint_server endpoint_contracts browser_sensor alembic.ini requirements-server.txt tools/__init__.py tools/register_windows_setup_release.py tools/register_browser_sensor_release.py
+    git archive --format=tar --output="$sourceTar" HEAD endpoint_server endpoint_contracts browser_sensor alembic.ini requirements-server.txt tools/__init__.py tools/register_windows_setup_release.py tools/register_browser_sensor_release.py tools/release/linux_native_verifier.py tools/release/inventory_storage.py tools/release/inventory_deployments.py
     if ($LASTEXITCODE -ne 0) { throw 'git archive failed.' }
     tar -xf $sourceTar -C $releaseDirectory
     if ($LASTEXITCODE -ne 0) { throw 'Source archive extraction failed.' }
@@ -52,8 +59,12 @@ try {
     }
 
     $archive = [System.IO.Path]::GetFullPath($OutputPath)
-    tar -czf $archive -C $stageResolved "endpoint-platform-$releaseCommit"
-    if ($LASTEXITCODE -ne 0) { throw 'Final release archive failed.' }
+    $nativeTar = Join-Path $stageResolved 'native-server.tar'
+    tar -cf $nativeTar -C $stageResolved "endpoint-platform-$releaseCommit"
+    if ($LASTEXITCODE -ne 0) { throw 'Native server archive failed.' }
+    & $PythonExecutable (Join-Path $PSScriptRoot 'normalize_server_archive.py') `
+        --input $nativeTar --output $archive --root "endpoint-platform-$releaseCommit" --mtime $releaseEpoch
+    if ($LASTEXITCODE -ne 0) { throw 'Safe server archive normalization failed.' }
     Write-Output $archive
 }
 finally {

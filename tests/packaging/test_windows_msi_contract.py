@@ -61,7 +61,8 @@ def test_synthetic_wix4_package_links_with_finalization_audit(tmp_path):
         'InitialRuntimeComponentGuid':str(uuid.uuid4()),'InitialRuntimeTransitionApproved':'0',
         'BaselineInitialRuntimeVersion':'0.0.0','SourceRevision':'a'*40,
         'InitialRuntimeInventoryPath':str(stage/'dummy-inventory.json'),
-        'InstallerHostPath':str(stage/'dummy-installer-host.exe')}
+        'InstallerHostPath':str(stage/'dummy-installer-host.exe'),
+        'SupportAccessPath':str(stage/'dummy-support-access.exe')}
     sources=[]
     fixture_upgrade=str(uuid.uuid4()).upper()
     for name in WIX_FILES:
@@ -112,6 +113,7 @@ Export-MsiInspection $Msi $Output
     cleanup=next(row for row in rows if row['action']=='ScheduleEndpointRootCleanup')
     assert cleanup['condition']=='NOT ENDPOINT_UNINSTALL_FINALIZE'
     compiled=json.loads(inspection.read_text())
+    assert not any(row['name'] == 'EndpointSupportAccess' for row in compiled['service_controls'])
     cleanup_rows = compiled['cleanup_rows']
     if isinstance(cleanup_rows, dict):
         cleanup_rows = [cleanup_rows]  # PowerShell serializes a singleton as an object.
@@ -125,7 +127,13 @@ Export-MsiInspection $Msi $Output
     security=compiled['binary_directory_security']
     assert {(row['object'],row['table']) for row in security} == {
         ('INSTALLFOLDER','CreateFolder'),('VERSIONSFOLDER','CreateFolder'),('INITIALRUNTIMEDIR','CreateFolder')}
-    assert all(row['sddl'].startswith('D:P') and not row['condition'] for row in security)
+    assert all(not row['condition'] for row in security)
+    action=next(row for row in compiled['custom_actions'] if row['action']=='CommitSupportAccessRemoval')
+    assert int(action['type'])==11842
+    assert action['source']=='EndpointSupportAccessRemoval' and action['target']=='--uninstall'
+    removal=next(row for row in rows if row['action']=='CommitSupportAccessRemoval')
+    assert 'NOT UPGRADINGPRODUCTCODE' in removal['condition']
+    assert 'NOT ENDPOINT_UNINSTALL_FINALIZE' in removal['condition']
 
 
 def test_native_directory_permissions_follow_foundation_and_runtime_ownership():

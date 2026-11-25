@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -10,7 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Security,
 from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyCookie
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, case, func, select
+from sqlalchemy.orm import aliased
 
 from endpoint_contracts import UpdateBuildManifestV1, UpdateRolloutCreateV1
 from endpoint_contracts.updates import SafeCodeV1, SemanticVersionV1
@@ -21,7 +22,9 @@ from endpoint_server.auth.admin_sessions import (
     require_admin_update_scope,
     revalidate_update_admin_in_transaction,
 )
-from endpoint_server.db.models import Device, UpdateBuild, UpdateReport, UpdateRollout, UpdateTarget
+from endpoint_server.console.fleet import PRESENCE_TTL
+from endpoint_server.db.models import Device, DeviceSession, UpdateBuild, UpdateReport, UpdateRollout, UpdateTarget
+from endpoint_server.installation_lifecycle.models import InstallationState
 
 from .errors import (
     UpdateConflict,
@@ -43,8 +46,11 @@ from .service import (
 from .admin_contracts import (
     UpdateRolloutCancellationContextV1, UpdateRolloutCancellationRequestV1,
     UpdateRolloutCancellationResponseV1, UpdateCancellationUnavailableV1,
+    UnrequestedBulkCancellationContext, UnrequestedBulkCancellationRequest,
+    UnrequestedBulkCancellationReceipt,
 )
 from .admin_transaction import NOT_APPLIED
+from .bulk_cancellation import bulk_cancellation_context, cancel_unrequested_bulk
 
 
 router = APIRouter(prefix="/api/admin/updates", tags=["admin-updates"])
@@ -102,6 +108,41 @@ async def cancel_rollout(
         try:
             return await cancel_paused_singleton_rollout(session, rollout_id, cancellation, principal,
                 audit_request_id(request), authorization_revalidator=revalidate, operation_budget=budget)
+        except UpdateError as error:
+            raise _admin_error(error) from error
+    return await _bounded_cancellation_route(request, readonly=False, operation=operation)
+
+
+@router.get("/rollouts/{rollout_id}/unrequested-cancellation-context",
+    response_model=UnrequestedBulkCancellationContext, responses=_CANCELLATION_RESPONSES)
+async def get_unrequested_cancellation_context(
+    rollout_id: UUID, request: Request,
+    cookie: Annotated[str | None, Security(_CANCELLATION_COOKIE)] = None,
+):
+    async def operation(session, budget, principal):
+        try:
+            return await bulk_cancellation_context(session, rollout_id, budget=budget)
+        except UpdateError as error:
+            raise _admin_error(error) from error
+    return await _bounded_cancellation_route(request, readonly=True, operation=operation)
+
+
+@router.post("/rollouts/{rollout_id}/cancel-unrequested",
+    response_model=UnrequestedBulkCancellationReceipt, responses=_CANCELLATION_RESPONSES,
+    openapi_extra={"parameters": [{"name": "x-csrf-token", "in": "header", "required": True,
+        "description": "Mandatory per-session CSRF token; enforced within bounded authentication",
+        "schema": {"type": "string"}}]})
+async def cancel_bulk_rollout(
+    rollout_id: UUID, cancellation: UnrequestedBulkCancellationRequest, request: Request,
+    cookie: Annotated[str | None, Security(_CANCELLATION_COOKIE)] = None,
+):
+    """Retire a paused bulk rollout before delivery; requires updates:write."""
+    async def operation(session, budget, principal):
+        async def revalidate():
+            await revalidate_update_admin_in_transaction(request, session, principal, budget)
+        try:
+            return await cancel_unrequested_bulk(session, rollout_id, cancellation, principal,
+                                                 audit_request_id(request), budget=budget, revalidate=revalidate)
         except UpdateError as error:
             raise _admin_error(error) from error
     return await _bounded_cancellation_route(request, readonly=False, operation=operation)
@@ -298,6 +339,7 @@ async def read_update_rollout(
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
 ) -> dict[str, object]:
+    now = datetime.now(UTC)
     async with request.app.state.session_provider() as session:
         row = (await session.execute(
             select(UpdateRollout, UpdateBuild)
@@ -309,9 +351,28 @@ async def read_update_rollout(
         rollout, build = row
         counts = (await _target_counts(session, [rollout_id])).get(rollout_id, {})
         reports = latest_reports()
+        connection = aliased(DeviceSession)
+        latest_connection = (
+            select(DeviceSession.id)
+            .where(DeviceSession.device_id == UpdateTarget.device_id)
+            .order_by(DeviceSession.created_at.desc(), DeviceSession.id.desc())
+            .limit(1).correlate(UpdateTarget).scalar_subquery()
+        )
+        last_contact = func.coalesce(connection.last_seen_at, connection.created_at)
+        connection_state = case(
+            (connection.id.is_(None), "unobserved"),
+            (and_(connection.closed_at.is_(None), connection.expires_at > now,
+                  last_contact.between(now - PRESENCE_TTL, now)), "online"),
+            else_="offline",
+        )
         targets = (await session.execute(
-            select(UpdateTarget, Device.display_name, Device.device_identifier, *report_columns(reports))
+            select(UpdateTarget, Device.display_name, Device.device_identifier, Device.retired_at,
+                   InstallationState.state.label("installation_state"),
+                   last_contact.label("last_contact_at"), connection_state.label("connection_state"),
+                   *report_columns(reports))
             .join(Device, Device.id == UpdateTarget.device_id)
+            .outerjoin(connection, connection.id == latest_connection)
+            .outerjoin(InstallationState, InstallationState.device_id == Device.id)
             .outerjoin(reports, and_(reports.c.update_target_id == UpdateTarget.id, reports.c.rank == 1))
             .where(UpdateTarget.rollout_id == rollout_id)
             .order_by(UpdateTarget.assigned_at, UpdateTarget.id)
@@ -321,12 +382,27 @@ async def read_update_rollout(
         **_safe_rollout(rollout, build, counts),
         "targets_total": sum(counts.values()), "target_limit": limit, "target_offset": offset,
         "targets": [{
+            "assignment_id": str(row.UpdateTarget.id),
             "device_id": str(row.UpdateTarget.device_id),
             "device_name": row.display_name or row.device_identifier,
             "status": row.UpdateTarget.status,
+            "device_retired": row.retired_at is not None,
+            "installation_removed": row.installation_state == "removed",
+            "connection_state": row.connection_state,
+            "last_contact_at": row.last_contact_at,
+            "age_seconds": _active_assignment_age(row.UpdateTarget, now),
             **target_observability(row.UpdateTarget, row),
         } for row in targets],
     }
+
+
+def _active_assignment_age(target: UpdateTarget, now: datetime) -> int | None:
+    if target.status not in {"assigned", "requested", "scheduled"}:
+        return None
+    assigned_at = target.assigned_at
+    if assigned_at.tzinfo is None:
+        assigned_at = assigned_at.replace(tzinfo=UTC)
+    return max(0, int((now - assigned_at).total_seconds()))
 
 
 def _admin_error(error: UpdateError) -> HTTPException:

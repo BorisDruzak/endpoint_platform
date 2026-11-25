@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlsplit
 
 import aiohttp
-from endpoint_contracts.gateway_ws import EndpointPolicyAckV1, EndpointPolicyDeliveryV1
+from endpoint_contracts.gateway_ws import COMMAND_JOURNAL_FEATURE, EndpointPolicyAckV1, EndpointPolicyDeliveryV1
 
 if TYPE_CHECKING:
     from pc_agent.platform.windows.online_update_runtime import WindowsOnlineUpdateResult
@@ -81,6 +81,8 @@ class RuntimeSettings:
     network_probe_allowed_cidrs: tuple[str, ...] = ()
     network_probe_allowed_suffixes: tuple[str, ...] = ()
     launcher_version: str | None = None
+    package_managed_updates: bool = False
+    fallback_endpoint_origin: str | None = None
 
     def validate(self) -> None:
         for name in ("data_root", "install_root", "ca_file"):
@@ -101,6 +103,19 @@ class RuntimeSettings:
             raise ValueError("unsupported Endpoint transport mode")
         if not isinstance(self.migration_http_pull_fallback, bool):
             raise ValueError("migration HTTP pull fallback must be boolean")
+        if self.fallback_endpoint_origin is not None:
+            from pc_agent.transport.websocket import gateway_websocket_url
+
+            if self.transport_mode != "gateway_wss" or self.migration_http_pull_fallback:
+                raise ValueError("reserve Endpoint origin requires WSS without HTTP fallback")
+            gateway_websocket_url(self.fallback_endpoint_origin)
+            primary, reserve = urlsplit(self.endpoint_origin), urlsplit(self.fallback_endpoint_origin)
+            if (primary.hostname, primary.port or 443) == (reserve.hostname, reserve.port or 443):
+                raise ValueError("reserve Endpoint origin must be distinct from the primary")
+        if self.package_managed_updates and (
+            os.name != "posix" or self.transport_mode != "gateway_wss" or self.migration_http_pull_fallback
+        ):
+            raise ValueError("package-managed updates require Linux WSS without HTTP fallback")
         for name in (
             "network_probe_allowed_cidrs",
             "network_probe_allowed_suffixes",
@@ -149,6 +164,12 @@ async def run_runtime(settings: RuntimeSettings) -> int:
 def _default_dependencies(
     settings: RuntimeSettings | None = None,
 ) -> RuntimeDependencies:
+    report_unexpected_failure = None
+    if os.name == "nt":
+        from pc_agent.platform.windows.runtime_failure import report_unexpected_failure
+
+    from .local_state import CommandJournal
+
     staged_writer = None
     if os.name == 'nt' and settings is not None and settings.transport_mode == 'gateway_wss':
         from pc_agent.platform.windows.staged_trial_proof import StagedTrialProofWriter
@@ -551,13 +572,12 @@ def _default_dependencies(
         ):
             if os.name == "nt" or 'endpoint.policy.v1' in policy_features:
                 activity_dispatch.begin_connection()
-                tasks = [
-                    worktime_companion.serve(settings, credential),
-                    (_serve_windows_device_binding(settings, credential)
-                     if os.name == 'nt' else _periodic_https_update_checks(
-                         settings, credential, _EndpointHttpPullState())),
-                    activity_dispatch.send_forever(transport),
-                ]
+                tasks = [worktime_companion.serve(settings, credential)]
+                if os.name == "nt":
+                    tasks.append(_serve_windows_device_binding(settings, credential))
+                elif not settings.package_managed_updates:
+                    tasks.append(_periodic_https_update_checks(settings, credential, _EndpointHttpPullState()))
+                tasks.append(activity_dispatch.send_forever(transport))
                 if power_runtime is not None:
                     tasks.append(power_runtime.send_forever(transport))
                 if security_runtime is not None:
@@ -570,14 +590,12 @@ def _default_dependencies(
                     sensor_health_runtime.begin_connection()
                     tasks.append(sensor_health_runtime.send_forever(transport))
                 return tuple(tasks)
-            return (
-                _periodic_https_update_checks(
-                    settings,
-                    credential,
-                    _EndpointHttpPullState(),
-                ),
-                *((power_runtime.send_forever(transport),) if power_runtime is not None else ()),
-            )
+            tasks = []
+            if not settings.package_managed_updates:
+                tasks.append(_periodic_https_update_checks(settings, credential, _EndpointHttpPullState()))
+            if power_runtime is not None:
+                tasks.append(power_runtime.send_forever(transport))
+            return tuple(tasks)
         return ()
 
     create_executor = CommandExecutor
@@ -633,6 +651,12 @@ def _default_dependencies(
         ),
         create_connected_tasks=create_connected_tasks,
         create_service_tasks=create_service_tasks,
+        report_unexpected_failure=report_unexpected_failure,
+        command_journal=(
+            CommandJournal(settings.data_root / "storage.db")
+            if settings is not None and settings.transport_mode == "gateway_wss"
+            and not settings.migration_http_pull_fallback else None
+        ),
         recover_protocol_errors=(os.name == "nt" and settings is not None
             and settings.transport_mode == "gateway_wss"
             and not settings.migration_http_pull_fallback),
@@ -783,6 +807,8 @@ def _load_hello(settings: object) -> AgentHelloV1:
         )
         if platform == "windows_amd64" and not settings.migration_http_pull_fallback:
             features.append("endpoint.recovery-update.v2")
+        if not settings.migration_http_pull_fallback:
+            features.append(COMMAND_JOURNAL_FEATURE)
         features.append("endpoint.telemetry-results.v1")
         features.append("endpoint.power-events.v1")
         features.append("endpoint.policy-readiness.v1")
@@ -840,6 +866,7 @@ def _create_transport(
             ca_file=settings.ca_file,
             credential=credential,
             endpoint_origin=settings.endpoint_origin,
+            fallback_endpoint_origin=settings.fallback_endpoint_origin,
         )
         if not settings.migration_http_pull_fallback:
             return primary

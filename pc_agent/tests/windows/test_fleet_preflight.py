@@ -21,6 +21,12 @@ from pc_agent.tests.windows.test_installation_provenance import (
 
 handoff_input = _task7_handoff
 
+
+@pytest.fixture(autouse=True)
+def fixture_msi_stream_size(monkeypatch):
+    # These test packages use fixtures rather than native MSI databases.
+    monkeypatch.setattr(msi_inventory, "binary_size", lambda *a, **kw: 250)
+
 _VERIFY_INSTALLED = msi_inventory.verify_installed
 _VERIFY_FOUNDATION = msi_inventory.verify_foundation
 

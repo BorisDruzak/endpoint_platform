@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "version": "3.2.196",
+  "platform": "windows_amd64",
+  "status": "candidate_single_device_applied",
+  "runtime_source_commit": "4a552d5e94bd08fddb3ce60fb04045842238ed98",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.196.json",
+  "setup": {
+    "filename": "EndpointAgentSetup-3.2.196-x64.exe",
+    "sha256": "d96e4adbd38dfb3f899462bd56dbf1185e0dd27e98db079036500f1fb72bf7c3",
+    "size": 179029216,
+    "release_id": "b1fca33c-654e-4688-b0e6-5c5169748067",
+    "setup_update_release_id": "b9fff761-7904-49de-a3af-51b342bdb51a",
+    "download_published": false,
+    "authenticode": "Valid with timestamp",
+    "operator_path": "C:/endpoint-platform-wix-build/setup196-openssh-4a552d5e/native-setup-build/releases/EndpointAgentSetup-3.2.196-x64.exe"
+  },
+  "msi": {
+    "sha256": "fc20bc2a5492f5b2c64edd93f546d0591747d072c6a8edf92f4f85c0efe409ce",
+    "size": 137207808,
+    "product_code": "{8B800E69-C4F0-46E1-BD88-3EBA5118EE6E}"
+  },
+  "support": {
+    "component_version": "1.1.7",
+    "sha256": "75e03b27df8875a62a118274980f18b7a72133f766b4a78529df42c65c952d0b",
+    "bundled_openssh_version": "10.4.0.0p1-Preview",
+    "bundle_sha256": "b67ff8becd203502190ec42ac7787c24c2cd3325ed7700485fe7a1c83d2a7957"
+  },
+  "canary": {
+    "device_id": "0b8de36c-59d1-4c84-b003-fd391f1000e7",
+    "address": "192.168.101.254",
+    "windows_build": 14393,
+    "assignment_id": "afb70174-e77b-4de7-926c-12a045c3981b",
+    "source_foundation": "3.2.192",
+    "native_status": "applied",
+    "native_exit": 0,
+    "stable_seconds": 185.951,
+    "user_sensor_count": 1,
+    "retained_private_material": {
+      "credential": true,
+      "identity": true,
+      "origin": true,
+      "ca": true
+    },
+    "applied_at_utc": "2026-11-12T09:45:37.521Z",
+    "support_activated_automatically": true,
+    "dependency_profile": "bundled-openssh-v1",
+    "pinned_operator_ssh_verified": true
+  },
+  "fleet": {
+    "policy_revision": 19,
+    "target": "3.2.192",
+    "qualified_196": false
+  }
+}

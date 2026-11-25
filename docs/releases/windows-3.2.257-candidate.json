@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "version": "3.2.257",
+  "platform": "windows_amd64",
+  "status": "lab_setup_upgrade_from_3.2.253",
+  "verified_utc": "2026-11-18T15:27:20.3493302Z",
+  "runtime_source_commit": "6a1840e65d0b70d879b2560ccd5bfe96c58ca1e0",
+  "initial_runtime_file_count": 119,
+  "initial_runtime_tree_sha256": "3a2551f7dd16a9a90842c3f0842ea70b5e977511cec1ce53cec11b7a8c638b70",
+  "setup": {
+    "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-257/native/releases/EndpointAgentSetup-3.2.257-x64.exe",
+    "sha256": "a5bf79cd7ec7d2ff50ac08564a9e299a246097d0b953aa8cc1486e5350022790",
+    "size": 177701016,
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776"
+  },
+  "msi": {
+    "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-257/native/releases/EndpointAgent-3.2.257-x64.msi",
+    "sha256": "47369313fb7f32cd4cbb5bd00ad069b64c27774d8176b0282e70deeb2bcc2c8d",
+    "size": 136310784,
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776"
+  },
+  "embedded_core_sha256": "d6f8a71b88b435183146bccb4403473e0450cbcfa79006d665c5f81a4a05bf46",
+  "setup_observer": {
+    "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-257/EndpointSetupUpdater.ps1",
+    "sha256": "b504a8fb96ead642262494b53327c0c5a01da49a0285d9190c0364da72e399aa",
+    "size": 107313,
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+    "version": "1.0.13"
+  },
+  "production_full_setup_update": {
+    "source_qualifications": [],
+    "registered": false
+  },
+  "verification_receipts": {
+    "local_build": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-257/setup257-local-build-proof.json",
+      "sha256": "3086126739c8dd5e156c2b5ec23585b716d049a9b2c45c46c85c6580cf901809"
+    },
+    "source": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-257/source-proof.json",
+      "sha256": "2a7aee149495ab2edcd7c7d1dc5ef8e67c1ff7fac051797ef91de534b3a6b190"
+    },
+    "windows_release_gate": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-257/release-gate/source.json",
+      "sha256": "db9f676ee07568ce4f0a8e08f784f0acf70b6623fd27b123dd10f8e72b2c1147",
+      "scope": "local_workflow_equivalent",
+      "passed": 2999,
+      "skipped": 4,
+      "failures": 0,
+      "errors": 0,
+      "junit": {
+        "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-257/release-gate/windows-257-release-gate.xml",
+        "sha256": "0f2e02353f4390f83d39e1bbbdf8b585b1e11a2cc3be3b435df65a3b7e311ed9"
+      },
+      "receipt_manifest": {
+        "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-257/release-gate/receipts.sha256",
+        "sha256": "082fd020b6084ca1007a6165f5f74c00da2ec0e0f06eb8712f880456e0c2b02a"
+      }
+    },
+    "core258_fixture": {
+      "path": "C:/endpoint-platform-wix-build/core-stab03-lab-258/canonical/lab-core258-receipt.json",
+      "sha256": "caf2345eff1b9e958378b68cd2816582e2c4206a642b1bb13b15f2088e3503ae"
+    },
+    "setup_upgrade_provider": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-257/native-lab/setup257-provider-terminal.json",
+      "sha256": "38a7f558d48c4b5eefaf955e0b0616ecbd2aa4c5cd6f23ad3b2e35d3eeb55b83"
+    },
+    "setup_upgrade_guest": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-257/native-lab/guest257-local-accepted.json",
+      "sha256": "d02e35137b6df944b32fea31620fbf73077bf938195d37da4da24f2fbdecbd0c"
+    },
+    "fixture_clock_audit": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-257/native-lab/qga-scope-clock-audit.json",
+      "sha256": "137025236edd487d201ba1811ac9177fa2b6ebf8ece28afa8c60edf7bcaf4e29"
+    },
+    "artifact_http": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-257/native-lab/core258-provider-timed-access.json",
+      "sha256": "90aac87bc2779938eec35e86f3788a43761ddcc856681af0137f381222f4e2d5"
+    },
+    "download_permissions": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-257/native-lab/core258-download-acl217.json",
+      "sha256": "eb8c9a9ef4c319fd14e32d68fb0a562f192f35a88652475527974a4b3073c3bc"
+    },
+    "handoff_journal_fileio": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-257/native-lab/core258-wpr-filtered.json",
+      "sha256": "fe833d8f8e6bd0f1527a4d1ce4c8d8b99140ed0eb8962e710d0a96cd98dd3036"
+    },
+    "native_verdict": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-257/native-lab/native257-verdict.json",
+      "sha256": "280cc7c031e1283031fce6197264c7e7c42542de293ccb8d22a993cf99d5d288"
+    },
+    "native_receipt_manifest": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-257/native-lab/qualification-receipts.sha256",
+      "sha256": "73a56bf6c58b2edb83726a9a824487d6bb0fa791aaba4299d5543820f12d4f58"
+    }
+  },
+  "report": "docs/verification/2026-11-18-stab03-windows-setup257.md",
+  "lab_setup_upgrade": {
+    "source_version": "3.2.253",
+    "os": "Windows 10 build 19045",
+    "provider_status": "applied",
+    "native_exit": 0,
+    "installation_ack": 4,
+    "connected_seconds": 181.267
+  },
+  "lab_core_update_to_3_2_258": {
+    "operation_id": "4c5015cf-11c0-4c09-aace-3230afe85518",
+    "status": "requested",
+    "artifact_http_status": 200,
+    "handoff_journal": "access_denied_on_protected_parent",
+    "pending_file_observed": false,
+    "selector_after": "3.2.257",
+    "repeat_and_rollback": "unverified"
+  }
+}

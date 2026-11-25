@@ -9,9 +9,18 @@ import platform
 import socket
 
 from endpoint_contracts.context import DeviceContextInventoryV1
+from endpoint_contracts.json_types import MAX_JSON_LIST_ITEMS
 
 from .probe import IP_ADDRESS_COMMAND, IP_LINK_COMMAND, LSBLK_COMMAND
 from .stable_keys import bounded_text, disk_stable_key, interface_stable_key
+
+
+_MACHINE_ARCHITECTURES = {
+    "x86_64": "x86_64",
+    "amd64": "x86_64",
+    "aarch64": "aarch64",
+    "arm64": "aarch64",
+}
 
 
 def collect_inventory(probe: object, *, collected_at: datetime | None = None) -> DeviceContextInventoryV1:
@@ -44,7 +53,7 @@ def collect_inventory(probe: object, *, collected_at: datetime | None = None) ->
                 "os_name": _os_value(os_release, "NAME"),
                 "os_version": _os_value(os_release, "VERSION_ID"),
                 "os_build": None,
-                "architecture": "aarch64" if platform.machine().lower() in {"aarch64", "arm64"} else "x86_64",
+                "architecture": _MACHINE_ARCHITECTURES.get(platform.machine().lower()),
             },
             "hardware": hardware,
             "memory": {"total_bytes": _memory_bytes(meminfo), "memory_type": None, "module_count": 0, "modules": []},
@@ -233,4 +242,7 @@ def _interfaces(probe: object, warnings: list[str]) -> list[dict[str, object]]:
             normalized = None
         ipv4, ipv6 = address_map.get(name, ([], []))
         result.append({"name": bounded_text(name, fallback="unknown", limit=64), "stable_key": interface_stable_key(mac=normalized, fallback_name=name), "mac": normalized, "ipv4": ipv4, "ipv6": ipv6, "link_type": "ethernet" if item.get("link_type") == "ether" else "loopback" if item.get("link_type") == "loopback" else "other", "operational_state": "up" if str(item.get("operstate") or "").lower() == "up" else "down" if str(item.get("operstate") or "").lower() == "down" else "unknown"})
-    return result[:64]
+    if len(result) > MAX_JSON_LIST_ITEMS:
+        result.sort(key=lambda item: (not item["ipv4"], not item["ipv6"]))
+        warnings.append("data_truncated")
+    return result[:MAX_JSON_LIST_ITEMS]

@@ -1,0 +1,8 @@
+# ALT command journal durability
+
+Implement the [approved design](../specs/2026-11-19-alt-command-journal-durability-design.md) in the existing stability worktree.
+
+1. Cover the normal ALT runtime path in `pc_agent/tests/runtime/test_command_journal.py`. Exercise real SQLite connections to a temporary database. Observe the connection setting when migration and command mutations begin. The previous code must fail the new durability assertion. Cover a failed write before worker dispatch, an existing journal, the existing non-ALT path and read-only queries.
+2. Configure every ALT command-journal write connection in `pc_agent/runtime/local_state.py` before `BEGIN IMMEDIATE`, including the migration's cleanup. Reuse the transaction path for ordinary writes. Keep the stored schema, journal mode and wire results compatible. Verify the ALT RPM runtime selects this behavior at its normal entry point. Run the journal and lifecycle tests plus the relevant packaging and platform regressions.
+3. Build the next signed ALT candidate from the exact reviewed source using the current native packaging procedure. Verify both RPM signatures, kit manifest, detached signature, hashes and source relationship. Record the candidate locally.
+4. Use the saved, isolated VM259/260 pair with its single authorized card. Measure the previous and candidate journal latency on the same storage configuration. Test interruptions before start, after confirmed execution starts and after result commit before ACK. Check the same command, result and card IDs across the recovery, the absence of duplicate execution, the server snapshot count and the drained outbox. Retain the prior failing .266 evidence and describe any untested boundary in the release record.

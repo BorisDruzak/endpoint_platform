@@ -1,0 +1,195 @@
+{
+  "verified_utc": "2026-11-09T12:23:44.056229+00:00",
+  "version": "3.2.183",
+  "runtime_source": "21fc543af8d4b8b24df83f29a27e4e2eeb86c268",
+  "provider_source": "fd196e78b2c5cef00c86de79ca359147676f8b2f",
+  "scope": "explicit user-authorized three physical domain workstations, not automatic fleet",
+  "report": "docs/verification/2026-11-09-linux183-physical-cohort.md",
+  "hosts": [
+    {
+      "ip": "192.168.101.105",
+      "hostname": "alt-zhkh2-pc1",
+      "hardware_uuid": "6758198d-8aa6-ab1c-ad74-2cf05d70ade7",
+      "device_id": "b4fc3d94-6d91-44ef-acd4-dcf76b823163",
+      "native_event_id": "926b5aef-1df4-4f6a-9e4a-6a768d125d7c",
+      "native_exit": 0,
+      "outer_setup_exit": 0,
+      "native_sequence": 1,
+      "acknowledged": 1,
+      "bootstrap_complete": true,
+      "strict_actual_root_ssh": true,
+      "stopped_core_updater_ssh_seconds": 93.38629538199893,
+      "post_restore_core_stable_seconds": 405.8028183789993,
+      "accepted_sensor_at": "2026-11-09T12:23:25.804429+00:00",
+      "accepted_activity_at": "2026-11-09T12:23:40.801185+00:00",
+      "wss_last_seen_at": "2026-11-09T12:23:30.651111+00:00",
+      "initial_support_revision": 2,
+      "initial_support_expires_at": "2026-11-09T20:09:48.474922Z",
+      "domain_uid": 216607269,
+      "active_domain_session_preserved": true,
+      "domain_keytab_and_sssd_unchanged": true,
+      "original_private4_preserved": null,
+      "rpm_verify_exit": 0,
+      "automatic_start": {
+        "endpoint-agent.service": "enabled",
+        "endpoint-agent-update.path": "enabled",
+        "endpoint-support-access.service": "enabled"
+      },
+      "sqlite_integrity": {
+        "power-events-v1.db": [
+          "ok"
+        ],
+        "security-events-v1.db": [
+          "ok"
+        ]
+      },
+      "effective_policy_version_id": "c6f5ee58-242e-4ac6-a5ea-651624765dde",
+      "installation_mode": "clean_native_install",
+      "new_registration": true
+    },
+    {
+      "ip": "192.168.101.190",
+      "hostname": "alt-a2-pc1",
+      "hardware_uuid": "47c60af3-aa57-7f4a-f824-d45d6423722f",
+      "device_id": "44e17f70-f23c-4c49-ae22-f43a5619258f",
+      "native_event_id": "2b5636ba-d3a7-41da-9812-fcbe3928b5f6",
+      "native_exit": 0,
+      "outer_setup_exit": 0,
+      "native_sequence": 1,
+      "acknowledged": 1,
+      "bootstrap_complete": true,
+      "strict_actual_root_ssh": true,
+      "stopped_core_updater_ssh_seconds": 99.37610170600237,
+      "post_restore_core_stable_seconds": 284.7205267370009,
+      "accepted_sensor_at": "2026-11-09T12:23:32.409438+00:00",
+      "accepted_activity_at": "2026-11-09T12:23:42.422127+00:00",
+      "wss_last_seen_at": "2026-11-09T12:23:32.657528+00:00",
+      "initial_support_revision": 2,
+      "initial_support_expires_at": "2026-11-09T20:11:10.770190Z",
+      "domain_uid": 216611806,
+      "active_domain_session_preserved": true,
+      "domain_keytab_and_sssd_unchanged": true,
+      "original_private4_preserved": null,
+      "rpm_verify_exit": 0,
+      "automatic_start": {
+        "endpoint-agent.service": "enabled",
+        "endpoint-agent-update.path": "enabled",
+        "endpoint-support-access.service": "enabled"
+      },
+      "sqlite_integrity": {
+        "power-events-v1.db": [
+          "ok"
+        ],
+        "security-events-v1.db": [
+          "ok"
+        ]
+      },
+      "effective_policy_version_id": "c6f5ee58-242e-4ac6-a5ea-651624765dde",
+      "installation_mode": "clean_native_install",
+      "new_registration": true
+    },
+    {
+      "ip": "192.168.101.210",
+      "hostname": "alt-arh1-pc1",
+      "hardware_uuid": "61f49bc0-1537-0000-0000-000000000000",
+      "device_id": "596d0328-4272-4e59-b644-539fd7b4b6a5",
+      "native_event_id": "4c046736-6f9a-4863-847a-49fcd345ef41",
+      "native_exit": 0,
+      "outer_setup_exit": 0,
+      "native_sequence": 1,
+      "acknowledged": 1,
+      "bootstrap_complete": true,
+      "strict_actual_root_ssh": true,
+      "stopped_core_updater_ssh_seconds": 113.59023176499977,
+      "post_restore_core_stable_seconds": 196.01132659299765,
+      "accepted_sensor_at": "2026-11-09T12:23:26.12523+00:00",
+      "accepted_activity_at": "2026-11-09T12:23:41.125175+00:00",
+      "wss_last_seen_at": "2026-11-09T12:23:26.898216+00:00",
+      "initial_support_revision": 2,
+      "initial_support_expires_at": "2026-11-09T20:16:04.483799Z",
+      "domain_uid": 216608110,
+      "active_domain_session_preserved": true,
+      "domain_keytab_and_sssd_unchanged": true,
+      "original_private4_preserved": true,
+      "rpm_verify_exit": 0,
+      "automatic_start": {
+        "endpoint-agent.service": "enabled",
+        "endpoint-agent-update.path": "enabled",
+        "endpoint-support-access.service": "enabled"
+      },
+      "sqlite_integrity": {
+        "power-events-v1.db": [
+          "ok"
+        ],
+        "security-events-v1.db": [
+          "ok"
+        ]
+      },
+      "effective_policy_version_id": "41fd4df3-8720-4a6b-8126-c47591a275fb",
+      "installation_mode": "administratively_prepared158_upgrade",
+      "new_registration": false
+    }
+  ],
+  "control_plane": {
+    "observed_utc": "2026-11-09T12:21:08.585707+00:00",
+    "provider_source": "fd196e78b2c5cef00c86de79ca359147676f8b2f",
+    "schema": "0050_linux_enrollment_binding",
+    "health": {
+      "status": "ok",
+      "service": "endpoint-platform",
+      "database": "ok",
+      "version": "0.0.0"
+    },
+    "services": {
+      "endpoint-platform.service": {
+        "MainPID": "334471",
+        "NRestarts": "0",
+        "ActiveState": "active"
+      },
+      "endpoint-platform-worker.service": {
+        "MainPID": "334472",
+        "NRestarts": "0",
+        "ActiveState": "active"
+      },
+      "endpoint-support-exporter.service": {
+        "MainPID": "334584",
+        "NRestarts": "0",
+        "ActiveState": "active"
+      },
+      "endpoint-support-gateway.service": {
+        "MainPID": "24963",
+        "NRestarts": "0",
+        "ActiveState": "active"
+      },
+      "ssh.service": {
+        "MainPID": "889",
+        "NRestarts": "0",
+        "ActiveState": "active"
+      }
+    },
+    "windows_policy12_support_campaign_and_177_bytes_unchanged": true,
+    "linux_native_sources_unchanged": 2,
+    "scoped_linux_campaign": {
+      "id": "2c5ff0c5-fac4-4821-868e-1dadda37c445",
+      "target_platform": "linux",
+      "allowed_cidrs": [
+        "192.168.101.105/32",
+        "192.168.101.190/32"
+      ],
+      "policy": {
+        "policy_id": "linux183-physical-20261109",
+        "enrollment_mode": "auto",
+        "allowed_native_releases": [
+          "f785e4e5-17fd-414b-9474-0d1e24cf2100"
+        ]
+      },
+      "max_uses": 2,
+      "use_count": 2,
+      "expires_at": "2026-11-09T14:05:32.511117+00:00",
+      "revoked_at": null,
+      "disabled_at": null
+    },
+    "new_claims_only_for105190": true,
+    "no_global_linux_fleet_enabled": true
+  }
+}

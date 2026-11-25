@@ -99,7 +99,7 @@ async def test_read_only_step_after_network_step_can_be_queued() -> None:
     })
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     tables = (
-        ServiceClient.__table__, Device.__table__, AuditEvent.__table__,
+        ServiceClient.__table__, Device.metadata.tables["installation_states"], Device.__table__, AuditEvent.__table__,
         ModuleDefinition.__table__, ModuleVersion.__table__,
         EndpointOperation.__table__, ModuleOperationStep.__table__,
     )
@@ -130,7 +130,7 @@ async def test_module_parent_operation_is_idempotent_and_materializes_queued_ste
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     tables = (
         ServiceClient.__table__,
-        Device.__table__,
+        Device.metadata.tables["installation_states"], Device.__table__,
         AuditEvent.__table__,
         ModuleDefinition.__table__,
         ModuleVersion.__table__,
@@ -252,7 +252,7 @@ async def test_module_operation_replay_rejects_a_missing_authoritative_child(
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     tables = (
         ServiceClient.__table__,
-        Device.__table__,
+        Device.metadata.tables["installation_states"], Device.__table__,
         AuditEvent.__table__,
         ModuleDefinition.__table__,
         ModuleVersion.__table__,
@@ -327,7 +327,7 @@ async def test_validated_module_allows_only_an_explicit_lab_parent_operation() -
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     tables = (
         ServiceClient.__table__,
-        Device.__table__,
+        Device.metadata.tables["installation_states"], Device.__table__,
         AuditEvent.__table__,
         ModuleDefinition.__table__,
         ModuleVersion.__table__,
@@ -396,7 +396,7 @@ async def test_module_operation_deadline_expires_each_remaining_child_step() -> 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     tables = (
         ServiceClient.__table__,
-        Device.__table__,
+        Device.metadata.tables["installation_states"], Device.__table__,
         AuditEvent.__table__,
         ModuleDefinition.__table__,
         ModuleVersion.__table__,
@@ -459,6 +459,16 @@ async def test_module_operation_deadline_expires_each_remaining_child_step() -> 
                 AuditEvent.action == "endpoint.module_operation_expired"
             )
         )
+        from endpoint_server.operations.evidence import cleanup_module_step_results_with_backlog
+
+        steps[0].safe_result_json = {"fixture": True}
+        await session.flush()
+        due = operation.completed_at + timedelta(hours=24, seconds=60)
+        batch = await cleanup_module_step_results_with_backlog(session, now=due)
+        assert (batch.scrubbed, batch.oldest_due_age_seconds) == (1, 60)
+        assert steps[0].safe_result_json is None
+        empty = await cleanup_module_step_results_with_backlog(session, now=due)
+        assert (empty.scrubbed, empty.oldest_due_age_seconds) == (0, 0)
     assert operation.status == "expired"
     assert operation.completed_at == operation.deadline_at + timedelta(seconds=1)
     assert [step.status for step in steps] == ["expired", "expired"]

@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+import errno
+import gzip
 import hashlib
 import json
 import os
 import re
 import shutil
 import stat
+import subprocess
 import tarfile
+import tempfile
 import uuid
-from contextlib import contextmanager
+import zlib
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterator
+from typing import Any, BinaryIO, Iterator
 
 
 _SEMVER = re.compile(
@@ -29,6 +34,17 @@ _OPERATION_ID = re.compile(
 )
 _MAX_PENDING_BYTES = 16 * 1024
 _MAX_HISTORY_BYTES = 256 * 1024
+_MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
+_MAX_MEMBER_BYTES = 512 * 1024 * 1024
+_MAX_EXPANDED_BYTES = 2 * 1024 * 1024 * 1024
+_MAX_ARCHIVE_MEMBERS = 1024
+_MAX_METADATA_BYTES = 64 * 1024
+_MAX_MANIFEST_BYTES = 1024 * 1024
+_SPACE_MARGIN_BYTES = 64 * 1024 * 1024
+_OTA_AUTHORIZATIONS = Path("/etc/endpoint-agent/ota-authorizations")
+_PUBLISHER_KEY = Path("/usr/share/endpoint-agent/endpoint-rpm-release.asc")
+_PUBLISHER_KEY_SHA256 = "12175df39caa5a67336aeb002b5c71d3a9d3047961f5ad90cf959650044b456c"
+_PUBLISHER_FINGERPRINT = "BC24B8EE43DBB05A748E11A4343B5DA748370631"
 ROLLBACK_REQUEST_SCHEMA = "endpoint_alt_rollback_request_v1"
 ROLLBACK_REQUEST_NAME = "rollback-request.json"
 PREVIOUS_SELECTOR_NAME = "previous.json"
@@ -40,6 +56,47 @@ class _Manifest:
     version: str
     source_revision: str
     files: dict[str, tuple[str, int]]
+
+
+def preflight_alt_update(
+    install_root: Path, data_root: Path, pending_path: Path
+) -> tuple[bool, str]:
+    """Check an intact pending update while the running Core can report failure."""
+    try:
+        with _pinned_updates_dir(data_root) as (updates, updates_fd):
+            payload = _load_pending(
+                data_root, pending_path, updates=updates, updates_fd=updates_fd
+            )
+    except (OSError, ValueError):
+        # The existing recovery path repairs invalid update state after stopping Core.
+        return True, "pending state requires worker validation"
+    try:
+        _require_update_space(data_root / "updates", _MAX_HISTORY_BYTES, 4)
+        source_revision = _authorized_source_revision(payload)
+        with _verified_artifact(install_root, data_root, payload) as artifact:
+            manifest, expanded, inodes = _inspect_archive(artifact, payload["version"])
+            if manifest.source_revision != source_revision:
+                raise ValueError("ALT OTA authorization source mismatch")
+            _require_update_space(install_root / "versions" / "_alt_update_staging", expanded, inodes)
+    except (OSError, ValueError, EOFError, tarfile.TarError, zlib.error) as exc:
+        reason = (
+            "alt_update_no_space"
+            if isinstance(exc, OSError) and exc.errno == errno.ENOSPC
+            else "invalid_alt_archive"
+        )
+        try:
+            with _pinned_updates_dir(data_root) as (updates, updates_fd):
+                current = _load_pending(
+                    data_root, pending_path, updates=updates, updates_fd=updates_fd
+                )
+                if current == payload:
+                    _record_failed_update(data_root, pending_path, payload, reason=reason)
+        except (OSError, ValueError):
+            # If the state filesystem cannot record the outcome, preserve the
+            # running Core and let systemd report the rejection.
+            pass
+        return False, reason
+    return True, "ALT archive and staging space checked"
 
 
 def apply_alt_update(
@@ -54,12 +111,17 @@ def apply_alt_update(
     payload: dict[str, Any] | None = None
     committed = False
     recoverable_target = False
+    retained = ExitStack()
     try:
         with _pinned_updates_dir(data_root, repair=True) as (updates, updates_fd):
             payload = _load_pending(
                 data_root, pending_path, updates=updates, updates_fd=updates_fd
             )
-        artifact_path = _verified_artifact(data_root, payload)
+        _require_update_space(data_root / "updates", _MAX_HISTORY_BYTES, 4)
+        source_revision = _authorized_source_revision(payload)
+        artifact_path = retained.enter_context(
+            _verified_artifact(install_root, data_root, payload)
+        )
         current = _load_selector(install_root / "current.json", root_authority=True)
         _verify_selected_release(install_root, current)
         staging_parent = install_root / "versions" / "_alt_update_staging"
@@ -68,6 +130,7 @@ def apply_alt_update(
             artifact_path=artifact_path,
             staging=staging,
             expected_version=payload["version"],
+            expected_source_revision=source_revision,
         )
         target = install_root / "versions" / manifest.version
         if target.exists() or target.is_symlink():
@@ -95,6 +158,12 @@ def apply_alt_update(
         _fsync_directory(target.parent)
         _verify_existing_release(target, manifest)
         candidate = _selector_for_manifest(manifest)
+        with _pinned_updates_dir(data_root) as (updates, updates_fd):
+            observed = _load_pending(
+                data_root, pending_path, updates=updates, updates_fd=updates_fd
+            )
+        if observed != payload:
+            return False, "alt_pending_changed"
         previous_path = install_root / PREVIOUS_SELECTOR_NAME
         if current == candidate:
             # Replay after current.json was already committed.  The distinct
@@ -132,14 +201,18 @@ def apply_alt_update(
                     "version": manifest.version,
                 },
             )
-            with _pinned_updates_dir(data_root, repair=True) as (updates, updates_fd):
-                _unlink_update_leaf(updates, updates_fd, "pending_alt_update.json")
+            with _pinned_updates_dir(data_root) as (updates, updates_fd):
+                observed = _load_pending(
+                    data_root, pending_path, updates=updates, updates_fd=updates_fd
+                )
+                if observed == payload:
+                    _unlink_update_leaf(updates, updates_fd, "pending_alt_update.json")
         except (OSError, ValueError, json.JSONDecodeError):
             # current.json is the commit point.  Leave the pending request for
             # an idempotent replay instead of reporting an active build failed.
             return True, manifest.version
         return True, manifest.version
-    except (OSError, ValueError, json.JSONDecodeError, tarfile.TarError) as exc:
+    except (OSError, ValueError, EOFError, tarfile.TarError, zlib.error) as exc:
         if committed:
             return True, str(payload["version"] if payload is not None else "committed")
         if recoverable_target:
@@ -147,22 +220,16 @@ def apply_alt_update(
             # selector publication. Preserve the fixed pending request so the
             # root worker can fsync/verify and finish on its next activation.
             return False, type(exc).__name__
-        if payload is not None:
-            _append_history(
-                data_root,
-                {
-                    "operation_id": payload["operation_id"],
-                    "success": False,
-                    "version": payload["version"],
-                },
+        try:
+            _record_failed_update(
+                data_root, pending_path, payload, reason="invalid_alt_pending_update"
             )
-        _archive_failed_pending(
-            data_root,
-            pending_path,
-            reason="invalid_alt_pending_update",
-        )
+        except (OSError, ValueError):
+            # Preserve the pending operation if the failure cannot be recorded.
+            pass
         return False, type(exc).__name__
     finally:
+        retained.close()
         try:
             if "staging" in locals() and staging.exists():
                 shutil.rmtree(staging)
@@ -354,7 +421,7 @@ def _load_pending(
         or payload["requested_by"] != "gateway"
         or not isinstance(payload["requested_reason"], (str, type(None)))
         or not isinstance(payload["artifact_path"], str)
-        or not isinstance(payload["size"], int)
+        or type(payload["size"]) is not int
         or payload["size"] <= 0
         or not isinstance(payload["sha256"], str)
         or not _SHA256.fullmatch(payload["sha256"])
@@ -382,24 +449,148 @@ def _validate_service_state_file(data_root: Path, details: os.stat_result) -> No
         raise ValueError("unsafe ALT service state metadata")
 
 
-def _verified_artifact(data_root: Path, payload: dict[str, Any]) -> Path:
+def _authorized_source_revision(payload: dict[str, Any]) -> str:
+    """Only locally installed, publisher-signed release metadata grants OTA authority."""
+    digest = payload["sha256"]
+    manifest = _OTA_AUTHORIZATIONS / f"{digest}.json"
+    signature = manifest.with_suffix(".json.sig")
+    manifest_bytes = _read_authority_file(manifest, 4096)
+    signature_bytes = _read_authority_file(signature, 16384)
+    key_bytes = _read_authority_file(_PUBLISHER_KEY, 16384)
+    if hashlib.sha256(key_bytes).hexdigest() != _PUBLISHER_KEY_SHA256:
+        raise ValueError("ALT OTA publisher key does not match pinned key")
+    _verify_publisher_signature(manifest_bytes, signature_bytes, key_bytes)
+    authorization = _load_json_no_duplicates(manifest_bytes.decode("utf-8"))
+    if not isinstance(authorization, dict):
+        raise ValueError("invalid ALT OTA authorization")
+    source_revision = authorization.get("source_revision")
+    if not isinstance(source_revision, str) or not re.fullmatch(r"[0-9a-f]{40}", source_revision):
+        raise ValueError("invalid ALT OTA authorization source")
+    expected = {
+        "schema_version": "endpoint_alt_ota_v1",
+        "version": payload["version"],
+        "source_revision": source_revision,
+        "sha256": digest,
+        "size": payload["size"],
+        "target": "linux_amd64",
+        "channel": "canary",
+        "archive_type": "tar.gz",
+    }
+    if authorization != expected or type(authorization["size"]) is not int:
+        raise ValueError("ALT OTA authorization does not match pending release")
+    return source_revision
+
+
+def _validate_authority_file(path: Path, *, directory: bool = False) -> os.stat_result:
+    details = path.lstat()
+    check_type = stat.S_ISDIR if directory else stat.S_ISREG
+    if (not check_type(details.st_mode) or details.st_uid != 0 or details.st_gid != 0
+            or details.st_mode & 0o022 or (not directory and details.st_nlink != 1)):
+        raise ValueError("unsafe ALT OTA trust path")
+    return details
+
+
+def _read_authority_file(path: Path, limit: int) -> bytes:
+    for directory in reversed(path.parents):
+        _validate_authority_file(directory, directory=True)
+    if not 0 < _validate_authority_file(path).st_size <= limit:
+        raise ValueError("ALT OTA trust file exceeds size limit")
+    with path.open("rb") as stream:
+        content = stream.read(limit + 1)
+    if not 0 < len(content) <= limit:
+        raise ValueError("ALT OTA trust file exceeds size limit")
+    return content
+
+
+def _verify_publisher_signature(manifest: bytes, signature: bytes, key: bytes) -> None:
+    with tempfile.TemporaryDirectory(prefix="endpoint-ota-trust-") as directory:
+        home = Path(directory)
+        key_path, manifest_path, signature_path = (
+            home / "publisher.asc", home / "release.json", home / "release.json.sig"
+        )
+        key_path.write_bytes(key)
+        manifest_path.write_bytes(manifest)
+        signature_path.write_bytes(signature)
+        gpg = ["/usr/bin/gpg", "--no-options", "--homedir", directory, "--batch"]
+        env = {"PATH": "/usr/bin:/bin", "HOME": directory, "LC_ALL": "C"}
+        try:
+            subprocess.run(
+                [*gpg, "--import", str(key_path)],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=10, check=True, env=env,
+            )
+            status = subprocess.run(
+                [*gpg, "--no-auto-key-retrieve", "--status-fd", "1",
+                 "--verify", str(signature_path), str(manifest_path)],
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                timeout=10, check=True, env=env,
+            ).stdout.decode("ascii", errors="replace")
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise ValueError("ALT OTA signature verification failed") from exc
+    signatures = [
+        line.split() for line in status.splitlines() if line.startswith("[GNUPG:] VALIDSIG ")
+    ]
+    if (len(signatures) != 1 or len(signatures[0]) < 11
+            or signatures[0][2] != _PUBLISHER_FINGERPRINT
+            or signatures[0][9] not in {"8", "9", "10"} or signatures[0][10] != "00"):
+        raise ValueError("ALT OTA signature does not match the pinned publisher")
+
+
+@contextmanager
+def _verified_artifact(
+    install_root: Path, data_root: Path, payload: dict[str, Any]
+) -> Iterator[BinaryIO]:
+    """Copy the fixed download into an inaccessible directory before using it."""
+    if payload["size"] > _MAX_ARCHIVE_BYTES:
+        raise ValueError("ALT compressed archive exceeds limit")
     downloads = data_root / "updates" / "downloads"
     artifact = Path(payload["artifact_path"])
-    try:
-        artifact.relative_to(downloads)
-    except ValueError as exc:
-        raise ValueError("artifact is outside ALT downloads directory") from exc
-    if artifact.is_symlink() or not artifact.is_file():
-        raise ValueError("artifact is not a regular file")
-    digest = hashlib.sha256()
-    size = 0
-    with artifact.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            size += len(chunk)
-            digest.update(chunk)
-    if size != payload["size"] or digest.hexdigest() != payload["sha256"]:
-        raise ValueError("artifact digest mismatch")
-    return artifact
+    if artifact.parent != downloads or artifact.name in {"", ".", ".."}:
+        raise ValueError("artifact is outside the ALT download location")
+    versions = install_root / "versions"
+    _validate_directory_metadata(versions, expected_mode=0o755, root_authority=True)
+    _require_update_space(versions, payload["size"], 2)
+    with tempfile.TemporaryFile(dir=versions) as retained:
+        with _open_alt_download(data_root, artifact) as source:
+            digest = hashlib.sha256()
+            size = 0
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                size += len(chunk)
+                if size > payload["size"]:
+                    raise ValueError("ALT compressed archive exceeds declared size")
+                digest.update(chunk)
+                retained.write(chunk)
+            if size != payload["size"] or digest.hexdigest() != payload["sha256"]:
+                raise ValueError("artifact digest mismatch")
+        retained.flush()
+        yield retained
+
+
+@contextmanager
+def _open_alt_download(data_root: Path, artifact: Path) -> Iterator[BinaryIO]:
+    if os.name == "nt":
+        if not artifact.is_file() or any(
+            path.is_symlink() for path in (artifact, artifact.parent, artifact.parent.parent)
+        ):
+            raise ValueError("unsafe ALT download path")
+        with artifact.open("rb") as source:
+            yield source
+        return
+    with _pinned_updates_dir(data_root) as (_, updates_fd):
+        parent = os.open(
+            "downloads", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=updates_fd
+        )
+        try:
+            leaf = os.open(
+                artifact.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent
+            )
+            with os.fdopen(leaf, "rb") as source:
+                details = os.fstat(source.fileno())
+                if not stat.S_ISREG(details.st_mode) or details.st_nlink != 1:
+                    raise ValueError("unsafe ALT download")
+                yield source
+        finally:
+            os.close(parent)
 
 
 def _load_selector(path: Path, *, root_authority: bool = False) -> dict[str, Any]:
@@ -420,55 +611,176 @@ def _load_optional_selector(
     return _load_selector(path, root_authority=root_authority)
 
 
+class _BoundedTarReader:
+    """Count expanded framing bytes and cap individual parser reads."""
+
+    def __init__(self, stream: BinaryIO) -> None:
+        self.stream = stream
+        self.remaining = _MAX_EXPANDED_BYTES + _MAX_ARCHIVE_MEMBERS * (_MAX_METADATA_BYTES + 2048)
+
+    def read(self, size: int) -> bytes:
+        if not 0 <= size <= 1024 * 1024:
+            raise ValueError("ALT archive parser read exceeds limit")
+        chunk = self.stream.read(min(size, self.remaining + 1))
+        self.remaining -= len(chunk)
+        if self.remaining < 0:
+            raise ValueError("ALT archive expanded stream exceeds limit")
+        return chunk
+
+
+class _BoundedTarInfo(tarfile.TarInfo):
+    def _proc_member(self, archive):
+        if self.type in {tarfile.GNUTYPE_SPARSE, tarfile.XGLTYPE}:
+            raise ValueError("unsupported ALT archive metadata type")
+        if self.type not in {
+            tarfile.XHDTYPE, tarfile.SOLARIS_XHDTYPE,
+            tarfile.GNUTYPE_LONGNAME, tarfile.GNUTYPE_LONGLINK,
+        }:
+            return super()._proc_member(archive)
+        depth = getattr(archive, "_alt_metadata_depth", 0)
+        if depth >= 4 or not 0 < self.size <= _MAX_METADATA_BYTES:
+            raise ValueError("ALT archive metadata exceeds limit")
+        archive._alt_metadata_depth = depth + 1
+        try:
+            return super()._proc_member(archive)
+        finally:
+            archive._alt_metadata_depth = depth
+
+    def _reject_sparse(self, *args):
+        raise ValueError("ALT sparse archive member is unsupported")
+
+    _proc_gnusparse_00 = _reject_sparse
+    _proc_gnusparse_01 = _reject_sparse
+    _proc_gnusparse_10 = _reject_sparse
+
+
+@contextmanager
+def _read_archive(artifact: BinaryIO | Path) -> Iterator[tarfile.TarFile]:
+    if isinstance(artifact, Path):
+        compressed = gzip.open(artifact, "rb")
+    else:
+        artifact.seek(0)
+        compressed = gzip.GzipFile(fileobj=artifact, mode="rb")
+    with compressed:
+        with tarfile.open(
+            fileobj=_BoundedTarReader(compressed), mode="r|", tarinfo=_BoundedTarInfo
+        ) as archive:
+            yield archive
+
+
+def _archive_members(
+    archive: tarfile.TarFile, *, expanded_limit: int | None = None
+) -> Iterator[tuple[str, tarfile.TarInfo]]:
+    budget = _MAX_EXPANDED_BYTES if expanded_limit is None else expanded_limit
+    seen = set()
+    expanded = 0
+    for member in archive:
+        name = _safe_member_name(member.name)
+        if name in seen or len(seen) >= _MAX_ARCHIVE_MEMBERS:
+            raise ValueError("duplicate ALT archive member or member count exceeds limit")
+        seen.add(name)
+        if member.isdir():
+            if member.size != 0 or stat.S_IMODE(member.mode) != 0o755:
+                raise ValueError("unsafe ALT archive directory metadata")
+        elif not member.isfile() or member.sparse is not None:
+            raise ValueError("unsafe ALT archive member")
+        else:
+            limit = _MAX_MANIFEST_BYTES if name == "manifest.json" else _MAX_MEMBER_BYTES
+            if not 0 <= member.size <= limit:
+                raise ValueError("ALT archive member exceeds size limit")
+            expanded += member.size
+            if expanded > budget:
+                raise ValueError("ALT archive expanded payload exceeds limit")
+        yield name, member
+
+
+def _inspect_archive(artifact_path: BinaryIO | Path, expected_version: str) -> tuple[_Manifest, int, int]:
+    files = {}
+    directories = set()
+    manifest = None
+    expanded = 0
+    with _read_archive(artifact_path) as archive:
+        for name, member in _archive_members(archive):
+            directories.update(parent.as_posix() for parent in PurePosixPath(name).parents if parent.parts)
+            if member.isdir():
+                directories.add(name)
+                continue
+            expanded += member.size
+            if name == "manifest.json":
+                if stat.S_IMODE(member.mode) != 0o644:
+                    raise ValueError("unsafe ALT archive manifest mode")
+                stream = archive.extractfile(member)
+                if stream is None:
+                    raise ValueError("unreadable ALT manifest")
+                with stream:
+                    manifest = _parse_manifest(stream.read(), expected_version=expected_version)
+            else:
+                files[name] = (_member_sha256(archive, member), stat.S_IMODE(member.mode))
+    if manifest is None or files != manifest.files or directories.intersection(files):
+        raise ValueError("ALT manifest does not match archive")
+    _validate_release_shape(set(files))
+    _validate_payload_modes(manifest.files)
+    return manifest, expanded, len(directories) + len(files) + 1
+
+
+def _require_update_space(path: Path, expanded: int, inodes: int) -> None:
+    while not path.exists():
+        path = path.parent
+    if hasattr(os, "statvfs"):
+        stats = os.statvfs(path)
+        block = stats.f_frsize or stats.f_bsize
+        required_bytes = expanded + inodes * block + _SPACE_MARGIN_BYTES
+        if stats.f_bavail * block < required_bytes or (stats.f_files and stats.f_favail < inodes + 16):
+            raise OSError(errno.ENOSPC, "ALT update allocation unavailable")
+    elif shutil.disk_usage(path).free < expanded + _SPACE_MARGIN_BYTES:
+        raise OSError(errno.ENOSPC, "ALT update allocation unavailable")
+
+
 def _extract_and_validate(
-    *, artifact_path: Path, staging: Path, expected_version: str
+    *, artifact_path: BinaryIO | Path, staging: Path, expected_version: str,
+    expected_source_revision: str | None = None,
 ) -> _Manifest:
+    manifest, expanded, inodes = _inspect_archive(artifact_path, expected_version)
+    if expected_source_revision is not None and manifest.source_revision != expected_source_revision:
+        raise ValueError("ALT OTA authorization source mismatch")
+    _require_update_space(staging.parent, expanded, inodes)
     if staging.exists() or staging.is_symlink():
         raise ValueError("unsafe ALT staging path")
     staging.mkdir(parents=True, mode=0o700)
-    with tarfile.open(artifact_path, "r:gz") as archive:
-        members = archive.getmembers()
-        if not members or len(members) > 1024:
-            raise ValueError("invalid ALT archive member count")
-        regular: dict[str, tarfile.TarInfo] = {}
-        for member in members:
-            name = _safe_member_name(member.name)
+    extracted = set()
+    with _read_archive(artifact_path) as archive:
+        for name, member in _archive_members(archive, expanded_limit=expanded):
             if member.isdir():
-                if stat.S_IMODE(member.mode) != 0o755:
-                    raise ValueError("unsafe ALT archive directory mode")
+                if name in manifest.files or name == "manifest.json":
+                    raise ValueError("ALT archive file changed to a directory")
                 continue
-            if not member.isfile() or name in regular:
-                raise ValueError("unsafe ALT archive member")
-            regular[name] = member
-        manifest_member = regular.get("manifest.json")
-        if (
-            manifest_member is None
-            or manifest_member.size > 1024 * 1024
-            or stat.S_IMODE(manifest_member.mode) != 0o644
-        ):
-            raise ValueError("missing ALT manifest")
-        stream = archive.extractfile(manifest_member)
-        if stream is None:
-            raise ValueError("unreadable ALT manifest")
-        manifest = _parse_manifest(stream.read(), expected_version=expected_version)
-        actual = {
-            name: (_member_sha256(archive, member), stat.S_IMODE(member.mode))
-            for name, member in regular.items()
-            if name != "manifest.json"
-        }
-        if actual != manifest.files:
-            raise ValueError("ALT manifest does not match archive")
-        _validate_release_shape(set(actual))
-        _validate_payload_modes(manifest.files)
-        for name, member in regular.items():
-            destination = staging.joinpath(*PurePosixPath(name).parts)
-            destination.parent.mkdir(parents=True, exist_ok=True)
+            mode = stat.S_IMODE(member.mode)
             source = archive.extractfile(member)
             if source is None:
                 raise ValueError("unreadable ALT archive member")
-            with destination.open("wb") as output:
-                shutil.copyfileobj(source, output)
-            os.chmod(destination, stat.S_IMODE(member.mode))
+            destination = staging.joinpath(*PurePosixPath(name).parts)
+            with source:
+                if name == "manifest.json":
+                    raw = source.read()
+                    if mode != 0o644 or _parse_manifest(raw, expected_version=expected_version) != manifest:
+                        raise ValueError("ALT manifest changed before extraction")
+                    destination.write_bytes(raw)
+                else:
+                    expected = manifest.files.get(name)
+                    if expected is None or expected[1] != mode:
+                        raise ValueError("ALT archive file or mode changed before extraction")
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    digest = hashlib.sha256()
+                    with destination.open("xb") as output:
+                        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                            digest.update(chunk)
+                            output.write(chunk)
+                    if digest.hexdigest() != expected[0]:
+                        raise ValueError("ALT archive payload changed before extraction")
+            os.chmod(destination, mode)
+            extracted.add(name)
+    if extracted != {"manifest.json", *manifest.files}:
+        raise ValueError("ALT archive file set changed before extraction")
     return manifest
 
 
@@ -535,10 +847,14 @@ def _parse_manifest(raw: bytes, *, expected_version: str) -> _Manifest:
 
 
 def _safe_member_name(value: str) -> str:
-    if not isinstance(value, str) or not value or "\\" in value:
+    if (not isinstance(value, str) or not value or len(value) > 1024
+            or "\\" in value or ":" in value
+            or any(len(part) > 255 for part in value.split("/"))):
         raise ValueError("unsafe ALT archive path")
     path = PurePosixPath(value)
     if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+        raise ValueError("unsafe ALT archive path")
+    if len(path.parts) > 16 or str(path) != value.rstrip("/"):
         raise ValueError("unsafe ALT archive path")
     return str(path)
 
@@ -548,8 +864,9 @@ def _member_sha256(archive: tarfile.TarFile, member: tarfile.TarInfo) -> str:
     if source is None:
         raise ValueError("unreadable ALT archive member")
     digest = hashlib.sha256()
-    for chunk in iter(lambda: source.read(1024 * 1024), b""):
-        digest.update(chunk)
+    with source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
     return digest.hexdigest()
 
 
@@ -794,6 +1111,21 @@ def _append_history(data_root: Path, entry: dict[str, object]) -> None:
         _write_update_json(updates, updates_fd, "update_history.json", [*history[-99:], entry])
 
 
+def _record_failed_update(
+    data_root: Path, pending_path: Path, payload: dict[str, Any] | None, *, reason: str
+) -> None:
+    if payload is not None:
+        _append_history(
+            data_root,
+            {
+                "operation_id": payload["operation_id"],
+                "success": False,
+                "version": payload["version"],
+            },
+        )
+    _archive_failed_pending(data_root, pending_path, reason=reason)
+
+
 def _archive_failed_pending(
     data_root: Path, pending_path: Path, *, reason: str
 ) -> None:
@@ -1010,6 +1342,11 @@ def _write_update_json(
         view = memoryview(serialized)
         while view:
             view = view[os.write(descriptor, view) :]
+        # Publish service-readable state in the same atomic transaction as
+        # its bytes. A killed root worker cannot strand a private history file.
+        if os.geteuid() == 0:
+            owner = os.fstat(updates_fd)
+            os.fchown(descriptor, owner.st_uid, owner.st_gid)
         os.fchmod(descriptor, 0o600)
         os.fsync(descriptor)
         os.close(descriptor)

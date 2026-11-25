@@ -11,7 +11,9 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from endpoint_contracts.activity import ActivityObservationV1
 from endpoint_server.activity.analytics_models import ActivityDaily
 from endpoint_server.activity.analytics_policy import AnalyticsPolicy
-from endpoint_server.activity.analytics_store import rebuild_daily, record_observation
+from endpoint_server.activity.analytics_store import (
+    analytics_backlog_age, rebuild_daily, record_observation, retain_analytics_with_backlog,
+)
 from endpoint_server.db.models import Device
 from tests.server.test_migrations import empty_database_url, _alembic_config
 
@@ -50,7 +52,11 @@ def test_migrated_postgresql_serializes_accounts_and_rollup_dirty_marks(empty_da
                     await session.commit()
 
             await asyncio.gather(write(0, 0), write(1, 0))
+            async with factory() as session:
+                first = await session.scalar(select(ActivityDaily.dirty_since).limit(1))
             await asyncio.gather(write(0, 30), write(1, 30))
+            async with factory() as session:
+                assert await analytics_backlog_age(session, policy=policy, now=first + timedelta(seconds=60)) == 60
             await rollup()
             await asyncio.gather(write(0, 45), rollup())
             await rollup()
@@ -59,9 +65,14 @@ def test_migrated_postgresql_serializes_accounts_and_rollup_dirty_marks(empty_da
                 assert len(rows) == 2
                 for row in rows:
                     assert not row.dirty
+                    assert row.dirty_since is None
                     assert row.payload['seconds']['ACTIVE'] == 45
                     assert row.payload['overlap_seconds'] == 30
                     assert sum(app['seconds'] for app in row.payload['applications']) == 45
+                retained = await retain_analytics_with_backlog(session, policy=policy, now=start + timedelta(days=92))
+                assert retained.detail_deleted > 0
+                assert retained.oldest_due_age_seconds == timedelta(days=77, hours=12).total_seconds()
+                await session.commit()
         finally:
             await engine.dispose()
 

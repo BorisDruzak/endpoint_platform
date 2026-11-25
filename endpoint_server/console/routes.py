@@ -15,6 +15,7 @@ from endpoint_contracts.capabilities import MODULE_CAPABILITY_REGISTRY
 from endpoint_contracts.updates import SemanticVersionV1
 
 from endpoint_contracts.context import (
+    ServerRoleV1,
     BaselineSectionsV1, HealthSectionsV1, InventorySectionsV1,
     NetworkSectionsV1, SessionSectionsV1,
 )
@@ -28,6 +29,7 @@ from endpoint_server.auth.csrf import csrf_token_for_session
 from endpoint_server.audit.request_ids import audit_request_id
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.console.fleet import CONTEXT_TTL, dashboard_fleet, device_presence, list_fleet
+from endpoint_server.console.component_evidence import DeviceComponentEvidence, device_component_evidence, updater_evidence
 from endpoint_server.power.projection import PowerSummary, power_summary, enrich_power_summaries
 from endpoint_server.context.diff import compare_snapshots
 from endpoint_server.context.models import ContextCollection, ContextCurrent, ContextSnapshot, DeviceEvent
@@ -164,6 +166,8 @@ class ConsoleFleetDevice(BaseModel):
     device_identifier: str
     display_name: str
     online: bool
+    installation_state: Literal["installed", "removed", "unknown"] = "unknown"
+    installation_conflict: bool = False
     last_seen_at: datetime | None
     agent_version: str | None
     launcher_version: str | None
@@ -172,6 +176,7 @@ class ConsoleFleetDevice(BaseModel):
     platform: str | None
     os_name: str | None
     os_version: str | None
+    server_role: ServerRoleV1 | None = None
     cpu_model: str | None
     ram_bytes: int | None
     current_user: str | None
@@ -201,12 +206,15 @@ class ConsoleDeviceHeader(BaseModel):
     os_version: str | None
     current_user: str | None
     online: bool
+    installation_state: Literal["installed", "removed", "unknown"] = "unknown"
+    installation_conflict: bool = False
     last_seen_at: datetime | None
     agent_version: str | None
     launcher_version: str | None
     core_newer_than_foundation: bool
     power: PowerSummary | None = None
     last_activity_observed_at: datetime | None = None
+    component_evidence: DeviceComponentEvidence | None = None
 
 
 class ConsoleCurrentSnapshot(BaseModel):
@@ -397,18 +405,10 @@ async def console_enrollment_request_detail(
         record = await session.scalar(select(EnrollmentRequest).where(EnrollmentRequest.id == request_id))
         if record is None:
             raise HTTPException(status_code=404, detail="Запрос регистрации не найден")
-        return ConsoleEnrollmentDetailResponse.model_validate({"data": {
-            "id": str(record.id), "status": record.status,
-            "reason": record.decision_reason, "platform": record.platform,
-            "hostname": record.hostname, "manufacturer": record.manufacturer,
-            "model": record.model, "serial": record.serial,
-            "macs": record.macs, "source_address": record.source_address,
-            "installer_release_id": record.installer_release_id,
-            "selected_campaign_id": str(record.selected_campaign_id) if record.selected_campaign_id else None,
-            "device_id": str(record.device_id) if record.device_id else None,
-            "created_at": record.created_at, "updated_at": record.updated_at,
-            "expires_at": record.expires_at, "decided_at": record.decided_at,
-        }})
+        return ConsoleEnrollmentDetailResponse(data=ConsoleEnrollmentDetail(
+            **project_enrollment_request(record).model_dump(), device_id=record.device_id,
+            updated_at=record.updated_at, decided_at=record.decided_at,
+        ))
 
 
 @router.post("/api/admin/console/devices/{device_id}/context/collections", status_code=201, response_model=ConsoleCollectionResponse)
@@ -512,6 +512,7 @@ async def console_device_detail(
     device_id: UUID,
     _: Annotated[AdminPrincipal, Depends(require_admin)],
     include_power: bool = False,
+    include_components: bool = False,
 ) -> ConsoleDeviceDetailResponse:
     async with request.app.state.session_provider() as session:
         device = await session.scalar(select(Device).where(Device.id == device_id, Device.retired_at.is_(None)))
@@ -530,7 +531,7 @@ async def console_device_detail(
         )).all()
         snapshots = []
         for row, current in rows:
-            safe = snapshot_projection(row)
+            safe = snapshot_projection(row, include_server_health=True)
             if safe is not None:
                 safe["last_observed_at"] = current.last_observed_at or current.updated_at
                 snapshots.append(safe)
@@ -541,6 +542,19 @@ async def console_device_detail(
                 collected = collected.replace(tzinfo=UTC)
             snapshot["fresh"] = isinstance(collected, datetime) and now - CONTEXT_TTL <= collected <= now
         presence = await device_presence(session, device_id)
+        if include_components:
+            evidence = await device_component_evidence(session, device_id, now)
+            health_snapshot = next((item for item in snapshots if item["profile"] == "health_v1"), None)
+            if health_snapshot is not None:
+                evidence.updater = updater_evidence(
+                    HealthSectionsV1.model_validate(health_snapshot["sections"]), health_snapshot["collected_at"], now,
+                )
+            presence["component_evidence"] = evidence
+        from endpoint_server.installation_lifecycle.service import projection_data, connection_conflicts_with_removal
+        installation = await projection_data(session, device_id)
+        presence["installation_state"] = installation["state"]
+        presence["installation_conflict"] = connection_conflicts_with_removal(
+            installation["state"], presence["last_seen_at"], installation["received_at"])
         if include_power:
             presence['power'] = await power_summary(
                 session, device_id, online=presence['online'], last_seen_at=presence['last_seen_at'],
@@ -716,7 +730,7 @@ async def console_context_history(
             .order_by(ContextSnapshot.collected_at.desc(), ContextSnapshot.id.desc())
             .limit(limit + 1).offset(offset))).all()
     now = datetime.now(UTC)
-    safe = [snapshot_projection(row) for row in rows[:limit]]
+    safe = [snapshot_projection(row, include_server_health=True) for row in rows[:limit]]
     return ConsoleContextHistoryPage(
         data=[ConsoleCurrentSnapshot.model_validate({
             **item,

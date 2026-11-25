@@ -96,6 +96,8 @@ class HttpPullGatewayTransport:
         self._session: aiohttp.ClientSession | Any | None = None
         self._inbound_sequence = 0
 
+    sequential_command_polling = True
+
     async def connect(self, hello: AgentHelloV1) -> GatewayHelloV1:
         """Open the TLS pull session; HTTP-pull has no controller hello endpoint."""
         validate_endpoint_origin(self._endpoint_origin)
@@ -201,6 +203,10 @@ class ClassifiedGatewayTransport:
     async def connect(self, hello: AgentHelloV1) -> GatewayHelloV1:
         return await self._call(lambda: self._transport.connect(hello))
 
+    @property
+    def sequential_command_polling(self) -> bool:
+        return getattr(self._transport, "sequential_command_polling", False)
+
     async def receive(self) -> GatewayInboundV1:
         try:
             return await self._call(self._transport.receive)
@@ -210,8 +216,8 @@ class ClassifiedGatewayTransport:
     async def send_ack(self, ack: AgentCommandAckV1) -> None:
         await self._call(lambda: self._transport.send_ack(ack))
 
-    async def send_result(self, result: AgentResultV1) -> None:
-        await self._call(lambda: self._transport.send_result(result))
+    async def send_result(self, result: AgentResultV1) -> int | None:
+        return await self._call(lambda: self._transport.send_result(result))
 
     async def send_heartbeat(self, heartbeat: AgentHeartbeatV1) -> None:
         await self._call(lambda: self._transport.send_heartbeat(heartbeat))

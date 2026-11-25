@@ -70,6 +70,12 @@ async def test_separate_cups_scope_delivers_once_and_records_outcome(session_pro
         )
         service = CommandService(session_provider)
         sent = []
+        assert await service.scheduled_pending_devices({device_id: {CUPS_TEST_PAGE_SUBMIT}}) == (device_id,)
+        for capabilities, platform in ((set(), "linux_amd64"), ({CUPS_TEST_PAGE_SUBMIT}, "windows_amd64")):
+            assert not await service.deliver_next(
+                device_id, presence.session_id, sent.append, allowed_capabilities=capabilities, agent_platform=platform
+            )
+        assert sent == []
         assert await service.deliver_next(device_id, presence.session_id, sent.append,
                                           allowed_capabilities={CUPS_TEST_PAGE_SUBMIT}, agent_platform="linux_amd64")
         await service.record_ack(device_id=device_id, session_id=presence.session_id, acknowledgement=AgentCommandAckV1(

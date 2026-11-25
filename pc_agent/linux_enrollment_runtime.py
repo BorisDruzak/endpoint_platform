@@ -21,8 +21,9 @@ from pc_agent.enrollment_bootstrap import (
 )
 
 
-PRODUCTION_ENDPOINT_ORIGIN = "https://endpoint.sosnadmin.local"
-STAGING_ENDPOINT_ORIGIN = "https://endpoint-staging.sosnadmin.local"
+from pc_agent.platform.linux.enrollment_origin import (
+    PRODUCTION_ENDPOINT_ORIGIN, STAGING_ENDPOINT_ORIGIN, configured_endpoint_origin,
+)
 SYSTEMD_CONFIG_CREDENTIAL_NAME = "endpoint-agent-config"
 SYSTEMD_CA_CREDENTIAL_NAME = "endpoint-agent-ca"
 _CONFIGURED_CA_PATH = "/etc/endpoint-agent/ca.crt"
@@ -40,23 +41,6 @@ def _text(value: object, *, name: str) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError(f"{name} must be a non-empty string")
     return value
-
-
-def configured_endpoint_origin(
-    environment: Mapping[str, str] | None = None,
-) -> str:
-    """Return the sole allowed origin for the explicitly selected deployment."""
-    values = os.environ if environment is None else environment
-    deployment = values.get("ENDPOINT_AGENT_DEPLOYMENT_ENVIRONMENT", "production").strip().lower()
-    if deployment == "production":
-        return PRODUCTION_ENDPOINT_ORIGIN
-    if deployment != "staging":
-        raise ValueError("ENDPOINT_AGENT_DEPLOYMENT_ENVIRONMENT must be production or staging")
-    if values.get("CANARY_ENVIRONMENT", "").strip().lower() != "staging":
-        raise ValueError("staging agent requires CANARY_ENVIRONMENT=staging")
-    if values.get("CANARY_APPROVED", "").strip().lower() != "true":
-        raise ValueError("staging agent requires CANARY_APPROVED=true")
-    return STAGING_ENDPOINT_ORIGIN
 
 
 def _credentials_directory(

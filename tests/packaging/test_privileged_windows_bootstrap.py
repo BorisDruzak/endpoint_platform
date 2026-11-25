@@ -32,6 +32,20 @@ def _analyze_spec(name, tmp_path, monkeypatch, *, bad_module=None, bad_script=No
         path = tmp_path / filename
         path.write_bytes(b"public fixture for spec evaluation only")
         monkeypatch.setenv(variable, str(path))
+    if name in {'endpoint_core_windows', 'windows_installer_host'}:
+        # Exercise normal staging with a public, test-scoped digest.
+        import hashlib
+        import re
+        from tools.canary import setup_client_payload
+
+        source = (ROOT / 'packaging/windows/EndpointSetupUpdater.ps1').read_text(encoding='utf-8-sig').rstrip()
+        client = tmp_path / 'EndpointSetupUpdater.ps1'
+        client.write_text(source + '\n# SIG # Begin signature block\n# test fixture\n'
+                          '# SIG # End signature block\n', encoding='utf-8')
+        version = re.search(r"^\$script:ClientVersion='([0-9.]+)'$", source, re.M)[1]
+        monkeypatch.setitem(setup_client_payload._CANONICAL_SHIPPED_CLIENTS, version,
+                            hashlib.sha256(client.read_bytes()).hexdigest())
+        monkeypatch.setenv('ENDPOINT_SIGNED_SETUP_CLIENT', str(client))
     observed = {}
 
     class Analysis:

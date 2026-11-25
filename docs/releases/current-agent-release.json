@@ -1,206 +1,1887 @@
 {
   "schema_version": 1,
-  "version": "3.2.158",
-  "status": "qualified existing-device rollout",
-  "runtime_source_commit": "9423d9c27ea6b2d6c544c1bcdc1edb7cc9d15421",
-  "windows_packaging_commit": "f9bf89187f33a47b01a0b555558f5cce3614b488",
-  "verification_code_commit": "2ca38733e99b8412f694285446a4371929902e66",
+  "version": "3.2.192",
+  "status": "published_windows192_scoped_auto_and_linux183_native",
+  "verified_utc": "2026-11-11T16:58:14.859944+00:00",
+  "runtime_source_commit": "050b541ff0783678ef34df804455ba7f602660a6",
+  "windows_packaging_commit": "721b0ad9061d8120a186bd4424fbcdcf04ed55bd",
+  "linux_kit_metadata_commit": "21fc543af8d4b8b24df83f29a27e4e2eeb86c268",
+  "verified_code_and_tests_commit": "050b541ff0783678ef34df804455ba7f602660a6",
   "canonical_rules": "AGENTS.md#canonical-agent-release",
-  "previous_release_record": "docs/releases/agent-3.2.156.json",
+  "primary_windows_release": {
+    "version": "3.2.205",
+    "record": "docs/releases/windows-3.2.205-production.json"
+  },
+  "apt_repository_trust": {
+    "current_signing_fingerprint": "840AC80D602970C76C282E6DD02C861F8B636743",
+    "previous_signing_fingerprint": "D132784F1C7F0D78BDA2842FDE5739F7FD0AFEBE",
+    "transition_keyring_sha256": "fac2b095742d58cbd945c30409dc31ad2e6f05291ce12edeb4fb6d79ebee6e37",
+    "noble_keyring_url": "https://endpoint.sosnadmin.local/downloads/ubuntu/endpoint-apt-transition.gpg",
+    "bookworm_keyring_url": "https://endpoint.sosnadmin.local/downloads/debian/endpoint-apt-transition.gpg",
+    "verification": "docs/verification/2026-11-16-stab17-apt-renewal-rehearsal.md"
+  },
+  "ubuntu_servers_197": {
+    "package": "endpoint-agent-ubuntu",
+    "version": "3.2.197-1ubuntu1",
+    "sha256": "1d30e147ef8e108a2b379ffffcfb765d66ddb24926974592b23d86e491a6d573",
+    "size": 34800960,
+    "runtime_source_commit": "0b518358bd6d1efaaf5ee554bc3372c26eb73ca7",
+    "provider_commit": "b0bac8654b41994df88eada32789a1fa1212e3ea",
+    "repository": "https://endpoint.sosnadmin.local/downloads/ubuntu",
+    "suite": "noble",
+    "verification": "docs/verification/2026-11-12-acti-registry-server-agents.md"
+  },
+  "server_health_196": {
+    "source_commit": "e56731cee985af2ef881c9165d1a16db9361fae0",
+    "ubuntu": {
+      "package": "endpoint-agent-ubuntu",
+      "version": "3.2.196-1ubuntu1",
+      "sha256": "ffb40a52672947ad415e09e2c0d1c1de53168781d50e4e4e0b37d8b77f889dbd",
+      "size": 34799342,
+      "repository": "https://endpoint.sosnadmin.local/downloads/ubuntu",
+      "suite": "noble"
+    },
+    "windows_core_canary": {
+      "version": "3.2.196",
+      "minimum_foundation_version": "3.2.193",
+      "artifact_name": "EndpointCore-3.2.196-e56731ce.zip",
+      "sha256": "a4b9393cef438ed20497ddc0a9aaba3e8477804d035e76f44b14fa696eecb388",
+      "size": 22693471,
+      "build_id": "70ab0f57-18f5-41af-9011-096dffa88288",
+      "rollout_id": "db7966da-5f8f-493b-85b5-d966024d2727"
+    },
+    "verification": "docs/verification/2026-11-12-fileserver-postgresql-health.md"
+  },
+  "proxmox_debian": {
+    "package": "endpoint-agent-debian",
+    "version": "3.2.195-1deb12u1",
+    "architecture": "amd64",
+    "platform": "Debian 12 / Proxmox VE 8.4",
+    "sha256": "3e182f68c58cfd299ae06043650df002e683a3a2d8d59d57b081cedb301be7fc",
+    "size": 31148756,
+    "runtime_source_commit": "5c3eb383e7768464366f76fd7f8f824a0690baf4",
+    "provider_commit": "5c3eb383e7768464366f76fd7f8f824a0690baf4",
+    "repository": "https://endpoint.sosnadmin.local/downloads/debian",
+    "suite": "bookworm",
+    "signing_fingerprint": "D132784F1C7F0D78BDA2842FDE5739F7FD0AFEBE",
+    "verification": "docs/verification/2026-11-12-proxmox-debian-rollout.md"
+  },
   "windows": {
     "setup": {
-      "filename": "EndpointAgentSetup-3.2.158-x64.exe",
-      "sha256": "ba26d597744c16859676652ae9cf64d07ebd46659012b18ea2be3ba94898b578",
-      "size": 145929600,
-      "authenticode": "Valid with timestamp; fixed existing publisher",
-      "operator_path": "C:\\endpoint-platform-wix-build\\staged-3.2.158-9423d9c\\native-setup-build\\releases\\EndpointAgentSetup-3.2.158-x64.exe",
-      "delivery": "Signed full Setup for the qualified existing authenticated cohort; no new-enrollment permission changes."
+      "filename": "EndpointAgentSetup-3.2.192-x64.exe",
+      "sha256": "b2552b0c46b31d93821679fd41188dd7324e4830f98aee300a772eaa223239b9",
+      "size": 167018248,
+      "release_id": "7aaa9dc6-332a-4caf-a404-a40ed5508d84",
+      "download_published": true,
+      "authenticode": "Valid with timestamp",
+      "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+      "operator_path": "C:/endpoint-platform-wix-build/setup192-inbox-050b541/native-setup-build/releases/EndpointAgentSetup-3.2.192-x64.exe",
+      "download_verified_utc": "2026-11-11T16:58:14.859944+00:00",
+      "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgentSetup-3.2.192-x64.exe",
+      "console_url": "https://endpoint.sosnadmin.local/admin/enrollment",
+      "download_url": "https://endpoint.sosnadmin.local/api/admin/console/installer/releases/7aaa9dc6-332a-4caf-a404-a40ed5508d84/download"
     },
     "msi": {
-      "filename": "EndpointAgent-3.2.158-x64.msi",
-      "sha256": "b7d3ccebdeb5db1bc0b10af14923244c96b1debb3d1ff78cb4e8c062fe56d1a1",
+      "filename": "EndpointAgent-3.2.192-x64.msi",
+      "sha256": "32d3888e7ee1ddbe15dc262200ac4365ea3279cbd52bab02077d0dde5e6ae1ff",
+      "size": 125198336,
+      "product_code": "{ED424664-ADA7-496F-8E49-D43E053091AB}",
       "authenticode": "Valid with timestamp"
     },
-    "runtime_source_binding": "packaging/windows/initial-runtime-3.2.158.json",
-    "public_enrollment_default": {
-      "filename": "EndpointAgentSetup-3.2.156-x64.exe",
-      "sha256": "92c17fddab6d1c4a32b322bb5a39855bc876c688f743684129fc4cfc412e4665",
-      "size": 145896304,
+    "runtime_source_binding": "packaging/windows/initial-runtime-3.2.192.json",
+    "initial_runtime": {
+      "file_count": 119,
+      "tree_sha256": "1b1780da7a84ff449a5f7dae6c4900f761a7491aa1a053f359a6fa6ad0f3213e",
+      "component_guid": "899C0965-51BB-4603-B7B6-F5956C16BA13"
+    },
+    "full_setup_update": {
+      "schema_version": "windows_setup_release_v1",
+      "release_identifier": "endpoint-windows-full-setup-3.2.192-050b541",
+      "version": "3.2.192",
+      "artifact_name": "EndpointAgentSetup-3.2.192-x64.exe",
+      "sha256": "b2552b0c46b31d93821679fd41188dd7324e4830f98aee300a772eaa223239b9",
+      "size": 167018248,
+      "source_revision": "050b541ff0783678ef34df804455ba7f602660a6",
+      "msi_sha256": "32d3888e7ee1ddbe15dc262200ac4365ea3279cbd52bab02077d0dde5e6ae1ff",
+      "tray_sha256": "c44daf86edf1411c79293eb0988548167f19231a2ae11b0bc8fe27c1f6e37e3b",
+      "sensor_sha256": "a5ed722437b6afc1b02018cbc5a54b8c1618c2a8c830b88ca2456c2b533d0515",
+      "release_id": "2bfa120d-b182-41b5-ae98-f3354638e96c",
+      "policy": {
+        "id": "0ab7e6f8-7f3b-42b4-9b62-e0718dd6a3fc",
+        "revision": 18,
+        "enabled": true,
+        "release_id": "2bfa120d-b182-41b5-ae98-f3354638e96c",
+        "scope": "selected",
+        "device_ids": [
+          "9285e667-a4fc-4748-9b33-2fe9e49ac488",
+          "a8d7937d-40cd-41fa-b32b-85253ec9a505",
+          "00aa5779-d229-4dce-a28c-1e668819eed2",
+          "01e39b54-34ea-4792-aa32-a9772f5c7a62"
+        ],
+        "max_parallel": 2,
+        "reason": "Enable signed Windows 3.2.192 for four verified Windows 10 source 3.2.177 devices after the direct VM 126 test. Two concurrent chains on reconnect.",
+        "updated_at": "2026-11-11T16:55:29.195825+00:00",
+        "updated_by": "fc109962-be6c-450b-871a-51f730ba73d2",
+        "safe_code": null
+      },
+      "source_qualifications": [
+        {
+          "id": "2bd2dc24-164f-4f0e-bb8d-0ea368a0d51e",
+          "release_id": "2bfa120d-b182-41b5-ae98-f3354638e96c",
+          "source_foundation": "3.2.177",
+          "evidence_assignment_id": "7b9423f8-d856-4232-9f91-a082ab20d7eb",
+          "qualified_at": "2026-11-11T16:54:42.701006+00:00",
+          "expires_at": "2026-12-11T16:54:42.701006+00:00"
+        }
+      ]
+    },
+    "support_access": {
+      "component_version": "1.1.6",
+      "sha256": "4f5dc4be2e2e7440f80fedb098a530a3fc5dc6b680903956360e56f14531657e",
+      "size": 10154744,
+      "profile": "windows-openssh-fod-v1",
+      "bundled_preview_archive": false,
       "authenticode": "Valid with timestamp",
-      "operator_path": "C:\\endpoint-platform-wix-build\\staged-3.2.156-6ed41cd\\native-setup-build\\releases\\EndpointAgentSetup-3.2.156-x64.exe",
-      "server_path": "/var/lib/endpoint-platform/artifacts/EndpointAgentSetup-3.2.156-x64.exe",
-      "console_url": "https://endpoint.sosnadmin.local/admin/enrollment",
-      "download_url": "https://endpoint.sosnadmin.local/api/admin/console/installer/releases/f1f81b7a-7f99-4050-86b6-4fe65fd95365/download",
-      "version": "3.2.156",
-      "reason": "Existing active campaign allowlists do not permit158; leave new-enrollment defaults unchanged while upgrading the existing authenticated cohort."
-    },
-    "update": null,
-    "core_ota_status": "No158 Windows Core ZIP is published. A Core ZIP cannot upgrade an older Foundation. Current158 delivery uses signed full Setup.",
-    "historical_stable_core_catalog": {
-      "schema_version": "update_build_manifest_v1",
-      "build_identifier": "agent-windows-unified32156-6ed41cd",
-      "version": "3.2.156",
-      "platform": "windows_amd64",
-      "channel": "stable",
-      "artifact_url": "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/agent-windows-unified32156-6ed41cd",
-      "artifact_name": "endpoint-agent-windows_amd64-3.2.156.zip",
-      "archive_type": "zip",
-      "sha256": "21ca92ede7b18ef35076d10b4c7d2b9dee2507ca0d7e17fb8fc8604e178bcf25",
-      "size": 22866442,
-      "release_notes": "Unified agent with power history, resilient telemetry and installation recovery.",
-      "minimum_launcher_version": "3.2.156"
-    },
-    "native_qualification": {
-      "source_version": "3.2.156",
-      "source_revision": "6ed41cd01d494e46111a452c2ae3a844f723175b",
-      "source_msi_sha256": "ab6cde32554798a18b446c8e33ce6f0926eba6a85439bc7224a08a88b25a1073",
-      "core_origin": "msi",
-      "previous": "3.2.149 / source1ae42be",
-      "origin": "legitimately absent / compiled_default",
-      "positive_exit": 0,
-      "genuine_no_proof_compensation_exit": 67,
-      "retry_on_actual_compensated_disks": true,
-      "private4_content_file_ids_owner_group_sddl_preserved": true,
-      "stable_runtime_seconds": 186.5821965,
-      "real_sensor_health_and_browser_observations_advanced": true,
-      "operator_verdict": "C:\\endpoint-platform-wix-build\\fleet158-windows156-20261027-vm123\\qualification-verdict.json",
-      "verdict_sha256": "ff05367b57653f7a32b2866d21016820ad3a5784d2106ae6c07aba7440f44a15"
-    },
-    "administrative_delivery": {
-      "driver_operator_path": "C:\\endpoint-platform-wix-build\\fleet158-domain-prepare-20261027\\fleet-install-158.ps1",
-      "driver_sha256": "d33022db87fb3f9755ea995a05c02f0ed571ca8f4867a829bdb7d06c3c6748c9",
-      "auth_wrapper_operator_path": "C:\\endpoint-platform-wix-build\\fleet158-domain-prepare-20261027\\auth-wrapper-158-v2.ps1",
-      "auth_wrapper_sha256": "cf4e4a6e929d0a5a3f9aef53bff28aff077f59e52c5ab4e698f0ff978c07c004",
-      "registry_snapshot_max_age_minutes": 5,
-      "actual_device_gate_minutes": 30,
-      "current_authentication": "Actual protected device identity and current AD SID/GUID plus one strict authenticated204; normal OS TLS, no proxy, redirects or response body; bearer never persisted by the probe.",
-      "retry": "Permanent atomic started marker; preserve every refusal and native history, never automatically repeat an uncertain native installation."
-    },
-    "production_canary": {
-      "native_exit": 0,
-      "native_core_exact": true,
-      "private4_preserved": true,
-      "authenticated_session_seconds": 219.584108,
-      "policy": "APPLIED",
-      "fresh_sensor_health_and_power": "READY / loss0",
-      "root_independent_live_native_and_server_acceptance": true
-    },
-    "retained_legacy_compatibility": "Only the exact historically pinned79 MSI/tree is additionally admitted by Foundation158. Legacy81 and unrecognized histories remain rejected; never remove protected history to make preflight pass."
-  },
-  "linux": {
-    "distribution": "ALT11 x86_64",
-    "core_rpm": {
-      "filename": "endpoint-agent-3.2.158-alt5.x86_64.rpm",
-      "sha256": "4370c67462a12ca0bb19d859ac71c7042bb22832f5c1ca0ef8ec5a4b5358a285"
-    },
-    "user_sensor_rpm": {
-      "filename": "endpoint-agent-user-sensor-3.2.158-alt5.x86_64.rpm",
-      "sha256": "ed75d34e8be4d90b1a38ceafd6929b9cfa5836757292424c6e3ba7cd90f05838"
-    },
-    "kit": {
-      "name": "endpoint-alt-pilot-3.2.158-1",
-      "operator_directory": "C:\\endpoint-platform-wix-build\\unified-3.2.158\\linux-kit",
-      "operator_path": "C:\\endpoint-platform-wix-build\\unified-3.2.158\\linux-kit\\endpoint-alt-pilot-3.2.158-1.tar.gz",
-      "server_directory": "/srv/endpoint-platform-distribution/alt/endpoint-alt-pilot-3.2.158-1",
-      "download_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.158-1/endpoint-alt-pilot-3.2.158-1.tar.gz",
-      "sha256": "5c05c1258e387199d225fb2aa4d4bd6044fb255831155b6a91686bddbbb0877f",
-      "size": 50839655,
-      "publisher_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
-      "actual_https_bytes_and_pinned_openpgp_archive_and_manifest_signatures_verified": true
-    },
-    "update": {
-      "archive_type": "tar.gz",
-      "artifact_name": "endpoint-agent-linux_amd64-3.2.158.tar.gz",
-      "artifact_url": "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/agent-linux-unified32158-9423d9c-canary",
-      "build_identifier": "agent-linux-unified32158-9423d9c-canary",
-      "channel": "canary",
-      "minimum_launcher_version": null,
-      "platform": "linux_amd64",
-      "release_notes": "WorkTime companion notifications and bounded installation compatibility.",
-      "schema_version": "update_build_manifest_v1",
-      "sha256": "db3c8e437b8e4a6a22cf24a60585e3f846dc48cbd26a424d92195f6d79ecf54c",
-      "size": 21694414,
-      "version": "3.2.158"
-    },
-    "ota_singleton": {
-      "status": "applied / post_restart_handshake_confirmed",
-      "native_rpm_and_selected_core_version": "3.2.158",
-      "source_revision": "9423d9c27ea6b2d6c544c1bcdc1edb7cc9d15421",
-      "runtime_files_verified": 98,
-      "retained_previous_version": "3.2.156",
-      "current_private4_permissions_and_two_sample_continuity_verified": true,
-      "historical_pre158_private4_raw_baseline_available": false,
-      "historical_private4_continuity_claimed": false,
-      "root_fresh_runtime_check": "All98 file hashes, native RPMs, current selector and unchanged service/CUPS/SSSD process identities verified independently."
-    },
-    "bulk_qualification": "Do not infer broad OTA qualification from the singleton terminal status. Missing historical pre158 private baseline remains a limit. Five unreachable historical Linux targets retain their existing156 assignments; they are not158 installation results."
-  },
-  "verification": {
-    "windows_agent_tests": {
-      "passed": 2811,
-      "skipped": 86
-    },
-    "linux_agent_tests": {
-      "passed": 2381,
-      "skipped": 516
-    },
-    "full_postgres_ci": {
-      "source": "668e7bc30898ef24bdbe0a22ccb92a6ed8be366d",
-      "run": "https://github.com/BorisDruzak/endpoint_platform/actions/runs/40459347035",
-      "passed": 5256,
-      "skipped": 918,
-      "failures": 0,
-      "artifact_source_and_xml_verified": true
-    },
-    "selective_main_integration_ci": {
-      "source": "2ca38733e99b8412f694285446a4371929902e66",
-      "run": "https://github.com/BorisDruzak/endpoint_platform/actions/runs/40464299306",
-      "passed": 5134,
-      "skipped": 913,
-      "failures": 0,
-      "artifact_source_and_xml_verified": true,
-      "broader_sso_server_changes_included": false
+      "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+      "startup": "Auto LocalSystem independent of Core and observers",
+      "default_initial_access_hours": 8,
+      "automatic_renewal_on_retry_or_heartbeat": false,
+      "explicit_manual_policy_precedence": true,
+      "windows10_direct_canary": {
+        "hypervisor": "pve1",
+        "vm_id": 126,
+        "hostname": "ENDPT-W10-192",
+        "address": "192.168.101.79",
+        "os_build": "19045",
+        "device_id": "7ef51b73-670c-433b-a8e8-a299533c4193",
+        "source_foundation": "3.2.177",
+        "source_core": "3.2.177",
+        "source_observer": "1.0.7",
+        "assignment_id": "7b9423f8-d856-4232-9f91-a082ab20d7eb",
+        "attempt_id": "5996c18d-461d-4274-8d5b-f304f45e3eeb",
+        "native_status": "applied",
+        "native_exit": 0,
+        "accepted_utc": "2026-11-11T16:53:30.624102+00:00",
+        "stable_seconds": 182.174,
+        "user_sensor_count": 1,
+        "private_identity_preserved": {
+          "credential": true,
+          "identity": true,
+          "origin": true,
+          "ca": true
+        },
+        "windows_openssh_provisioned_automatically": true,
+        "windows_servicing_operation_id": "f1127fc9343b43069111d3488e6542ff",
+        "new_stock_tcp22_rule_disabled": true,
+        "global_sshd_state": "Stopped/Manual",
+        "support_installed_automatically": true,
+        "support_activation_retry_observed": false,
+        "active_support_version": "1.1.6",
+        "independent_ssh_with_core_and_updater_stopped": true,
+        "independent_ssh_utc": "2026-11-11T16:53:59.4637757Z",
+        "support_policy": "Existing local administrator and approved operator key on the workgroup lab VM",
+        "windows_servicing_restart_pending_before_assignment": false,
+        "post_update_inventory": {
+          "observed_utc": "2026-11-11T16:59:34.415205+00:00",
+          "os_build": "19045",
+          "architecture": "x86_64",
+          "warnings": []
+        }
+      }
     }
   },
-  "provider": {
-    "last_observed_runtime_source": "62fb4c83efbea9e4acc19c779db034a80087d2f9",
-    "note": "Separately authorized SSO pilot provider; this agent rollout does not deploy the server or merge its broad SSO/WorkTime branch.",
-    "deployment_guard": "This agent integration does not reconcile the separately deployed SSO provider/database migrations. Do not infer that this main server snapshot can replace that provider."
-  },
-  "delivery_repair_156": {
-    "causes": [
-      "Task registration after boot missed the boot-only first run; periodic fallback was seven hours.",
-      "Reserved PowerShell$input parameter made authorization copying fail before native Setup."
+  "linux": {
+    "version": "3.2.183",
+    "distribution": "ALT11.4 x86_64 / KDE6 / systemd258.9; Stage VM107 and explicitly selected physical105/190/210",
+    "runtime_source_commit": "21fc543af8d4b8b24df83f29a27e4e2eeb86c268",
+    "release_record": "docs/releases/linux-3.2.183-native.json",
+    "core_rpm": {
+      "filename": "endpoint-agent-3.2.183-alt6.x86_64.rpm",
+      "sha256": "063db934d957426bd1b9dc28ffaf16c2e00c30864d911d1f2d266d969fd04d56",
+      "size": 53636497
+    },
+    "user_sensor_rpm": {
+      "filename": "endpoint-agent-user-sensor-3.2.183-alt6.x86_64.rpm",
+      "sha256": "865b6c359d545d4092462b591ab909d2d6107fc0d050357cf4035f43b9c65298",
+      "size": 42164
+    },
+    "support": {
+      "version": "1.0.0",
+      "service": "endpoint-support-access.service",
+      "binary_sha256": "9712c68d687b8c46f06bff95513382298f4a3816049eede22328d08ad28d9b50",
+      "independent_of_core_and_updater": true,
+      "initial_access_hours_max": 8,
+      "explicit_existing_principal": "root UID0"
+    },
+    "kit": {
+      "name": "endpoint-alt-pilot-3.2.183-1",
+      "schema_version": "endpoint_alt_native_kit_v3",
+      "operator_directory": "C:/endpoint-platform-wix-build/linux178-native/kit183",
+      "server_directory": "/srv/endpoint-platform-distribution/alt/endpoint-alt-pilot-3.2.183-1",
+      "download_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.183-1/endpoint-alt-pilot-3.2.183-1.tar.gz",
+      "manifest_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.183-1/endpoint-alt-pilot-3.2.183-1.manifest.json",
+      "public_file_sha256": {
+        "endpoint-alt-pilot-3.2.183-1.manifest.json": "f032ce98ab0f488ec581c57f5f4144b201db76d1b430bbaf0d2a38cb5eb5e603",
+        "endpoint-alt-pilot-3.2.183-1.tar.gz": "c5b552afa4aa27e4df73af0ce68be4ecc88729f30baf3a70e6f9d4c8c709a3f3",
+        "endpoint-alt-pilot-3.2.183-1.manifest.sig": "850ba02dd8c1116d411facf002095905036e59b68ecd30eb3c0ae99288d66541",
+        "endpoint-alt-pilot-3.2.183-1.tar.gz.sig": "ce87a6411b3b029ebeb4bd00cf679b54171890ebc7c7bc88065692921072ef5e",
+        "endpoint-rpm-release.asc": "12175df39caa5a67336aeb002b5c71d3a9d3047961f5ad90cf959650044b456c",
+        "README.ru.md": "062a4c22db78190df8f03cc0e055bab643fc4292176a491ac8129dda3ea661eb",
+        "endpoint-alt-pilot-3.2.183-1.manifest.json.sha256": "e83323c87fbd525a40d890499d6c059845bbcf322ebcf7c2bf277e121fdabe9e",
+        "endpoint-alt-pilot-3.2.183-1.tar.gz.sha256": "49a5916989172abf6bf668c4b7fc78e511fdfee03b334b5a856fbf7e95b504e4"
+      },
+      "publisher_openpgp_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631"
+    },
+    "update": {
+      "mode": "native_rpm_coordinator",
+      "version": "3.2.183",
+      "operator_run": true,
+      "automatic_linux_fleet_enabled": false,
+      "kit_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.183-1/endpoint-alt-pilot-3.2.183-1.tar.gz",
+      "reason": "Independent privileged Support and Setup are RPM-owned and must not be delivered as Core-only OTA."
+    },
+    "historical_core_only_ota_unchanged": {
+      "schema_version": "update_build_manifest_v1",
+      "build_identifier": "agent-linux-unified32156-6ed41cd",
+      "version": "3.2.156",
+      "platform": "linux_amd64",
+      "channel": "stable",
+      "artifact_url": "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/agent-linux-unified32156-6ed41cd",
+      "artifact_name": "endpoint-agent-linux_amd64-3.2.156.tar.gz",
+      "archive_type": "tar.gz",
+      "sha256": "c2fb732693884e7779a95cf9fbbc931d5fd7253435ecb7483c5e722162981370",
+      "size": 21681357,
+      "release_notes": "Unified agent with power history, resilient telemetry and installation recovery."
+    },
+    "production_native_source_release_id": "f785e4e5-17fd-414b-9474-0d1e24cf2100",
+    "qualified_native_paths": [
+      "Signed156 rollback and return183 native0 with retained private4; modern retained enrollment identity on VM107",
+      "Fresh native0 plus actual manual approval and modern previous-card history relation",
+      "Ordinary same-card reinstallation and fixed mixed online/offline rebind with manual disable preserved",
+      "Actual root SSH with Core/updater/path stopped for108.613629715seconds; expiry/revoke and fresh accepted user telemetry",
+      "Explicit physical domain cohort105/190 clean native183 plus administratively prepared158-to183 on210; fresh telemetry and actual stopped-Core root SSH on each"
     ],
-    "fixed_bootstrap_sha256": "17ec4153d69a7e0a821d1e97a58b6a3a484857df5956eb9fd85d974a1381e4e4",
-    "fixed_gpp_task_sha256": "37a78cb994f91d71d7e49958fae42e15528bbca8641652a1944a09992320dc43",
-    "gpo_machine_version": 2,
-    "registration_delay": "PT2M",
-    "old8policies_4shares_scope_and_links_preserved": true,
-    "actual_automatic_registration_trigger_completions": 2,
-    "production156_bridge_nodes_independently_verified": 3
+    "fleet_acceptance": false,
+    "qualification_limits": [
+      "Initial VM107 staging qualification is supplemented by explicit production physical105/190/210 acceptance in docs/verification/2026-11-09-linux183-physical-cohort.md. No automatic Linux fleet rollout or acceptance on other devices is inferred.",
+      "Native RPM Setup owns privileged Support/helpers; legacy Core-only OTA156 is unchanged and cannot deliver this native release.",
+      "Initial clean native0 waited for real manual enrollment approval (outer21); notification-only reconciliation completed without RPM replay. Fresh sessions use standard XDG autostart; existing active session was explicitly activated once.",
+      "No global production Linux enrollment campaign/network/quota was created. New registrations need separately bounded source-qualified authority; existing-identity upgrade consumes no new claim.",
+      "Historical legacy29a8 parent fingerprint mismatch remains refused; modern freshA-to-freshB relation and ordinary same-card history were verified. No credential/history merge.",
+      "Earlier offline5 bootstrap refusal and canonical administrator reset remain historical; fixed mixed online8/9 and offline10/11 completed without manual repair.",
+      "Audit-provenance evidence is bounded to1000 relevant events; missing/unmarked history fails closed and requires fresh explicit authority, never implicit access.",
+      "Physical USB/print jobs and other distro/session/source profiles are not qualified by this test. Windows177/policy12 and historical media remain unchanged."
+    ]
+  },
+  "provider": {
+    "source_commit": "fd196e78b2c5cef00c86de79ca359147676f8b2f",
+    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-fd196e78b2c5",
+    "database_schema": "0050_linux_enrollment_binding",
+    "gateway_pid_preserved": 24963,
+    "exporter_pid_after_deployment": 334584,
+    "windows_installation_defaults_unchanged": true,
+    "linux_initial_defaults": {
+      "enabled": true,
+      "existing_admin_username": "root",
+      "existing_admin_uid": 0,
+      "existing_approved_operator_key_only": true,
+      "access_hours": 8
+    },
+    "stage_worktime51_deployed_to_production": false,
+    "report": "docs/verification/2026-11-09-linux183-native-canary.md"
+  },
+  "verification": {
+    "windows_192_targeted_tests": 251,
+    "windows_192_version_bump_focused_tests": 6,
+    "windows_192_signed_frozen_resource_inspection": true,
+    "windows_192_test120_canary": {
+      "address": "192.168.101.120",
+      "assignment_id": "d1c452b8-ad1b-4431-9452-ed8bfb97ccc3",
+      "source_foundation": "3.2.191",
+      "source_core": "3.2.191",
+      "native_status": "applied",
+      "native_exit": 0,
+      "stable_seconds": 185.779,
+      "support_installed_automatically": true,
+      "support_activation_retry_observed": false,
+      "independent_ssh_with_core_and_updater_stopped": true
+    },
+    "windows_192_vm126_direct_canary": "7b9423f8-d856-4232-9f91-a082ab20d7eb",
+    "windows_192_served_download_verified": true,
+    "report": "docs/verification/2026-11-11-windows192-support-activation.md"
   },
   "limits": [
-    "Public Windows new-enrollment default remains156; no new campaign, quota or source scope was expanded.",
-    "Original PC with protected configured origin is under separate qualification; never delete its override.",
-    "Legacy81 source and incompatible protected histories remain unqualified.",
-    "Offline assignments, stale heartbeat and duplicate historical VM identities are not installation acceptance.",
-    "Real-user SSO, WorkTime notifications and broad server feature acceptance are separate from native/runtime upgrade acceptance."
+    "Automatic Setup uses the exact signed 3.2.192 release and qualified Foundation 3.2.177.",
+    "Policy 18 covers four known Windows 10 devices, awaiting reconnect at verification, with two concurrent chains. Other device IDs are outside policy 18.",
+    "MUNSLU-S2 is excluded because its existing external global OpenSSH migration is unverified.",
+    "Support requires completed Windows servicing and a resolvable approved administrator. A pending OS restart prevented Support activation in the first canary.",
+    "Linux native183 is separately published and qualified on Stage VM107 plus explicit physical105/190/210; historical156 media and Core-only OTA are preserved. No automatic Linux fleet rollout or acceptance on other production Linux devices is inferred."
   ],
-  "fleet_rollout": {
-    "production_windows158_independently_verified": 6,
-    "windows158_native_profile": "Source156 / exact6ed-ab6 / previous149 / absent compiled-default origin",
-    "per_device_authenticated_wss_window_at_least_seconds": 180,
-    "root_live_native_source_private4_and_server_verification": true,
-    "maximum_simultaneous_native_installs": 2,
-    "bulk_native_retries": 0,
-    "bridge156_previous_failures_fixed_and_three_devices_verified": true,
-    "linux158_existing_singleton_current_state_verified": true,
-    "unreachable_linux_records": 4,
-    "historical_linux_address_now_has_other_protected_device_identity": 1,
-    "legacy_windows63_core79_reconnected_but_not_qualified_by156_or158_cohort_drivers": 1,
-    "legacy_windows81_preflight_conflict": 1,
-    "original_protected_origin_previous_none_profile": "Explicitly authorized original-PC qualification in preparation; current156 not yet158 acceptance."
+  "operator_evidence_directory": "C:/Users/admin-2/.codex/worktrees/pilot-support-channel/endpoint/.superpowers/sdd/2026-11-07-installation-lifecycle",
+  "update_rule": "Immutable signed bytes, Console source canary, source qualification, reviewed coverage, bounded automatic scheduling and canonical same-row primary promotion",
+  "record_role": "Use primary_windows_release for the primary Windows installer and current_provider for the deployed server. The primary ALT kit is 3.2.183. alt_native_candidate_265 records the separately downloadable ALT pilot. current_windows_rollout records the observed automatic policy. The top-level 3.2.192 snapshot and historical rollout records preserve earlier checkpoints.",
+  "qualified_existing_device_release_record": "docs/releases/windows-3.2.192-setup.json",
+  "automatic_full_setup": {
+    "id": "0ab7e6f8-7f3b-42b4-9b62-e0718dd6a3fc",
+    "revision": 18,
+    "enabled": true,
+    "release_id": "2bfa120d-b182-41b5-ae98-f3354638e96c",
+    "scope": "selected",
+    "device_ids": [
+      "9285e667-a4fc-4748-9b33-2fe9e49ac488",
+      "a8d7937d-40cd-41fa-b32b-85253ec9a505",
+      "00aa5779-d229-4dce-a28c-1e668819eed2",
+      "01e39b54-34ea-4792-aa32-a9772f5c7a62"
+    ],
+    "max_parallel": 2,
+    "reason": "Enable signed Windows 3.2.192 for four verified Windows 10 source 3.2.177 devices after the direct VM 126 test. Two concurrent chains on reconnect.",
+    "updated_at": "2026-11-11T16:55:29.195825+00:00",
+    "updated_by": "fc109962-be6c-450b-871a-51f730ba73d2",
+    "safe_code": null
   },
-  "linux_kit_metadata_commit": "2ca38733e99b8412f694285446a4371929902e66"
+  "live_provider": {
+    "source_commit": "fd196e78b2c5cef00c86de79ca359147676f8b2f",
+    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-fd196e78b2c5",
+    "database_schema": "0050_linux_enrollment_binding",
+    "gateway_pid_preserved": 24963,
+    "exporter_pid_after_deployment": 334584,
+    "windows_installation_defaults_unchanged": true,
+    "linux_initial_defaults": {
+      "enabled": true,
+      "existing_admin_username": "root",
+      "existing_admin_uid": 0,
+      "existing_approved_operator_key_only": true,
+      "access_hours": 8
+    },
+    "stage_worktime51_deployed_to_production": false,
+    "report": "docs/verification/2026-11-09-linux183-native-canary.md"
+  },
+  "clean156_full_setup": {
+    "status": "qualified_clean156_native_update_applied",
+    "device_id": "5b2764c6-8a2c-49cb-8b93-e1296e8aeeae",
+    "initial_core_version": "3.2.156",
+    "initial_foundation_version": "3.2.156",
+    "source_revision": "6ed41cd01d494e46111a452c2ae3a844f723175b",
+    "source_msi_sha256": "ab6cde32554798a18b446c8e33ce6f0926eba6a85439bc7224a08a88b25a1073",
+    "bridge_core_version": "3.2.162",
+    "return_core_version": "3.2.155",
+    "return_build_id": "7300a086-1d3e-49a1-947b-0c41893446aa",
+    "target_core_version": "3.2.158",
+    "target_foundation_version": "3.2.158",
+    "setup_release_id": "b06ce3dd-49ea-4202-aa55-d446e0dacc6b",
+    "assignment_id": "fc126b5f-7abd-4b86-b787-856838dcdd7e",
+    "attempt_id": "99202947-c365-465c-8281-77266d1d1cf9",
+    "native_exit_code": 0,
+    "native_ended_at": "2026-11-04T10:34:43.2295847Z",
+    "applied_at": "2026-11-04T10:37:54.514968Z",
+    "observed_seconds": 182.356,
+    "services_stable": true,
+    "private_four_bytes_and_owner_sddl_preserved": true,
+    "workstation_preparation_after_source_acceptance": false,
+    "manual_acl_or_observer_bootstrap": false,
+    "sensor_count": 0,
+    "sensor_performance_qualified": false,
+    "user_sensor_limit": "SYSTEM baseline installation left no ordinary-user companions in the existing session; updater preserved the empty source companion set. User telemetry on test120 is not qualified by this observation.",
+    "health_collection_id": "41268973-7003-4a54-9902-9cfae26f738b",
+    "health_completed_at": "2026-11-04T10:38:30.291254Z",
+    "health_warnings": [],
+    "verification_record": "docs/verification/2026-11-04-test120-clean156-full158.md",
+    "server_policy_plan": "docs/superpowers/plans/2026-11-04-server-full-setup-autoupdate.md"
+  },
+  "enrollment_defaults": {
+    "id": "09e62472-a6ae-49ab-aaaa-6613836b4423",
+    "label": "Windows - all published versions - AUTO",
+    "policy": {
+      "policy_id": "windows-office-v1",
+      "enrollment_mode": "auto",
+      "allowed_installer_releases": [
+        "3.2.149",
+        "3.2.156",
+        "3.2.156+setup.1",
+        "3.2.158",
+        "3.2.63",
+        "3.2.65",
+        "3.2.79",
+        "3.2.92",
+        "3.2.165",
+        "3.2.172",
+        "3.2.176",
+        "3.2.177",
+        "3.2.184",
+        "3.2.185",
+        "3.2.186",
+        "3.2.187",
+        "3.2.188",
+        "3.2.189",
+        "3.2.190",
+        "3.2.191",
+        "3.2.192"
+      ]
+    },
+    "expires_at": "2030-09-27T09:04:00+00:00",
+    "max_uses": 100,
+    "use_count": 11,
+    "allowed_cidrs": [
+      "192.168.101.0/24"
+    ],
+    "target_platform": "windows",
+    "site": null,
+    "revoked_at": null,
+    "disabled_at": null
+  },
+  "clean156_usersensor_full_setup": {
+    "status": "qualified_native_and_active_user_sensor_browser_exception",
+    "device_id": "943c87ef-f121-40b9-a31f-003e9459e292",
+    "initial_core_version": "3.2.156",
+    "initial_foundation_version": "3.2.156",
+    "bridge_core_version": "3.2.163",
+    "client_version": "1.0.5",
+    "return_core_version": "3.2.155",
+    "target_core_version": "3.2.158",
+    "target_foundation_version": "3.2.158",
+    "setup_release_id": "b06ce3dd-49ea-4202-aa55-d446e0dacc6b",
+    "assignment_id": "d729ed87-2988-4ce4-a26c-917338403c0f",
+    "attempt_id": "84068732-99e4-4367-9b52-df0530a4aec9",
+    "native_exit_code": 0,
+    "native_ended_at": "2026-11-04T11:47:12.3532795Z",
+    "applied_at": "2026-11-04T11:50:46.644812Z",
+    "observed_seconds": 183.636,
+    "sensor_count": 1,
+    "sensor_cpu_percent_max": 0.0128,
+    "services_stable": true,
+    "companions_stable": true,
+    "private_four_bytes_and_owner_sddl_preserved": true,
+    "workstation_preparation_after_source_acceptance": false,
+    "manual_companion_start": false,
+    "health_collection_id": "f7274027-a65c-4e1d-8566-5e7ad0fbccd2",
+    "health_completed_at": "2026-11-04T11:51:06.096524Z",
+    "health_warnings": [],
+    "user_telemetry_limit": "Active ordinary-user telemetry confirmed after normal RDP reconnect, without companion restart or workstation preparation. Yandex browser telemetry remains a known user-accepted exception; not an all-telemetry qualification.",
+    "fleet_enabled": false,
+    "verification_record": "docs/verification/2026-11-04-test120-usersensor156-full158.md",
+    "active_user_telemetry": {
+      "verified_at": "2026-11-05T04:12:06.42583+00:00",
+      "activity_listener_state": "READY",
+      "user_sensor_last_seen_at": "2026-11-05T04:11:10.697158+00:00",
+      "activity_intervals": 4,
+      "first_activity_at": "2026-11-05T04:06:40.455826+00:00",
+      "last_activity_at": "2026-11-05T04:11:55.72784+00:00",
+      "manual_companion_start": false,
+      "original_sensor_pid": 2056
+    },
+    "fleet_qualification": {
+      "id": "872a53bc-17f3-48ac-a481-dfeaaac2f961",
+      "release_id": "b06ce3dd-49ea-4202-aa55-d446e0dacc6b",
+      "sha256": "3a603f2440bf501b85032e0defcdb8123efb5bdb31c1a7d4ed87433fcf7f7bb2",
+      "source_foundation": "3.2.156",
+      "evidence_assignment_id": "d729ed87-2988-4ce4-a26c-917338403c0f",
+      "qualified_at": "2026-11-05T04:07:57.728041+00:00",
+      "expires_at": "2026-12-05T04:07:57.728041+00:00",
+      "evidence_code": "native0_sensor_source_verified"
+    },
+    "browser_exception": {
+      "browser": "yandex",
+      "version": "26.10.0.1818",
+      "extension_id": "kkkoaifoohdbdaccmnnoagedifflbide",
+      "extension_version_on_disk": "0.1.0",
+      "disable_reasons": [
+        65536
+      ],
+      "extension_heartbeat_verified": false,
+      "user_requested_skip": true,
+      "scope": "Known browser issue explicitly deferred by user on2026-11-05; no browser or GPO workaround applied"
+    }
+  },
+  "existing156_test29_attempt": {
+    "status": "blocked_before_core_download_bridge_paused",
+    "device_id": "dd5ebcfc-2e47-4d2b-ab29-85c689028b24",
+    "hostname": "A2-INFAN-N",
+    "address": "192.168.101.29",
+    "source_core": "3.2.156",
+    "source_foundation": "3.2.156",
+    "preparation_id": "403f9fce-7f6c-4943-a8f2-49eb2ea4448c",
+    "bridge_rollout_id": "4a38e1c1-cd24-4924-b8b1-665765eae210",
+    "bridge_status": "paused",
+    "paused_at": "2026-11-05T04:35:13.833718Z",
+    "native_assignment_id": null,
+    "native_exit_code": null,
+    "target158_accepted": false,
+    "staging_owner_sid": "S-1-5-32-544",
+    "service_account": "NT AUTHORITY\\LocalService",
+    "barrier": "Frozen156 replaces updates DACL before ZIP download; existing Administrators-owned root grants service modify but no WRITE_DAC",
+    "runtime_exception_log_observed": false,
+    "workstation_preparation": false,
+    "current_user_telemetry_verified": true,
+    "general_fleet_enabled": false,
+    "verification_record": "docs/verification/2026-11-05-test29-endpoint-full158.md",
+    "record_role": "Historical initial server-only attempt; see separate administrative continuation"
+  },
+  "test29_administrative_continuation": {
+    "status": "applied_after_explicit_one_time_administrative_owner_repair",
+    "device_id": "dd5ebcfc-2e47-4d2b-ab29-85c689028b24",
+    "hostname": "A2-INFAN-N",
+    "address": "192.168.101.29",
+    "source_core": "3.2.156",
+    "source_foundation": "3.2.156",
+    "workstation_preparation": true,
+    "unattended_historical156_source_qualified": false,
+    "repair": {
+      "scope": "Only updates directory owner; exact DACL/group and private files preserved",
+      "owner_before_sid": "S-1-5-32-544",
+      "owner_after_sid": "S-1-5-19",
+      "completed_at": "2026-11-05T05:10:26.1702522Z",
+      "script_sha256": "2399fcc35865f3583f17e7150d8cf5d24ebdddb6a147d1eaae65807fa265458c",
+      "recursive_security_change": false,
+      "service_restart_or_manual_observer_install": false
+    },
+    "same_preparation_and_bridge_resumed": true,
+    "preparation_id": "403f9fce-7f6c-4943-a8f2-49eb2ea4448c",
+    "bridge_rollout_id": "4a38e1c1-cd24-4924-b8b1-665765eae210",
+    "bridge_resumed_at": "2026-11-05T05:12:02.424746Z",
+    "bridge_applied_at": "2026-11-05T05:13:56.679590Z",
+    "return_rollout_id": "2b1e98e2-26c5-48d2-9187-0f1fe7cee72c",
+    "return_applied_at": "2026-11-05T05:18:16.679066Z",
+    "assignment_id": "403f9fce-7f6c-4943-a8f2-49eb2ea4448c",
+    "attempt_id": "531b3f79-91d3-4e99-aa8a-8d408f1c740e",
+    "native_exit_code": 0,
+    "native_ended_at": "2026-11-05T05:22:42.5526154Z",
+    "applied_at": "2026-11-05T05:25:49.563715Z",
+    "core_version": "3.2.158",
+    "foundation_version": "3.2.158",
+    "source_revision": "9423d9c27ea6b2d6c544c1bcdc1edb7cc9d15421",
+    "msi_sha256": "b7d3ccebdeb5db1bc0b10af14923244c96b1debb3d1ff78cb4e8c062fe56d1a1",
+    "safe_code": "setup_post_restart_confirmed",
+    "soak": {
+      "duration_seconds": 181.622,
+      "samples": 6,
+      "sensor_count": 1,
+      "sensor_cpu_percent_max": 0.0043,
+      "services_stable": true,
+      "companions_stable": true,
+      "connected": true
+    },
+    "private_four_bytes_and_owner_sddl_preserved": true,
+    "manual_native_or_companion_launch_after_repair": false,
+    "health_collection_id": "cb5bbc8f-b67c-4547-bd8a-b0874e713e43",
+    "inventory_collection_id": "abd98f9b-6c72-4b2c-87c6-fa777a5a1d13",
+    "health_warnings": [],
+    "user_sensor_last_seen_at": "2026-11-05 05:27:26.022794+00:00",
+    "activity_last_observed_at": "2026-11-05 05:28:26.069633+00:00",
+    "browser_telemetry_verified": false,
+    "browser_scope": "Known Yandex issue remains user-deferred; no extension heartbeat claimed",
+    "general_fleet_enabled": false,
+    "clean120_qualification_unchanged": true,
+    "verification_record": "docs/verification/2026-11-05-test29-endpoint-full158.md"
+  },
+  "windows_core_patch": {
+    "version": "3.2.164",
+    "status": "qualified_connected_windows158_cohort",
+    "verified_utc": "2026-11-05T07:43:33.594390+00:00",
+    "minimum_foundation_version": "3.2.158",
+    "record": "docs/releases/core-3.2.164-power-context.json",
+    "build_identifier": "endpoint-windows-core-3.2.164-power-context",
+    "source_revision": "1c2e54a06d1a7dfb6c2c2e0d2ef2cde2d0fe9896",
+    "sha256": "3c6d89a40473cf66ae64bbd1fcac4d8e0852b283df8906055861e846f91684de",
+    "connected_windows_agents_applied": 12,
+    "full_setup_fleet_enabled": false,
+    "primary_native_release_unchanged": true,
+    "persistent_auto_assignment_for_future_or_offline_agents": false
+  },
+  "windows_full_setup165": {
+    "version": "3.2.165",
+    "status": "published_canary_qualified_fleet_paused",
+    "record": "docs/releases/windows-3.2.165-setup.json",
+    "runtime_source_commit": "ed7f77a559e19500df75b9ec169c5336e308b304",
+    "windows_packaging_commit": "0080690784ff4efa8cecd014d0e38afbc02bc1d5",
+    "runtime_source_binding": "packaging/windows/initial-runtime-3.2.165.json",
+    "setup_sha256": "c71cfffca525f8370b22a9f96155176464566739c675f9325596fd2d045f159a",
+    "download_url": "https://endpoint.sosnadmin.local/api/admin/console/installer/releases/e1ae6965-f135-43e8-9c7e-0d55a2dbe983/download",
+    "full_setup_fleet_enabled": false,
+    "policy_revision": 3,
+    "scope": "all_active",
+    "max_parallel": 2,
+    "pause_reason": "fleet_failure_requires_review",
+    "recovery_device": "192.168.101.146",
+    "recovery_status": "original_assignment_applied_after_authorized_manual_repair",
+    "recovery_applied_at": "2026-11-05T12:36:56.777021Z",
+    "general_fleet_accepted": false,
+    "linux_primary_unchanged": true,
+    "verification_record": "docs/verification/2026-11-05-setup165-web-fleet.md"
+  },
+  "windows_full_setup167_candidate": {
+    "version": "3.2.167",
+    "status": "native_canary_failed_continuation_not_qualified",
+    "record": "docs/releases/windows-3.2.167-setup.json",
+    "runtime_source_commit": "ab313225e04b7cccefc0c30ae17b949d8fdd964d",
+    "windows_packaging_commit": "773f2dbeeee561cc565b124c9f2dcbac553bd48f",
+    "setup_update_release_id": "b3feccd9-ac42-4a86-8c17-9a7fc1509869",
+    "setup_sha256": "7a994993281e0cbbdb2f4f190369968be46e3d142dc2605cf129b9d96803b9ae",
+    "native_qualified": false,
+    "recovery_device": "192.168.101.120",
+    "enrollment_download_promoted": false,
+    "fleet_enabled": false,
+    "observer_bootstrap_record": "docs/releases/core-3.2.166-observer-bootstrap.json",
+    "recovery_hold_active": false,
+    "recovery_followup_record": "docs/verification/2026-11-05-native-canary-recovery-execution.md"
+  },
+  "windows_full_setup168_candidate": {
+    "version": "3.2.168",
+    "status": "source165_qualified_source158_canary_failed",
+    "runtime_source_commit": "8c110e8d9b5ec9c002c4e7084eefd4bba8a8d6b3",
+    "runtime_source_binding": "packaging/windows/initial-runtime-3.2.168.json",
+    "record": "docs/releases/windows-3.2.168-setup.json",
+    "native_qualified": true,
+    "fleet_enabled": false,
+    "windows_packaging_commit": "53a7cc4ae344ed1411fa616f6d83f0b6b7074f0c",
+    "setup_update_release_id": "6e9b355c-15cd-4756-973a-70cef6a80b04",
+    "setup_sha256": "bb48b95a10dbae2f054686b5660a2e293ad96ffec84856cb2ece042d76b66ca6",
+    "qualified_source_foundations": [
+      "3.2.165"
+    ],
+    "fleet_eligible": false,
+    "recovery_device": "192.168.101.27",
+    "enrollment_download_promoted": false,
+    "recovery_hold_active": false,
+    "recovery_followup_record": "docs/verification/2026-11-05-native-canary-recovery-execution.md"
+  },
+  "windows_full_setup169_candidate": {
+    "version": "3.2.169",
+    "status": "source168_native_accepted_source158_recovery_required",
+    "runtime_source_commit": "4525435f1345e0d44253948f2867a0a099475f6b",
+    "runtime_source_binding": "packaging/windows/initial-runtime-3.2.169.json",
+    "record": "docs/releases/windows-3.2.169-setup.json",
+    "native_qualified": false,
+    "fleet_enabled": false,
+    "enrollment_download_promoted": false,
+    "windows_packaging_commit": "982b84181486a28e9b351947ca665323cdeae2d8",
+    "setup_update_release_id": "dee3a7c6-c758-47fc-beca-f01f8d7c7ef3",
+    "setup_sha256": "7dce65e273a2b96432b7ca57eb7b38a01cebe1bce7246fab22c7cff0777fb4b1",
+    "native_accepted_source_foundations": [
+      "3.2.168"
+    ],
+    "recovery_device": "192.168.101.187",
+    "verification_record": "docs/verification/2026-11-05-setup169-web-fleet.md",
+    "native_continuation_recovered_at": "2026-11-06T05:55:22.3352267Z",
+    "native_hold_active": false,
+    "original_native_exit": 21,
+    "original_job_still_recovery_required": false,
+    "original_job_status": "failed",
+    "recovery_safe_code": "native_failed_target_recovered",
+    "recovery_followup_record": "docs/verification/2026-11-06-observer107-recovery-proposal.md"
+  },
+  "windows_setup_observer107_candidate": {
+    "client_version": "1.0.7",
+    "status": "scoped187_recovery_accepted",
+    "record": "docs/releases/windows-setup-client-1.0.7.json",
+    "source_commit": "411b19625e97fd196d84bd1f4cdda28a16c0b614",
+    "installed": true
+  },
+  "windows_full_setup170_candidate": {
+    "version": "3.2.170",
+    "status": "source168_native_accepted_source169_automatically_recovered_failure",
+    "runtime_source_commit": "bd2d736f33de5422902adca0f9d07aee40bf2ec7",
+    "signed_artifacts": true,
+    "native_qualified": false,
+    "fleet_enabled": false,
+    "enrollment_download_promoted": false,
+    "observer_version": "1.0.7",
+    "contains_tray_process_fix": true,
+    "contains_foundation_failure_diagnostics": true,
+    "record": "docs/releases/windows-3.2.170-setup.json",
+    "setup_update_release_id": "eb098f60-615c-4360-afb0-b12542a1d24a",
+    "runtime_source_binding": "packaging/windows/initial-runtime-3.2.170.json",
+    "active_chains": 0,
+    "source169_native_exit": 21,
+    "automatic_target_recovery": true,
+    "followup_plan": "docs/superpowers/plans/2026-11-06-foundation-execution-pins.md"
+  },
+  "windows_full_setup171_candidate": {
+    "version": "3.2.171",
+    "status": "installer_source170_native_accepted_fleet_deferred_for_power_fix",
+    "fix_commit": "d5cfb0daa61aff14f4cd4e9685c716a78300e1c3",
+    "runtime_source_commit": "3f71f5fca8c74eefab52aacc9c1a1c4cdb6a72dd",
+    "observer_version": "1.0.7",
+    "signed_artifacts": true,
+    "native_qualified": false,
+    "fleet_enabled": false,
+    "enrollment_download_promoted": false,
+    "plan": "docs/superpowers/plans/2026-11-06-foundation-execution-pins.md",
+    "record": "docs/releases/windows-3.2.171-setup.json",
+    "setup_update_release_id": "a6cb4f29-48f8-4a97-b396-8d282a1a9d01",
+    "native_canary_applied": true,
+    "native_exit": 0,
+    "active_chains": 0
+  },
+  "windows_full_setup172_candidate": {
+    "version": "3.2.172",
+    "status": "published_primary_windows_qualified_online_rollout_accepted",
+    "fix_commits": [
+      "d5cfb0daa61aff14f4cd4e9685c716a78300e1c3",
+      "d4774f78b3a5e1ea356936171bbc46fbcb5fadc4"
+    ],
+    "runtime_source_commit": "a2b6d6228b6583c6696c19b4e91b2175a2825b4b",
+    "windows_packaging_commit": "5971c4640b8a395537dc2fc0420fcb364c92f19e",
+    "runtime_source_binding": "packaging/windows/initial-runtime-3.2.172.json",
+    "observer_version": "1.0.7",
+    "signed_artifacts": true,
+    "native_qualified": true,
+    "fleet_enabled": true,
+    "policy_revision": 7,
+    "scope": "all_active",
+    "max_parallel": 2,
+    "enrollment_download_promoted": true,
+    "record": "docs/releases/windows-3.2.172-setup.json",
+    "setup_update_release_id": "f867fb0f-d506-47cc-84f7-c147b47fcba9",
+    "qualified_source_foundations": [
+      "3.2.158",
+      "3.2.165",
+      "3.2.167",
+      "3.2.169",
+      "3.2.170",
+      "3.2.171"
+    ]
+  },
+  "historical_3_2_156_verification": {
+    "windows_full_suite": {
+      "command": "python -m pytest tests pc_agent/tests -q -o faulthandler_timeout=120",
+      "passed": 5601,
+      "skipped": 419
+    },
+    "linux_native_full_suite": {
+      "passed": 4888,
+      "skipped": 1132,
+      "source_commit": "3e3528fbb07aa6abcece61a31adc8b7762048069"
+    },
+    "linux_followup_at_test_commit": {
+      "passed": 71,
+      "skipped": 0
+    },
+    "github_postgresql_full_suite": {
+      "passed": 5109,
+      "skipped": 911,
+      "run_url": "https://github.com/BorisDruzak/endpoint_platform/actions/runs/40373395703",
+      "source_commit": "4425321ca687b4788d51818a1234eea5fb95fa7d"
+    },
+    "contracts": "generated artifacts check passed",
+    "windows_source_bindings": {
+      "source_files": 220,
+      "frozen_entrypoint_closures": 11,
+      "readiness_bytecode_matches_reviewed_source": true
+    },
+    "public_downloads": {
+      "windows_actual_console_click_sha256_and_signature": "verified",
+      "linux_eight_get_head_digests": "verified",
+      "linux_listing_post": 403,
+      "linux_missing_file": 404,
+      "tls_ca_and_hostname": "verified"
+    },
+    "console_qa_identity": "disabled and sessions revoked after verification",
+    "original_affected_pc": {
+      "status": "verified",
+      "verified_utc": "2026-10-26T19:39:41.550861+00:00",
+      "original_failed_trial_result": "preserved; historical native rollback UNKNOWN",
+      "recovery": [
+        "two captured canonical authority leaves restored after full native155 verification",
+        "genuine ordinary155 uninstall; both old/new products, components and three services verified absent",
+        "original failed record archived with native file identity and ACL preserved; exact old recovery task retired; separate abort-after-native-uninstall outcome"
+      ],
+      "installation": {
+        "setup_sha256": "92c17fddab6d1c4a32b322bb5a39855bc876c688f743684129fc4cfc412e4665",
+        "setup_exit_code": 10,
+        "setup_status": "REPAIRED",
+        "service_result": "SERVICE_RUNNING",
+        "version": "3.2.156",
+        "source_revision": "6ed41cd01d494e46111a452c2ae3a844f723175b",
+        "native_msi_sha256": "ab6cde32554798a18b446c8e33ce6f0926eba6a85439bc7224a08a88b25a1073",
+        "foundation_feature_state": "complete",
+        "native_foundation_verified": true,
+        "core_verified": true,
+        "provenance_conflict": false,
+        "active_or_degraded_update": false,
+        "private_files_preserved": 4,
+        "private_hashes_and_sddl_unchanged": true,
+        "recovery_tasks_remaining": 0
+      },
+      "runtime": {
+        "agent_service_account": "LocalService",
+        "one_session_since_installation": true,
+        "session_heartbeat_advance_seconds": 210.04,
+        "recent_authenticated_heartbeat_utc": "2026-10-26T19:39:36.652314+00:00",
+        "service_pid_stable_between_observations": true
+      },
+      "scope": "original affected PC; native fixture tests are distinct from actual product evidence; no historical rollback success or fleet rollout claim"
+    }
+  },
+  "historical_3_2_156_limits": [
+    "Windows Core-only update requires Foundation 3.2.156; use the full signed Setup to upgrade an older Foundation.",
+    "No fleet update targets were created by this publication.",
+    "The Windows matrix used a staging-configured signed wrapper with production-identical MSI/Core/PowerShell bytes; the original affected PC additionally verified the published production Setup.",
+    "Windows 149 historical rollback matrix and unsupported physical sleep/hibernate states were not newly qualified.",
+    "Linux qualification covers native RPM upgrade/rollback; no new OTA crash-rollback or GUI/hardware acceptance is claimed.",
+    "Incomplete WorkTime, Yandex/Opera and legacy deployment changes are outside this release."
+  ],
+  "historical_primary_release_record": "docs/releases/windows-3.2.176-setup.json",
+  "historical_3_2_156_provider": {
+    "commit": "3e3528fbb07aa6abcece61a31adc8b7762048069",
+    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-3e3528fbb07a",
+    "migration": "0039_power_source_state",
+    "compatible_provider_deployed_before_clients": true,
+    "api_worker_https_health": "verified",
+    "all_provider_python_files_match_main": 223
+  },
+  "historical_3_2_172_verification": {
+    "record": "docs/verification/2026-11-06-setup172-web-fleet.md",
+    "direct_windows_tests": 308,
+    "integration_tests_passed": 338,
+    "integration_tests_skipped": 1,
+    "power_combined_tests_passed": 131,
+    "version_packaging_tests_passed": 85,
+    "full_project_suite_run": false,
+    "independent_reviews_approved": true,
+    "actual_console_download": {
+      "Path": "C:\\Users\\admin-2\\Downloads\\EndpointAgentSetup-3.2.172-x64.exe",
+      "Size": 146278976,
+      "SHA256": "f6767cd04def4ef345b660b30c4e082acf065efaf08b0fc1282813517ff18df6",
+      "Signature": "Valid",
+      "Publisher": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+      "Timestamped": true
+    },
+    "source167_full_setup_canary": {
+      "record": "docs/verification/2026-11-06-setup172-120.md",
+      "assignment_id": "a4bc3da5-d254-432f-8455-d03b0844c468",
+      "native_exit": 0
+    }
+  },
+  "historical_3_2_172_limits": [
+    "Native fleet admission requires exact172 artifact and qualified source Foundation; active/future scope does not bypass source protocol or telemetry gates.",
+    "Clean156 to172 was not tested; historical156 ACL limitations remain explicit in the fleet runbook.",
+    "Offline devices wait for fresh authenticated reconnect; unsupported pre156 agents need a supported installation path.",
+    "Yandex browser extension remains deferred; no new Linux release, hardware sleep qualification or independent support tunnel is included."
+  ],
+  "historical_provider_before_support": {
+    "commit": "ce46fd47a3a929a2fe104f01fac2bc8cc619559d",
+    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-ce46fd47a3a9",
+    "migration": "0045_setup_fleet_policy",
+    "api_worker_https_health": "verified",
+    "native172_server_deployment_required": false
+  },
+  "historical_live_provider_before_support": {
+    "commit": "ce46fd47a3a929a2fe104f01fac2bc8cc619559d",
+    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-ce46fd47a3a9",
+    "migration": "0045_setup_fleet_policy",
+    "scope": "Qualified observer107 deployed. Authorized client-only187 replacement completed; original native21 job closed FAILED/target-recovered with fresh183.588second proof, private data preserved and active chains0. Fleet3 disabled/all-active/max2; enrollment165 unchanged.",
+    "verified_utc": "2026-11-06T07:06:06.927462Z",
+    "health_http_status": 200,
+    "database": "ok",
+    "state_verified_utc": "2026-11-06T07:06:06.927462Z"
+  },
+  "historical_automatic_full_setup158": {
+    "status": "qualified_test120_applied",
+    "bridge_core_version": "3.2.162",
+    "bridge_record": "docs/releases/core-3.2.162-setup-client.json",
+    "return_core_version": "3.2.157",
+    "target_setup_version": "3.2.158",
+    "client_version": "1.0.4",
+    "scope": "Only device0051645c-0e81-4c21-bf52-befcd5ef5407/test120; existing Foundation158 plus ZIP Core157; no public enrollment change",
+    "delivery": "Authenticated Endpoint Core bootstrap/return, then full signed Setup158-r3; no workstation SSH",
+    "assignment_id": "f032a785-deaa-4034-892e-8402f4a3547f",
+    "applied_at": "2026-11-03T13:05:11.530911Z",
+    "native_exit_code": 0,
+    "observed_seconds": 183.191,
+    "sensor_count": 1,
+    "sensor_cpu_percent_max": 0.0064,
+    "health_collection_id": "18401f05-ea6f-4334-8694-288ec307f5d0",
+    "health_completed_at": "2026-11-03T13:05:37.743238Z",
+    "initial_bootstrap_limit": "Installed158 stager required explicitly user-approved one-time updates owner SYSTEM->LocalService preparation; exact DACL/group/private-four preserved; temporary task removed",
+    "native_uncertainty": "Unknown outcomes retain exclusive recovery_required. Known exit21 may settle honestly as failed only after verified unchanged source and completed recovery return.",
+    "verification_record": "docs/verification/2026-11-03-test120-endpoint-full-setup158.md",
+    "followup_health_collection_id": "4954dec4-0f71-4677-97e5-2daee2090e61",
+    "followup_health_completed_at": "2026-11-04T09:22:24.075668Z",
+    "followup_health_warnings": []
+  },
+  "historical_3_2_165_enrollment_defaults": {
+    "campaign_id": "09e62472-a6ae-49ab-aaaa-6613836b4423",
+    "mode": "auto",
+    "allowed_installer_releases": [
+      "3.2.149",
+      "3.2.156",
+      "3.2.156+setup.1",
+      "3.2.158",
+      "3.2.63",
+      "3.2.65",
+      "3.2.79",
+      "3.2.92",
+      "3.2.165"
+    ],
+    "cidrs": [
+      "192.168.101.0/24"
+    ],
+    "future_trusted_publication_inclusion": "transactional canonical Windows publisher; explicit diagnostic exclusions documented",
+    "primary_download_unchanged": "3.2.165",
+    "max_uses": 100,
+    "use_count": 6,
+    "expires_at": "2030-09-27T09:04:00Z",
+    "verified_utc": "2026-11-05T18:08:11.259692Z"
+  },
+  "historical_qualified_existing_device_release_record": "docs/releases/agent-3.2.158.json",
+  "windows_full_setup176": {
+    "version": "3.2.176",
+    "status": "published_primary_windows_six_online_devices_accepted",
+    "runtime_source_commit": "03143de5005201837c58a2f0955d714e7026a2eb",
+    "windows_packaging_commit": "be3ea71493af47229320c8f4ee5206b33631ce39",
+    "runtime_source_binding": "packaging/windows/initial-runtime-3.2.176.json",
+    "observer_version": "1.0.7",
+    "support_version": "1.0.1",
+    "signed_artifacts": true,
+    "native_qualified": true,
+    "fleet_enabled": true,
+    "policy_revision": 10,
+    "scope": "all_active",
+    "max_parallel": 2,
+    "enrollment_download_promoted": true,
+    "record": "docs/releases/windows-3.2.176-setup.json",
+    "setup_update_release_id": "1ac9fd1d-1e06-4599-a21a-2e27060156ca",
+    "windows_setup_release_id": "1ee38ef2-e811-460c-a71e-e389bcf85a4f",
+    "qualified_source_foundations": [
+      "3.2.172",
+      "3.2.175"
+    ]
+  },
+  "historical_provider_before_installation_defaults": {
+    "commit": "ce083f336d78f9840b26824da6d95f0d2929008b",
+    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-ce083f336d78",
+    "migration": "0046_support_access",
+    "api_worker_https_health": "verified",
+    "required_before_support101_clients": true,
+    "exporter_unit_commit": "dec480a8b796c4b474bc294143b2bbe7a887806f",
+    "exporter_runtime_directory_preserve": "restart"
+  },
+  "historical_live_provider_before_installation_defaults": {
+    "commit": "ce083f336d78f9840b26824da6d95f0d2929008b",
+    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-ce083f336d78",
+    "migration": "0046_support_access",
+    "api_worker_https_health": "verified",
+    "required_before_support101_clients": true,
+    "exporter_unit_commit": "dec480a8b796c4b474bc294143b2bbe7a887806f",
+    "exporter_runtime_directory_preserve": "restart",
+    "scope": "Independent gateway/exporter/broker and domain-capable Support API deployed; existing administrator SSH preserved",
+    "verified_utc": "2026-11-06T18:04:35.4756590Z",
+    "health_http_status": 200,
+    "database": "ok"
+  },
+  "provider_verification": {
+    "full_project_baseline": "6808 passed,470 skipped,7 existing warnings,821.80s before the narrow candidate visibility extension",
+    "candidate_visibility": "65 distinct focused passing tests including real PostgreSQL migration/transaction/concurrency",
+    "parent_fix": "30 passed,72.78s after real-builder RED; independent focused review approved",
+    "full_final_provider_suite_rerun": false,
+    "frontend": "22 UI tests/typecheck/build; live authenticated desktop1440/mobile390/reload/history/parent links; no overflow/console errors",
+    "real_windows_job_cancellation": "3 actual descendant cancellation tests passed",
+    "signed_frozen_resource_inspection": true,
+    "actual_test120_accepted": true,
+    "report": "docs/verification/2026-11-07-test120-installation-lifecycle177.md",
+    "source_test_commit": "25f2ad8a5e13991e4e76260da939d29aafba8674",
+    "provider_test_commit": "266e38e5c2ead35f95978da1b95cc7a4fadb2a82"
+  },
+  "clean_install_test120": {
+    "passed": true,
+    "verified_utc": "2026-11-07T00:20:42.243992+00:00",
+    "version": "3.2.177",
+    "device_id": "c87eaa22-4fd1-4830-bc11-88142afda87e",
+    "previous_device_id": "a68f65b1-1ebf-45f2-84e6-6b67afac64a5",
+    "runtime_source": "25f2ad8a5e13991e4e76260da939d29aafba8674",
+    "native_source": "d21bc3bba119a178607de6f64f620fb53eeadf01",
+    "setup_sha256": "9d06a8339c2ed3b2c563f2b5258ad9fdbef0962b6d85f79e6e88490ca7f426fc",
+    "msi_sha256": "d096726d6d0521a522fdb81d0b3ee551d583befba5d216c09a96332fd21359f3",
+    "support_sha256": "69205b83e588c064d82c014c39afde0a9641ef11c86d8a2cee702fa7afc95c41",
+    "fresh_setup_exit_code": 0,
+    "native_event_exit_code": 0,
+    "native_event_id": "48ab9898-f671-5dee-a2db-5aa157aee3c2",
+    "private_four_preserved_during_fault": true,
+    "samples_before_after_advancing": true,
+    "independent_ssh_gap_seconds": 96.908636,
+    "same_support_pid": 6660,
+    "automatic_initial_access": true,
+    "manual_policy_writes": 0,
+    "policy_revision": 2,
+    "expires_at": "2026-11-07T08:14:14.517608Z",
+    "remote_port": 32009,
+    "database_history": {
+      "initial_grants": [
+        {
+          "details": {
+            "revision": 2,
+            "device_id": "c87eaa22-4fd1-4830-bc11-88142afda87e",
+            "expires_at": "2026-11-07T08:14:14.517608+00:00",
+            "defaults_digest": "84246a16ceaf3f2123629b85f36b8dd76c81c4fbf3546ab00eb34b08fce03697"
+          },
+          "created_at": "2026-11-07T00:14:14.544475+00:00"
+        }
+      ],
+      "previous_removed": "removed",
+      "manual_policy_writes": 0,
+      "previous_not_retired": true,
+      "previous_active_credentials": 0
+    },
+    "fresh_setup_client": {
+      "client_version": "1.0.7",
+      "foundation_version": "3.2.177",
+      "core_version": "3.2.177",
+      "ready": true,
+      "safe_code": null,
+      "last_seen_at": "2026-11-07T00:20:07.355436+00:00"
+    }
+  },
+  "windows_full_setup177": {
+    "release_record": "docs/releases/windows-3.2.177-setup.json",
+    "source_qualifications": [
+      {
+        "id": "13d53e38-deeb-4657-827a-f64cb402b67e",
+        "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+        "source_foundation": "3.2.172",
+        "evidence_assignment_id": "fa9c3a87-4c45-44e0-91c9-607d6bd428e4",
+        "qualified_at": "2026-11-07T00:10:08.224472+00:00",
+        "expires_at": "2026-12-07T00:10:08.224472+00:00"
+      },
+      {
+        "id": "4372c370-5e3e-471e-9145-f4ff3bcf1632",
+        "release_id": "e84efe89-dfc5-457f-bcb3-2b6e1a4281b1",
+        "source_foundation": "3.2.176",
+        "evidence_assignment_id": "7a0db343-d209-45c6-9038-b2c2f2062e76",
+        "qualified_at": "2026-11-06T23:32:51.074103+00:00",
+        "expires_at": "2026-12-06T23:32:51.074103+00:00"
+      }
+    ],
+    "online_cohort_accepted": 6,
+    "report": "docs/verification/2026-11-07-test120-installation-lifecycle177.md"
+  },
+  "historical_current_checkpoint": "docs/releases/windows-3.2.176-current-checkpoint.json",
+  "historical_user_sensor_cause_and_corrected176": "docs/verification/2026-11-07-test120-usersensor-cause-clean176.md",
+  "linux_primary_previous156": {
+    "distribution": "ALT 11 x86_64",
+    "core_rpm": {
+      "filename": "endpoint-agent-3.2.156-alt5.x86_64.rpm",
+      "sha256": "0287f55321b7f69ce5f3036c866ff416af376c907a087052afb0f833cade0e9b"
+    },
+    "user_sensor_rpm": {
+      "filename": "endpoint-agent-user-sensor-3.2.156-alt5.x86_64.rpm",
+      "sha256": "5688d7270c647fe87b2ce3ff37150c867d08dccc358b320e65e8fb58ef126daa"
+    },
+    "kit": {
+      "name": "endpoint-alt-pilot-3.2.156-1",
+      "operator_directory": "C:\\endpoint-platform-wix-build\\unified-3.2.156\\linux-kit",
+      "server_directory": "/srv/endpoint-platform-distribution/alt/endpoint-alt-pilot-3.2.156-1",
+      "download_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.156-1/endpoint-alt-pilot-3.2.156-1.tar.gz",
+      "manifest_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.156-1/endpoint-alt-pilot-3.2.156-1.manifest.json",
+      "public_file_sha256": {
+        "endpoint-alt-pilot-3.2.156-1.manifest.json": "c74f20dbb15d92808e5b11da582cf1ae73c1760cfdd71c7686298a069f71a004",
+        "README.ru.md": "01afa7bec0ab05dd5598ef32f239fea2e4e5baa0c89168117541e01cb271e467",
+        "endpoint-rpm-release.asc": "12175df39caa5a67336aeb002b5c71d3a9d3047961f5ad90cf959650044b456c",
+        "endpoint-alt-pilot-3.2.156-1.tar.gz.sig": "a071acb082481f9d59409f264aa3a0e8e579f7338890293961caff51bb11ef68",
+        "endpoint-alt-pilot-3.2.156-1.tar.gz": "071720bbda4c1fc81152a1fd4fa004c02b096f9ecf162bac996b2c0dd746f2c9",
+        "endpoint-alt-pilot-3.2.156-1.manifest.sig": "48d469638c3b8500e0de08ee8aaf37b2a2c5ce77d9d375f3403f495aea3c8362",
+        "endpoint-alt-pilot-3.2.156-1.tar.gz.sha256": "037660af3e1d80d5789aa918e147c1b56f444ce1d127013be735f0a2d0c149d0",
+        "endpoint-alt-pilot-3.2.156-1.manifest.sha256": "8e81de60068189db8d2ec6cb75441c4a550719903d74653b20e2ef71e37465b5"
+      },
+      "publisher_openpgp_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631"
+    },
+    "update": {
+      "schema_version": "update_build_manifest_v1",
+      "build_identifier": "agent-linux-unified32156-6ed41cd",
+      "version": "3.2.156",
+      "platform": "linux_amd64",
+      "channel": "stable",
+      "artifact_url": "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/agent-linux-unified32156-6ed41cd",
+      "artifact_name": "endpoint-agent-linux_amd64-3.2.156.tar.gz",
+      "archive_type": "tar.gz",
+      "sha256": "c2fb732693884e7779a95cf9fbbc931d5fd7253435ecb7483c5e722162981370",
+      "size": 21681357,
+      "release_notes": "Unified agent with power history, resilient telemetry and installation recovery."
+    },
+    "qualified_native_paths": [
+      "155 to 156 to 155 to 156 using signed RPMs",
+      "identity/configuration/credential/CA preservation",
+      "fresh policy APPLIED and authenticated TLS connection",
+      "180-second quiet observation; stable processes and zero new power-event loss"
+    ],
+    "version": "3.2.156",
+    "runtime_source_commit": "6ed41cd01d494e46111a452c2ae3a844f723175b"
+  },
+  "current_provider": {
+    "dependency_evidence": {
+      "source_file_sha256": {
+        "requirements-server.txt": "b0509446c698d9bd8d4e9a3a3f684623e2bbaf82c81b3df765e8f4fba52391ae",
+        "webapp/package-lock.json": "c0d0c03aff39f17b758b821473f89149f8fc29345a357782ca21c5a2dff263cc"
+      },
+      "linux_ci_freeze_sha256": "d12398cdbfc0150a9fe649642eb9df8c0676da599d2c95abf2aa82a339f1aa49",
+      "candidate_evidence_sha256": "519939f773d000c0cf9abfa3e2d5aaa378ece50463d8738d0bcb4e07828e3d09"
+    },
+    "source_commit": "44d96b5cce415e3886328c077499bee5f3b969ec",
+    "server_path": "/opt/endpoint-platform/releases/endpoint-platform-44d96b5cce41",
+    "schema": "0056_context_collection_history",
+    "api_and_worker_active": true,
+    "publication_verified_utc": "2026-11-17T21:19:18Z",
+    "archive_sha256": "f073e546855c4a50a208b7047706f1de929ee6805ac3461f29c5f5eb84a947bb",
+    "report": "docs/verification/2026-11-14-stability-release-baseline.md"
+  },
+  "historical_windows192_provider_checkpoint": {
+    "source_commit": "a901eed124a998c2671d17fe34e0d0ce598ef773",
+    "server_path": "/opt/endpoint-platform/releases/endpoint-platform-a901eed124a9",
+    "schema": "0051_staging_linux_worktime",
+    "api_and_worker_active": true,
+    "publication_verified_utc": "2026-11-11T16:58:14.859944+00:00",
+    "report": "docs/verification/2026-11-11-windows192-support-activation.md"
+  },
+  "historical_windows177_provider_checkpoint": {
+    "source_commit": "266e38e5c2ead35f95978da1b95cc7a4fadb2a82",
+    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-266e38e5c2ea",
+    "database_schema": "0048_installation_lifecycle",
+    "gateway_pid_preserved": 24963,
+    "exporter_pid_preserved": 107695,
+    "installation_defaults_unchanged": true,
+    "report": "docs/verification/2026-11-07-test120-installation-lifecycle177.md"
+  },
+  "historical_windows177_live_provider_checkpoint": {
+    "source_commit": "266e38e5c2ead35f95978da1b95cc7a4fadb2a82",
+    "release_directory": "/opt/endpoint-platform/releases/endpoint-platform-266e38e5c2ea",
+    "database_schema": "0048_installation_lifecycle",
+    "gateway_pid_preserved": 24963,
+    "exporter_pid_preserved": 107695,
+    "installation_defaults_unchanged": true,
+    "report": "docs/verification/2026-11-07-test120-installation-lifecycle177.md"
+  },
+  "physical_pilot_20261109": {
+    "verified_utc": "2026-11-09T12:23:44.056229+00:00",
+    "version": "3.2.183",
+    "runtime_source": "21fc543af8d4b8b24df83f29a27e4e2eeb86c268",
+    "provider_source": "fd196e78b2c5cef00c86de79ca359147676f8b2f",
+    "scope": "explicit user-authorized three physical domain workstations, not automatic fleet",
+    "report": "docs/verification/2026-11-09-linux183-physical-cohort.md",
+    "hosts": [
+      {
+        "ip": "192.168.101.105",
+        "hostname": "alt-zhkh2-pc1",
+        "hardware_uuid": "6758198d-8aa6-ab1c-ad74-2cf05d70ade7",
+        "device_id": "b4fc3d94-6d91-44ef-acd4-dcf76b823163",
+        "native_event_id": "926b5aef-1df4-4f6a-9e4a-6a768d125d7c",
+        "native_exit": 0,
+        "outer_setup_exit": 0,
+        "native_sequence": 1,
+        "acknowledged": 1,
+        "bootstrap_complete": true,
+        "strict_actual_root_ssh": true,
+        "stopped_core_updater_ssh_seconds": 93.38629538199893,
+        "post_restore_core_stable_seconds": 405.8028183789993,
+        "accepted_sensor_at": "2026-11-09T12:23:25.804429+00:00",
+        "accepted_activity_at": "2026-11-09T12:23:40.801185+00:00",
+        "wss_last_seen_at": "2026-11-09T12:23:30.651111+00:00",
+        "initial_support_revision": 2,
+        "initial_support_expires_at": "2026-11-09T20:09:48.474922Z",
+        "domain_uid": 216607269,
+        "active_domain_session_preserved": true,
+        "domain_keytab_and_sssd_unchanged": true,
+        "original_private4_preserved": null,
+        "rpm_verify_exit": 0,
+        "automatic_start": {
+          "endpoint-agent.service": "enabled",
+          "endpoint-agent-update.path": "enabled",
+          "endpoint-support-access.service": "enabled"
+        },
+        "sqlite_integrity": {
+          "power-events-v1.db": [
+            "ok"
+          ],
+          "security-events-v1.db": [
+            "ok"
+          ]
+        },
+        "effective_policy_version_id": "c6f5ee58-242e-4ac6-a5ea-651624765dde",
+        "installation_mode": "clean_native_install",
+        "new_registration": true
+      },
+      {
+        "ip": "192.168.101.190",
+        "hostname": "alt-a2-pc1",
+        "hardware_uuid": "47c60af3-aa57-7f4a-f824-d45d6423722f",
+        "device_id": "44e17f70-f23c-4c49-ae22-f43a5619258f",
+        "native_event_id": "2b5636ba-d3a7-41da-9812-fcbe3928b5f6",
+        "native_exit": 0,
+        "outer_setup_exit": 0,
+        "native_sequence": 1,
+        "acknowledged": 1,
+        "bootstrap_complete": true,
+        "strict_actual_root_ssh": true,
+        "stopped_core_updater_ssh_seconds": 99.37610170600237,
+        "post_restore_core_stable_seconds": 284.7205267370009,
+        "accepted_sensor_at": "2026-11-09T12:23:32.409438+00:00",
+        "accepted_activity_at": "2026-11-09T12:23:42.422127+00:00",
+        "wss_last_seen_at": "2026-11-09T12:23:32.657528+00:00",
+        "initial_support_revision": 2,
+        "initial_support_expires_at": "2026-11-09T20:11:10.770190Z",
+        "domain_uid": 216611806,
+        "active_domain_session_preserved": true,
+        "domain_keytab_and_sssd_unchanged": true,
+        "original_private4_preserved": null,
+        "rpm_verify_exit": 0,
+        "automatic_start": {
+          "endpoint-agent.service": "enabled",
+          "endpoint-agent-update.path": "enabled",
+          "endpoint-support-access.service": "enabled"
+        },
+        "sqlite_integrity": {
+          "power-events-v1.db": [
+            "ok"
+          ],
+          "security-events-v1.db": [
+            "ok"
+          ]
+        },
+        "effective_policy_version_id": "c6f5ee58-242e-4ac6-a5ea-651624765dde",
+        "installation_mode": "clean_native_install",
+        "new_registration": true
+      },
+      {
+        "ip": "192.168.101.210",
+        "hostname": "alt-arh1-pc1",
+        "hardware_uuid": "61f49bc0-1537-0000-0000-000000000000",
+        "device_id": "596d0328-4272-4e59-b644-539fd7b4b6a5",
+        "native_event_id": "4c046736-6f9a-4863-847a-49fcd345ef41",
+        "native_exit": 0,
+        "outer_setup_exit": 0,
+        "native_sequence": 1,
+        "acknowledged": 1,
+        "bootstrap_complete": true,
+        "strict_actual_root_ssh": true,
+        "stopped_core_updater_ssh_seconds": 113.59023176499977,
+        "post_restore_core_stable_seconds": 196.01132659299765,
+        "accepted_sensor_at": "2026-11-09T12:23:26.12523+00:00",
+        "accepted_activity_at": "2026-11-09T12:23:41.125175+00:00",
+        "wss_last_seen_at": "2026-11-09T12:23:26.898216+00:00",
+        "initial_support_revision": 2,
+        "initial_support_expires_at": "2026-11-09T20:16:04.483799Z",
+        "domain_uid": 216608110,
+        "active_domain_session_preserved": true,
+        "domain_keytab_and_sssd_unchanged": true,
+        "original_private4_preserved": true,
+        "rpm_verify_exit": 0,
+        "automatic_start": {
+          "endpoint-agent.service": "enabled",
+          "endpoint-agent-update.path": "enabled",
+          "endpoint-support-access.service": "enabled"
+        },
+        "sqlite_integrity": {
+          "power-events-v1.db": [
+            "ok"
+          ],
+          "security-events-v1.db": [
+            "ok"
+          ]
+        },
+        "effective_policy_version_id": "41fd4df3-8720-4a6b-8126-c47591a275fb",
+        "installation_mode": "administratively_prepared158_upgrade",
+        "new_registration": false
+      }
+    ],
+    "control_plane": {
+      "observed_utc": "2026-11-09T12:21:08.585707+00:00",
+      "provider_source": "fd196e78b2c5cef00c86de79ca359147676f8b2f",
+      "schema": "0050_linux_enrollment_binding",
+      "health": {
+        "status": "ok",
+        "service": "endpoint-platform",
+        "database": "ok",
+        "version": "0.0.0"
+      },
+      "services": {
+        "endpoint-platform.service": {
+          "MainPID": "334471",
+          "NRestarts": "0",
+          "ActiveState": "active"
+        },
+        "endpoint-platform-worker.service": {
+          "MainPID": "334472",
+          "NRestarts": "0",
+          "ActiveState": "active"
+        },
+        "endpoint-support-exporter.service": {
+          "MainPID": "334584",
+          "NRestarts": "0",
+          "ActiveState": "active"
+        },
+        "endpoint-support-gateway.service": {
+          "MainPID": "24963",
+          "NRestarts": "0",
+          "ActiveState": "active"
+        },
+        "ssh.service": {
+          "MainPID": "889",
+          "NRestarts": "0",
+          "ActiveState": "active"
+        }
+      },
+      "windows_policy12_support_campaign_and_177_bytes_unchanged": true,
+      "linux_native_sources_unchanged": 2,
+      "scoped_linux_campaign": {
+        "id": "2c5ff0c5-fac4-4821-868e-1dadda37c445",
+        "target_platform": "linux",
+        "allowed_cidrs": [
+          "192.168.101.105/32",
+          "192.168.101.190/32"
+        ],
+        "policy": {
+          "policy_id": "linux183-physical-20261109",
+          "enrollment_mode": "auto",
+          "allowed_native_releases": [
+            "f785e4e5-17fd-414b-9474-0d1e24cf2100"
+          ]
+        },
+        "max_uses": 2,
+        "use_count": 2,
+        "expires_at": "2026-11-09T14:05:32.511117+00:00",
+        "revoked_at": null,
+        "disabled_at": null
+      },
+      "new_claims_only_for105190": true,
+      "no_global_linux_fleet_enabled": true
+    }
+  },
+  "alt_native_candidate_274": {
+    "version": "3.2.274-alt6",
+    "record": "docs/releases/alt-3.2.274-candidate.json",
+    "status": "local_signed_candidate",
+    "published": false
+  },
+  "alt_native_candidate_270": {
+    "version": "3.2.270-alt6",
+    "record": "docs/releases/alt-3.2.270-candidate.json",
+    "status": "local_signed_candidate",
+    "published": false,
+    "production_native_accounting": {
+      "registered": true,
+      "release_id": "69457c15-2894-46c2-b8f3-34affde22557"
+    }
+  },
+  "alt_native_candidate_269": {
+    "version": "3.2.269-alt6",
+    "record": "docs/releases/alt-3.2.269-candidate.json",
+    "status": "local_signed_candidate",
+    "published": false
+  },
+  "alt_native_candidate_267": {
+    "version": "3.2.267-alt6",
+    "record": "docs/releases/alt-3.2.267-candidate.json",
+    "status": "local_signed_candidate_pre_start_cut_verified_two_native_cases_open",
+    "published": false
+  },
+  "alt_native_candidate_266": {
+    "version": "3.2.266-alt6",
+    "record": "docs/releases/alt-3.2.266-candidate.json",
+    "status": "local_candidate_held_after_started_command_power_loss",
+    "published": false
+  },
+  "alt_native_candidate_265": {
+    "version": "3.2.265-alt6",
+    "source_commit": "010e1fd5d3ffac17f24b7a4c50bf1dabdc2dce97",
+    "local_source_restore": {
+      "verified_ref": "refs/verified-releases/alt/3.2.265"
+    },
+    "status": "versioned_published_operator_pilot",
+    "lab_status": "signed_lab_candidate",
+    "published": true,
+    "core_rpm_sha256": "89fed3f6ba16e37328748cc67167d4f079d300b71ecf88b380d4c034a68d5af4",
+    "sensor_rpm_sha256": "bfa6fc04573ac8f128bf117016de248bae926d6f87fe232f97aeb2d2a3732aae",
+    "kit_sha256": "09310c8b93bbcfd410cdd96718647fccc3d55360aa94bf0674955626bb61b216",
+    "production_native_accounting": {
+      "observed_utc": "2026-11-19T07:59:18.213576Z",
+      "registered": true,
+      "release_id": "63ff314d-482b-4ba1-be68-6fc8787f9ecd",
+      "frozen_manifest_sha256": "55450b0df498239c2c50be4402813c9523815b92a31413390ea657948a410215",
+      "audit_events": 1,
+      "enrollment_campaigns": 0,
+      "enrollment_bindings": 0,
+      "ota_builds": 0,
+      "ota_rollouts": 0,
+      "receipt": {
+        "path": "C:/endpoint-platform-wix-build/stab15-alt-native-265/production-candidate/verified-production-alt265.json",
+        "sha256": "39cf5710ba68b0b2f12681595e500444c1bd08dcceb4d80518b34fbcc4e7d977"
+      }
+    },
+    "production_pilot": {
+      "observed_utc": "2026-11-19T08:15:09.461836Z",
+      "status": "verified_single_device",
+      "hostname": "alt-a2-pc1",
+      "source": "3.2.183-alt6",
+      "setup_exit": 0,
+      "native_exit": 0,
+      "installation_ack": 2,
+      "same_device": true,
+      "rebooted": false,
+      "support_after_close": {
+        "enabled": false,
+        "tunnel_connected": false,
+        "generation": 1,
+        "revision": 4
+      },
+      "receipt_index": {
+        "path": "C:/endpoint-platform-wix-build/stability-qualification-cohorts-20261119/alt-a2-pc1-pilot-receipts.sha256",
+        "file_count": 9,
+        "sha256": "535ff4db65e8e53116b51243a046f8fd1834a84ac79eeb5c9c164e4b34af1bbe"
+      },
+      "server_receipts": {
+        "before": {
+          "path": "C:/endpoint-platform-wix-build/stab15-alt265-production-190/server/before.json",
+          "sha256": "7c4688f5b88409d428832ec6254d69e43e3318923ae22cb42413d31d6475d253"
+        },
+        "after": {
+          "path": "C:/endpoint-platform-wix-build/stab15-alt265-production-190/server/after.json",
+          "sha256": "4cab0f18ea006bea68266d9dcfa8f01e71de8cf05aa14498e18b75dc1dd110c5"
+        },
+        "closed": {
+          "path": "C:/endpoint-platform-wix-build/stab15-alt265-production-190/server/closed.json",
+          "sha256": "9bf0b8536a0ea5015de3e1904be066f52f0c5c14d91cd7f502acabbe442b3842"
+        }
+      }
+    },
+    "production_distribution": {
+      "verified_utc": "2026-11-19T09:35:06.189984Z",
+      "file_count": 8,
+      "total_bytes": 71650525,
+      "archive_bytes": 71641987,
+      "archive_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.265-1/endpoint-alt-pilot-3.2.265-1.tar.gz",
+      "archive_signature_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.265-1/endpoint-alt-pilot-3.2.265-1.tar.gz.sig",
+      "manifest_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.265-1/endpoint-alt-pilot-3.2.265-1.manifest.json",
+      "manifest_signature_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.265-1/endpoint-alt-pilot-3.2.265-1.manifest.sig",
+      "publisher_key_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.265-1/endpoint-rpm-release.asc",
+      "guide_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.265-1/README.ru.md",
+      "receipt": {
+        "path": "C:/endpoint-platform-wix-build/stab15-alt-native-265/production-distribution/https-publication-verified.json",
+        "sha256": "3141a4ea1a696b96d31c2fb7d3f988fa9df2dfcdbfd308d15dad9969de9d57e3"
+      }
+    },
+    "local_distribution": {
+      "status": "verified_local_eight_file_kit",
+      "file_count": 8,
+      "total_bytes": 71650525,
+      "verification": {
+        "path": "C:/endpoint-platform-wix-build/stab15-alt-native-265/distribution-check/distribution-evidence.json",
+        "sha256": "2edbcc1fb2ae72c843cefe9ea676a3485bf57238193b8be2a61d575ff7fb270c"
+      },
+      "guide": "docs/releases/alt-3.2.265-pilot.ru.md",
+      "guide_sha256": "43e24cf9aa7bea28b174eab5b571a457bb8590a7cbb4038cc5dc055e291fe7ef",
+      "publisher_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631"
+    },
+    "offline_plasma_x11": {
+      "local_user_sensor_verified": true,
+      "gateway_sample_delivery_verified": false,
+      "review": "docs/verification/2026-11-19-stab15-alt265-offline-plasma-x11.md"
+    },
+    "fresh_install_power_loss_before_command_ack": {
+      "command_result_preserved": true,
+      "duplicate_snapshots": 0,
+      "support_key_files_zero_length_after_boot": 4,
+      "support_restarted_repeatedly": true,
+      "repair_with_stopped_support_native_exit": 0,
+      "core_health_after_ordinary_reboot": true,
+      "support_recovered_after_ordinary_reboot": false,
+      "report": "docs/verification/2026-11-19-stab02-alt265-power-ack-repair.md"
+    },
+    "fresh_install_power_loss_review": "docs/verification/2026-11-19-stab15-alt265-fresh-ack1-power-cut.md",
+    "native_upgrade": {
+      "os": "ALT Workstation K 11.4 x86_64",
+      "source": "3.2.183-alt6",
+      "verified": "post_ack2_power_loss",
+      "ordinary_roundtrip_review": "docs/verification/2026-11-19-stab15-alt265-ordinary-roundtrip.md",
+      "writeback_error_review": "docs/verification/2026-11-19-stab15-alt265-writeback-recovery.md",
+      "review": "docs/verification/2026-11-19-stab15-alt265-post-ack2-power.md"
+    }
+  },
+  "alt_native_candidate_261": {
+    "dependency_evidence": {
+      "source_file_sha256": {
+        "requirements/agent-core.txt": "e6912c66f6502265525a80d2786ee103aac090462bdba2252fb4e8e881147aa3",
+        "requirements/build-linux.txt": "343bd6626fa58f49dac90bbdbdf4ccd997624528ac146ac31309af1b741fb05b"
+      },
+      "rpm_build_log_sha256": "7823e7867add8986877fb8c6cb4e60e70d04f0b009a8560636030e7f1afc4d72",
+      "rpm_build_log_contains_full_pip_freeze": false,
+      "core_payload_manifest_sha256": "b18241e0fe1e6f5b260a72527a3943b7bfaa7826cb2881a1b8de2fbe368ee51f",
+      "linux_ci_freeze_sha256": "d12398cdbfc0150a9fe649642eb9df8c0676da599d2c95abf2aa82a339f1aa49"
+    },
+    "local_source_restore": {
+      "report": "docs/verification/2026-11-19-stab14-candidate-source-restore.md",
+      "bundle_sha256": "b5a47ea0785730837e4aefa1166921a46a445a7a353d20a987e51e703a9d8b1e",
+      "verified_ref": "refs/verified-releases/alt/3.2.261"
+    },
+    "version": "3.2.261-alt6",
+    "source_commit": "788fe236bba1685526c270cc0febc11c9866697f",
+    "status": "lab_post_ack_power_loss_integrity_failed",
+    "published": false,
+    "qualified_os": "ALT Workstation K 11.4 x86_64",
+    "core_rpm_sha256": "018ab4d1c3abc4619c4d59cfa74da1e9655971a1876a247ca7393cde8a05f1cd",
+    "sensor_rpm_sha256": "f02933902e73d103af6d35d575b8502af1fa2937ffd643e33244ed6a5c3b3510",
+    "kit_sha256": "0299cdd07bc6e27b2b3503db8885c587737101c8aa6c6dce91de2614343642f1",
+    "cold_boot_repair": {
+      "confirmed_native_zero_setup_exit": 0,
+      "unknown_native_setup_exit": 21,
+      "repeat_rpm_transactions": 0,
+      "already_running_support_preserved": true,
+      "installation_ack": 1
+    },
+    "offline_reinstall": {
+      "remove_native_exit": 0,
+      "install_native_exit": 0,
+      "offline_setup_exit": 21,
+      "reconcile_after_support_registration_exit": 0,
+      "installation_ack": 3,
+      "health_before_support_registration": true,
+      "plasma_x11_sensor_ready": true,
+      "receipt_index_sha256": "68adc9f0c8b95c5db71984c85bef6d0a6126862634188537cdb0bbc2d869d078",
+      "review": "docs/verification/2026-11-19-stab15-alt261-offline-reinstall-desktop.md"
+    },
+    "linux_release_gate": {
+      "scope": "local_workflow_equivalent",
+      "workflow": ".github/workflows/endpoint-operations-provider.yml",
+      "job": "provider-release-gate",
+      "passed": 5410,
+      "subtests_passed": 2,
+      "skipped": 727,
+      "failures": 0,
+      "errors": 0,
+      "receipt_index_sha256": "d7eba005ccc2390eb6ad1835d97fb1f5f23b6acba097b40e59f1ebf44d95a38f",
+      "review": "docs/verification/2026-11-19-alt261-release-gate.md"
+    },
+    "command_replay_after_established_install_power_loss": {
+      "command_frames": 1,
+      "result_frames": 3,
+      "server_result_rows": 1,
+      "server_snapshots": 1,
+      "pending_after_ack": 0,
+      "review": "docs/verification/2026-11-19-stab02-alt261-power-ack.md"
+    },
+    "fresh_install_power_loss": {
+      "os": "ALT Workstation K 11.4 x86_64",
+      "filesystem": "btrfs",
+      "status": "failed_to_start_after_power_loss",
+      "pre_cut_rpm_verify": 0,
+      "post_boot_rpm_verify": 2,
+      "post_boot_size_and_digest_mismatches": 161,
+      "isolated_empty_core_unit_repair": {
+        "setup_exit": 21,
+        "rpm_transactions": 0,
+        "operation_phase": "preparing",
+        "review": "docs/verification/2026-11-19-stab15-alt261-repair-masked-unit.md"
+      },
+      "rpm_only_comparison_review": "docs/verification/2026-11-19-stab15-alt261-rpm-durability.md",
+      "pending_command_result_preserved": true,
+      "review": "docs/verification/2026-11-19-stab02-alt261-power-ack.md"
+    },
+    "staging_space_refusal_review": "docs/verification/2026-11-19-stab10-alt261-updater-space.md",
+    "disabled_watcher_cold_repair_review": "docs/verification/2026-11-19-stab15-alt261-disabled-watcher-cold-repair.md",
+    "qualified_native_upgrade_from": "3.2.254-alt6",
+    "pilot_source_qualification": {
+      "version": "3.2.183-alt6",
+      "setup_exit": 0,
+      "post_ack_power_loss": {
+        "rollout_eligible": false,
+        "installation_ack": 2,
+        "installed_rpm_version": "3.2.261-alt6",
+        "core_rpm_verify_exit": 1,
+        "sensor_rpm_verify_exit": 1,
+        "selector_version": "3.2.183",
+        "reconnected_agent_version": "3.2.183",
+        "review": "docs/verification/2026-11-19-stab15-alt261-pilot-post-ack2-power.md"
+      },
+      "interrupted_after_native_zero_review": "docs/verification/2026-11-19-stab15-alt261-interrupted-pilot-upgrade.md",
+      "interrupted_before_native_transaction_review": "docs/verification/2026-11-19-stab15-alt261-pre-native-pilot-upgrade.md",
+      "same_device_health_succeeded": true,
+      "review": "docs/verification/2026-11-19-stab15-alt-native-183-to-261.md"
+    },
+    "qualified_operator_return_to": "3.2.254-alt6",
+    "upgrade_and_return_review": "docs/verification/2026-11-18-stab15-alt-native-254-261-roundtrip.md",
+    "native_lifecycle_review": "docs/verification/2026-11-18-stab15-alt-native-261-cold-repair.md"
+  },
+  "alt_native_candidate_254": {
+    "version": "3.2.254-alt6",
+    "source_commit": "448c51698b3fe2af5449fcf7a20eead8122be953",
+    "status": "signed_lab_candidate",
+    "published": false,
+    "qualified_os": "ALT Workstation K 11.4 x86_64",
+    "qualified_native_source": "same signed 3.2.254-alt6 pair with retained identity",
+    "qualified_native_upgrade_from": "3.2.251-alt6",
+    "qualified_native_rollback_to": "3.2.251-alt6",
+    "offline_same_version_repair_exit": 0,
+    "native_lifecycle_review": "docs/verification/2026-11-18-stab15-alt-native-254-core-recovery.md",
+    "core_rpm_sha256": "235e5046ab4efce481e82d3b52dfaa3bfe330a5b26c23b6bf2dde6253e2f8991",
+    "sensor_rpm_sha256": "a97c8a5ee1c36bfad689868e850f41461f5f52f24d58d47270069980b018a15d",
+    "kit_sha256": "ea39577784f52afce5b26f01c028d342a75f65bc0749d11f8c7b82374acf1a07",
+    "core_recovery": {
+      "setup_exit_while_support_pending": 21,
+      "after_support_registration": 0,
+      "installation_ack": 3,
+      "health_on_same_device_before_operator_reset": true,
+      "tunnel_connected": false
+    }
+  },
+  "alt_native_candidate": {
+    "version": "3.2.251-alt6",
+    "source_commit": "10a0a1c33bef241aaee0937b243b7954b67c6525",
+    "status": "signed_lab_candidate",
+    "published": false,
+    "qualified_os": "ALT Workstation K 11.4 x86_64",
+    "qualified_native_source": "3.2.249-alt6",
+    "native_lifecycle_review": "docs/verification/2026-11-18-stab15-alt-native-251-repair.md",
+    "operation_replay_review": "docs/verification/2026-11-18-stab05-alt-native-251-ota-replay.md",
+    "core_rpm_sha256": "e03b37cf74a13f981b3f1b0eb0b8c4e3dcc8b9e94a5e1db57cb026ac38d7465a",
+    "sensor_rpm_sha256": "e32c905f9cf24e7ff02b9febf7a66897f0d40e20d51eb5d8e278bc373d6d550a",
+    "kit_sha256": "c8c2b6b2feff3f26fd51165a5b0b8d6e99a0f99d754e4e72b950d4433a82c945",
+    "same_version_repair": {
+      "offline": true,
+      "setup_exit": 0,
+      "native_exit": 0,
+      "identity_preserved": true,
+      "installation_ack_before": 2,
+      "installation_ack_after": 2,
+      "wss_after_reconnect": true,
+      "known_native_exit_recovery": "docs/verification/2026-11-18-stab15-alt-native-251-repair-interruption.md",
+      "unknown_native_exit_after_power_loss": "docs/verification/2026-11-18-stab15-alt-native-251-repair-power-loss.md"
+    }
+  },
+  "alt_native_candidate_249": {
+    "version": "3.2.249-alt6",
+    "source_commit": "8a82b96ffa29994283b16d5b15afbc255d3cc469",
+    "status": "signed_lab_candidate",
+    "qualified_os": "ALT Workstation K 11.4 x86_64",
+    "qualified_native_source": "3.2.248-alt6",
+    "native_lifecycle_review": "docs/verification/2026-11-18-stab15-alt-native-249-lifecycle.md",
+    "qualified_native_rollback": {
+      "target": "3.2.248-alt6",
+      "verification": "docs/verification/2026-11-18-stab15-alt-native-249-rollback.md"
+    },
+    "clean_install": {
+      "os": "ALT Workstation K 11.4 x86_64",
+      "setup_exit_before_approval": 21,
+      "setup_exit_after_approved_reconcile": 0,
+      "native_exit": 0,
+      "installation_ack": 1,
+      "wss_after_reboot": true
+    },
+    "core_rpm_sha256": "45a8c4138b639fe2d36da26a296b2901e04408741ec53708d675392a6dd1ba33",
+    "sensor_rpm_sha256": "71cc98b8b814c295f321a86877fc3184ea4cdf2abbde74bec222d4f18bbf4f25",
+    "kit_sha256": "8ceb7cae4b0abb112071a1af8c934b3693507a9de2a6c668d2e479d1a52e6bda",
+    "report": "docs/verification/2026-11-18-stab05-alt-native-249-build-upgrade.md"
+  },
+  "alt_native_candidate_248": {
+    "version": "3.2.248-alt6",
+    "source_commit": "7bd7086a4650c9c9abd2218b2b9bbd0633235302",
+    "status": "signed_lab_candidate",
+    "qualified_os": "ALT Workstation K 11.4 x86_64",
+    "core_rpm_sha256": "b33392fa45ef2e683f53c2b56c92648a13bd51d536f7a0b6dd70b727ad98dca1",
+    "sensor_rpm_sha256": "45ac4f29b228397eef350bf6c109e357abd18ec8c631e49de98170bd843171bc",
+    "kit_sha256": "1d48569c8a8f45eb8213caffa8851c3d66ec24f62460d22c370c6daf042cc16e",
+    "report": "docs/verification/2026-11-18-stab15-alt-native-248-final.md",
+    "operation_replay_review": "docs/verification/2026-11-18-stab05-alt-native-248-report-ack.md"
+  },
+  "server_linux_apt_candidates": {
+    "source_commit": "7bd7086a4650c9c9abd2218b2b9bbd0633235302",
+    "status": "signed_offline",
+    "verification": "docs/verification/2026-11-18-stab16-apt248-candidate.md",
+    "noble": {
+      "package": "endpoint-agent-ubuntu",
+      "version": "3.2.248-1ubuntu1",
+      "sha256": "28ae0ee313b9d853d4dc8f62db44bdc161392ffdfea9035e75788cdf513741e5",
+      "inrelease_sha256": "77329ece08dab177f2a4a3e65dc3032011286a49a77b8e83721288b54306159d",
+      "qualified_source": "3.2.197-1ubuntu1",
+      "verification": "docs/verification/2026-11-18-stab16-ubuntu-noble197-to-248.md"
+    },
+    "bookworm": {
+      "package": "endpoint-agent-debian",
+      "version": "3.2.248-1deb12u1",
+      "sha256": "04103116872070556f4fa4e3400f3b807da40569f74aa61a74fa8807c2d8f35b",
+      "inrelease_sha256": "a253640f24ef4b60153b6f6a400681fee9b95aecc671cf5f52db0ed2a750fb0a",
+      "qualified_source": "3.2.195-1deb12u1",
+      "verification": "docs/verification/2026-11-18-stab16-bookworm195-to-248.md"
+    }
+  },
+  "windows_candidates": [
+    {
+      "version": "3.2.276",
+      "record": "docs/releases/windows-3.2.276-candidate.json",
+      "status": "local_signed_candidate",
+      "download_published": false,
+      "fleet_promoted": false
+    },
+    {
+      "version": "3.2.275",
+      "record": "docs/releases/windows-3.2.275-candidate.json",
+      "status": "local_signed_candidate",
+      "download_published": false,
+      "fleet_promoted": false
+    },
+    {
+      "version": "3.2.273",
+      "record": "docs/releases/windows-3.2.273-candidate.json",
+      "status": "local_signed_candidate",
+      "download_published": false,
+      "fleet_promoted": false
+    },
+    {
+      "version": "3.2.272",
+      "record": "docs/releases/windows-3.2.272-candidate.json",
+      "status": "held",
+      "download_published": false,
+      "fleet_promoted": false
+    },
+    {
+      "version": "3.2.271",
+      "record": "docs/releases/windows-3.2.271-candidate.json",
+      "status": "local_signed_candidate",
+      "download_published": false,
+      "fleet_promoted": false
+    },
+    {
+      "version": "3.2.268",
+      "record": "docs/releases/windows-3.2.268-candidate.json",
+      "status": "local_signed_candidate",
+      "download_published": false,
+      "fleet_promoted": false
+    },
+    {
+      "version": "3.2.264",
+      "record": "docs/releases/windows-3.2.264-candidate.json",
+      "status": "production_qualified_from_205_single_device_pilot",
+      "download_published": false,
+      "fleet_promoted": false
+    },
+    {
+      "version": "3.2.263",
+      "record": "docs/releases/windows-3.2.263-candidate.json",
+      "status": "lab_active_msi_power_loss_recovery_incomplete",
+      "download_published": false,
+      "fleet_promoted": false
+    },
+    {
+      "version": "3.2.262",
+      "record": "docs/releases/windows-3.2.262-candidate.json",
+      "status": "lab_upgrade_repair_and_interrupted_msi_hold_verified",
+      "download_published": false,
+      "fleet_promoted": false
+    },
+    {
+      "version": "3.2.253",
+      "record": "docs/releases/windows-3.2.253-candidate.json",
+      "status": "lab_recovery_and_offline_rollback_from_3.2.245",
+      "download_published": false,
+      "fleet_promoted": false
+    },
+    {
+      "version": "3.2.252",
+      "record": "docs/releases/windows-3.2.252-candidate.json",
+      "status": "lab_upgrade_from_3.2.245_applied",
+      "download_published": false,
+      "fleet_promoted": false
+    },
+    {
+      "version": "3.2.250",
+      "record": "docs/releases/windows-3.2.250-candidate.json",
+      "status": "blocked_lab_upgrade_from_3.2.245",
+      "download_published": false,
+      "fleet_promoted": false
+    },
+    {
+      "version": "3.2.245",
+      "record": "docs/releases/windows-3.2.245-candidate.json",
+      "status": "candidate_test120_nominal205_qualified",
+      "runtime_followup": {
+        "at_utc": "2026-11-17T23:33:25Z",
+        "status": "core_exit_1_after_setup_acceptance",
+        "investigation": "docs/verification/2026-11-18-windows-setup-245-qualification.md"
+      },
+      "installer_catalog_id": "72c9b953-d3c3-46b6-981d-a374eda03089",
+      "setup_update_release_id": "cad82b5f-8722-4bec-8780-defd52c88dfc",
+      "qualified_source_foundation": "3.2.205",
+      "evidence_assignment_id": "3533ef61-713d-4b2e-8877-b0eff9ac1244",
+      "qualification_id": "46abd602-c3bb-4524-adc2-64e60b54593c",
+      "qualification_expires_utc": "2026-12-17T22:28:57.860669Z",
+      "download_published": false,
+      "fleet_promoted": false,
+      "report": "docs/verification/2026-11-18-windows-setup-245-qualification.md"
+    },
+    {
+      "version": "3.2.187",
+      "record": "docs/releases/windows-3.2.187-setup.json",
+      "status": "origin_fix_qualified_missing_fod_failed_do_not_promote",
+      "download_published": false,
+      "fleet_promoted": false,
+      "historical_enabled_policy": 15,
+      "current_paused_policy": 16
+    },
+    {
+      "version": "3.2.186",
+      "record": "docs/releases/windows-3.2.186-setup.json",
+      "status": "candidate_test120_nominal177_qualified_faults_and_reboot_accepted",
+      "qualified_source_foundation": "3.2.177",
+      "evidence_assignment_id": "1c0176f2-02e4-4e09-978f-c59bd14c3eeb",
+      "download_published": false,
+      "fleet_promoted": false
+    },
+    {
+      "version": "3.2.185",
+      "record": "docs/releases/windows-3.2.185-setup.json",
+      "status": "candidate_failed_before_native_retention_conflict_do_not_promote",
+      "download_published": false,
+      "fleet_promoted": false
+    },
+    {
+      "version": "3.2.184",
+      "record": "docs/releases/windows-3.2.184-setup.json",
+      "status": "candidate_native_accepted_support_first_start_failed_do_not_promote",
+      "download_published": false,
+      "fleet_promoted": false
+    }
+  ],
+  "current_windows_rollout": {
+    "observed_at": "2026-11-19T16:51:57.058635+00:00",
+    "release": "3.2.205",
+    "policy": {
+      "id": "0ab7e6f8-7f3b-42b4-9b62-e0718dd6a3fc",
+      "revision": 21,
+      "enabled": false,
+      "release_id": "8d09e729-32a1-4620-9ad0-1fbd549a7d46",
+      "scope": "all_active",
+      "device_ids": [],
+      "max_parallel": 1,
+      "updated_at": "2026-11-16T03:51:53.069336+00:00"
+    },
+    "limits": {
+      "active_assignments": { "recovery_required": 1 },
+      "available_slots": 0
+    },
+    "evidence": "C:/endpoint-platform-wix-build/stability-publication-preflight-20261118/fleet-policy-20261119T165156Z.json",
+    "report": "docs/verification/2026-11-19-windows264-production-pilot.md"
+  },
+  "historical_windows192_rollout": {
+    "release": "3.2.192",
+    "policy": {
+      "id": "0ab7e6f8-7f3b-42b4-9b62-e0718dd6a3fc",
+      "revision": 18,
+      "enabled": true,
+      "release_id": "2bfa120d-b182-41b5-ae98-f3354638e96c",
+      "scope": "selected",
+      "device_ids": [
+        "9285e667-a4fc-4748-9b33-2fe9e49ac488",
+        "a8d7937d-40cd-41fa-b32b-85253ec9a505",
+        "00aa5779-d229-4dce-a28c-1e668819eed2",
+        "01e39b54-34ea-4792-aa32-a9772f5c7a62"
+      ],
+      "max_parallel": 2,
+      "reason": "Enable signed Windows 3.2.192 for four verified Windows 10 source 3.2.177 devices after the direct VM 126 test. Two concurrent chains on reconnect.",
+      "updated_at": "2026-11-11T16:55:29.195825+00:00",
+      "updated_by": "fc109962-be6c-450b-871a-51f730ba73d2",
+      "safe_code": null
+    },
+    "limits": {
+      "waiting_for_fresh_wss": 4,
+      "confirmed_fleet_installs": 0,
+      "excluded_workstation": "MUNSLU-S2 (192.168.101.2), existing external OpenSSH and unverified migration"
+    },
+    "report": "docs/verification/2026-11-11-windows192-support-activation.md"
+  }
 }

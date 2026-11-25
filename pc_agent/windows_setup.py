@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Literal, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener, urlopen
 from uuid import UUID, uuid4
 
 from endpoint_contracts.identity import normalize_hardware_fingerprint
@@ -57,12 +57,20 @@ class SetupProvisionError(RuntimeError):
         self.detail = detail
 
 
+class _RejectSetupRedirects(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 class HttpsSetupTransport:
     """Strict public HTTPS client for the unauthenticated setup request flow."""
 
-    def __init__(self, endpoint_origin: str, ca_file: Path) -> None:
+    def __init__(self, endpoint_origin: str, ca_file: Path, *, allow_redirects: bool = True) -> None:
         self._endpoint_origin = endpoint_origin.rstrip("/")
         self._ssl_context = ssl.create_default_context(cafile=str(ca_file))
+        self._direct_opener = None if allow_redirects else build_opener(
+            HTTPSHandler(context=self._ssl_context), _RejectSetupRedirects()
+        )
 
     def create_request(self, body: dict[str, object]) -> dict[str, object]:
         return self._post("/api/v1/enrollment/requests", body)
@@ -90,7 +98,11 @@ class HttpsSetupTransport:
             method="POST",
         )
         try:
-            with urlopen(request, context=self._ssl_context, timeout=15) as response:
+            connection = (
+                urlopen(request, context=self._ssl_context, timeout=15)
+                if self._direct_opener is None else self._direct_opener.open(request, timeout=15)
+            )
+            with connection as response:
                 raw = response.read(65_537)
         except (HTTPError, URLError, TimeoutError, OSError, ssl.SSLError) as error:
             raise SetupTransportError("Windows Setup enrollment transport failed") from error
@@ -165,6 +177,7 @@ class UniversalWindowsSetup:
     )
     clock: Callable[[], datetime] = field(default=lambda: datetime.now(UTC), repr=False)
     sleep: Callable[[float], None] = field(default=time.sleep, repr=False)
+    validate_claim_expiry: Callable[[object], None] | None = field(default=None, repr=False)
 
     def run(self) -> SetupOutcome:
         """Request, poll if needed, obtain one claim, and hand it to stdin provision."""
@@ -216,6 +229,8 @@ class UniversalWindowsSetup:
             claim = claim_response.get("claim")
             if not isinstance(claim, str) or not claim.startswith("ic_"):
                 raise ValueError("setup received an invalid enrollment claim")
+            if self.validate_claim_expiry is not None:
+                self.validate_claim_expiry(claim_response.get("expires_at"))
         except (SetupTransportError, TypeError, ValueError) as error:
             raise SetupClaimError("Windows Setup claim handoff failed") from error
         try:

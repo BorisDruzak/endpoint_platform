@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import json
 
 from endpoint_contracts.context import DeviceContextNetworkV1
+from endpoint_contracts.json_types import MAX_JSON_LIST_ITEMS
 
 from .probe import IP_ADDRESS_COMMAND, IP_DEFAULT_ROUTE_COMMAND
 from .stable_keys import bounded_text
@@ -17,7 +18,7 @@ def collect_network(probe: object, *, collected_at: datetime | None = None) -> D
         return _collect_windows_network(probe, collected_at=collected_at)
     warnings: list[str] = []
     route = _default_route(probe, warnings)
-    interfaces = _interfaces(probe, warnings)
+    interfaces = _interfaces(probe, warnings, primary_interface=route["interface"])
     return DeviceContextNetworkV1(
         schema_version="device_context_v1",
         profile="network_v1",
@@ -68,7 +69,9 @@ def _default_route(probe: object, warnings: list[str]) -> dict[str, str | None]:
     return {"interface": "unknown", "gateway": None}
 
 
-def _interfaces(probe: object, warnings: list[str]) -> list[dict[str, object]]:
+def _interfaces(
+    probe: object, warnings: list[str], *, primary_interface: str | None,
+) -> list[dict[str, object]]:
     records = _run_json(probe, IP_ADDRESS_COMMAND, warnings)
     if not isinstance(records, list):
         warnings.append("source_unavailable")
@@ -87,4 +90,7 @@ def _interfaces(probe: object, warnings: list[str]) -> list[dict[str, object]]:
                 "addresses": list(dict.fromkeys(addresses))[:16],
             }
         )
-    return result[:64]
+    if len(result) > MAX_JSON_LIST_ITEMS:
+        result.sort(key=lambda item: (item["name"] != primary_interface, not item["addresses"]))
+        warnings.append("data_truncated")
+    return result[:MAX_JSON_LIST_ITEMS]

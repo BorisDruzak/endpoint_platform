@@ -629,7 +629,7 @@ def test_tray_shutdown_uses_the_fixed_program_files_target(
     import win32event
     import win32process
 
-    from pc_agent.platform.windows import service_launcher
+    from pc_agent.platform.windows import companion_processes, service_launcher
 
     tray = tmp_path / "Endpoint Platform" / "Agent" / "EndpointAgentTray.exe"
     tray.parent.mkdir(parents=True)
@@ -649,7 +649,12 @@ def test_tray_shutdown_uses_the_fixed_program_files_target(
         return _Handle()
 
     monkeypatch.setattr(win32api, "OpenProcess", open_process)
-    monkeypatch.setattr(win32process, "GetModuleFileNameEx", lambda *_args: str(tray))
+
+    def unavailable_with_limited_access(*_args: object) -> str:
+        raise win32api.error(5, "GetModuleFileNameEx", "Access is denied")
+
+    monkeypatch.setattr(win32process, "GetModuleFileNameEx", unavailable_with_limited_access)
+    monkeypatch.setattr(companion_processes, "_process_path", lambda _: str(tray))
     monkeypatch.setattr(
         win32process, "TerminateProcess", lambda _handle, code: terminated.append(code)
     )
@@ -676,7 +681,7 @@ def test_companion_shutdown_stops_only_installed_tray_and_user_sensor(
     import win32event
     import win32process
 
-    from pc_agent.platform.windows import service_launcher
+    from pc_agent.platform.windows import companion_processes, service_launcher
 
     root = tmp_path / "Endpoint Platform" / "Agent"
     root.mkdir(parents=True)
@@ -698,13 +703,28 @@ def test_companion_shutdown_stops_only_installed_tray_and_user_sensor(
     monkeypatch.setenv("ProgramW6432", str(tmp_path))
     monkeypatch.setattr(win32process, "EnumProcesses", lambda: list(images))
     monkeypatch.setattr(win32api, "OpenProcess", lambda _a, _b, pid: Handle(pid))
-    monkeypatch.setattr(win32process, "GetModuleFileNameEx", lambda h, _i: str(images[h.process_id]))
+    monkeypatch.setattr(companion_processes, "_process_path", lambda h: str(images[h.process_id]))
     monkeypatch.setattr(win32process, "TerminateProcess", lambda h, _c: terminated.append(h.process_id))
     monkeypatch.setattr(win32event, "WaitForSingleObject", lambda *_: win32event.WAIT_OBJECT_0)
 
     service_launcher.stop_tray_companions(WindowsUpdatePaths(root,tmp_path/'updates/pending_update.json'))
 
     assert terminated == [101, 102]
+
+
+def test_companion_image_query_reads_a_limited_process_handle():
+    win32api = pytest.importorskip("win32api", reason="native Windows process handle contract")
+    import win32con
+
+    from pc_agent.platform.windows import companion_processes
+
+    process = win32api.OpenProcess(
+        win32con.PROCESS_QUERY_LIMITED_INFORMATION, False, win32api.GetCurrentProcessId()
+    )
+    try:
+        assert Path(companion_processes._process_path(process)).samefile(win32api.GetModuleFileName(0))
+    finally:
+        process.Close()
 
 
 def test_boot_rejects_executable_without_any_ownership_evidence(tmp_path,monkeypatch):
@@ -825,3 +845,251 @@ def test_installer_diagnostics_work_from_frozen_script_entry(monkeypatch):
     assert service_launcher.main(['--installer-phase', 'msi-enter', '--installer-session',
         '11111111-1111-4111-8111-111111111111']) == 63
     assert reported == ['msi-enter']
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows Job and service pipe")
+def test_service_host_stops_only_owned_tree_when_core_ignores_pipe(monkeypatch, tmp_path):
+    from contextlib import nullcontext
+    import time
+
+    import psutil
+    from pc_agent.platform.windows import service_launcher
+
+    paths = _paths(tmp_path)
+    selector = b'{"version":"3.1.76"}'
+    paths.current_path.write_bytes(selector)
+    stopped = []
+    monkeypatch.setattr(service_launcher, "_read_state", lambda *_a, **_k: selector)
+    monkeypatch.setattr(service_launcher, "core_shutdown_gate", lambda _: nullcontext())
+    monkeypatch.setattr(service_launcher, "reserve_core_owner", lambda *_: object())
+    monkeypatch.setattr(service_launcher, "record_core_stopped", lambda _, owner: stopped.append(owner))
+    ready = tmp_path / "ready"
+    script = """
+import pathlib, subprocess, sys, time
+child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+pathlib.Path(sys.argv[1]).write_text(str(child.pid))
+time.sleep(120)
+"""
+    monkeypatch.setattr(service_launcher, "build_agent_child_command", lambda _, **_kwargs: [
+        sys.executable, "-c", script, str(ready),
+    ])
+    monkeypatch.setattr(service_launcher, "_CORE_STOP_GRACE_SECONDS", 0.25, raising=False)
+    updates = []
+    monkeypatch.setattr(service_launcher, "trigger_pending_updater", lambda: updates.append(True))
+    coordinator = service_launcher.ChildProcessCoordinator(paths)
+    exits = []
+    thread = threading.Thread(target=lambda: exits.append(coordinator.run()), daemon=True)
+    unrelated = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    child = None
+    thread.start()
+    try:
+        end = time.monotonic() + 5
+        while (not ready.exists() or not ready.stat().st_size) and time.monotonic() < end:
+            time.sleep(0.02)
+        child = psutil.Process(int(ready.read_text()))
+        coordinator.stop()
+        thread.join(3)
+        assert not thread.is_alive()
+        assert exits == [0]
+        assert len(stopped) == 1
+        child.wait(timeout=2)
+        assert updates == []
+        assert unrelated.poll() is None
+
+        # The replacement starts only after the old Job is empty.
+        monkeypatch.setattr(service_launcher, "build_agent_child_command", lambda _, **_kwargs: [
+            sys.executable, "-c", "raise SystemExit(42)",
+        ])
+        assert service_launcher.ChildProcessCoordinator(paths).run() == EXIT_UPDATE_PENDING
+        assert updates == [True]
+        assert len(stopped) == 2
+    finally:
+        unrelated.terminate()
+        unrelated.wait(timeout=2)
+        if child is not None and child.is_running():
+            child.kill()
+        if thread.is_alive():
+            process = coordinator._process
+            if process is not None:
+                terminate = getattr(process, "terminate_tree", None) or process.kill
+                terminate()
+            thread.join(3)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows frozen service-child protocol")
+def test_service_child_exits_when_runtime_ignores_cancellation():
+    script = """
+import asyncio
+from pc_agent.runtime import main
+async def runtime(_settings):
+    print("ready", flush=True)
+    while True:
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            continue
+main.run_runtime = runtime
+main._SERVICE_CHILD_STOP_SECONDS = 0.25
+raise SystemExit(main.main([
+    "--windows-service-child", "--launcher-version", "3.2.82", "--data-dir", "data",
+    "--install-root", "install", "--ca-file", "ca.crt",
+]))
+"""
+    with subprocess.Popen(
+        [sys.executable, "-c", script], stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    ) as process:
+        try:
+            assert process.communicate(input=b"", timeout=5)[0].strip() == b"ready"
+            assert process.returncode == 0
+        except subprocess.TimeoutExpired:
+            process.kill()
+            pytest.fail("Core ignored cancellation and did not exit by the stop deadline")
+
+
+@pytest.mark.parametrize("active", [0, 1], ids=["zero-count", "forced-stop"])
+def test_job_accounting_cannot_replace_verified_process_exit(active):
+    from pc_agent.platform.windows import service_launcher
+
+    class OwnedTree:
+        def __init__(self):
+            self.active = active
+            self.termination_requested = False
+            self.verified = False
+
+        def active_processes(self):
+            return self.active
+
+        def terminate_tree(self):
+            self.termination_requested = True
+            self.active = 0
+
+        def verify_tree_exited(self, deadline):
+            self.verified = True
+            return False  # Handles are still unsignalled despite zero active count.
+
+    process = OwnedTree()
+    coordinator = service_launcher.ChildProcessCoordinator.__new__(
+        service_launcher.ChildProcessCoordinator
+    )
+    assert coordinator._stop_owned_tree(process) is False
+    assert process.termination_requested is bool(active)
+    assert process.verified
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows Core host")
+@pytest.mark.parametrize("selector_changed", [False, True])
+def test_reservation_precedes_spawn_and_changed_selector_never_admits_owner(tmp_path, monkeypatch, selector_changed):
+    from contextlib import contextmanager
+    from pc_agent.platform.windows import core_process, service_launcher
+
+    paths = _paths(tmp_path)
+    selector = b'{"version":"3.1.76"}'
+    other = b'{"version":"3.1.77"}'
+    observed = iter([selector, other, other, selector] if selector_changed else [selector, selector])
+    calls = []
+    @contextmanager
+    def gate(actual_paths):
+        assert actual_paths == paths
+        calls.append("gate")
+        yield
+        calls.append("release")
+
+    def build(actual_paths, *, selector_bytes):
+        assert actual_paths == paths and selector_bytes in (selector, other)
+        calls.append("validated")
+        return ["benign-core"]
+
+    def reserve(actual_paths, selector_bytes):
+        assert actual_paths == paths and selector_bytes == selector
+        assert calls == ["validated", "gate"]
+        calls.append("running")
+        return object()
+
+    def spawn(command):
+        assert command == ["benign-core"]
+        calls.append("spawn")
+        raise RuntimeError("simulated crash at spawn")
+
+    monkeypatch.setattr(service_launcher, "_read_state", lambda *args, **kwargs: next(observed))
+    monkeypatch.setattr(service_launcher, "build_agent_child_command", build)
+    monkeypatch.setattr(service_launcher, "core_shutdown_gate", gate)
+    monkeypatch.setattr(service_launcher, "reserve_core_owner", reserve)
+    monkeypatch.setattr(service_launcher, "record_core_stopped", lambda *_: pytest.fail("unexpected stopped receipt"))
+    monkeypatch.setattr(core_process, "WindowsCoreProcess", spawn)
+    coordinator = service_launcher.ChildProcessCoordinator(paths)
+    if selector_changed:
+        with pytest.raises(ValueError, match="selector changed"):
+            coordinator.run()
+        assert calls == ["validated", "gate", "release", "validated", "gate", "release"]
+    else:
+        with pytest.raises(RuntimeError, match="crash at spawn"):
+            coordinator.run()
+        assert calls == ["validated", "gate", "running", "release", "spawn"]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows Core host")
+@pytest.mark.parametrize("mode", ["restore", "restore_during_validation", "immutable_invalid", "stop"])
+def test_pre_admission_restore_revalidates_core_without_reusing_old_command(tmp_path, monkeypatch, mode):
+    from contextlib import contextmanager
+    from pc_agent.platform.windows import core_process, service_launcher
+
+    paths = _paths(tmp_path)
+    candidate = b'{"version":"3.1.77"}'
+    restored = b'{"version":"3.1.76"}'
+    paths.current_path.write_bytes(candidate)
+    coordinator = service_launcher.ChildProcessCoordinator(paths)
+    validated, reserved, launched = [], [], []
+    gate_held = False
+
+    @contextmanager
+    def gate(_paths):
+        nonlocal gate_held
+        if len(validated) == 1:
+            paths.current_path.write_bytes(restored)
+        gate_held = True
+        try:
+            yield
+        finally:
+            gate_held = False
+
+    def verify_immutable(_paths, selector):
+        assert not gate_held
+        validated.append(selector["version"])
+        if mode == "restore_during_validation" and selector["version"] == "3.1.77":
+            from pc_agent.platform.windows.installation_provenance import ProvenanceConflict
+            paths.current_path.write_bytes(restored)
+            raise ProvenanceConflict()
+        if selector["version"] == "3.1.76":
+            if mode == "immutable_invalid":
+                raise ValueError("restored Core failed immutable validation")
+            if mode == "stop":
+                coordinator.stop()
+
+    def reserve(_paths, selector_bytes):
+        assert gate_held
+        reserved.append(selector_bytes)
+        return object()
+
+    def spawn(command):
+        assert not gate_held
+        launched.append(Path(command[0]).parent.name)
+        raise RuntimeError("simulated boundary at spawn")
+
+    monkeypatch.setattr(service_launcher, "_read_state", lambda path, *_a, **_k: path.read_bytes())
+    monkeypatch.setattr(service_launcher, "_verify_selected_runtime", verify_immutable)
+    monkeypatch.setattr(service_launcher, "core_shutdown_gate", gate)
+    monkeypatch.setattr(service_launcher, "reserve_core_owner", reserve)
+    monkeypatch.setattr(core_process, "WindowsCoreProcess", spawn)
+
+    if mode in ("restore", "restore_during_validation"):
+        with pytest.raises(RuntimeError, match="boundary at spawn"):
+            coordinator.run()
+        assert reserved == [restored] and launched == ["3.1.76"]
+    elif mode == "immutable_invalid":
+        with pytest.raises(ValueError, match="immutable validation"):
+            coordinator.run()
+        assert not reserved and not launched
+    else:
+        assert coordinator.run() == 0
+        assert not reserved and not launched
+    assert validated == ["3.1.77", "3.1.76"]

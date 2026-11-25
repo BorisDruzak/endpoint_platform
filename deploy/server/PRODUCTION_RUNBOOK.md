@@ -32,9 +32,19 @@ until the production preflight in the next section succeeds:
 ```powershell
 $releaseCommit = git rev-parse --short=12 HEAD
 $releaseArchive = Join-Path $env:TEMP "endpoint-platform-$releaseCommit.tar.gz"
-& tools/release/build_console_server_archive.ps1 -OutputPath $releaseArchive
+& tools/release/build_console_server_archive.ps1 -OutputPath $releaseArchive -PythonExecutable python
 tar -tzf $releaseArchive | Select-String 'webapp/dist/(index.html|assets/)'
 ```
+
+Use the repository-supported Python3.12 interpreter (or pass its absolute path
+as `-PythonExecutable`). The Windows native tar stages the source; the server-only
+`tools/release/normalize_server_archive.py` writer then preserves every regular
+payload byte and emits directories0755/files0644, uid/gid0 and root names.
+It uses the committed timestamp, sorted members and deterministic gzip metadata,
+rejects links/traversal/duplicate or foreign roots, and refuses an existing output.
+These rules do not modify Agent/native packages or older qualified server archives.
+Record the final archive SHA256, full member inventory and individual file digests
+before upload. Never replace an earlier qualified archive to correct its headers.
 
 ## 2. Re-check production conditions
 
@@ -106,9 +116,18 @@ Never use symlinks for the environment or secret files.
 ## 4. Install release and service assets
 
 Extract the uploaded archive to its immutable versioned directory and create
-the virtual environment:
+the virtual environment. The worker logs `release_disk` at startup and
+every 15 minutes when running from the versioned release directory. This
+warning uses the same 10 GiB threshold as the release-volume check.
+`artifact_disk` measures the configured artifact volume separately.
+
+After section 3 has provisioned the release directory, run the
+release-volume check from the operator checkout:
 
 ```powershell
+Get-Content -Raw tools/release/inventory_deployments.py |
+  ssh endpoint-platform-server "/usr/bin/python3.12 -B - --check-release-space"
+if ($LASTEXITCODE -ne 0) { throw 'Release volume check failed' }
 scp $releaseArchive endpoint-platform-server:/tmp/
 ssh endpoint-platform-server "printf '%s\n' '$releaseCommit' | sudo install -o root -g root -m 0644 /dev/stdin /etc/endpoint-platform/release-commit"
 Remove-Item -LiteralPath $releaseArchive
@@ -117,12 +136,12 @@ Remove-Item -LiteralPath $releaseArchive
 ```bash
 release_commit="$(sudo cat /etc/endpoint-platform/release-commit)"
 release_dir="/opt/endpoint-platform/releases/endpoint-platform-${release_commit}"
-sudo tar -xzf "/tmp/endpoint-platform-${release_commit}.tar.gz" -C /opt/endpoint-platform/releases
-sudo rm -f "/tmp/endpoint-platform-${release_commit}.tar.gz"
+# Apply the protected extraction/closure gate below before creating any venv.
+# The uploaded archive and reviewed inventory are retained as evidence.
+sudo test -d "${release_dir}"
 sudo python3.12 -m venv "${release_dir}/venv"
 sudo "${release_dir}/venv/bin/pip" install --upgrade pip
 sudo "${release_dir}/venv/bin/pip" install -r "${release_dir}/requirements-server.txt"
-sudo chown -R root:root "${release_dir}"
 previous_release="$(sudo readlink -f /opt/endpoint-platform/current 2>/dev/null || true)"
 if [ -n "${previous_release}" ]; then
   printf '%s\n' "${previous_release}" | sudo install -o root -g root -m 0644 /dev/stdin /etc/endpoint-platform/previous-release
@@ -130,13 +149,48 @@ fi
 sudo ln -sfn "${release_dir}" /opt/endpoint-platform/current
 ```
 
+The extraction/closure gate is mandatory for both initial installation and an
+upgrade. Run it before the venv command above; retain exclusive release control
+until the actual source and metadata have been verified. Use a NEW root0700
+operator directory under physical `/root` and exclusively create its root0700
+`unpack` child. Reject existing namespaces, symlinked ancestors, unexpected
+owners/modes/ACLs or an existing destination; do not adopt or recursively chown
+an existing tree. Verify the uploaded SHA256/size and reviewed member inventory.
+
+In that protected directory run root `umask 022`, then explicitly invoke GNU tar:
+
+```bash
+sudo sh -c 'umask 022; exec /usr/bin/tar --no-same-owner --no-same-permissions -xzf "$1" -C "$2"' \
+  sh /root/NEW-REVIEWED-RELEASE/archive.tar.gz /root/NEW-REVIEWED-RELEASE/unpack
+```
+
+Before ANY venv creation, pip command, import or selector change, compare the
+complete physical tree to the reviewed archive inventory: exact paths/counts,
+every regular file's size/SHA256 and bytes, directories0755/files0644, uid/gid0,
+no symlinks, special files, group/other writes, special bits or POSIX named/default
+ACL grants. Check every existing ancestor's physical ownership and permissions;
+the enclosing private operator/unpack directories must remain0700 throughout.
+Do not infer a safe result from `--no-same-owner`, root ownership, successful tar
+exit or a later recursive chown. Root tar otherwise preserves archived permissions.
+An old qualified archive with0666/0777 headers requires its own reviewed inventory
+and explicit safe extraction/verification; its original bytes stay immutable.
+
+Only after this full closure passes, require that private source and release
+parent share a filesystem and that the final version directory is absent. Move
+the verified root using `mv -T --no-clobber` to its fixed release destination.
+Record the prepared root's device/inode beforehand; require source absence and
+the identical destination device/inode afterward, then repeat the full closure.
+A skipped move, copy fallback or uncertain outcome is a stop, never adoption or
+blind retry. Only then run the existing venv/Settings/migration procedure. Keep
+the archive, member/digest manifest and both metadata checks with the release.
+
 Install the non-secret assets from the operator worktree. Enable the Nginx
 configuration symlink for validation only; Nginx remains stopped until the
 loopback API health check passes:
 
 ```powershell
-scp deploy/server/endpoint-platform.service deploy/server/endpoint-platform-worker.service deploy/server/endpoint-platform-migrate.service deploy/server/endpoint-platform.nginx.conf endpoint-platform-server:/tmp/
-ssh endpoint-platform-server "sudo install -o root -g root -m 0644 /tmp/endpoint-platform.service /etc/systemd/system/endpoint-platform.service; sudo install -o root -g root -m 0644 /tmp/endpoint-platform-worker.service /etc/systemd/system/endpoint-platform-worker.service; sudo install -o root -g root -m 0644 /tmp/endpoint-platform-migrate.service /etc/systemd/system/endpoint-platform-migrate.service; sudo install -o root -g root -m 0644 /tmp/endpoint-platform.nginx.conf /etc/nginx/sites-available/endpoint-platform; sudo ln -sfn /etc/nginx/sites-available/endpoint-platform /etc/nginx/sites-enabled/endpoint-platform; sudo rm -f /tmp/endpoint-platform.service /tmp/endpoint-platform-worker.service /tmp/endpoint-platform-migrate.service /tmp/endpoint-platform.nginx.conf; sudo systemctl daemon-reload"
+scp deploy/server/endpoint-platform.service deploy/server/endpoint-platform-worker.service deploy/server/endpoint-platform-migrate.service deploy/server/endpoint-platform.nginx.conf deploy/server/endpoint-alt-distribution.nginx.conf endpoint-platform-server:/tmp/
+ssh endpoint-platform-server "sudo install -o root -g root -m 0644 /tmp/endpoint-platform.service /etc/systemd/system/endpoint-platform.service; sudo install -o root -g root -m 0644 /tmp/endpoint-platform-worker.service /etc/systemd/system/endpoint-platform-worker.service; sudo install -o root -g root -m 0644 /tmp/endpoint-platform-migrate.service /etc/systemd/system/endpoint-platform-migrate.service; sudo install -d -o root -g root -m 0755 /etc/nginx/snippets; sudo install -o root -g root -m 0644 /tmp/endpoint-alt-distribution.nginx.conf /etc/nginx/snippets/endpoint-alt-distribution.conf; sudo install -o root -g root -m 0644 /tmp/endpoint-platform.nginx.conf /etc/nginx/sites-available/endpoint-platform; sudo ln -sfn /etc/nginx/sites-available/endpoint-platform /etc/nginx/sites-enabled/endpoint-platform; sudo rm -f /tmp/endpoint-platform.service /tmp/endpoint-platform-worker.service /tmp/endpoint-platform-migrate.service /tmp/endpoint-platform.nginx.conf /tmp/endpoint-alt-distribution.nginx.conf; sudo systemctl daemon-reload"
 ```
 
 Validate the configured application before any public listener is enabled:
@@ -249,7 +303,9 @@ Replace `ADMIN_USERNAME` with the administrator login approved by the operator.
 ## 7. Upgrade an existing production host
 
 Use the release archive from section 1. The existing service and Nginx units
-remain in place. Record the current release symlink and migration revision,
+remain in place. Run the release-volume check from section 4 before preparing
+the upgrade, even if the installed release predates the inventory tool.
+Record the current release symlink and migration revision,
 then make a database backup before changing either. Keep the backup on the
 host in a PostgreSQL-owned private directory and record its SHA-256 outside
 the database. `pg_restore -l` must read the archive successfully.
@@ -272,12 +328,14 @@ sudo -u postgres pg_dump -Fc endpoint_platform -f "${backup}"
 sudo -u postgres pg_restore -l "${backup}" >/dev/null
 sudo sha256sum "${backup}"
 printf '%s\n' "${previous_release}" | sudo install -o root -g root -m 0644 /dev/stdin /etc/endpoint-platform/previous-release
-df -h /
 ```
 
-Require at least 10 GiB free and verify the workstation and uploaded archive
-SHA-256 values match. Extract the archive to its immutable release directory,
-create its Python 3.12 venv, and install `requirements-server.txt` before
+Recheck the release volume before extracting the archive. The check exits 2
+when fewer than 10 GiB are available under `/opt/endpoint-platform/releases`.
+Verify the workstation and uploaded archive SHA-256 values match. Apply
+section 4's protected extraction/full closure gate
+to the immutable release directory BEFORE creating its Python3.12 venv or
+installing `requirements-server.txt`, and finish dependency/Settings validation before
 switching `current`. Do not copy credentials, CA files, or local build caches
 into the release directory. The archive contains the Console bundle, Setup
 release importer, Browser Sensor source and Browser Sensor release importer;
@@ -303,6 +361,53 @@ None requires an automatic downgrade. Verify `/admin`, its hashed assets,
 session protection, and strict hostname/CA HTTPS from the workstation after
 the health check. Enable module execution feature flags only after a compatible
 test Agent, target policy, and actual lab operation have been verified.
+
+### Release and artifact storage review
+
+From the installed release, run the read-only deployment inventory:
+
+```bash
+cd /opt/endpoint-platform/current
+sudo /usr/bin/python3.12 -B -m tools.release.inventory_deployments
+```
+
+Pass each exact deployed directory name with `--pin` to mark a deployment or
+audit hold, including the suffix if the directory has one. The report checks
+`current`, `/etc/endpoint-platform/previous-release` and
+`/etc/endpoint-platform/release-commit`. It also attributes live working
+directories, executables, open files and mapped libraries to release
+directories using Linux `/proc`. Inspect `process_scan_incomplete_pids` for
+inaccessible process data. Use the free space figure before upgrade to review
+the 10 GiB requirement.
+
+The report lists direct links between release directories under
+`release_dependencies`. A link from any protected release also protects its
+target and that target's dependencies. Review `missing_release_dependencies`
+before an upgrade or rollback. Shared virtual environments can be required
+even while all application services are stopped.
+
+An empty `protected_by` list indicates that this scan found no matching
+reference. Before any separately authorized retirement, check pending
+deployments, restore and audit records, external aliases and references that a
+running process may reopen later. Repeat the inventory immediately before any move.
+
+From the operator checkout, use
+`python -m tools.release.verify_server_release_payload ARCHIVE RELEASE_DIR`
+to compare a retained source archive with a deployed tree or a scratch restore.
+Record the archive SHA-256 and every extra path before approving a retirement.
+For a linked `venv`, record and retain its physical target. Complete the
+protected extraction and metadata checks in section 4 and verify the chosen
+archive copy will remain available after retirement.
+
+The worker logs free bytes on the artifact volume at startup and every 15
+minutes. From the release checkout and its server environment, run
+`python -m tools.release.inventory_storage` to reconcile top-level files
+against the Core OTA, Setup OTA, enrollment Setup and Browser Sensor catalogs.
+It reads `DATABASE_URL` and `ARTIFACT_ROOT` and emits a JSON inventory. A
+registered name remains protected even if the corresponding release is
+retired for new assignments. An unclassified file may belong to an upload in
+progress, native distribution, a static service or historical evidence.
+Review those owners and the restore inventory before scheduling any retirement.
 
 ## 8. Release rollback
 
@@ -377,3 +482,152 @@ new target to resolve uncertainty. Exact replay may succeed after the original
 attestation window expires. Source/contract/PostgreSQL test success establishes
 API behavior only; it is separate from provider deployment, native recovery,
 first targeting and fleet acceptance.
+# Callback-safe access logging
+
+The site asset defines `endpoint_platform_path_only` in nginx's HTTP context.
+Both HTTP and HTTPS servers write `/var/log/nginx/endpoint-platform.access.log`
+with method, `$uri`, status, bytes and timing, excluding query strings and
+Referer. Exact `/auth/admin/callback` and `/auth/employee/callback` locations
+discard nginx's unformatted upstream errors because those include raw URLs.
+Other nginx error diagnostics and application authentication audits remain.
+The API unit keeps `--no-access-log`; nginx supplies safe HTTP access metrics.
+
+For the existing `.19` installation, copy the reviewed config-only helper and
+the reviewed site asset to a private operator staging directory. Record both
+source revisions and file hashes. Run the default plan before explicit apply:
+
+```bash
+sudo python3 apply_query_safe_nginx.py --site endpoint-platform \
+  --source endpoint-platform.nginx.conf --source-sha256 REVIEWED_ASSET_SHA256
+sudo python3 apply_query_safe_nginx.py --site endpoint-platform \
+  --source endpoint-platform.nginx.conf --source-sha256 REVIEWED_ASSET_SHA256 --apply
+```
+
+`tools/release/apply_query_safe_nginx.py` requires the existing physical,
+root-owned `sites-available/endpoint-platform` and its exact enabled symlink.
+It locks configuration changes, validates an isolated complete nginx candidate,
+rejects concurrent edits and unexpected non-logging differences (including
+removed includes or custom callback proxy/access behavior), backs up the old bytes under
+`/var/backups/query-safe-nginx/endpoint-platform/<old-sha256>.conf`, atomically installs,
+runs `nginx -t` and reloads nginx only when changed. Failure restores and
+validates/reloads the original. No app restart, environment flag, TLS, DB or
+unrelated site is modified. An unchanged asset causes no reload.
+
+The canonical HTTPS asset retains the real ALT distribution snippet include
+already used on `.19`. First-time installation copies the reviewed
+`endpoint-alt-distribution.nginx.conf` to that exact snippet path before the
+site is installed, following `ALT_DISTRIBUTION.md`; no empty placeholder is
+invented. Existing download locations, network ACLs and TLS paths must remain
+identical before the config-only helper accepts a repair.
+
+The config backup namespace is independently root-owned; it must not enter,
+chown or widen `/var/backups/endpoint-platform`, which can be a PostgreSQL-owned
+database backup directory. The helper rejects unexpected ownership instead of
+changing it. Existing earlier config receipts remain at their recorded paths.
+The default plan validates the nearest existing backup ancestor before creating
+any directory, so an incompatible ownership layout is rejected during planning.
+
+The helper also accepts the independent `helpdesk` profile using that
+repository's reviewed asset and separate backup/log paths; it never merges
+the services. It supports only the approved existing `.19` layout. A staging
+host with different site names, paths or proxy ports requires its own reviewed
+profile; do not replace it with the production asset.
+
+Before apply, run `tools/release/verify_query_safe_nginx.py --site endpoint-platform
+--asset endpoint-platform.nginx.conf` where nginx is installed. This starts an
+independent temporary loopback process with a deliberately failing upstream;
+it verifies 502 callback path/status/metrics and zero synthetic code/state/
+Referer sentinel occurrences. It never reads private historical logs or touches
+the live nginx service. Keep existing private log retention/access controls;
+this procedure does not print, copy or delete historical credential-bearing logs.
+
+
+## WorkTime Helpdesk staging adapter
+
+For this explicitly approved .118 upgrade only, use
+`tools/release/worktime_helpdesk_staging.py` with a reviewed immutable server
+archive from section1, installed as release.py with the archive in a root-owned
+0700 `/root/worktime-helpdesk-20261105-<commit12>` capsule; regular inputs0600.
+JSON stdin requires mode prepare|activate, absolute archive path, full commit,
+archive sha256 and expiry epoch within15min. Run with `/usr/bin/python3.12 -I -B
+<root>/release.py --run` through the approved staging transport. Preserve each
+phase's receipt. Prepare keeps current services running; activation follows the
+stop/verified-backup/switch/migrate/start sequence above. For the return-navigation
+follow-up, schema44/currentee86a9458a0c are fixed guards; both enabled handoff
+flags remain unchanged. The migration service confirms the existing head without
+changing schema.
+Failure restores the old selector/services, retaining additive migration44;
+never rerun a consumed activation or downgrade local identities/history.
+Enable `ENDPOINT_WORKTIME_HELPDESK_ENABLED=true` and Helpdesk
+`WORKTIME_HANDOFF_ENABLED=true` only after both exact releases pass staging
+health/TLS and credential-protected provider checks. Back up exact environment
+bytes privately, change only these flags, then use separate systemd services.
+Leave the staging services running as requested. Production is outside scope.
+
+
+## Worker maintenance diagnostics
+
+Use `journalctl -u endpoint-platform-worker.service -g 'worker_job(_started)? '`
+to check each job. The `worker_job_started` line is written before the
+database session is acquired. Match it to the `worker_job` line by job name
+and UTC `last_attempt`. A start without a corresponding result is an
+unfinished observation. Check the service invocation and the database before
+inferring an outcome. `last_success` is tracked within the current worker
+process. Consult earlier journal entries after a restart.
+
+Successful and failed attempts include UTC attempt and last-success
+timestamps, duration, committed batch count and a fixed error code. Backlog
+age is elapsed time from the oldest scheduled attempt still awaiting success.
+It measures worker schedule lag. `data_backlog_age_seconds` measures time past
+the oldest active deadline for `expire_operations`, and time since creation
+of the oldest active chain for `advance_preparations`. Zero indicates no
+aged work at sampling time. For `rebuild_daily` the age starts when the oldest
+supported daily rollup first transitions to dirty. Migration
+`0053_activity_dirty_since` leaves existing dirty rows without an enqueue time.
+Apply it before starting the updated API and worker.
+The rollup metric reports `unknown` until such rows are published or removed
+by retention. Jobs without a data-queue measurement also report `unknown`.
+For `schedule_due_collections`, the log shows the greatest delay among
+collections newly queued by the committed tick. The first collection is due
+at device registration. Subsequent collections are due one profile interval
+after the previous request. Zero can mean the tick queued nothing.
+For `cleanup_expired_retry_envelopes`, the age is time past the oldest
+enrollment delivery expiry, including rows locked by another transaction.
+For `cleanup_operation_results`, it is time past the earliest expiry of an
+unpinned result with retained payload. For `cleanup_module_step_results`, it
+is the greatest delay past the retention cutoff in the committed batch of
+step copies. Rows skipped due to locks are outside that batch measurement.
+For `cleanup_raw_context_payloads` and `cleanup_context_collections`, the age
+also covers only the committed batch. Raw payload deadlines use the original
+result receive time for both copies. Collection bookkeeping deadlines use the
+request time plus the health profile retention interval.
+For `retain_context_snapshots`, the age covers snapshots deleted by the
+committed batch under time-based retention rules. Baseline and inventory
+use version counts and do not contribute to this age.
+For `retain_security_events` and `retain_power_events`, the age covers the
+events actually deleted by the committed batch. Security events use their
+stored expiry. Power events use occurrence time plus 30 days.
+For `retain_analytics`, the age covers deletions of activity detail, daily
+rollups and cursors. Detail uses the last applicable report timezone midnight,
+daily rollups use the UTC date cutoff, and cursors use their last observation
+plus the aggregate retention period.
+For `schedule_fleet`, age is the longest wait among evaluations committed in
+the tick. A first evaluation starts at the later of policy revision time
+and device creation. A repeat starts at the prior evaluation in that
+revision. A skipped tick due to lock contention has no sample.
+For `generate_due_requests`, age is measured from the oldest prior notification
+scan among processed people. A batch containing a first scan reports unknown.
+For `retain_worktime`, age measures how far the deleted records were past the
+applicable date and timestamp cutoffs, including any linked approval timestamp.
+Disabled or empty personnel retention reports zero.
+WSS health is a separate operational signal.
+
+Job execution budgets are 15 to 30 seconds, including all transactions in a
+single job's batch loop. PostgreSQL transaction-local lock and statement
+timeouts bound database waits. Rollback has a three-second grace.
+`commit_outcome_unknown` means the worker stopped that batch sequence without
+retrying the same transaction. The next scheduled attempt reads the current
+database state. `session_cleanup_error` after a confirmed commit stops the
+batch sequence and includes that batch and its available queue age in the
+log. `last_success` still refers to the last completed job without errors.
+`/healthz` retains its API and database availability contract.

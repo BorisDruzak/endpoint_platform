@@ -12,6 +12,7 @@ from endpoint_server.config import Settings
 from endpoint_server.context.models import ContextCurrent, ContextSnapshot
 from endpoint_server.db.models import DeviceInstance, DeviceSession
 from endpoint_server.main import create_app
+from endpoint_server.installation_lifecycle.models import InstallationState
 
 from .test_power_provider import NOW
 from .test_power_provider import db as db  # noqa: PLC0414 - re-export pytest fixture
@@ -28,7 +29,7 @@ async def test_detail_activity_observation_timestamp_is_policy_gated(db, enabled
                     DeviceInstance.__table__,
                     DeviceSession.__table__,
                     ContextSnapshot.__table__,
-                    ContextCurrent.__table__,
+                    ContextCurrent.__table__, InstallationState.__table__,
                 )
             ]
         )

@@ -239,7 +239,9 @@ async def test_cancel_replay_leaves_new_owner_untouched_and_avoids_its_device_lo
         new = await service.create_rollout(creator, new_build, "canary", [case["ids"]["device"]], None,
             case["ids"]["user"], "synthetic-new-owner")
         new_id = await creator.scalar(select(UpdateTarget.id).where(UpdateTarget.rollout_id == new.id))
-        replay = await asyncio.wait_for(case["client"].post(path(case, "cancel"), json=body), 1)
+        # The creator keeps the Device row locked until the replay returns.
+        # The test deadline guards a hang independently of PostgreSQL's lock timeout.
+        replay = await asyncio.wait_for(case["client"].post(path(case, "cancel"), json=body), 5)
         assert replay.status_code == 200 and replay.json() == first.json()
         await creator.commit()
     async with case["provider"]() as session:

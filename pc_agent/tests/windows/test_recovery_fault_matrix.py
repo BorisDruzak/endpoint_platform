@@ -6,6 +6,7 @@ Crash is a test-owned process-loss sentinel; it bypasses ordinary error recovery
 """
 from __future__ import annotations
 
+from contextlib import ExitStack
 import errno
 import hashlib
 import json
@@ -22,6 +23,8 @@ from pc_agent.platform.windows import (
 from pc_agent.platform.windows.update_supervisor import WindowsRecoveryUpdateSupervisor
 from pc_agent.tests.windows.test_updater_service import _artifact, _paths
 
+pytestmark = pytest.mark.usefixtures("mock_verified_updater_core", "journal_test_directory")
+
 OPERATION = "caa31a48-bf2f-4f1c-8b77-d1be77e12b4e"
 OLD, NEW = "3.1.0", "3.2.0"  # Synthetic bytes never impersonate immutable82/83-87.
 
@@ -33,6 +36,15 @@ class Crash(BaseException):
 class Acl:
     def assert_update_path(self, path):
         pass
+
+    def prepare_core_update_directories(self, updates, *, existing_only=False):
+        downloads = updates / "downloads"
+        if existing_only:
+            return updates.is_dir() and downloads.is_dir()
+        for path in (updates, downloads):
+            path.mkdir(parents=True, exist_ok=True)
+            self.protect_update_path(path)
+        return True
 
     def protect_update_path(self, path):
         pass
@@ -241,7 +253,6 @@ async def test_fresh_owners_recover_all_thirteen_fault_boundaries(tmp_path, monk
         patch.setattr(os, "fsync", fsync)
         for module, symbol, selected, fault, after in (
             (update_adapter, "write_json_atomic", "endpoint_update_state.json", "handoff_journal", False),
-            (online_update_runtime, "write_json_atomic", "pending_update.json", "pending_publication", False),
             (updater_service, "_write_json_atomic", "current.json", "after_current_selector", True),
             (updater_service, "_write_json_atomic", "terminal-outcome.json", "terminal_persistence", False),
             (updater_service, "durable_unlink", "pending_update.json", "cleanup", True),
@@ -255,6 +266,13 @@ async def test_fresh_owners_recover_all_thirteen_fault_boundaries(tmp_path, monk
                     rig.hit(_fault)
                 return result
             patch.setattr(module, symbol, wrapped)
+        original_publish = online_update_runtime.publish_prepared
+
+        def publish(*args, **kwargs):
+            rig.hit("pending_publication")
+            return original_publish(*args, **kwargs)
+
+        patch.setattr(online_update_runtime, "publish_prepared", publish)
         try:
             await rig.online().run_once()
             rig.worker().run_once()
@@ -280,6 +298,15 @@ async def test_fresh_owners_recover_all_thirteen_fault_boundaries(tmp_path, monk
     if failure is Crash:
         assert expected == NEW
     assert not final["pending"] and not final["transition"] and not final["attempt"]
+    archives = list(rig.paths.downloads_root.glob("build-*.zip"))
+    if point == "terminal_persistence" and failure is OSError:
+        # The worker quarantines pending when its terminal record cannot be
+        # written. Keep that handed-off archive with the forensic record.
+        rejected, = rig.paths.updates_root.glob("rejected-pending-*.json")
+        assert archives == [Path(json.loads(rejected.read_text())["artifact_path"])]
+    else:
+        assert not archives
+    assert not (rig.paths.updates_root / "prepared-core-download.json").exists()
     assert len(final["reports"]) == 1 and final["reports"][0]["delivered_at"]
     assert final["handoff"][0]["scheduled_ack_delivered_at"]
     report_posts = [body for url, body in rig.posts if url.endswith("/reports")]
@@ -302,7 +329,7 @@ async def test_persistent_enospc_keeps_known_good_and_fresh_owner_can_retry(tmp_
         def full(*_, **__):
             raise OSError(errno.ENOSPC, "source-test-only")
         if point == "pending_publication":
-            patch.setattr(online_update_runtime, "write_json_atomic", full)
+            patch.setattr(online_update_runtime, "publish_prepared", full)
         else:
             async def no_space(*_, **__):
                 full()
@@ -584,7 +611,7 @@ async def test_supervisor_trigger_failure_leaves_actual_handoff_for_fresh_worker
 
 async def failed_candidate(rig):
     assert (await rig.online().run_once()).status == "scheduled"
-    rig.fault, rig.failure = "before_scm", OSError
+    rig.fault, rig.failure = "candidate_start", OSError
     assert rig.worker().run_once().status == "rejected"
     assert (rig.paths.updates_root / "startup-attempt.json").exists()
 
@@ -626,6 +653,125 @@ async def test_terminal_cleanup_restarts_after_each_retired_leaf(tmp_path, monke
     from pc_agent.platform.windows.update_transaction import active_update_state
     assert active_update_state(rig.paths) is None
     assert len([url for url, _ in rig.posts if url.endswith("/reports")]) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("accepted", [False, True], ids=["failed", "applied"])
+@pytest.mark.parametrize("after_unlock", ["intact", "changed", "interrupted"])
+async def test_terminal_core_zip_is_retried_after_a_sharing_violation(tmp_path, monkeypatch, accepted, after_unlock):
+    from pc_agent.platform.windows import update_download_retention
+
+    rig = Rig(tmp_path, monkeypatch)
+    if accepted:
+        assert (await rig.online().run_once()).status == "scheduled"
+    else:
+        await failed_candidate(rig)
+    artifact = Path(json.loads(rig.paths.pending_path.read_text())["artifact_path"])
+    original = update_download_retention.durable_unlink
+
+    def locked(path, **kwargs):
+        if path == artifact:
+            error = PermissionError("test sharing violation")
+            error.winerror = 32
+            raise error
+        return original(path, **kwargs)
+
+    receipt = rig.paths.updates_root / f".core-retire-{OPERATION}.json"
+    with ExitStack() as resources:
+        if os.name == "nt":
+            import win32file
+            handle = win32file.CreateFile(
+                str(artifact), win32file.GENERIC_READ, win32file.FILE_SHARE_READ | win32file.FILE_SHARE_WRITE,
+                None, win32file.OPEN_EXISTING, win32file.FILE_ATTRIBUTE_NORMAL, None,
+            )
+            resources.callback(handle.Close)
+        else:
+            patch = resources.enter_context(monkeypatch.context())
+            patch.setattr(update_download_retention, "durable_unlink", locked)
+        if accepted:
+            assert rig.worker().run_once().status == "applied"
+        assert await rig.online().report_startup_outcome()
+        assert artifact.exists()
+        assert receipt.exists()
+        assert not rig.paths.pending_path.exists()
+
+    changed_zip = after_unlock == "changed"
+    if changed_zip:
+        artifact.write_bytes(bytes(len(rig.payload)))
+    before = list(rig.events)
+    if after_unlock == "interrupted":
+        def interrupted(path, **kwargs):
+            if path == artifact:
+                artifact.unlink()
+                raise OSError("test barrier failure after archive unlink")
+            return original(path, **kwargs)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(update_download_retention, "durable_unlink", interrupted)
+            assert (await rig.online().run_once()).status == "idle"
+        assert not artifact.exists() and receipt.exists()
+    assert (await rig.online().run_once()).status == "idle"
+    assert artifact.exists() is changed_zip
+    assert receipt.exists() is changed_zip
+    if changed_zip:
+        assert artifact.read_bytes() == bytes(len(rig.payload))
+    assert rig.events == before
+    assert len([url for url, _ in rig.posts if url.endswith("/reports")]) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("limit", ["attempts", "bytes"])
+async def test_deferred_cache_retries_advance_past_retained_archives(tmp_path, monkeypatch, limit):
+    from contextlib import contextmanager
+
+    from pc_agent.platform.windows import update_download_retention as retention
+
+    rig = Rig(tmp_path, monkeypatch)
+    monkeypatch.setattr(rig, "get", lambda *_, **__: Response(204))
+    root = rig.paths.updates_root
+    rig.paths.downloads_root.mkdir(parents=True, exist_ok=True)
+    expected = b"original archive"
+    retained = b"modified archive"
+    receipts = []
+    archives = []
+    for index in range(1, 4):
+        operation = f"00000000-0000-4000-8000-{index:012x}"
+        archive = rig.paths.downloads_root / f"build-3.2.5-{operation}.zip"
+        archive.write_bytes(retained if index < 3 else expected)
+        receipt = root / f".core-retire-{operation}.json"
+        receipt.write_text(json.dumps({
+            "version": "3.2.5", "operation_id": operation, "artifact_path": str(archive),
+            "sha256": hashlib.sha256(expected).hexdigest(), "size": len(expected),
+        }))
+        archives.append(archive)
+        receipts.append(receipt)
+
+    scandir = os.scandir
+
+    @contextmanager
+    def ordered_scandir(path):
+        with scandir(path) as entries:
+            yield iter(sorted(entries, key=lambda entry: entry.name)) if path == root else entries
+
+    monkeypatch.setattr(retention.os, "scandir", ordered_scandir)
+    if limit == "attempts":
+        monkeypatch.setattr(retention, "_DELETE_LIMIT", 2)
+    else:
+        monkeypatch.setattr(retention, "MAX_ARTIFACT_BYTES", 2 * len(expected))
+    original_receipts = [path.read_bytes() for path in receipts[:2]]
+
+    assert (await rig.online().run_once()).status == "idle"
+    assert all(path.exists() for path in archives + receipts)
+    assert (await rig.online().run_once()).status == "idle"
+    assert not archives[2].exists() and not receipts[2].exists()
+    assert [path.read_bytes() for path in archives[:2]] == [retained, retained]
+    assert [path.read_bytes() for path in receipts[:2]] == original_receipts
+
+    archives[0].write_bytes(expected)
+    assert (await rig.online().run_once()).status == "idle"
+    assert not archives[0].exists() and not receipts[0].exists()
+    assert archives[1].read_bytes() == retained
+    assert receipts[1].read_bytes() == original_receipts[1]
 
 
 @pytest.mark.asyncio

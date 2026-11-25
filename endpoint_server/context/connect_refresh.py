@@ -7,8 +7,11 @@ from datetime import UTC, datetime, timedelta
 from typing import AbstractSet
 from uuid import UUID
 
-from sqlalchemy import select, text
+from sqlalchemy import case, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from endpoint_server.db.models import Device
+from endpoint_server.installation_lifecycle.service import removed
 
 from .models import ContextCollection, ContextSnapshot
 from .repository import expire_overdue_collections, request_collection_outcome
@@ -46,6 +49,34 @@ async def _advisory_lock(session: AsyncSession, key: str) -> None:
         )
 
 
+async def _has_active_or_fresh_context(
+    session: AsyncSession, device_id: UUID, rule: ConnectRefreshRule, observed_at: datetime,
+) -> bool:
+    active = (
+        select(ContextCollection.id)
+        .where(
+            ContextCollection.device_id == device_id,
+            ContextCollection.profile == rule.profile,
+            ContextCollection.status.in_(_ACTIVE_STATUSES),
+        )
+        .limit(1)
+        .with_for_update()
+        .exists()
+    )
+    latest = (
+        select(ContextSnapshot.collected_at)
+        .where(ContextSnapshot.device_id == device_id, ContextSnapshot.profile == rule.profile)
+        .order_by(ContextSnapshot.collected_at.desc(), ContextSnapshot.id.desc())
+        .limit(1)
+        .with_for_update()
+        .scalar_subquery()
+    )
+    # Leave snapshot history unlocked when a collection is already active.
+    return bool(await session.scalar(
+        select(case((active, True), else_=latest > observed_at - rule.freshness))
+    ))
+
+
 async def queue_connect_refreshes(
     session: AsyncSession,
     device_id: UUID,
@@ -54,47 +85,36 @@ async def queue_connect_refreshes(
     now: datetime | None = None,
 ) -> int:
     """Queue missing or stale supported observations without duplicate active work."""
+    rules = [rule for rule in CONNECT_REFRESH_RULES if rule.capability in capabilities]
+    if not rules:
+        return 0
+    # Presence is recorded independently by the caller. Serialize this automatic
+    # producer with native removal before any advisory/collection lock or expiry.
+    device = await session.scalar(
+        select(Device).where(Device.id == device_id, Device.retired_at.is_(None))
+        .with_for_update().execution_options(populate_existing=True)
+    )
+    if device is None or await removed(session, device_id):
+        return 0
     observed_at = _utc(now or datetime.now(UTC))
     created = 0
-    for rule in CONNECT_REFRESH_RULES:
-        if rule.capability not in capabilities:
-            continue
+    for rule in rules:
         await _advisory_lock(session, f"context.connect-refresh:{device_id}:{rule.profile}")
         await expire_overdue_collections(session, device_id, now=observed_at, profile=rule.profile)
-        active = await session.scalar(
-            select(ContextCollection)
-            .where(
-                ContextCollection.device_id == device_id,
-                ContextCollection.profile == rule.profile,
-                ContextCollection.status.in_(_ACTIVE_STATUSES),
-            )
-            .with_for_update()
-        )
-        if active is not None:
-            continue
-        latest = await session.scalar(
-            select(ContextSnapshot)
-            .where(
-                ContextSnapshot.device_id == device_id,
-                ContextSnapshot.profile == rule.profile,
-            )
-            .order_by(ContextSnapshot.collected_at.desc(), ContextSnapshot.id.desc())
-            .limit(1)
-            .with_for_update()
-        )
-        if latest is not None and observed_at - _utc(latest.collected_at) < rule.freshness:
+        if await _has_active_or_fresh_context(session, device_id, rule, observed_at):
             continue
         bucket = int(observed_at.timestamp() // _DELIVERY_WINDOW.total_seconds())
-        collection, inserted = await request_collection_outcome(
+        _, inserted = await request_collection_outcome(
             session,
             device_id,
             rule.profile,
             "connect-refresh",
             f"connect-refresh:{rule.profile}:{bucket}",
             now=observed_at,
+            expires_at=observed_at + _DELIVERY_WINDOW,
+            locked_device=device,
         )
         if inserted:
-            collection.expires_at = observed_at + _DELIVERY_WINDOW
             created += 1
     await session.flush()
     return created

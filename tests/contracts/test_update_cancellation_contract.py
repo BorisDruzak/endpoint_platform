@@ -11,7 +11,9 @@ from tools.contracts.generate_contract_artifacts import render_artifacts
 ROOT = Path(__file__).resolve().parents[2]
 ADMIN = Path("contracts/openapi/endpoint-platform-admin-v1.yaml")
 PATHS = {"/api/admin/updates/rollouts/{rollout_id}/cancellation-context",
-    "/api/admin/updates/rollouts/{rollout_id}/cancel"}
+    "/api/admin/updates/rollouts/{rollout_id}/cancel",
+    "/api/admin/updates/rollouts/{rollout_id}/unrequested-cancellation-context",
+    "/api/admin/updates/rollouts/{rollout_id}/cancel-unrequested"}
 
 
 def references(value):
@@ -39,9 +41,10 @@ def test_admin_cancellation_openapi_matches_runtime_models_and_security():
     assert set(schemes) == {"UpdateAdminCookie"}
     assert schemes["UpdateAdminCookie"]["name"] == "endpoint_admin_session"
     assert schemes["UpdateAdminCookie"]["in"] == "cookie"
-    post = published["paths"]["/api/admin/updates/rollouts/{rollout_id}/cancel"]["post"]
-    assert any(p["name"] == "x-csrf-token" and p["in"] == "header" and p["required"] for p in post["parameters"])
-    assert "updates:write" in post["description"]
+    for action in ("cancel", "cancel-unrequested"):
+        post = published["paths"][f"/api/admin/updates/rollouts/{{rollout_id}}/{action}"]["post"]
+        assert any(p["name"] == "x-csrf-token" and p["in"] == "header" and p["required"] for p in post["parameters"])
+        assert "updates:write" in post["description"]
     for ref in references(published):
         assert ref.startswith("#/components/schemas/")
         name = ref.rsplit("/", 1)[1]

@@ -1,4 +1,5 @@
 """Import all ownership models so their tables are registered with metadata."""
+from endpoint_server.support_access.models import SupportAccess
 
 from .administration import (
     AdminSession,
@@ -8,6 +9,10 @@ from .administration import (
     ServiceCredential,
 )
 from .commands import Command, CommandDelivery, CommandResult
+from .identity import ConfirmedIdentity, EmployeeSession, OIDCFlow, ScopedRoleGrant, UpstreamSession
+from .worktime_sessions import WorktimeLoginFlow, HelpdeskWorktimeSession
+from endpoint_server.worktime import models as _worktime_models
+from endpoint_server.worktime.companion_models import CompanionDelivery
 from endpoint_server.context.models import (
     ContextCollection,
     ContextCurrent,
@@ -27,6 +32,7 @@ from .enrollment import (
     EnrollmentRequest,
     EnrollmentRequestClaimEnvelope,
     EnrollmentRetryEnvelope,
+    InventoryInstallationAssignment,
 )
 from .operations import EndpointOperation, ModuleOperationStep, OperationEvidence
 from .modules import (
@@ -49,7 +55,11 @@ from endpoint_server.security.models import SecurityEvent
 from endpoint_server.power.models import PowerSourceState
 from endpoint_server.activity.analytics_models import ActivityCursor, ActivityDaily, ActivityInterval
 
+from endpoint_server.setup_updates.models import SetupRelease, SetupAssignment, SetupClientPresence, SetupPreparation, SetupFleetPolicy, SetupFleetDecision, SetupFleetQualification
+
 __all__ = [
+    "SetupRelease", "SetupAssignment", "SetupClientPresence", "SetupPreparation",
+    "SetupFleetPolicy", "SetupFleetDecision", "SetupFleetQualification",
     "ActivityCursor", "ActivityDaily", "ActivityInterval",
     "DeviceBindingChallenge",
     "DeviceBindingThrottle",
@@ -76,6 +86,7 @@ __all__ = [
     "EnrollmentRequest",
     "EnrollmentRequestClaimEnvelope",
     "EnrollmentRetryEnvelope",
+    "InventoryInstallationAssignment",
     "EndpointOperation",
     "ModuleOperationStep",
     "OperationEvidence",
@@ -100,3 +111,9 @@ __all__ = [
     "WindowsSetupRelease",
     "BrowserSensorRelease",
 ]
+
+from endpoint_server.installation_lifecycle.models import InstallationEvent, InstallationState, InstallationParent
+
+from endpoint_server.installation_lifecycle.linux_sources import LinuxNativeRelease
+
+from endpoint_server.enrollment.linux_models import LinuxEnrollmentBinding

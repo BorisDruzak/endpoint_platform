@@ -101,7 +101,7 @@ def test_legacy_native_autostart_is_quiesced_before_restoration_proof(tmp_path):
     script.write_text(r'''param($Source,$Media)
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 $tokens=$null;$errors=$null;$ast=[Management.Automation.Language.Parser]::ParseFile($Source,[ref]$tokens,[ref]$errors)
-foreach($name in @('Invoke-StagedFoundationRollback','Assert-StagedRollbackPostconditions')){
+foreach($name in @('Invoke-StagedFoundationRollback','Assert-StagedRollbackPostconditions','Restore-StagedRollbackCore')){
  $node=$ast.Find({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name},$true);Invoke-Expression $node.Extent.Text
 }
 $script:operation='11111111-1111-4111-8111-111111111111'

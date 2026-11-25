@@ -66,7 +66,7 @@ def _assert_canonical_caller():
 
 
 @contextmanager
-def _windows_transaction(timeout_ms):
+def _windows_transaction(timeout_ms, *, name=None):
     import ctypes
     from ctypes import wintypes
     import win32event
@@ -84,7 +84,7 @@ def _windows_transaction(timeout_ms):
     close = kernel.CloseHandle
     close.argtypes = [wintypes.HANDLE]
     close.restype = wintypes.BOOL
-    handle = create(ctypes.byref(attributes), _MUTEX_NAME, 0, 0x120001)
+    handle = create(ctypes.byref(attributes), name or _MUTEX_NAME, 0, 0x120001)
     if not handle:
         raise ctypes.WinError(ctypes.get_last_error())
     acquired = False
@@ -338,4 +338,7 @@ def active_update_state(paths: WindowsUpdatePaths) -> str | None:
             seen.add(record['operation_id'])
         if any(record['operation_id'] not in delivered for record in handoffs):
             result = result or 'pending'
+    from .native_setup_continuation import pending_continuation
+    if pending_continuation(paths) is not None:
+        result = result or 'native-continuation-pending'
     return result

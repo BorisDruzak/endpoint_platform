@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import re
 from typing import Annotated, Literal, TypeAlias
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ._contracts import (
     BaselineSectionsV1,
@@ -28,6 +28,40 @@ class SafeModel(BaseModel):
     """Reject fields outside the service's explicitly safe projections."""
 
     model_config = ConfigDict(extra="forbid")
+
+
+class InventoryInstallationWindow(SafeModel):
+    issued_at: AwareDatetime
+    expires_at: AwareDatetime
+
+    @model_validator(mode="after")
+    def validate_window(self):
+        if not timedelta(0) < self.expires_at - self.issued_at <= timedelta(minutes=30):
+            raise ValueError("Invalid inventory installation window")
+        return self
+
+
+class PendingInventoryInstallationReceipt(SafeModel):
+    state: Literal["waiting_registration", "waiting_connection", "expired"]
+
+
+class ConnectedInventoryInstallationReceipt(SafeModel):
+    state: Literal["connected"]
+    device_id: UUID
+    registered_at: AwareDatetime
+    heartbeat_at: AwareDatetime
+
+    @model_validator(mode="after")
+    def validate_heartbeat(self):
+        if self.heartbeat_at < self.registered_at:
+            raise ValueError("Heartbeat predates registration")
+        return self
+
+
+InventoryInstallationReceipt: TypeAlias = Annotated[
+    ConnectedInventoryInstallationReceipt | PendingInventoryInstallationReceipt,
+    Field(discriminator="state"),
+]
 
 
 class Device(SafeModel):

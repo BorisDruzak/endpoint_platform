@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    desc,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PostgreSQLUUID
@@ -63,6 +64,13 @@ class ContextCollection(OwnershipRecord, Base):
             name="ck_context_collections_status",
         ),
         Index("ix_context_collections_device_profile_status", "device_id", "profile", "status"),
+        Index(
+            "ix_context_collections_device_profile_requested",
+            "device_id",
+            "profile",
+            desc("requested_at"),
+            desc("id"),
+        ),
         Index("ix_context_collections_result", "command_result_id"),
         Index("ix_context_collections_raw_retention", "result_received_at", "id"),
         Index("ix_context_collections_status_requested", "status", "requested_at", "id"),

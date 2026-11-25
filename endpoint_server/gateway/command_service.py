@@ -5,12 +5,15 @@ from __future__ import annotations
 import inspect
 import hashlib
 import json
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import AbstractSet
 from uuid import UUID, uuid4
 
-from sqlalchemy import or_, select
+from sqlalchemy import ColumnElement, and_, case, func, or_, select, union_all
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from endpoint_contracts import (
     AgentCommandAckV1,
@@ -25,26 +28,36 @@ from endpoint_contracts.cups_actions import (
 )
 from endpoint_contracts.modules import EndpointRecipeModuleSpecV1
 from endpoint_contracts.gateway_ws import (
+    CommandCancelEnvelopeV1,
+    CommandCancelV1,
     CommandEnvelopeV1,
+    CommandStartEnvelopeV1,
     GatewayCommandV1,
     ResultAckEnvelopeV1,
     ResultAckV1,
 )
-from endpoint_server.context.ingestion import ingest_context_result
+from endpoint_server.context.ingestion import ingest_context_result, ingest_new_context_result
 from endpoint_server.context.models import ContextCollection, ContextSnapshot
-from endpoint_server.context.repository import expire_overdue_collections, link_collection_command
+from endpoint_server.context.repository import (
+    expire_overdue_collections,
+    link_collection_command,
+    overdue_collection_statement,
+)
+from endpoint_server.context.scheduler import SCHEDULE_RULES
 from endpoint_server.context.service import ContextError
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.db.models import (
     Command,
     CommandDelivery,
     CommandResult,
+    Device,
     DeviceInstance,
     DeviceSession,
     EndpointOperation,
     ModuleOperationStep,
 )
 from endpoint_server.db.models.modules import ModuleVersion
+from endpoint_server.db.models.operations import MODULE_OPERATION_STEP_CAPABILITIES
 from endpoint_server.db.session import SessionProvider
 from endpoint_server.operations.projection import project_diagnostic_result
 from endpoint_server.operations.evidence import create_operation_evidence
@@ -60,15 +73,18 @@ from endpoint_server.modules.recipe_engine import (
 
 SendCommand = Callable[[CommandEnvelopeV1], Awaitable[None] | None]
 _TERMINAL_STATUSES = frozenset({"succeeded", "failed", "canceled", "expired"})
+_DELIVERABLE_COLLECTION_STATUSES = ("requested", "delivered")
+_ACTIVE_MODULE_STEP_STATUSES = ("delivered", "acknowledged", "running")
+_ACTIVE_MODULE_STATUSES = ("queued", *_ACTIVE_MODULE_STEP_STATUSES)
 _MAX_AGENT_CLOCK_SKEW = timedelta(minutes=5)
 _CAPABILITIES = {
-    "baseline_v1": "context.baseline.collect",
-    "health_v1": "context.health.collect",
-    "network_v1": "context.network.collect",
+    **{rule.profile: rule.capability for rule in SCHEDULE_RULES},
     "diagnostic_v1": "context.diagnostic.collect",
-    "inventory_v1": "context.inventory.collect",
-    "session_v1": "context.session.collect",
 }
+
+
+_CONTEXT_CAPABILITIES = frozenset(_CAPABILITIES.values())
+_MODULE_CAPABILITIES = frozenset(MODULE_OPERATION_STEP_CAPABILITIES)
 
 
 class CommandStateRejected(ValueError):
@@ -151,6 +167,14 @@ def _module_step_payload(
     )
 
 
+def _active_module_operations(device_id: UUID):
+    return select(EndpointOperation).where(
+        EndpointOperation.device_id == device_id,
+        EndpointOperation.capability == "endpoint.module.recipe",
+        EndpointOperation.status.in_(_ACTIVE_MODULE_STATUSES),
+    )
+
+
 async def _next_pending_module_command(
     session,
     device_id: UUID,
@@ -160,14 +184,7 @@ async def _next_pending_module_command(
     """Materialize at most one WSS-only child command for a module parent."""
     operations = (
         await session.scalars(
-            select(EndpointOperation)
-            .where(
-                EndpointOperation.device_id == device_id,
-                EndpointOperation.capability == "endpoint.module.recipe",
-                EndpointOperation.status.in_(
-                    ("queued", "delivered", "acknowledged", "running")
-                ),
-            )
+            _active_module_operations(device_id)
             .order_by(EndpointOperation.created_at, EndpointOperation.id)
             .with_for_update(skip_locked=True)
         )
@@ -221,7 +238,7 @@ async def _next_pending_module_command(
         active_steps = [
             step
             for step in steps
-            if step.status in {"delivered", "acknowledged", "running"}
+            if step.status in _ACTIVE_MODULE_STEP_STATUSES
         ]
         if active_steps:
             if len(active_steps) != 1 or active_steps[0].status != "delivered":
@@ -471,6 +488,7 @@ async def _record_module_step_result(
     result_sequence: int,
     result: AgentResultV1,
     payload_digest: str,
+    same_instance_delivery: bool = False,
 ) -> None:
     """Commit one child result, advancing only a still-successful parent chain."""
     expected_step_count = await _require_authoritative_module_step_set(
@@ -485,7 +503,7 @@ async def _record_module_step_result(
     if stored is not None:
         if (
             delivery is None
-            or delivery.device_session_id != session_id
+            or (delivery.device_session_id != session_id and not same_instance_delivery)
             or stored.command_id != command.id
             or stored.delivery_id != delivery.id
             or stored.result_payload_digest != payload_digest
@@ -503,7 +521,7 @@ async def _record_module_step_result(
         return
     if (
         delivery is None
-        or delivery.device_session_id != session_id
+        or (delivery.device_session_id != session_id and not same_instance_delivery)
         or command.status not in {"delivered", "acknowledged", "running"}
         or step.status not in {"delivered", "acknowledged", "running"}
         or operation.status not in {"delivered", "acknowledged", "running"}
@@ -737,24 +755,38 @@ def _safe_operation_result(
     )
 
 
+async def _lock_command_device(session: AsyncSession, device_id: UUID) -> None:
+    # Serialize delivery and feedback with the same parent lock before either
+    # path locks a command or collection. Both HTTP pull and WSS use this row.
+    await session.scalar(select(Device.id).where(Device.id == device_id).with_for_update())
+
+
 async def _next_pending_cups_command(
-    session, device_id: UUID, allowed_capabilities: AbstractSet[str] | None, device_instance_id: UUID | None,
-) -> GatewayCommandV1 | None:
+    session: AsyncSession,
+    device_id: UUID,
+    allowed_capabilities: AbstractSet[str] | None,
+    device_instance_id: UUID | None,
+    *,
+    current_session_id: UUID | None,
+) -> _PendingCommand | None:
     if device_instance_id is None or not allowed_capabilities:
         return None
     capabilities = set(CUPS_ACTION_PARAMETERS) & allowed_capabilities
     if not capabilities:
         return None
     now = datetime.now(UTC)
-    operation = await session.scalar(select(EndpointOperation).where(
-        EndpointOperation.device_id == device_id, EndpointOperation.capability.in_(capabilities),
-        EndpointOperation.deadline_at > now,
-        EndpointOperation.status.in_(("queued", "delivered", "acknowledged", "running")),
-        or_(EndpointOperation.action_device_instance_id == device_instance_id,
-            EndpointOperation.action_device_instance_id.is_(None)),
-    ).order_by(EndpointOperation.created_at, EndpointOperation.id).limit(1).with_for_update(skip_locked=True))
+    work = _pending_cups_operations(device_id, capabilities, now, current_session_id).where(
+        or_(
+            EndpointOperation.action_device_instance_id == device_instance_id,
+            EndpointOperation.action_device_instance_id.is_(None),
+        ),
+    )
+    operation = await session.scalar(
+        work.order_by(EndpointOperation.created_at, EndpointOperation.id).limit(1).with_for_update(skip_locked=True)
+    )
     if operation is None:
         return None
+    delivery = None
     if operation.command_id is None:
         if operation.status != "queued":
             raise CommandStateRejected("CUPS operation delivery is unavailable")
@@ -768,10 +800,9 @@ async def _next_pending_cups_command(
         operation.command_id = command.id
         operation.status = "delivered"
         operation.action_device_instance_id = device_instance_id
-        session.add(CommandDelivery(
+        delivery = CommandDelivery(
             id=uuid4(), command_id=command.id, delivery_identifier=f"delivery-{command.id.hex}", status="delivered",
-        ))
-        await session.flush()
+        )
     else:
         command = await session.get(Command, operation.command_id)
         if (
@@ -780,12 +811,13 @@ async def _next_pending_cups_command(
             or command.status != operation.status
         ):
             raise CommandStateRejected("CUPS operation command is unavailable")
-    return GatewayCommandV1(
+    payload = GatewayCommandV1(
         schema_version="agent_command_v1", command_id=command.id, device_id=device_id,
         capability=operation.capability, parameters=operation.parameters, requested_by_service="endpoint-platform",
         idempotency_key=f"endpoint-cups:{operation.id.hex}", created_at=_as_utc(command.created_at),
         deadline_at=_as_utc(operation.deadline_at), correlation=CommandCorrelationV1(request_id=operation.id),
     )
+    return _PendingCommand(payload, delivery)
 
 
 async def next_pending_command(
@@ -798,15 +830,69 @@ async def next_pending_command(
     device_instance_id: UUID | None = None,
 ) -> GatewayCommandV1 | None:
     """Replay only unacknowledged deliveries before creating a new command."""
+    pending = await _next_pending_command(
+        session, device_id, allowed_capabilities, transport=transport, agent_platform=agent_platform,
+        device_instance_id=device_instance_id,
+    )
+    if pending is None:
+        return None
+    if pending.new_delivery is not None:
+        session.add(pending.new_delivery)
+    return pending.payload
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingCommand:
+    payload: GatewayCommandV1
+    new_delivery: CommandDelivery | None = None
+
+
+async def _next_pending_command(
+    session: AsyncSession,
+    device_id: UUID,
+    allowed_capabilities: AbstractSet[str] | None = None,
+    *,
+    transport: str,
+    agent_platform: str | None,
+    device_instance_id: UUID | None = None,
+    current_session_id: UUID | None = None,
+) -> _PendingCommand | None:
+    from endpoint_server.installation_lifecycle.service import installation_state_statement, removed
+    await _lock_command_device(session, device_id)
+    has_module_work = False
+    if transport == "gateway_wss":
+        # Use a fresh statement after the device lock. A module insert can
+        # commit while that lock waits on its foreign-key check.
+        state, has_module_work = (await session.execute(select(
+            installation_state_statement(device_id).scalar_subquery(),
+            _active_module_operations(device_id).with_only_columns(EndpointOperation.id).exists(),
+        ))).one()
+        installation_removed = state == "removed"
+    else:
+        installation_removed = await removed(session, device_id)
+    if installation_removed:
+        return None
     if transport not in {"http_pull", "gateway_wss"}:
         raise ValueError("unsupported gateway transport")
     await expire_overdue_collections(session, device_id, now=datetime.now(UTC))
-    if transport == "gateway_wss":
+    if (
+        transport == "gateway_wss"
+        and agent_platform == "linux_amd64"
+        and allowed_capabilities
+        and not allowed_capabilities.isdisjoint(CUPS_ACTION_PARAMETERS)
+    ):
+        if current_session_id is not None:
+            gateway_session = await session.scalar(_open_gateway_session(device_id, current_session_id))
+            if gateway_session is None:
+                raise CommandStateRejected("gateway session is unavailable")
+            device_instance_id = gateway_session.device_instance_id
         cups_payload = await _next_pending_cups_command(
-            session, device_id, allowed_capabilities, device_instance_id if agent_platform == "linux_amd64" else None,
+            session, device_id, allowed_capabilities, device_instance_id,
+            current_session_id=current_session_id,
         )
         if cups_payload is not None:
             return cups_payload
+    if has_module_work:
         module_payload = await _next_pending_module_command(
             session,
             device_id,
@@ -814,13 +900,13 @@ async def next_pending_command(
             agent_platform,
         )
         if module_payload is not None:
-            return module_payload
+            return _PendingCommand(module_payload)
     collections = (
         await session.scalars(
             select(ContextCollection)
             .where(
                 ContextCollection.device_id == device_id,
-                ContextCollection.status.in_(("requested", "delivered")),
+                ContextCollection.status.in_(_DELIVERABLE_COLLECTION_STATUSES),
             )
             .order_by(ContextCollection.requested_at, ContextCollection.id)
             .with_for_update(skip_locked=True)
@@ -868,12 +954,7 @@ async def next_pending_command(
                         raise CommandStateRejected("command timing is unavailable")
                     command.expires_at = created_at + timedelta(minutes=15)
                     await session.flush()
-                return _command_payload(
-                    command,
-                    collection,
-                    capability,
-                    operation,
-                )
+                return _PendingCommand(_command_payload(command, collection, capability, operation))
             continue
         if operation is not None and await expire_operation_if_due(
             session,
@@ -900,28 +981,161 @@ async def next_pending_command(
         )
         session.add(command)
         await session.flush()
-        await link_collection_command(session, collection.id, command.id)
+        link_collection_command(collection, command)
         collection.status = "delivered"
         if operation is not None:
             operation.command_id = command.id
             operation.status = "delivered"
-        session.add(
-            CommandDelivery(
-                id=uuid4(),
-                command_id=command.id,
-                device_session_id=None,
-                delivery_identifier=f"delivery-{command.id.hex}",
-                status="delivered",
-                acknowledged_at=None,
-            )
+        delivery = CommandDelivery(
+            id=uuid4(),
+            command_id=command.id,
+            device_session_id=None,
+            delivery_identifier=f"delivery-{command.id.hex}",
+            status="delivered",
+            acknowledged_at=None,
         )
-        return _command_payload(command, collection, capability, operation)
+        return _PendingCommand(_command_payload(command, collection, capability, operation), delivery)
     return None
+
+
+def _open_gateway_session(device_id: UUID, session_id: UUID):
+    return select(DeviceSession).where(
+        DeviceSession.id == session_id,
+        DeviceSession.device_id == device_id,
+        DeviceSession.closed_at.is_(None),
+    )
+
+
+def _pending_cups_operations(
+    device_id: UUID,
+    capabilities: AbstractSet[str],
+    now: datetime,
+    current_session_id: UUID | None,
+):
+    operation = EndpointOperation
+    work = select(operation).where(
+        operation.device_id == device_id,
+        operation.capability.in_(capabilities),
+        operation.deadline_at > now,
+        operation.status.in_(("queued", "delivered", "acknowledged", "running")),
+    )
+    if current_session_id is not None:
+        already_delivered = select(CommandDelivery.id).where(
+            CommandDelivery.command_id == operation.command_id,
+            CommandDelivery.device_session_id == current_session_id,
+        ).correlate(operation).exists()
+        work = work.where(~already_delivered)
+    return work
+
+
+def wss_work_available(
+    device_id: UUID, allowed_capabilities: AbstractSet[str] | None, *,
+    current_session_id: UUID | None = None,
+) -> ColumnElement[bool]:
+    """Probe for possible work before entering the locked dispatch path."""
+    profiles = tuple(profile for profile, capability in _CAPABILITIES.items()
+                     if allowed_capabilities is None or capability in allowed_capabilities)
+    deliverable = select(ContextCollection.id).where(
+        ContextCollection.device_id == device_id,
+        ContextCollection.status.in_(_DELIVERABLE_COLLECTION_STATUSES),
+        ContextCollection.profile.in_(profiles),
+    )
+    if current_session_id is not None:
+        delivered_here = select(CommandDelivery.id).where(
+            CommandDelivery.command_id == ContextCollection.command_id,
+            CommandDelivery.device_session_id == current_session_id,
+        ).correlate(ContextCollection).exists()
+        deliverable = deliverable.where(or_(ContextCollection.status != "delivered", ~delivered_here))
+    module = _active_module_operations(device_id).with_only_columns(EndpointOperation.id)
+    overdue = overdue_collection_statement(device_id, now=datetime.now(UTC))
+    work = [deliverable.exists(), module.exists(), overdue.exists()]
+    cups_capabilities = set(CUPS_ACTION_PARAMETERS).intersection(allowed_capabilities or ())
+    if cups_capabilities:
+        cups = _pending_cups_operations(
+            device_id, cups_capabilities, datetime.now(UTC), current_session_id,
+        ).with_only_columns(EndpointOperation.id)
+        work.append(cups.exists())
+    return or_(*work)
 
 
 class CommandService:
     def __init__(self, session_provider: SessionProvider) -> None:
         self._session_provider = session_provider
+
+    async def scheduled_pending_devices(
+        self, capabilities: Mapping[UUID, AbstractSet[str]],
+    ) -> tuple[UUID, ...]:
+        """Find new work for online devices without claiming rows or opening deliveries."""
+        context_devices = [
+            device_id for device_id, advertised in capabilities.items()
+            if not _CONTEXT_CAPABILITIES.isdisjoint(advertised)
+        ]
+        module_devices = [
+            device_id for device_id, advertised in capabilities.items()
+            if not _MODULE_CAPABILITIES.isdisjoint(advertised)
+        ]
+        cups_devices = [
+            device_id for device_id, advertised in capabilities.items()
+            if not set(CUPS_ACTION_PARAMETERS).isdisjoint(advertised)
+        ]
+        if not context_devices and not module_devices and not cups_devices:
+            return ()
+        now = datetime.now(UTC)
+        collection = ContextCollection
+        context_requests = (
+            select(
+                collection.device_id,
+                case(_CAPABILITIES, value=collection.profile).label("capability"),
+                func.min(collection.requested_at).label("requested_at"),
+            )
+            .where(
+                collection.device_id.in_(context_devices),
+                collection.profile.in_(_CAPABILITIES),
+                collection.status == "requested",
+                collection.command_id.is_(None),
+                or_(collection.expires_at.is_(None), collection.expires_at > now),
+            )
+            .group_by(collection.device_id, collection.profile)
+        )
+        operation, step = EndpointOperation, ModuleOperationStep
+        sibling = aliased(ModuleOperationStep)
+        blocked = select(sibling.id).where(
+            sibling.operation_id == step.operation_id,
+            or_(
+                sibling.status.in_(_ACTIVE_MODULE_STEP_STATUSES),
+                and_(sibling.sequence < step.sequence, sibling.status != "succeeded"),
+            ),
+        ).exists()
+        module_requests = (
+            select(operation.device_id, step.capability, operation.created_at.label("requested_at"))
+            .join(step, step.operation_id == operation.id)
+            .where(
+                operation.device_id.in_(module_devices),
+                operation.capability == "endpoint.module.recipe",
+                operation.status.in_(_ACTIVE_MODULE_STATUSES),
+                operation.deadline_at > now,
+                step.status == "queued",
+                ~blocked,
+            )
+        )
+        cups_requests = select(
+            operation.device_id, operation.capability, operation.created_at.label("requested_at"),
+        ).where(
+            operation.device_id.in_(cups_devices),
+            operation.capability.in_(CUPS_ACTION_PARAMETERS),
+            operation.status == "queued",
+            operation.deadline_at > now,
+            operation.command_id.is_(None),
+        )
+        requests = union_all(context_requests, module_requests, cups_requests).subquery()
+        statement = select(requests.c.device_id, requests.c.capability).order_by(
+            requests.c.requested_at, requests.c.device_id,
+        )
+        async with self._session_provider() as session:
+            rows = (await session.execute(statement)).all()
+        return tuple(dict.fromkeys(
+            device_id for device_id, capability in rows if capability in capabilities[device_id]
+        ))
 
     async def deliver_next(
         self,
@@ -935,43 +1149,35 @@ class CommandService:
         """Commit one delivery before exposing it to the network callback."""
         async with self._session_provider() as session:
             try:
-                gateway_session_lookup = select(DeviceSession).where(
-                    DeviceSession.id == session_id,
-                    DeviceSession.device_id == device_id,
-                    DeviceSession.closed_at.is_(None),
-                )
-                gateway_session = None
-                if (
-                    agent_platform == "linux_amd64"
-                    and allowed_capabilities
-                    and not allowed_capabilities.isdisjoint(CUPS_ACTION_PARAMETERS)
-                ):
-                    gateway_session = await session.scalar(gateway_session_lookup)
-                    if gateway_session is None:
-                        raise CommandStateRejected("gateway session is unavailable")
-                payload = await next_pending_command(
+                work_available = wss_work_available(device_id, allowed_capabilities)
+                if not await session.scalar(select(work_available)):
+                    return False
+                pending = await _next_pending_command(
                     session,
                     device_id,
                     allowed_capabilities,
                     transport="gateway_wss",
                     agent_platform=agent_platform,
-                    device_instance_id=gateway_session.device_instance_id if gateway_session is not None else None,
+                    current_session_id=session_id,
                 )
-                if payload is None:
+                if pending is None:
                     await session.commit()
                     return False
-                cups = payload.capability in CUPS_ACTION_PARAMETERS
-                delivery = await session.scalar(
-                    select(CommandDelivery)
-                    .where(CommandDelivery.command_id == payload.command_id)
-                    .with_for_update(skip_locked=cups)
-                )
-                if cups and delivery is None:
-                    await session.rollback()
-                    return False
+                payload = pending.payload
+                delivery = pending.new_delivery
                 if delivery is None:
-                    raise CommandStateRejected("command delivery is unavailable")
-                if gateway_session is None and await session.scalar(gateway_session_lookup) is None:
+                    cups = payload.capability in CUPS_ACTION_PARAMETERS
+                    delivery = await session.scalar(
+                        select(CommandDelivery)
+                        .where(CommandDelivery.command_id == payload.command_id)
+                        .with_for_update(skip_locked=cups)
+                    )
+                    if cups and delivery is None:
+                        await session.rollback()
+                        return False
+                    if delivery is None:
+                        raise CommandStateRejected("command delivery is unavailable")
+                if await session.scalar(_open_gateway_session(device_id, session_id)) is None:
                     raise CommandStateRejected("gateway session is unavailable")
                 if delivery.device_session_id == session_id:
                     # A heartbeat or unrelated result can ask for more work
@@ -980,6 +1186,8 @@ class CommandService:
                     await session.commit()
                     return False
                 delivery.device_session_id = session_id
+                if pending.new_delivery is not None:
+                    session.add(delivery)
                 await session.commit()
             except Exception:
                 await session.rollback()
@@ -1002,32 +1210,29 @@ class CommandService:
         device_id: UUID,
         session_id: UUID,
         acknowledgement: AgentCommandAckV1,
-    ) -> None:
+        start_permission: bool = False,
+    ) -> CommandStartEnvelopeV1 | CommandCancelEnvelopeV1 | None:
         if acknowledgement.device_id != device_id:
             raise CommandStateRejected("acknowledgement device does not match session")
         if acknowledgement.status not in {"acknowledged", "running"}:
             raise CommandStateRejected("acknowledgement status is not actionable")
         async with self._session_provider() as session:
             try:
-                gateway_session = await session.scalar(
-                    select(DeviceSession)
-                    .where(
-                        DeviceSession.id == session_id,
-                        DeviceSession.device_id == device_id,
-                        DeviceSession.closed_at.is_(None),
-                    )
-                    .with_for_update()
-                )
-                command = await session.scalar(
-                    select(Command)
+                await _lock_command_device(session, device_id)
+                row = (await session.execute(
+                    select(Command, DeviceSession.device_instance_id)
+                    .join(DeviceSession, DeviceSession.device_id == Command.device_id)
                     .where(
                         Command.id == acknowledgement.command_id,
                         Command.device_id == device_id,
+                        DeviceSession.id == session_id,
+                        DeviceSession.closed_at.is_(None),
                     )
-                    .with_for_update()
-                )
-                if gateway_session is None or command is None:
+                    .with_for_update(of=(DeviceSession, Command))
+                )).one_or_none()
+                if row is None:
                     raise CommandStateRejected("command is unavailable")
+                command, session_instance_id = row
                 delivery = await session.scalar(
                     select(CommandDelivery)
                     .where(CommandDelivery.command_id == command.id)
@@ -1038,6 +1243,10 @@ class CommandService:
                 module_relation = await resolve_module_step_relation(session, command)
                 if module_relation is not None:
                     step, module_operation = module_relation
+                    denied = _deny_start(command, module_operation, acknowledgement, start_permission)
+                    if denied is not None:
+                        await session.rollback()
+                        return denied
                     if command.status in _TERMINAL_STATUSES:
                         if step.status != command.status:
                             raise CommandStateRejected(
@@ -1071,14 +1280,18 @@ class CommandService:
                     if step.started_at is None:
                         step.started_at = acknowledgement.acknowledged_at
                     await session.commit()
-                    return
+                    return _start_permission(acknowledgement, start_permission)
                 collection, operation = await resolve_command_context_relation(
                     session,
                     command,
                 )
                 if (operation is not None and operation.capability in CUPS_ACTION_PARAMETERS
-                    and operation.action_device_instance_id != gateway_session.device_instance_id):
+                    and operation.action_device_instance_id != session_instance_id):
                     raise CommandStateRejected("CUPS acknowledgement device instance does not match")
+                denied = _deny_start(command, operation, acknowledgement, start_permission)
+                if denied is not None:
+                    await session.rollback()
+                    return denied
                 if command.status in _TERMINAL_STATUSES:
                     if operation is not None and operation.status != command.status:
                         raise CommandStateRejected(
@@ -1106,6 +1319,7 @@ class CommandService:
                 if collection is not None:
                     collection.status = "collecting"
                 await session.commit()
+                return _start_permission(acknowledgement, start_permission)
             except Exception:
                 await session.rollback()
                 raise
@@ -1118,14 +1332,49 @@ class CommandService:
         session_id: UUID,
         result_sequence: int,
         result: AgentResultV1,
+        durable_replay: bool = False,
     ) -> ResultAckEnvelopeV1:
+        acknowledgement, _ = await self.record_result_with_work_hint(
+            device_id=device_id,
+            device_instance_id=device_instance_id,
+            session_id=session_id,
+            result_sequence=result_sequence,
+            result=result,
+            durable_replay=durable_replay,
+            allowed_capabilities=None,
+        )
+        return acknowledgement
+
+    async def record_result_with_work_hint(
+        self,
+        *,
+        device_id: UUID,
+        device_instance_id: UUID,
+        session_id: UUID,
+        result_sequence: int,
+        result: AgentResultV1,
+        allowed_capabilities: AbstractSet[str] | None,
+        durable_replay: bool = False,
+    ) -> tuple[ResultAckEnvelopeV1, bool]:
+        """Return the committed result ACK and whether WSS delivery should check for work."""
         if result_sequence < 0:
             raise CommandStateRejected("result sequence must be non-negative")
         if result.device_id != device_id or result.status not in _TERMINAL_STATUSES:
             raise CommandStateRejected("terminal result does not match session")
         payload_digest = result_payload_digest(result)
+        acknowledgement = ResultAckEnvelopeV1(
+            schema_version="gateway_ws_envelope_v1",
+            kind="result_ack",
+            sequence=result_sequence,
+            payload=ResultAckV1(
+                schema_version="result_ack_v1",
+                command_id=result.command_id,
+                result_sequence=result_sequence,
+            ),
+        )
         async with self._session_provider() as session:
             try:
+                await _lock_command_device(session, device_id)
                 gateway_session = await session.scalar(
                     select(DeviceSession)
                     .where(
@@ -1144,13 +1393,21 @@ class CommandService:
                     )
                     .with_for_update()
                 )
-                command = await session.scalar(
+                command_lookup = (
                     select(Command)
                     .where(
                         Command.id == result.command_id, Command.device_id == device_id
                     )
                     .with_for_update()
                 )
+                if allowed_capabilities is None:
+                    command = await session.scalar(command_lookup)
+                    has_work = True
+                else:
+                    row = (await session.execute(command_lookup.add_columns(
+                        wss_work_available(device_id, allowed_capabilities, current_session_id=session_id),
+                    ))).one_or_none()
+                    command, has_work = (None, True) if row is None else row
                 if gateway_session is None or instance is None or command is None:
                     raise CommandStateRejected("result ownership is unavailable")
 
@@ -1159,6 +1416,31 @@ class CommandService:
                     .where(CommandDelivery.command_id == command.id)
                     .with_for_update()
                 )
+                same_instance_delivery = False
+                if durable_replay:
+                    delivery_session_id = delivery.device_session_id if delivery is not None else None
+                    # The locked current session already proves its device and instance.
+                    if delivery_session_id == gateway_session.id:
+                        same_instance_delivery = True
+                    elif delivery_session_id is not None:
+                        owner = await session.scalar(
+                            select(DeviceSession.device_instance_id).where(
+                                DeviceSession.id == delivery_session_id,
+                                DeviceSession.device_id == device_id,
+                            )
+                        )
+                        same_instance_delivery = owner == device_instance_id
+                    if not same_instance_delivery:
+                        raise CommandStateRejected("result delivery belongs to another instance")
+                    deadline = _as_utc(command.expires_at)
+                    if command.status in {"expired", "canceled"} or (
+                        deadline is not None and datetime.now(UTC) >= deadline
+                        and command.status not in _TERMINAL_STATUSES
+                    ):
+                        # Receipt lets the journal settle a late delivery. It
+                        # does not publish a result or change server expiry.
+                        await session.rollback()
+                        return acknowledgement, True
                 module_relation = await resolve_module_step_relation(session, command)
                 if module_relation is not None:
                     step, module_operation = module_relation
@@ -1174,18 +1456,11 @@ class CommandService:
                         result_sequence=result_sequence,
                         result=result,
                         payload_digest=payload_digest,
+                        same_instance_delivery=same_instance_delivery,
                     )
                     await session.commit()
-                    return ResultAckEnvelopeV1(
-                        schema_version="gateway_ws_envelope_v1",
-                        kind="result_ack",
-                        sequence=result_sequence,
-                        payload=ResultAckV1(
-                            schema_version="result_ack_v1",
-                            command_id=result.command_id,
-                            result_sequence=result_sequence,
-                        ),
-                    )
+                    # A result can make the next step of a module runnable.
+                    return acknowledgement, True
                 collection, operation = await resolve_command_context_relation(
                     session,
                     command,
@@ -1204,7 +1479,7 @@ class CommandService:
                     if operation is not None:
                         if (
                             delivery is None
-                            or delivery.device_session_id != session_id
+                            or (delivery.device_session_id != session_id and not same_instance_delivery)
                             or command.status
                             not in {"delivered", "acknowledged", "running"}
                             or operation.status
@@ -1269,12 +1544,14 @@ class CommandService:
                     session.add(stored)
                     await session.flush()
                     if command.command_kind.startswith("context."):
-                        ingested_collection = await ingest_context_result(
-                            session,
-                            stored.id,
-                            accepted_result,
-                            now=accepted_at,
-                        )
+                        if collection is None:
+                            ingested_collection = await ingest_context_result(
+                                session, stored.id, accepted_result, now=accepted_at,
+                            )
+                        else:
+                            ingested_collection = await ingest_new_context_result(
+                                session, stored, command, collection, accepted_result, now=accepted_at,
+                            )
                         if operation is not None and (
                             ingested_collection.id != collection.id
                             or ingested_collection.operation_id != operation.id
@@ -1396,8 +1673,11 @@ class CommandService:
                             raise CommandStateRejected(
                                 "operation failure replay is unavailable"
                             )
-                    elif stored.result_sequence is None:
-                        stored.result_sequence = result_sequence
+                    else:
+                        if durable_replay and stored.result_payload_digest != payload_digest:
+                            raise CommandStateRejected("result replay conflicts with stored result")
+                        if stored.result_sequence is None:
+                            stored.result_sequence = result_sequence
 
                 instance.last_result_sequence = max(
                     instance.last_result_sequence,
@@ -1413,16 +1693,47 @@ class CommandService:
                 await session.rollback()
                 raise
 
-        return ResultAckEnvelopeV1(
-            schema_version="gateway_ws_envelope_v1",
-            kind="result_ack",
-            sequence=result_sequence,
-            payload=ResultAckV1(
-                schema_version="result_ack_v1",
-                command_id=result.command_id,
-                result_sequence=result_sequence,
-            ),
-        )
+        return acknowledgement, has_work
+
+
+def _deny_start(
+    command: Command, operation: EndpointOperation | None,
+    acknowledgement: AgentCommandAckV1, enabled: bool,
+) -> CommandCancelEnvelopeV1 | None:
+    if not enabled or acknowledgement.status != "running":
+        return None
+    now = datetime.now(UTC)
+    deadline = _as_utc(command.expires_at)
+    if operation is not None:
+        operation_deadline = _as_utc(operation.deadline_at)
+        if operation_deadline is None or deadline is None:
+            deadline = None
+        else:
+            deadline = min(deadline, operation_deadline)
+    if command.status == "canceled":
+        reason = "operator_requested"
+    elif command.status == "expired" or deadline is None or now >= deadline:
+        reason = "expired"
+    elif command.status in _TERMINAL_STATUSES:
+        reason = "superseded"
+    else:
+        return None
+    return CommandCancelEnvelopeV1(
+        schema_version="gateway_ws_envelope_v1", sequence=0, kind="command_cancel",
+        payload=CommandCancelV1(
+            schema_version="command_cancel_v1", command_id=acknowledgement.command_id,
+            reason=reason, canceled_at=now,
+        ),
+    )
+
+
+def _start_permission(acknowledgement: AgentCommandAckV1, enabled: bool) -> CommandStartEnvelopeV1 | None:
+    if not enabled or acknowledgement.status != "running":
+        return None
+    return CommandStartEnvelopeV1(
+        schema_version="gateway_ws_envelope_v1", sequence=0, kind="command_start",
+        payload=acknowledgement,
+    )
 
 
 __all__ = [

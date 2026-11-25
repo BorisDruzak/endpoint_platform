@@ -13,7 +13,7 @@ from pc_agent.runtime.status import RuntimeStatus
 from pc_agent.transport.websocket import GatewayTransportUnavailable
 from pc_agent.tests.runtime.test_headless_lifecycle import _Executor, _settings, _Transport, _dependencies
 
-pytestmark = pytest.mark.usefixtures("protected_update_state_root")
+pytestmark = pytest.mark.usefixtures("protected_update_state_root", "mock_verified_updater_core")
 
 
 @pytest.fixture(autouse=True)
@@ -108,6 +108,7 @@ async def test_disconnect_revokes_trial_before_waiting_for_slow_connected_cleanu
     (204, "idle", True), (503, "unavailable", False), (404, "unavailable", False),
 ])
 async def test_composed_https_check_retains_actual_adapter_provenance(tmp_path, monkeypatch, http_status, status, authenticated):
+    from pc_agent.platform.windows.acl import PyWin32AclAdapter
     from pc_agent.tests.test_update_adapter import _Response
     settings = replace(_settings(tmp_path), transport_mode="gateway_wss")
     settings.install_root.mkdir()
@@ -127,6 +128,7 @@ async def test_composed_https_check_retains_actual_adapter_provenance(tmp_path, 
     monkeypatch.setattr(application.ssl, "create_default_context", lambda **_: object())
     monkeypatch.setattr(application.aiohttp, "TCPConnector", lambda **_: object())
     monkeypatch.setattr(application.aiohttp, "ClientSession", Session)
+    monkeypatch.setattr(PyWin32AclAdapter, "prepare_core_update_directories", lambda *_, **__: False)
     result = await application._run_windows_update_check(settings, "fixture-credential")
     assert result.status == status
     assert result.authenticated_check is authenticated
@@ -609,7 +611,7 @@ async def test_cancelling_stream_removes_temporary_and_never_publishes_artifact(
     with pytest.raises(asyncio.CancelledError):
         await task
     assert not destination.exists()
-    assert not destination.with_name(".candidate.zip.tmp").exists()
+    assert not list(tmp_path.glob(".candidate.zip.*.tmp"))
 
 
 @pytest.mark.asyncio

@@ -35,7 +35,7 @@ from endpoint_server.enrollment.campaigns import (
     issue_install_claim,
     reserve_campaign_use,
 )
-from endpoint_server.enrollment.delivery import cleanup_expired_retry_envelopes
+from endpoint_server.enrollment.delivery import cleanup_expired_retry_envelopes, enrollment_retry_backlog_age
 from endpoint_server.main import create_app
 
 
@@ -516,10 +516,13 @@ async def test_cleanup_skips_recovery_locked_envelope_then_cleans_after_release(
         )
         assert locked is not None
         async with enrollment_provider() as cleanup_session:
+            now = expired_at + timedelta(seconds=60)
+            async with asyncio.timeout(3):
+                assert await enrollment_retry_backlog_age(cleanup_session, now=now) >= 60
             skipped = await cleanup_expired_retry_envelopes(
                 cleanup_session,
                 request_id="server_cleanup_locked",
-                now=datetime.now(UTC),
+                now=now,
             )
             await cleanup_session.commit()
         assert skipped == 0

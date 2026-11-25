@@ -275,6 +275,25 @@ class EndpointUpdateAdapter:
         assigned_version: str,
         rollback_version: str,
     ) -> bool:
+        if not self._persist_scheduled_handoff(
+            operation_id, assigned_version=assigned_version, rollback_version=rollback_version,
+        ):
+            return False
+        return await self.retry_scheduled_acknowledgement(operation_id)
+
+    def prepare_scheduled_handoff(
+        self, operation_id: str, *, assigned_version: str, rollback_version: str,
+    ) -> bool:
+        """Persist and flush the operation identity without doing network I/O."""
+        return self._persist_scheduled_handoff(
+            operation_id, assigned_version=assigned_version, rollback_version=rollback_version,
+            flush_existing=True,
+        )
+
+    def _persist_scheduled_handoff(
+        self, operation_id: str, *, assigned_version: str, rollback_version: str,
+        flush_existing: bool = False,
+    ) -> bool:
         if (
             self._data_root is None
             or not _is_operation_id(operation_id)
@@ -282,28 +301,30 @@ class EndpointUpdateAdapter:
             or not _SEMVER.fullmatch(rollback_version)
         ):
             return False
-        with self._journal_transaction():
-            records = self._load_update_state()
-            existing = next(
-                (record for record in records if record["operation_id"] == operation_id),
-                None,
-            )
-            if existing is None:
-                records.append(
-                    {
+        try:
+            with self._journal_transaction():
+                records = self._load_update_state()
+                existing = next(
+                    (record for record in records if record["operation_id"] == operation_id),
+                    None,
+                )
+                if existing is None:
+                    records.append({
                         "operation_id": operation_id,
                         "assigned_version": assigned_version,
                         "rollback_version": rollback_version,
                         "scheduled_ack_delivered_at": None,
-                    }
-                )
-                self._write_update_state(records)
-            elif (
-                existing["assigned_version"] != assigned_version
-                or existing["rollback_version"] != rollback_version
-            ):
-                return False
-        return await self.retry_scheduled_acknowledgement(operation_id)
+                    })
+                    self._write_update_state(records)
+                elif (existing["assigned_version"], existing["rollback_version"]) != (
+                    assigned_version, rollback_version,
+                ):
+                    return False
+                elif flush_existing:
+                    durable_state.flush_directory(self._update_state_path().parent)
+                return True
+        except UpdateInProgress:
+            return False
 
     @_defer_busy_update
     async def retry_scheduled_acknowledgement(self, operation_id: str) -> bool:
@@ -460,7 +481,7 @@ class EndpointUpdateAdapter:
                 raise ValueError("update journal directory is a reparse point")
         if os.name == "nt":
             acl = PyWin32AclAdapter()
-            acl.protect_directory(path.parent)
+            acl.prepare_core_update_directories(path.parent, include_downloads=False)
             protect = acl.protect_update_path
         else:
             path.parent.mkdir(exist_ok=True)
@@ -509,48 +530,8 @@ class EndpointUpdateAdapter:
         return [*journal, changed]
 
     def _load_report_journal(self) -> list[dict[str, str | None]]:
-        path = self._report_journal_path()
-        try:
-            raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
-        except (OSError, json.JSONDecodeError):
-            if self._strict_recovery:
-                raise ValueError("Endpoint recovery report journal is unreadable") from None
-            return []
-        fields = {
-            "operation_id",
-            "report_key",
-            "status",
-            "reported_version",
-            "safe_code",
-            "delivered_at",
-        }
-        if self._strict_recovery and (
-            not isinstance(raw, list)
-            or any(
-                not isinstance(item, dict)
-                or set(item) != fields
-                or not _valid_report_record(item)
-                for item in raw
-            )
-            or len({item["report_key"] for item in raw}) != len(raw)
-            or len({(item["operation_id"], item["status"], item["reported_version"], item["safe_code"])
-                    for item in raw}) != len(raw)
-        ):
-            raise ValueError("Endpoint recovery report journal is invalid")
-        return (
-            [
-                {key: item[key] for key in fields}
-                for item in raw
-                if isinstance(item, dict)
-                and set(item) == fields
-                and all(
-                    isinstance(item.get(key), str) or item.get(key) is None
-                    for key in fields
-                )
-            ]
-            if isinstance(raw, list)
-            else []
-        )
+        assert self._data_root is not None
+        return load_endpoint_update_reports(self._data_root, strict=self._strict_recovery)
 
     def _write_report_journal(self, journal: list[dict[str, str | None]]) -> None:
         self._write_journal(self._report_journal_path(), journal, max_bytes=4 * 1024 * 1024)
@@ -636,6 +617,53 @@ def _valid_report_record(item: dict[str, object]) -> bool:
         and isinstance(item["status"], str) and item["status"] in codes
         and item["safe_code"] == codes[item["status"]]
         and _valid_delivery_time(item["delivered_at"])
+    )
+
+
+def load_endpoint_update_reports(
+    data_root: Path, *, strict: bool = False,
+) -> list[dict[str, str | None]]:
+    path = Path(data_root) / "updates" / "endpoint_update_reports.json"
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+    except (OSError, json.JSONDecodeError):
+        if strict:
+            raise ValueError("Endpoint recovery report journal is unreadable") from None
+        return []
+    fields = {
+        "operation_id",
+        "report_key",
+        "status",
+        "reported_version",
+        "safe_code",
+        "delivered_at",
+    }
+    if strict and (
+        not isinstance(raw, list)
+        or any(
+            not isinstance(item, dict)
+            or set(item) != fields
+            or not _valid_report_record(item)
+            for item in raw
+        )
+        or len({item["report_key"] for item in raw}) != len(raw)
+        or len({(item["operation_id"], item["status"], item["reported_version"], item["safe_code"])
+                for item in raw}) != len(raw)
+    ):
+        raise ValueError("Endpoint recovery report journal is invalid")
+    return (
+        [
+            {key: item[key] for key in fields}
+            for item in raw
+            if isinstance(item, dict)
+            and set(item) == fields
+            and all(
+                isinstance(item.get(key), str) or item.get(key) is None
+                for key in fields
+            )
+        ]
+        if isinstance(raw, list)
+        else []
     )
 
 

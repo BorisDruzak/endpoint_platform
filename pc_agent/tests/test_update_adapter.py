@@ -10,6 +10,9 @@ import pytest
 from pc_agent.update_adapter import EndpointUpdateAdapter
 
 
+pytestmark = pytest.mark.usefixtures("journal_test_directory")
+
+
 class _Response:
     def __init__(self, status: int, body: str) -> None:
         self.status = status
@@ -662,9 +665,11 @@ def test_real_processes_merge_scheduled_and_terminal_journals(tmp_path,same_oper
     code = '''
 import asyncio,json,sys,time
 from pathlib import Path
+from pc_agent.platform.windows.acl import PyWin32AclAdapter
 from pc_agent.platform.windows import update_transaction as transaction
 from pc_agent.update_adapter import EndpointUpdateAdapter
 transaction._MUTEX_NAME=sys.argv[2]
+PyWin32AclAdapter.prepare_core_update_directories = lambda self, path, *, include_downloads: self.protect_directory(path)
 class Response:
     status=200
     async def __aenter__(self): return self

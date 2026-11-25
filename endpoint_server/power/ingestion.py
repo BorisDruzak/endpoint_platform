@@ -8,6 +8,7 @@ from uuid import UUID
 
 from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.sql import ColumnElement
 from endpoint_contracts.gateway_ws import PowerEventAckEnvelopeV1
 from endpoint_contracts.power_events import (
     PowerEventV1,
@@ -129,12 +130,33 @@ async def ingest_gateway_power_events(
     *,
     received_at: datetime | None = None,
 ) -> PowerEventAckV1:
+    """Stage exact dispositions in the caller's transaction."""
+    ack, _ = await _ingest_gateway_power_events(
+        session, device_id, batch, received_at=received_at, work_available=None,
+    )
+    return ack
+
+
+async def _ingest_gateway_power_events(
+    session: AsyncSession,
+    device_id: UUID,
+    batch: PowerEventBatchV1,
+    *,
+    received_at: datetime | None,
+    work_available: ColumnElement[bool] | None,
+) -> tuple[PowerEventAckV1, bool | None]:
     """Stage exact dispositions; caller owns outer transaction and must commit."""
     when = utc(received_at or datetime.now(UTC))
     # Serialize per-device identity checks and the current source row on PostgreSQL.
-    await session.scalar(
+    device_lock = (
         select(Device.id).where(Device.id == device_id).with_for_update()
     )
+    has_work = None
+    if work_available is None:
+        await session.scalar(device_lock)
+    else:
+        row = (await session.execute(device_lock.add_columns(work_available))).one_or_none()
+        has_work = bool(row[1]) if row is not None else False
     status = batch.source_status
     if when - POWER_RETENTION <= utc(status.reported_at) <= when + timedelta(minutes=5):
         state = await session.scalar(
@@ -185,7 +207,7 @@ async def ingest_gateway_power_events(
         batch_id=batch.batch_id,
         persisted_at=when,
         results=results,
-    )
+    ), has_work
 
 
 async def commit_and_ack_power_events(
@@ -196,12 +218,14 @@ async def commit_and_ack_power_events(
     sequence: int,
     send: Callable[[PowerEventAckEnvelopeV1], Awaitable[None]],
     received_at: datetime | None = None,
-) -> None:
+    work_available: ColumnElement[bool] | None = None,
+) -> bool | None:
+    """Acknowledge committed Power and return the optional delivery hint."""
     async with session_provider() as session:
         if session.get_bind().dialect.name == "sqlite":
             await session.execute(text("BEGIN"))
-        ack = await ingest_gateway_power_events(
-            session, device_id, batch, received_at=received_at
+        ack, has_work = await _ingest_gateway_power_events(
+            session, device_id, batch, received_at=received_at, work_available=work_available,
         )
         await session.commit()
     await send(
@@ -212,3 +236,4 @@ async def commit_and_ack_power_events(
             payload=ack,
         )
     )
+    return has_work

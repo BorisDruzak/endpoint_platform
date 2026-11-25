@@ -15,7 +15,7 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-pytestmark = pytest.mark.usefixtures("protected_update_state_root")
+pytestmark = pytest.mark.usefixtures("protected_update_state_root", "mock_verified_updater_core", "journal_test_directory")
 
 
 @pytest.mark.parametrize("filename", ["current.json", "previous.json", "startup-attempt.json",
@@ -259,7 +259,7 @@ def test_disk_failure_preserves_old_core_and_can_retry(tmp_path, monkeypatch, fa
     assert json.loads(paths.current_path.read_text()) == {"version": "3.1.9"}
     assert paths.pending_path.exists()
     assert not (paths.updates_root / "terminal-outcome.json").exists()
-    if failure in {"capacity", "extract", "extraction_fsync", "pinned_fsync", "previous", "attempt"}:
+    if failure in {"capacity", "extract", "extraction_fsync", "pinned_fsync", "attempt"}:
         assert events == []
     else:
         assert events == ["stop", "start"]
@@ -326,10 +326,10 @@ def test_persistent_exhaustion_restores_without_new_payload_allocation(tmp_path,
     assert restarted.run_once().status == "applied"
 
 
-def _interrupted_transition(tmp_path, *, selected=True):
+def _interrupted_transition(tmp_path, *, selected=True, archive_name="candidate.zip"):
     from pc_agent.platform.windows import updater_service
     paths = _paths(tmp_path)
-    artifact = _artifact(paths.downloads_root / "candidate.zip")
+    artifact = _artifact(paths.downloads_root / archive_name)
     _pending(paths, artifact)
     paths.install_root.mkdir(parents=True)
     old = {"schema_version": 1, "source_revision": "b" * 40, "version": "3.1.9"}
@@ -344,6 +344,77 @@ def _interrupted_transition(tmp_path, *, selected=True):
     if selected:
         updater_service._write_json_atomic(paths.current_path, candidate, trusted_root=paths.install_root)
     return paths, old
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_accepted_transition_retires_only_its_verified_cache(tmp_path, changed):
+    from pc_agent.platform.windows import updater_service
+
+    name = "build-3.2.0-caa31a48-bf2f-4f1c-8b77-d1be77e12b4e.zip"
+    paths, _ = _interrupted_transition(tmp_path, archive_name=name)
+    archive = paths.downloads_root / name
+    other = paths.downloads_root / "build-3.2.1-241fe64c-9639-47ca-b2c5-c36b36b11f9a.zip"
+    other.write_bytes(archive.read_bytes())
+    worker = updater_service.WindowsUpdater(
+        paths, acl=_Acl(), confirmation=SimpleNamespace(is_confirmed=lambda **_: True)
+    )
+    worker._transition = updater_service._load_selector_transition(paths)
+    worker._mark_accepted()
+    if changed:
+        original = archive.read_bytes()
+        archive.write_bytes(bytes([original[0] ^ 1]) + original[1:])
+
+    assert worker.run_once().status == "applied"
+    assert archive.exists() is changed
+    assert other.is_file()
+    assert not paths.pending_path.exists()
+
+
+@pytest.mark.parametrize("recovering", [False, True])
+def test_zip_runtime_retirement_preserves_reserved_versions_and_unknown_trees(tmp_path, monkeypatch, recovering):
+    from endpoint_contracts.runtime_payload import BUNDLE_FILENAME, CONTRACT_FILENAME
+    from pc_agent.platform.windows import installer_fence, updater_service
+
+    paths = _paths(tmp_path)
+    paths.versions_root.mkdir(parents=True)
+    monkeypatch.setattr(installer_fence, "assert_namespace_security", lambda *a, **kw: None)
+
+    def make_release(version):
+        root = paths.versions_root / version
+        root.mkdir()
+        contract = json.dumps(dict(schema_version=1, version=version,
+            source_revision="a" * 40, minimum_launcher_version=None)).encode()
+        files = {"pc_agent.exe": b"fixture", CONTRACT_FILENAME: contract}
+        for name, data in files.items():
+            (root / name).write_bytes(data)
+        (root / BUNDLE_FILENAME).write_text(json.dumps(dict(
+            schema_version=1, version=version, source_revision="a" * 40,
+            files=[dict(path=name, size=len(data), sha256=hashlib.sha256(data).hexdigest())
+                   for name, data in files.items()],
+        )), encoding="utf-8")
+        (root / ".endpoint-update.json").write_text(
+            json.dumps(dict(version=version, size=123, sha256="b" * 64)), encoding="utf-8"
+        )
+        return root
+
+    old = make_release("3.2.1")
+    current, previous, pending = (make_release(f"3.2.{i}") for i in (5, 4, 6))
+    native = make_release("3.2.2")
+    (native / ".endpoint-msi-runtime.json").touch()
+    unknown = make_release("3.2.3")
+    (unknown / "other.txt").touch()
+    unowned_directory = make_release("3.2.0")
+    (unowned_directory / "unowned").mkdir()
+    paths.current_path.write_text(json.dumps({"version": current.name}))
+    paths.previous_path.write_text(json.dumps({"version": previous.name}))
+
+    worker = updater_service.WindowsUpdater(paths, acl=_Acl())
+    if recovering:
+        worker._transition = {"status": "prepared"}
+    worker._retire_old_zip_runtimes(pending.name)
+
+    assert old.exists() is recovering
+    assert all(path.is_dir() for path in (current, previous, pending, native, unknown, unowned_directory))
 
 
 def test_old_selected_restart_survives_persistent_exhaustion_and_retries(tmp_path, monkeypatch):
@@ -415,7 +486,7 @@ def test_restart_reconciles_unaccepted_transition_before_normal_eligibility(tmp_
     restarted = updater_service.WindowsUpdater(paths, acl=_Acl(), service=service,
         verifier=SimpleNamespace(verify=lambda *_: True), confirmation=SimpleNamespace(is_confirmed=confirmed))
     assert restarted.run_once().status == "applied"
-    assert starts[0] == old
+    assert starts[:-1] == ([old] if selected else [])
     assert starts[-1]["version"] == "3.2.0"
     assert len(stops) == (2 if selected else 1)
     assert not paths.transition_path.exists()
@@ -812,6 +883,84 @@ def test_updater_quarantines_an_invalid_pending_handoff_before_exiting(
     assert quarantined[0].read_text(encoding="utf-8") == '{"unexpected":true}'
 
 
+def test_quarantine_reuses_evidence_while_pending_is_locked(tmp_path: Path) -> None:
+    win32file = pytest.importorskip("win32file")
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+
+    paths = _paths(tmp_path)
+    paths.updates_root.mkdir(parents=True)
+    rejected = b'{"unexpected":true}'
+    paths.pending_path.write_bytes(rejected)
+    updater = WindowsUpdater(paths, acl=_Acl())
+
+    handle = win32file.CreateFile(
+        str(paths.pending_path), win32file.GENERIC_READ,
+        win32file.FILE_SHARE_READ | win32file.FILE_SHARE_WRITE,
+        None, win32file.OPEN_EXISTING, 0, None,
+    )
+    try:
+        for _ in range(3):
+            assert updater.run_once().status == "rejected"
+            assert paths.pending_path.read_bytes() == rejected
+        copies = list(paths.updates_root.glob("rejected-pending-*.json"))
+        assert len(copies) == 1
+        assert copies[0].read_bytes() == rejected
+    finally:
+        handle.Close()
+
+    assert updater.run_once().status == "rejected"
+    assert not paths.pending_path.exists()
+    assert list(paths.updates_root.glob("rejected-pending-*.json")) == copies
+
+
+def test_quarantine_completes_previous_evidence_flush_before_removing_pending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pc_agent.platform.windows import durable_state, updater_service
+
+    paths = _paths(tmp_path)
+    paths.updates_root.mkdir(parents=True)
+    rejected = b'{"unexpected":true}'
+    paths.pending_path.write_bytes(rejected)
+    updater = updater_service.WindowsUpdater(paths, acl=_Acl())
+
+    def fail_directory_flush(path):
+        if path == paths.updates_root:
+            raise OSError("injected directory flush failure")
+        return flush(path)
+
+    flush = durable_state.flush_directory
+    with monkeypatch.context() as patches:
+        patches.setattr(durable_state, "flush_directory", fail_directory_flush)
+        assert updater.run_once().status == "rejected"
+    assert paths.pending_path.read_bytes() == rejected
+    copy, = paths.updates_root.glob("rejected-pending-*.json")
+    assert copy.read_bytes() == rejected
+    mtime = copy.stat().st_mtime_ns
+
+    assert updater.run_once().status == "rejected"
+    assert not paths.pending_path.exists()
+    assert list(paths.updates_root.glob("rejected-pending-*.json")) == [copy]
+    assert copy.stat().st_mtime_ns == mtime
+
+
+def test_quarantine_preserves_conflicting_evidence_and_pending(tmp_path: Path) -> None:
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+
+    paths = _paths(tmp_path)
+    paths.updates_root.mkdir(parents=True)
+    rejected = b'{"unexpected":true}'
+    paths.pending_path.write_bytes(rejected)
+    digest = hashlib.sha256(rejected).hexdigest()
+    copy = paths.updates_root / f"rejected-pending-{digest}.json"
+    unrelated = b"x" * len(rejected)
+    copy.write_bytes(unrelated)
+
+    assert WindowsUpdater(paths, acl=_Acl()).run_once().status == "rejected"
+    assert paths.pending_path.read_bytes() == rejected
+    assert copy.read_bytes() == unrelated
+
+
 def test_pending_validator_rejects_different_bytes_for_existing_target_version(
     tmp_path: Path,
 ) -> None:
@@ -1113,11 +1262,13 @@ def test_updater_start_acl_keeps_management_rights_without_granting_start_to_oth
     """Replacing the whole DACL with RP-only ACEs breaks administration and is unnecessary."""
     from pc_agent.platform.windows.service_control import updater_start_access_policy
 
-    policy = updater_start_access_policy(service_all_access=0xFFFF, service_start=0x10)
+    policy = updater_start_access_policy(
+        service_all_access=0xFFFF, service_start=0x10, service_query_status=0x04,
+    )
     assert policy == {
         "S-1-5-18": 0xFFFF,
         "S-1-5-32-544": 0xFFFF,
-        "NT SERVICE\\EndpointAgent": 0x10,
+        "NT SERVICE\\EndpointAgent": 0x14,
     }
 
 
@@ -1584,3 +1735,420 @@ def test_proof_acceptance_requires_unchanged_authority(tmp_path, monkeypatch, ch
     assert worker.run_once().status == "rejected"
     assert not (paths.updates_root / "terminal-outcome.json").exists()
     assert all(leaf.read_bytes() == expected for leaf, expected in preserved.items())
+
+def test_updater_preserves_selector_and_does_not_restart_until_stop_is_proven(tmp_path):
+    from pc_agent.platform.windows.updater_service import WindowsUpdater
+
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip", version="3.2.7")
+    _pending(paths, artifact, version="3.2.7")
+    paths.install_root.mkdir(parents=True)
+    previous = b'{"version":"3.2.6"}'
+    paths.current_path.write_bytes(previous)
+    events = []
+    service = SimpleNamespace(
+        stop=lambda: events.append("stop"),
+        wait_stopped=lambda: False,
+        start=lambda: events.append("start"),
+    )
+    result = WindowsUpdater(
+        paths, acl=_Acl(), service=service, verifier=SimpleNamespace(verify=lambda *_: True), confirmation=SimpleNamespace(),
+    ).run_once()
+
+    assert result.status == "core_stop_unverified"
+    assert paths.current_path.read_bytes() == previous
+    assert events == ["stop"]
+    assert paths.pending_path.exists()
+    assert paths.transition_path.exists()
+    assert not (paths.updates_root / "terminal-outcome.json").exists()
+
+
+def test_updater_defers_when_scm_stop_control_times_out(tmp_path, monkeypatch):
+    pywintypes = pytest.importorskip("pywintypes")
+    from pc_agent.platform.windows.updater_service import PyWin32EndpointAgentService, WindowsUpdater
+
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip", version="3.2.7")
+    _pending(paths, artifact, version="3.2.7")
+    paths.install_root.mkdir(parents=True)
+    previous = b'{"version":"3.2.6"}'
+    paths.current_path.write_bytes(previous)
+
+    def stop(_name):
+        raise pywintypes.error(1053, "ControlService", "service did not respond")
+
+    service = PyWin32EndpointAgentService()
+    monkeypatch.setattr(service, "_modules", lambda: SimpleNamespace(StopService=stop))
+
+    def unexpected_service_action():
+        pytest.fail("SCM stop was not proven")
+
+    monkeypatch.setattr(service, "wait_stopped", unexpected_service_action)
+    monkeypatch.setattr(service, "start", unexpected_service_action)
+    result = WindowsUpdater(
+        paths, acl=_Acl(), service=service, verifier=SimpleNamespace(verify=lambda *_: True),
+        confirmation=SimpleNamespace(),
+    ).run_once()
+
+    assert result.status == "core_stop_unverified"
+    assert paths.current_path.read_bytes() == previous
+    assert paths.pending_path.exists()
+    assert paths.transition_path.exists()
+    assert not (paths.updates_root / "terminal-outcome.json").exists()
+
+
+@pytest.mark.parametrize("failure", ["missing", "legacy", "boot-unknown", "same-boot-debt", "1062-no-proof", "new-owner", "new-boot"])
+def test_unverified_owner_preserves_prepared_operation_then_retries_after_boot(tmp_path, monkeypatch, failure):
+    from contextlib import contextmanager
+    from uuid import NAMESPACE_OID, uuid5
+
+    from pc_agent.platform.windows import core_shutdown, updater_service
+
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip", version="3.2.7")
+    pending = _pending(paths, artifact, version="3.2.7")
+    paths.install_root.mkdir(parents=True)
+    previous = b'{ "version": "3.2.6" }'
+    paths.current_path.write_bytes(previous)
+    pending_bytes = pending.read_bytes()
+    phase = {"held": False, "owner": ("boot-1", "owner-1"), "valid": False}
+    events = []
+
+    @contextmanager
+    def gate(_paths):
+        assert not phase["held"]
+        phase["held"] = True
+        try:
+            yield
+        finally:
+            phase["held"] = False
+
+    def capture(_paths, selector):
+        assert phase["held"]
+        assert selector == paths.current_path.read_bytes()
+        if failure in {"missing", "boot-unknown", "same-boot-debt"} and not phase["valid"]:
+            return None
+        if failure == "legacy" and not phase["valid"]:
+            raise updater_service.CoreShutdownUnconfirmed("legacy format")
+        boot, run = (str(uuid5(NAMESPACE_OID, value)) for value in phase["owner"])
+        return core_shutdown.CoreOwner(boot, run, hashlib.sha256(selector).hexdigest(), "stopped", False)
+
+    def require(_paths, selector, owner):
+        assert phase["held"] and selector == paths.current_path.read_bytes()
+        events.append("require")
+        if not phase["valid"] or owner != capture(_paths, selector):
+            raise updater_service.CoreShutdownUnconfirmed("different or unresolved owner")
+
+    class ServiceNotActive(OSError):
+        winerror = 1062
+
+    def stop():
+        assert not phase["held"]
+        events.append("stop")
+        if not phase["valid"]:
+            if failure == "1062-no-proof":
+                raise ServiceNotActive()
+            if failure == "new-owner":
+                phase["owner"] = ("boot-1", "owner-restarted")
+            if failure == "new-boot":
+                phase["owner"] = ("boot-2", "owner-on-reboot")
+
+    def wait():
+        assert not phase["held"]
+        events.append("wait")
+        return True
+
+    def start():
+        assert not phase["held"]
+        events.append("start")
+
+    monkeypatch.setattr(updater_service, "core_shutdown_gate", gate)
+    monkeypatch.setattr(updater_service, "capture_core_owner", capture)
+    monkeypatch.setattr(updater_service, "require_core_stopped", require)
+    service = SimpleNamespace(stop=stop, wait_stopped=wait, start=start, crashed_early=lambda: False)
+
+    def worker():
+        return updater_service.WindowsUpdater(paths, acl=_Acl(), service=service,
+            verifier=SimpleNamespace(verify=lambda *_: True),
+            confirmation=SimpleNamespace(is_confirmed=lambda **_: True))
+
+    first = worker().run_once()
+    assert first.status == "core_stop_unverified"
+    assert paths.current_path.read_bytes() == previous and pending.read_bytes() == pending_bytes
+    assert not paths.previous_path.exists()
+    assert not (paths.updates_root / "terminal-outcome.json").exists()
+    assert events == ([] if failure in {"missing", "legacy", "boot-unknown", "same-boot-debt"} else ["stop", "wait", "require"])
+    transition = json.loads(paths.transition_path.read_bytes())
+    attempt = paths.updates_root / "startup-attempt.json"
+    old_attempt = attempt.read_bytes()
+
+    phase.update(owner=("boot-3", "owner-after-normal-reboot"), valid=True)
+    events.clear()
+    original_write = updater_service._write_json_atomic
+
+    def write(path, *args, **kwargs):
+        if path == paths.current_path:
+            assert phase["held"]
+            assert attempt.read_bytes() == old_attempt
+            assert json.loads(paths.transition_path.read_bytes()) == transition
+            events.append("switch")
+        return original_write(path, *args, **kwargs)
+
+    monkeypatch.setattr(updater_service, "_write_json_atomic", write)
+    assert worker().run_once().status == "applied"
+    assert events == ["stop", "wait", "require", "switch", "start"]
+
+
+def test_started_candidate_is_not_rolled_back_with_previous_owner_proof(tmp_path, monkeypatch):
+    pywintypes = pytest.importorskip("pywintypes")
+
+    from pc_agent.platform.windows import core_shutdown, updater_service
+
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip", version="3.2.7")
+    pending = _pending(paths, artifact, version="3.2.7")
+    pending_bytes = pending.read_bytes()
+    paths.install_root.mkdir(parents=True)
+    paths.current_path.write_bytes(b'{"version":"3.2.6"}')
+    owners = []
+    running = False
+
+    def start(name):
+        nonlocal running
+        assert name == "EndpointAgent"
+        running = True
+        raise pywintypes.error(1053, "StartService", "failure after candidate admission")
+
+    def capture(_paths, raw):
+        version = json.loads(raw)["version"]
+        if (version == "3.2.7") != running:
+            return None
+        owner = "candidate" if running else "source"
+        owners.append((owner, version))
+        return core_shutdown.CoreOwner(
+            "11111111-1111-1111-1111-111111111111",
+            "33333333-3333-3333-3333-333333333333" if running else "22222222-2222-2222-2222-222222222222",
+            hashlib.sha256(raw).hexdigest(), "running" if running else "stopped", False,
+        )
+
+    def require(_paths, _raw, owner):
+        if owner.state == "running":
+            raise updater_service.CoreShutdownUnconfirmed("candidate Job owner still unresolved")
+
+    monkeypatch.setattr(updater_service, "capture_core_owner", capture)
+    monkeypatch.setattr(updater_service, "require_core_stopped", require)
+    service = updater_service.PyWin32EndpointAgentService()
+    monkeypatch.setattr(service, "_modules", lambda: SimpleNamespace(StartService=start))
+    monkeypatch.setattr(service, "stop", lambda: None)
+    monkeypatch.setattr(service, "wait_stopped", lambda: True)
+    result = updater_service.WindowsUpdater(paths, acl=_Acl(), service=service,
+        verifier=SimpleNamespace(verify=lambda *_: True), confirmation=SimpleNamespace()).run_once()
+
+    assert owners == [("source", "3.2.6"), ("candidate", "3.2.7")]
+    assert result.status == "core_stop_unverified"
+    assert json.loads(paths.current_path.read_bytes())["version"] == "3.2.7"
+    assert pending.read_bytes() == pending_bytes
+    assert paths.transition_path.exists()
+    assert not (paths.updates_root / "terminal-outcome.json").exists()
+
+
+@pytest.mark.parametrize("before_switch_failure", [False, True])
+def test_prepared_retry_clears_same_attempt_proof_before_selecting_candidate(
+    tmp_path, monkeypatch, before_switch_failure,
+):
+    import errno
+
+    from pc_agent.platform.windows import updater_service
+
+    paths, source = _interrupted_transition(tmp_path, selected=False)
+    attempt_file = paths.updates_root / "startup-attempt.json"
+    attempt_bytes = attempt_file.read_bytes()
+    attempt = json.loads(attempt_bytes)
+    proof = paths.updates_root / "startup-confirmation.json"
+    evidence = {**attempt, "status": "confirmed", "confirmed_at": datetime.now(UTC).isoformat()}
+    updater_service._write_json_atomic(proof, evidence, trusted_root=paths.updates_root, template=attempt_file)
+    starts = []
+
+    def start():
+        selected = json.loads(paths.current_path.read_bytes())
+        starts.append(selected["version"])
+        if selected["version"] == attempt["version"]:
+            assert not proof.exists()
+            assert attempt_file.read_bytes() == attempt_bytes
+            if before_switch_failure:
+                updater_service._write_json_atomic(
+                    proof, {**evidence, "confirmed_at": datetime.now(UTC).isoformat()},
+                    trusted_root=paths.updates_root, template=attempt_file,
+                )
+
+    service = SimpleNamespace(stop=lambda: None, wait_stopped=lambda: True, start=start, crashed_early=lambda: False)
+
+    def worker():
+        return updater_service.WindowsUpdater(paths, acl=_Acl(), service=service,
+            verifier=SimpleNamespace(verify=lambda *_: True), deadline_seconds=1)
+
+    if before_switch_failure:
+        original_write = updater_service._write_json_atomic
+
+        def fail_selector(path, *args, **kwargs):
+            if path == paths.current_path:
+                assert not proof.exists()
+                raise OSError(errno.ENOSPC, "test exhaustion between proof clear and switch")
+            return original_write(path, *args, **kwargs)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(updater_service, "_write_json_atomic", fail_selector)
+            assert worker().run_once().status == "disk_insufficient"
+        assert json.loads(paths.current_path.read_bytes()) == source
+        assert attempt_file.read_bytes() == attempt_bytes
+        assert paths.pending_path.exists() and paths.transition_path.exists()
+        assert not proof.exists()
+        assert starts == [source["version"]]
+        assert worker().run_once().status == "applied"
+        assert starts == [source["version"], attempt["version"]]
+    else:
+        assert worker().run_once().status == "rolled_back"
+        assert starts == [attempt["version"], source["version"]]
+
+
+@pytest.mark.parametrize("admitted_candidate", [False, True])
+def test_fresh_updater_recovers_switch_start_gap_only_with_original_owner(tmp_path, monkeypatch, admitted_candidate):
+    from pc_agent.platform.windows import core_shutdown, updater_service
+
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip", version="3.2.7")
+    pending = _pending(paths, artifact, version="3.2.7")
+    paths.install_root.mkdir(parents=True)
+    source = b'{"version":"3.2.6"}'
+    paths.current_path.write_bytes(source)
+    state = SimpleNamespace(crash=True, owner=None, confirmed=False)
+    actions = []
+
+    class Crash(BaseException):
+        pass
+
+    def make_owner(selector):
+        return core_shutdown.CoreOwner(
+            "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222" if selector == source else "33333333-3333-3333-3333-333333333333",
+            hashlib.sha256(selector).hexdigest(), "stopped", False,
+        )
+
+    state.owner = make_owner(source)
+
+    def capture(_paths, selector):
+        return state.owner if state.owner.selector_sha256 == hashlib.sha256(selector).hexdigest() else None
+
+    def require(_paths, selector, owner):
+        if owner != capture(paths, selector) or state.owner.state != "stopped":
+            raise core_shutdown.CoreShutdownUnconfirmed("owner changed or never stopped")
+
+    def stop():
+        actions.append(("stop", paths.current_path.read_bytes()))
+
+    def start():
+        selector = paths.current_path.read_bytes()
+        actions.append(("start", selector))
+        if selector != source and state.crash:
+            if admitted_candidate:
+                from dataclasses import replace
+
+                state.owner = replace(make_owner(selector), state="running")
+            raise Crash
+        if selector != source:
+            state.confirmed = True
+
+    monkeypatch.setattr(updater_service, "capture_core_owner", capture)
+    monkeypatch.setattr(updater_service, "require_core_stopped", require)
+    service = SimpleNamespace(stop=stop, start=start, wait_stopped=lambda: True, crashed_early=lambda: False)
+
+    def worker():
+        return updater_service.WindowsUpdater(paths, acl=_Acl(), service=service,
+            verifier=SimpleNamespace(verify=lambda *_: True),
+            confirmation=SimpleNamespace(is_confirmed=lambda **_: state.confirmed))
+
+    with pytest.raises(Crash):
+        worker().run_once()
+    candidate = paths.current_path.read_bytes()
+    pending_bytes = pending.read_bytes()
+    transition_bytes = paths.transition_path.read_bytes()
+    assert json.loads(candidate)["version"] == "3.2.7"
+    state.crash = False
+    actions.clear()
+
+    if admitted_candidate:
+        assert worker().run_once().status == "core_stop_unverified"
+        assert actions == [("stop", candidate)]
+        assert paths.current_path.read_bytes() == candidate
+        assert pending.read_bytes() == pending_bytes
+        assert paths.transition_path.read_bytes() == transition_bytes
+        assert not (paths.updates_root / "terminal-outcome.json").exists()
+    else:
+        assert worker().run_once().status == "applied"
+        assert ("start", source) in actions
+        assert paths.current_path.read_bytes() == candidate
+
+
+def test_legacy_selected_transition_has_no_source_owner_authority(tmp_path, monkeypatch):
+    from pc_agent.platform.windows import core_shutdown, updater_service
+
+    paths, _ = _interrupted_transition(tmp_path)
+    candidate = paths.current_path.read_bytes()
+    transition = paths.transition_path.read_bytes()
+    previous = bytes.fromhex(json.loads(transition)["previous_bytes"])
+
+    def capture(_paths, selector):
+        if selector == previous:
+            return core_shutdown.CoreOwner(
+                "11111111-1111-1111-1111-111111111111",
+                "22222222-2222-2222-2222-222222222222",
+                hashlib.sha256(previous).hexdigest(), "stopped", False,
+            )
+        return None
+
+    def unexpected(*_):
+        pytest.fail("legacy transition cannot consume the old owner to stop or restore")
+
+    monkeypatch.setattr(updater_service, "capture_core_owner", capture)
+    monkeypatch.setattr(updater_service, "require_core_stopped", unexpected)
+    service = SimpleNamespace(stop=unexpected, start=unexpected, wait_stopped=unexpected)
+    result = updater_service.WindowsUpdater(paths, acl=_Acl(), service=service,
+        verifier=SimpleNamespace(verify=lambda *_: True),
+        confirmation=SimpleNamespace(is_confirmed=lambda **_: False)).run_once()
+    assert result.status == "core_stop_unverified"
+    assert paths.current_path.read_bytes() == candidate
+    assert paths.transition_path.read_bytes() == transition
+    assert paths.pending_path.exists()
+
+
+def test_scoped_concurrent_start_still_requires_candidate_confirmation(tmp_path):
+    from pc_agent.platform.windows import updater_service
+
+    paths = _paths(tmp_path)
+    artifact = _artifact(paths.downloads_root / "candidate.zip", version="3.2.7")
+    _pending(paths, artifact, version="3.2.7")
+    paths.install_root.mkdir(parents=True)
+    paths.current_path.write_bytes(b'{"version":"3.2.6"}')
+    actions = []
+
+    def start():
+        version = json.loads(paths.current_path.read_bytes())["version"]
+        actions.append(("start", version))
+        if version == "3.2.7":
+            error = OSError("the selected service is already running")
+            error.winerror = 1056
+            raise error
+
+    def confirmed(**kwargs):
+        actions.append(("confirm", kwargs["version"]))
+        return True
+
+    result = updater_service.WindowsUpdater(
+        paths, acl=_Acl(), verifier=SimpleNamespace(verify=lambda *_: True),
+        service=SimpleNamespace(stop=lambda: None, start=start, wait_stopped=lambda: True,
+                                crashed_early=lambda: False),
+        confirmation=SimpleNamespace(is_confirmed=confirmed),
+    ).run_once()
+
+    assert result.status == "applied"
+    assert actions == [("start", "3.2.7"), ("confirm", "3.2.7")]

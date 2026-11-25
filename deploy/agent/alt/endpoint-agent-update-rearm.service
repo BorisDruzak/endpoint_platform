@@ -1,0 +1,9 @@
+[Unit]
+Description=Rearm the rate-limited Endpoint Platform ALT update watcher
+PartOf=endpoint-agent-update.path
+
+[Service]
+Type=oneshot
+ExecCondition=/usr/bin/systemctl is-enabled --quiet endpoint-agent-update.path
+ExecCondition=/usr/bin/systemctl is-failed --quiet endpoint-agent-update.path
+ExecStart=/usr/bin/systemctl start endpoint-agent-update.path

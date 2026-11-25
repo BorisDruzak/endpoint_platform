@@ -56,6 +56,7 @@ def test_wrapper_accepts_only_detached_release_inputs_and_fixed_cache_paths() ->
         "MsiPath",
         "ReleaseManifest",
         "Operation",
+        "CleanupTransactionId",
         "StagedOperationId",
         "SetupImagePath",
         "CoreArchivePath",

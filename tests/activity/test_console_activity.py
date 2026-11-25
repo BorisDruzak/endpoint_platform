@@ -16,6 +16,7 @@ from endpoint_server.config import Settings
 from endpoint_server.context.models import ContextCurrent, ContextSnapshot
 from endpoint_server.db.models import AdminSession, AdminUser, Device, DeviceInstance, DeviceSession
 from endpoint_server.main import create_app
+from endpoint_server.installation_lifecycle.models import InstallationState
 
 
 @pytest.mark.asyncio
@@ -25,7 +26,7 @@ async def test_activity_route_uses_current_validated_observation_and_admin_sessi
         await connection.run_sync(lambda sync: [
             table.create(sync) for table in (
                 Device.__table__, DeviceSession.__table__, DeviceInstance.__table__,
-                ContextSnapshot.__table__, ContextCurrent.__table__,
+                ContextSnapshot.__table__, ContextCurrent.__table__, InstallationState.__table__,
             )
         ])
     sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -146,7 +147,7 @@ async def test_activity_route_returns_null_for_malformed_current_projection() ->
         await connection.run_sync(lambda sync: [
             table.create(sync) for table in (
                 Device.__table__, DeviceSession.__table__, DeviceInstance.__table__,
-                ContextSnapshot.__table__, ContextCurrent.__table__,
+                ContextSnapshot.__table__, ContextCurrent.__table__, InstallationState.__table__,
             )
         ])
     sessions = async_sessionmaker(engine, expire_on_commit=False)

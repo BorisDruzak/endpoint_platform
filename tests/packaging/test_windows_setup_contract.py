@@ -194,7 +194,8 @@ def test_setup_builder_binds_the_exact_msi_and_public_ca_without_secrets() -> No
     assert "CodeSigningCertificateThumbprint" in source
     assert "Set-AuthenticodeSignature" in source
     assert "Get-AuthenticodeSignature" in source
-    assert "Set-SetupAuthenticodeSignature -Path $msiPath" in source
+    assert "Finalize-SetupMsiSignature -Path $msiPath" in source
+    assert "Set-SetupAuthenticodeSignature -Path $Path" in source
     assert "Set-SetupAuthenticodeSignature -Path $releaseSetup" in source
     assert "$releaseMsi = Join-Path $releaseRoot \"EndpointAgent-$Version-x64.msi\"" in source
     assert "Copy-Item -LiteralPath $msiPath -Destination $releaseMsi -Force" in source
@@ -351,7 +352,7 @@ def test_setup_wrapper_owns_transaction_through_service_stop_and_provenance():
     prepare = source.index("Invoke-InstallerHelper -Bridge $bridge -Phase 'prepare'")
     install = source.index("$installer = [Diagnostics.Process]::Start($nativeInfo)")
     reconcile = source.index("Invoke-InstallerHelper -Bridge $bridge -Phase 'reconcile' | Out-Null")
-    publish = source.index("Invoke-InstallerHelper -Bridge $bridge -Phase 'finish' | Out-Null")
+    publish = source.index("$finished = Invoke-InstallerHelper -Bridge $bridge -Phase 'finish'")
     release = source.index("$updateMutex.ReleaseMutex()")
     assert acquire < gate < cache < inspect < stop < prepare < install < reconcile < publish < release
     assert "if (-not $transactionOwned) { exit 61 }" in source

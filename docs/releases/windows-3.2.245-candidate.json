@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "version": "3.2.245",
+  "platform": "windows_amd64",
+  "status": "signed_local_candidate",
+  "verified_utc": "2026-11-17T20:21:51.6942263Z",
+  "endpoint_origin": "https://endpoint.sosnadmin.local",
+  "runtime_source_commit": "8b1e3486b2e2d1568e94785b8ae48eecb2e13527",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.245.json",
+  "runtime_binding_sha256": "bb79f16a8702de24472e02c2c4af35ea7ea72418d59411e8cbcf2bef9c65882f",
+  "runtime_stage_evidence_sha256": "50c8fca7ecbbffaceb1435c223134704cec96c525a37ad63527bbc4461efffb7",
+  "runtime_component_guid": "9E9D8D34-5336-4F2B-95CD-30885892FF3F",
+  "initial_runtime_file_count": 119,
+  "setup": {
+    "filename": "EndpointAgentSetup-3.2.245-x64.exe",
+    "sha256": "06f6f93ea766e083f328606745497a397cbd6cfd39f49fb204670489ce0b0d5f",
+    "size": 177538864,
+    "source_commit": "8b1e3486b2e2d1568e94785b8ae48eecb2e13527",
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+    "download_published": false
+  },
+  "msi": {
+    "filename": "EndpointAgent-3.2.245-x64.msi",
+    "sha256": "a0f858363ee4f67f22faee2303dff6e03b3f5c4da81030e9f8d515f8bce4a0a4",
+    "size": 136175616,
+    "source_revision": "8b1e3486b2e2d1568e94785b8ae48eecb2e13527",
+    "product_code": "{E1C98F94-AE97-4714-90E5-C2297B56B1A3}",
+    "initial_runtime_tree_sha256": "82829ad4343b79ecec35c2874278f934c56f2a987e254b8e6ea33d32ec69b089",
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776"
+  },
+  "embedded_core_sha256": "7152ae87285de1645f8a01e17f4ada91cfb4693891ce1c23537f39618fcb951d",
+  "setup_observer": {
+    "version": "1.0.13",
+    "sha256": "b504a8fb96ead642262494b53327c0c5a01da49a0285d9190c0364da72e399aa",
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776"
+  },
+  "full_setup_update": {
+    "release_identifier": "endpoint-windows-setup-3.2.245-stability-candidate",
+    "tray_sha256": "fe500c4cb71a14c44fe070e79921be8bd7a354a2c388885eaeb293ac683604cb",
+    "sensor_sha256": "380e098a8071725ef9b9c5fd88bb779794096741f4b2a204574c765dfeb52c94",
+    "source_qualifications": [],
+    "registered": false
+  },
+  "verification_receipts": {
+    "local_build_sha256": "bc29b5abafa75b062ec59700b9e27b8207207525eb67934b6ca32a126ff9bc7a",
+    "windows_10_226_to_245_offline_rollback_sha256": "db6aa3568c157ec43314de697fbfcb5dfa4d3556fed2dcf46d65ac6d8a44f40e",
+    "windows_11_205_to_245_offline_rollback_sha256": "88d4c71ef3ce8f27b3952ff0aa3ab1f758a8b6d1dbafc0c2d3d495758926fc47",
+    "windows_gate_built_source_junit_sha256": "cdfca132201211bb5d49ae5ac6da06b527c58833e8da0a3021f4c38cf8958c51",
+    "windows_gate_fixture_correction_source": "0d2543b9d0ddb24def1814fcdbfab6894eabcfb6",
+    "windows_gate_fixture_correction_junit_sha256": "4ff3fbcbea1c95f9b3bb2e7a7bf599be3cb046a0811e1f1e768b5ef5cdf08f32"
+  }
+}

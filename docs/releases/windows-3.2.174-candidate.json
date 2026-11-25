@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "version": "3.2.174",
+  "status": "diagnostic_native_qualified_not_primary_support_bootstrap_defect",
+  "published_windows_primary_unchanged": "3.2.172",
+  "support_component_version": "1.0.0",
+  "baseline_runtime_manifest": "packaging/windows/initial-runtime-3.2.172.json",
+  "baseline_source_file_count": 280,
+  "additional_reviewed_inputs": [
+    "endpoint_contracts/support_access.py",
+    "packaging/windows/initial_runtime_contract.py",
+    "packaging/windows/wix/Components.wxs",
+    "packaging/windows/wix/Directories.wxs",
+    "packaging/windows/wix/Services.wxs",
+    "packaging/windows/wix/Upgrade.wxs",
+    "pc_agent/platform/windows/support_access.py",
+    "pc_agent/platform/windows/support_access_native.py",
+    "pc_agent/platform/windows/support_access_service.py",
+    "pc_agent/pyinstaller_windows_support_access.spec",
+    "pc_agent/platform/windows/staged_restoration_continuation.py"
+  ],
+  "producer_requirements": {
+    "clean_committed_source_before_freeze": true,
+    "compatibility_contract_authored_before_freeze": true,
+    "fresh_component_guid": true,
+    "independent_stage_evidence": true,
+    "exact_observed_toolchain": true,
+    "native_helpers_reuse_allowed": false,
+    "signed_support_payload_before_msi": true,
+    "historical172_bytes_immutable": true
+  },
+  "release_gates": {
+    "candidate174_built": true,
+    "candidate174_console_canary_accepted": true,
+    "candidate174_server_qualified": true,
+    "candidate174_primary_promoted": false
+  },
+  "diagnostic_predecessor": {
+    "version": "3.2.173",
+    "full_setup_release_id": "67025bf0-1d93-4e44-9470-3403438056c7",
+    "setup_sha256": "491b5859af2420d6fad5260f9da8720e048386a28fa3362c4ce5710feb4cddc9",
+    "status": "not_published_or_qualified",
+    "reason": "Controlled rollback preserved independent support but exposed a restoration continuation hold that must be finalized without changing historical source guards."
+  },
+  "fleet_delivery_paused": true
+}

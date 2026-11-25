@@ -16,7 +16,7 @@ import stat
 import subprocess
 import uuid
 import zipfile
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path, PureWindowsPath
@@ -24,11 +24,19 @@ from typing import Any, Callable, Protocol
 
 from pc_agent.update_eligibility import _is_eligible_recommendation
 
-from .acl import EXPECTED_PRINCIPALS, PyWin32AclAdapter, WindowsAclError, preserve_state_file_permissions, assert_state_file_permissions_match
-from .durable_state import durable_unlink, flush_directory, write_bytes_atomic, write_json_atomic, publish_prepared
+from .core_shutdown import CoreShutdownUnconfirmed, capture_core_owner, core_shutdown_gate, require_core_stopped
+from .acl import (
+    PyWin32AclAdapter, WindowsAclError, _validate_strict_update_dacl,
+    assert_state_file_permissions_match, preserve_state_file_permissions,
+)
+from .durable_state import (
+    durable_unlink, flush_directory, flush_existing_file, publish_prepared,
+    write_bytes_atomic, write_json_atomic,
+)
 from .disk_readiness import allocation_required_bytes, apply_required_bytes, is_disk_full, require_disk_space
 from .service_control import SERVICE_NAME, UPDATER_SERVICE_NAME
 from .update_paths import UPDATE_EXECUTABLE_NAME, WindowsUpdatePaths
+from .update_download_retention import retire_update_download
 from .update_transaction import update_transaction, UpdateInProgress
 
 
@@ -48,6 +56,8 @@ _ERROR_SERVICE_NOT_ACTIVE = 1062
 STARTUP_DEADLINE_SECONDS = 600
 UPDATER_START_PRINCIPALS = ("SYSTEM", "Administrators", "NT SERVICE\\EndpointAgent")
 TERMINAL_OUTCOME_FILENAME = "terminal-outcome.json"
+_CORE_STOP_UNVERIFIED = "core_stop_unverified"
+_SOURCE_STOP_BINDING = ".endpoint-selector-source-stop.json"
 BUNDLE_MANIFEST_FILENAME = "endpoint-update-manifest.json"
 MAX_PENDING_ARCHIVE_BYTES = 512 * 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 10_000
@@ -90,10 +100,28 @@ class PyWin32EndpointAgentService:
     """Fixed-name SCM control; callers cannot select another service."""
 
     def stop(self) -> None:
-        self._modules().StopService(SERVICE_NAME)
+        import ctypes
+
+        import pywintypes
+
+        try:
+            self._modules().StopService(SERVICE_NAME)
+        except pywintypes.error as error:
+            # Preserve the native code for already-stopped handling and expose
+            # other SCM failures to the updater's OSError recovery path.
+            raise ctypes.WinError(error.winerror) from error
 
     def start(self) -> None:
-        self._modules().StartService(SERVICE_NAME)
+        import ctypes
+
+        import pywintypes
+
+        try:
+            self._modules().StartService(SERVICE_NAME)
+        except pywintypes.error as error:
+            # A failure can be reported after the candidate has started.
+            # Use the same typed error path as the stop control.
+            raise ctypes.WinError(error.winerror) from error
 
     def wait_stopped(self) -> bool:
         serviceutil = self._modules()
@@ -226,53 +254,6 @@ class PyWin32UpdatePathSecurity:
             raise
         except Exception as error:
             raise ValueError("could not inspect update owner or ACL") from error
-
-
-def _validate_strict_update_dacl(
-    descriptor, win32security, rights=None, *, allow_child_inheritance: bool = False,
-) -> None:
-    """Require Task 11's protected DACL, including only a directory's child ACEs."""
-    control, _revision = descriptor.GetSecurityDescriptorControl()
-    if not control & win32security.SE_DACL_PROTECTED:
-        raise ValueError("wrong owner or ACL on update path")
-    dacl = descriptor.GetSecurityDescriptorDacl()
-    if dacl is None or dacl.GetAceCount() != 4:
-        raise ValueError("wrong owner or ACL on update path")
-    expected_sids = {"S-1-5-18", "S-1-5-32-544"}
-    for principal in EXPECTED_PRINCIPALS[2:]:
-        sid, _domain, _kind = win32security.LookupAccountName(None, principal)
-        expected_sids.add(win32security.ConvertSidToStringSid(sid))
-    rights = win32security if rights is None else rights
-    expected_masks = {
-        "S-1-5-18": rights.FILE_ALL_ACCESS,
-        "S-1-5-32-544": rights.FILE_ALL_ACCESS,
-    }
-    limited = (
-        rights.FILE_GENERIC_READ | rights.FILE_GENERIC_WRITE | rights.DELETE
-    )
-    for sid in expected_sids - set(expected_masks):
-        expected_masks[sid] = limited
-    actual: dict[str, int] = {}
-    expected_flags = 0
-    if allow_child_inheritance:
-        expected_flags = (
-            win32security.OBJECT_INHERIT_ACE
-            | win32security.CONTAINER_INHERIT_ACE
-        )
-    for index in range(dacl.GetAceCount()):
-        header, mask, sid = dacl.GetAce(index)
-        ace_type, ace_flags = header
-        if (
-            ace_type != win32security.ACCESS_ALLOWED_ACE_TYPE
-            or ace_flags != expected_flags
-        ):
-            raise ValueError("wrong owner or ACL on update path")
-        sid_text = win32security.ConvertSidToStringSid(sid)
-        if sid_text in actual:
-            raise ValueError("wrong owner or ACL on update path")
-        actual[sid_text] = mask
-    if actual != expected_masks:
-        raise ValueError("wrong owner or ACL on update path")
 
 
 class PendingUpdateValidator:
@@ -433,6 +414,7 @@ class WindowsUpdater:
                 pending.version, previous, pending.requested_reason
             ):
                 raise ValueError("candidate version is not eligible from current selector")
+            self._retire_old_zip_runtimes(pending.version)
             self._publish_tray_status(
                 previous,
                 agent_state="starting",
@@ -453,25 +435,36 @@ class WindowsUpdater:
             # new selector/journal allocations on each of their target volumes.
             require_disk_space(self._paths.install_root, allocation_required_bytes(24 * 1024))
             require_disk_space(self._paths.updates_root, allocation_required_bytes(8192))
-            _write_json_atomic(self._paths.previous_path, previous_selector,
-                trusted_root=self._paths.install_root, template=self._paths.current_path)
-            # The old core cannot confirm this attempt: proof requires pending,
-            # selected and compiled versions to agree. A retry uses a fresh id.
-            self._attempt_id = _write_startup_attempt(self._paths, pending)
             candidate_selector = {
                 "schema_version": 1, "source_revision": bundle.source_revision, "version": pending.version,
             }
-            self._prepare_transition(pending, candidate_selector)
-            try:
-                self._service.stop()
-            except Exception as error:
-                if not _is_service_not_active(error):
+            if self._transition is None:
+                # The old Core cannot confirm this attempt. Pending, selected
+                # and compiled versions must agree in the authenticated proof.
+                self._attempt_id = _write_startup_attempt(self._paths, pending)
+                self._prepare_transition(pending, candidate_selector)
+            elif self._transition["candidate"] != candidate_selector:
+                raise ValueError("prepared candidate selector differs")
+            expected = bytes.fromhex(self._transition["previous_bytes"])
+            with self._stopped_core_selector(expected) as owner:
+                service_stopped = True
+                # An interrupted rollback may leave proof for this attempt.
+                # Source ownership is stopped and no candidate can admit until
+                # the gate releases, so only the next startup can confirm.
+                stale_proof = self._paths.updates_root / "startup-confirmation.json"
+                durable_unlink(stale_proof, trusted_root=self._paths.updates_root, missing_ok=True)
+                _write_json_atomic(self._paths.previous_path, previous_selector,
+                    trusted_root=self._paths.install_root, template=self._paths.current_path)
+                self._bind_source_stop(owner, candidate_selector)
+                try:
+                    _write_json_atomic(self._paths.current_path, candidate_selector, trusted_root=self._paths.install_root)
+                except (OSError, ValueError, WindowsAclError):
+                    # A failed durability barrier can leave the replacement visible.
+                    # No candidate could reserve ownership while this gate is held.
+                    if self._selector_bytes() != expected:
+                        self._restore_prepared()
                     raise
-            service_stopped = True
-            if not self._service.wait_stopped():
-                raise ValueError("EndpointAgent did not stop")
-            _write_json_atomic(self._paths.current_path, candidate_selector, trusted_root=self._paths.install_root)
-            self._service.start()
+            self._start_selected_service()
             # Candidate WSS/HTTP owners must run while proof is awaited.
             release_for_work(pending)
             confirmed = self._wait_for_candidate_confirmation(pending)
@@ -479,7 +472,7 @@ class WindowsUpdater:
                 return UpdateResult("rejected", "update identity changed during confirmation")
             if not confirmed:
                 result = self._rollback(
-                    pending, previous, previous_selector, "startup confirmation failed"
+                    pending, previous, "startup confirmation failed"
                 )
                 self._publish_tray_status(
                     previous,
@@ -495,6 +488,8 @@ class WindowsUpdater:
             return UpdateResult("applied", str(target))
         except UpdateInProgress:
             return UpdateResult("update_in_progress", "UPDATE_IN_PROGRESS")
+        except CoreShutdownUnconfirmed:
+            return UpdateResult(_CORE_STOP_UNVERIFIED, "CORE_STOP_UNVERIFIED")
         except (OSError, ValueError, WindowsAclError, zipfile.BadZipFile) as error:
             # Extraction errors also mutate terminal state under the boundary.
             if not held:
@@ -511,6 +506,21 @@ class WindowsUpdater:
             if self._transition is not None and self._transition["status"] == "accepted":
                 return UpdateResult("rejected", "accepted transition cleanup pending")
             disk_full = is_disk_full(error)
+            if service_stopped and self._transition is not None:
+                try:
+                    expected = bytes.fromhex(self._transition["previous_bytes"])
+                    observed = self._selector_bytes()
+                    if observed != expected:
+                        if _validate_selector(json.loads(observed)) != self._transition["candidate"]:
+                            return UpdateResult(_CORE_STOP_UNVERIFIED, "CORE_STOP_UNVERIFIED")
+                        # A failing service start can already have admitted the
+                        # candidate. The old owner's proof cannot restore it.
+                        if not self._restore_unadmitted_candidate(observed):
+                            with self._stopped_core_selector(observed):
+                                self._restore_prepared()
+                    self._start_selected_service()
+                except (OSError, ValueError, WindowsAclError):
+                    return UpdateResult(_CORE_STOP_UNVERIFIED, "CORE_STOP_UNVERIFIED")
             if not disk_full and pending is not None and previous is not None:
                 self._record_terminal_outcome(
                     operation_id=pending.operation_id,
@@ -518,20 +528,6 @@ class WindowsUpdater:
                     reported_version=previous,
                     safe_code="launcher_apply_failed",
                 )
-            if service_stopped and previous_selector is not None:
-                # Every failure after the controlled stop restores the known
-                # selector before restarting the old agent.
-                try:
-                    self._restore_prepared()
-                    self._service.start()
-                except Exception:
-                    # A file fsync/allocation failure may leave the old selector
-                    # unchanged. It is safe to restart only after checking it.
-                    try:
-                        if _load_selector(self._paths.current_path) == previous_selector:
-                            self._service.start()
-                    except Exception:
-                        pass
             if not disk_full and self._transition is not None:
                 try:
                     if _load_selector(self._paths.current_path) == previous_selector:
@@ -554,6 +550,76 @@ class WindowsUpdater:
             transaction.close()
             if staging is not None and staging.exists():
                 shutil.rmtree(staging, ignore_errors=True)
+
+    def _retire_old_zip_runtimes(self, pending_version: str) -> None:
+        from itertools import islice
+
+        from endpoint_contracts.runtime_payload import version_tuple
+        from .installation_provenance import MSI_MARKER, RETAINED_RECEIPT, ZIP_RECEIPT, _inspect_zip
+        from .installer_fence import assert_namespace_security
+        from .staged_update_state import _selector as native_selector, read_staged_update
+
+        if self._transition is not None:
+            return
+        paths = self._paths
+        try:
+            current = _load_selector(paths.current_path)["version"]
+            previous = _load_selector(paths.previous_path)["version"]
+            # Preserve installed newer releases and the direct rollback slot.
+            upper_bound = min(version_tuple(current), version_tuple(previous))
+            protected = {pending_version, current, previous}
+            native = read_staged_update(paths)
+            if native is not None:
+                if native.phase not in {"accepted", "rolled-back"}:
+                    return
+                binding = native.binding
+                protected.update((binding.candidate_version, binding.old_release["version"],
+                                  native_selector(binding.selected_before)["version"]))
+                if binding.previous_before is not None:
+                    protected.add(native_selector(binding.previous_before)["version"])
+            assert_namespace_security(paths.versions_root, include_self=True)
+            with os.scandir(paths.versions_root) as entries:
+                candidates = [paths.versions_root / entry.name for entry in islice(entries, 1024)]
+        except (OSError, ValueError):
+            return
+
+        inspected = 0
+        for root in candidates:
+            try:
+                if root.name in protected or version_tuple(root.name) >= upper_bound:
+                    continue
+                _reject_reparse_path(root)
+                if not root.is_dir():
+                    continue
+                if any(os.path.lexists(root / marker) for marker in (MSI_MARKER, RETAINED_RECEIPT)):
+                    continue
+                if not (root / ZIP_RECEIPT).is_file():
+                    continue
+                inspected += 1
+                assert_namespace_security(root, include_self=True)
+                expected = {"version": root.name}
+                for count, path in enumerate(root.rglob("*"), start=1):
+                    if count > MAX_ARCHIVE_MEMBERS * 2:
+                        raise ValueError("old runtime inventory exceeds limit")
+                    _reject_reparse_path(path)
+                identity = _inspect_zip(root, b"", expected).identity
+                if identity.version == root.name:
+                    directories = {
+                        parent.as_posix() for item in identity.files
+                        for parent in Path(item.path).parents if parent.parts
+                    }
+                    for directory, subdirs, _ in os.walk(root, followlinks=False):
+                        for name in subdirs:
+                            relative = (Path(directory) / name).relative_to(root).as_posix()
+                            if relative not in directories:
+                                raise ValueError("unowned directory in retired runtime")
+                    shutil.rmtree(root)
+                    flush_directory(paths.versions_root)
+            except (OSError, ValueError):
+                # Cache retirement must not affect the selected update.
+                pass
+            if inspected >= 4:
+                break
 
     def _record_terminal_outcome(self, **outcome) -> None:
         try:
@@ -618,9 +684,109 @@ class WindowsUpdater:
         }.items())
 
     def _clear_transition(self) -> None:
+        durable_unlink(self._paths.install_root / _SOURCE_STOP_BINDING,
+            trusted_root=self._paths.install_root, missing_ok=True)
         durable_unlink(self._paths.restore_path, trusted_root=self._paths.install_root, missing_ok=True)
         durable_unlink(self._paths.transition_path, trusted_root=self._paths.install_root, missing_ok=True)
         self._transition = None
+
+    def _selector_bytes(self) -> bytes:
+        _reject_reparse_chain(self._paths.install_root, self._paths.current_path)
+        with self._paths.current_path.open("rb") as selector:
+            raw = selector.read(4097)
+        if not 0 < len(raw) <= 4096:
+            raise ValueError("current selector exceeds its bound")
+        return raw
+
+    def _already_stopped(self, expected: bytes) -> bool:
+        try:
+            with core_shutdown_gate(self._paths):
+                if self._selector_bytes() != expected:
+                    return False
+                owner = capture_core_owner(self._paths, expected)
+                if owner is None:
+                    return False
+                require_core_stopped(self._paths, expected, owner)
+                return True
+        except (OSError, ValueError, WindowsAclError, UpdateInProgress):
+            return False
+
+    @contextmanager
+    def _stopped_core_selector(self, expected: bytes):
+        """Hold the short admission gate from final proof through publication."""
+        try:
+            with core_shutdown_gate(self._paths):
+                if self._selector_bytes() != expected:
+                    raise CoreShutdownUnconfirmed("selector bytes changed before stop")
+                owner = capture_core_owner(self._paths, expected)
+                if owner is None:
+                    raise CoreShutdownUnconfirmed("no verified Core owner")
+            try:
+                self._service.stop()
+            except Exception as error:
+                if not _is_service_not_active(error):
+                    raise CoreShutdownUnconfirmed("SCM stop request failed") from error
+            try:
+                stopped = self._service.wait_stopped()
+            except Exception as error:
+                raise CoreShutdownUnconfirmed("SCM stopped state is unconfirmed") from error
+            if not stopped:
+                raise CoreShutdownUnconfirmed("SCM stopped state is unconfirmed")
+        except (OSError, ValueError, WindowsAclError, UpdateInProgress) as error:
+            raise CoreShutdownUnconfirmed("Core stop is unconfirmed") from error
+
+        with ExitStack() as gate:
+            try:
+                gate.enter_context(core_shutdown_gate(self._paths))
+                if self._selector_bytes() != expected:
+                    raise CoreShutdownUnconfirmed("selector bytes changed after stop")
+                require_core_stopped(self._paths, expected, owner)
+            except (OSError, ValueError, WindowsAclError, UpdateInProgress) as error:
+                raise CoreShutdownUnconfirmed("Core stop is unconfirmed") from error
+            yield owner
+
+    def _transition_sha256(self) -> str:
+        raw = json.dumps(self._transition, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        return hashlib.sha256(raw).hexdigest()
+
+    def _bind_source_stop(self, owner, candidate: dict[str, object]) -> None:
+        raw = json.dumps(candidate, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        _write_json_atomic(self._paths.install_root / _SOURCE_STOP_BINDING, {
+            "schema_version": 1, "boot_id": owner.boot_id, "run_id": owner.run_id,
+            "transition_sha256": self._transition_sha256(),
+            "candidate_sha256": hashlib.sha256(raw).hexdigest(),
+        }, trusted_root=self._paths.install_root, template=self._paths.current_path)
+
+    def _restore_unadmitted_candidate(self, observed: bytes) -> bool:
+        """Restore the prior selector using the same still-unreplaced owner."""
+        from .update_transaction import _read_state
+
+        path = self._paths.install_root / _SOURCE_STOP_BINDING
+        try:
+            binding = _read_state(path, 1024)
+            if (not isinstance(binding, dict)
+                or set(binding) != {"schema_version", "boot_id", "run_id", "transition_sha256", "candidate_sha256"}
+                or type(binding["schema_version"]) is not int or binding["schema_version"] != 1
+                or binding["transition_sha256"] != self._transition_sha256()
+                or binding["candidate_sha256"] != hashlib.sha256(observed).hexdigest()):
+                return False
+            assert_state_file_permissions_match(self._paths.current_path, path)
+        except (OSError, ValueError, WindowsAclError):
+            return False
+        previous = bytes.fromhex(self._transition["previous_bytes"])
+        with ExitStack() as gate:
+            try:
+                gate.enter_context(core_shutdown_gate(self._paths))
+                if self._selector_bytes() != observed:
+                    return False
+                owner = capture_core_owner(self._paths, previous)
+                if owner is None or (owner.boot_id, owner.run_id) != (binding["boot_id"], binding["run_id"]):
+                    return False
+                require_core_stopped(self._paths, previous, owner)
+            except (OSError, ValueError, WindowsAclError, UpdateInProgress):
+                return False
+            self._restore_prepared()
+            return True
 
     def _restore_prepared(self) -> None:
         if self._transition is None:
@@ -658,6 +824,10 @@ class WindowsUpdater:
             if not isinstance(payload, dict) or not self._matches_transition(payload):
                 raise ValueError("accepted transition pending identity differs")
             self._validator._security.assert_update_path(self._paths.pending_path)
+            retire_update_download(
+                self._paths, payload, assert_security=self._validator._security.assert_update_path,
+                protect_receipt=PyWin32AclAdapter().protect_update_path,
+            )
         durable_unlink(self._paths.pending_path, trusted_root=self._paths.updates_root, missing_ok=True)
         _clear_startup_attempt(self._paths)
         self._clear_transition()
@@ -678,13 +848,20 @@ class WindowsUpdater:
             raise ValueError("selector transition startup attempt differs")
         self._attempt_id = self._transition["attempt_id"]
         if current == previous:
+            # A pre-switch retry keeps its exact recorded operation and attempt.
+            # The ordinary apply path validates the payload and checks the
+            # current owner before trying the same prepared switch again.
+            expected = bytes.fromhex(self._transition["previous_bytes"])
+            if self._selector_bytes() != expected:
+                raise CoreShutdownUnconfirmed("source selector bytes changed")
             try:
-                self._restore_prepared()
-            finally:
-                # A failed metadata barrier must not strand the exact known-good core.
-                if self._paths.current_path.read_bytes() == bytes.fromhex(self._transition["previous_bytes"]):
-                    self._start_known_good()
-            self._clear_transition()
+                flush_directory(self._paths.install_root)
+            except OSError:
+                # Recover an already stopped known-good service after an interrupted
+                # write, without stopping an active or unresolved owner.
+                if self._already_stopped(expected):
+                    self._start_selected_service()
+                raise
             return None
         if current != self._transition["candidate"]:
             raise ValueError("selector transition candidate differs")
@@ -706,23 +883,24 @@ class WindowsUpdater:
             self._mark_accepted()
             self._complete_accepted()
             return UpdateResult("applied", "proven transition cleanup completed")
+        expected = bytes.fromhex(self._transition["previous_bytes"])
+        selected_bytes = self._selector_bytes()
+        stopped = False
         try:
-            self._service.stop()
-        except Exception as error:
-            if not _is_service_not_active(error):
-                return UpdateResult("rejected", "interrupted candidate stop failed")
-        if not self._service.wait_stopped():
-            raise ValueError("interrupted candidate did not stop")
-        try:
-            self._restore_prepared()
+            if not self._restore_unadmitted_candidate(selected_bytes):
+                with self._stopped_core_selector(selected_bytes):
+                    stopped = True
+                    self._restore_prepared()
+            else:
+                stopped = True
         finally:
-            # Only exact known-good bytes justify restart on a failed metadata flush.
-            if self._paths.current_path.read_bytes() == bytes.fromhex(self._transition["previous_bytes"]):
-                self._start_known_good()
+            # The previous bytes may already be visible after a failed flush.
+            if self._selector_bytes() == expected and (stopped or self._already_stopped(expected)):
+                self._start_selected_service()
         self._clear_transition()
         return None
 
-    def _start_known_good(self) -> None:
+    def _start_selected_service(self) -> None:
         try:
             self._service.start()
         except Exception as error:
@@ -832,25 +1010,10 @@ class WindowsUpdater:
         return target
 
     def _rollback(
-        self, pending: PendingUpdate, previous: str,
-        previous_selector: dict[str, object], reason: str,
+        self, pending: PendingUpdate, previous: str, reason: str,
     ) -> UpdateResult:
-        try:
-            self._service.stop()
-        except Exception as error:
-            # StopService reports ERROR_SERVICE_NOT_ACTIVE for an early crash;
-            # that is already the desired stopped state.
-            if not _is_service_not_active(error):
-                return UpdateResult("rejected", "candidate stop failed for rollback")
-            stopped = True
-        else:
-            try:
-                stopped = self._service.wait_stopped()
-            except Exception:
-                return UpdateResult("rejected", "candidate stop state is unknown")
-            if not stopped:
-                return UpdateResult("rejected", "candidate did not stop for rollback")
-        self._restore_prepared()
+        with self._stopped_core_selector(self._selector_bytes()):
+            self._restore_prepared()
         self._clear_transition()
         _clear_startup_attempt(self._paths)
         self._record_terminal_outcome(
@@ -859,7 +1022,7 @@ class WindowsUpdater:
             reported_version=previous,
             safe_code="launcher_rolled_back",
         )
-        self._service.start()
+        self._start_selected_service()
         return UpdateResult("rolled_back", reason)
 
     def _wait_for_candidate_confirmation(self, pending: PendingUpdate) -> bool:
@@ -1219,11 +1382,10 @@ def _write_terminal_outcome(
 
 
 def _quarantine_invalid_pending(paths: WindowsUpdatePaths, security: UpdatePathSecurity) -> None:
-    """Move one malformed local handoff away from the active fixed leaf.
+    """Durably retain the rejected bytes before removing the active handoff.
 
-    No network report is possible because an invalid document has no trusted
-    operation id.  A unique same-directory publication preserves forensic bytes
-    without leaving the agent in an infinite `pending` state.
+    A digest names each distinct record so a sharing violation can be retried
+    against the same evidence.
     """
     pending = paths.pending_path
     try:
@@ -1236,12 +1398,38 @@ def _quarantine_invalid_pending(paths: WindowsUpdatePaths, security: UpdatePathS
         # The shared lifecycle primitive deliberately refuses a reparse leaf.
         # Keep unsafe state for operator repair rather than deleting a target.
         return
-    destination = paths.updates_root / f"rejected-pending-{uuid.uuid4().hex}.json"
+    limit = 16 * 1024
     try:
-        if details.st_size > 16 * 1024:
+        if not stat.S_ISREG(details.st_mode) or details.st_size > limit:
             return
-        write_bytes_atomic(destination, pending.read_bytes(), trusted_root=paths.updates_root,
-            max_bytes=16 * 1024, protect=PyWin32AclAdapter().protect_update_path)
+        with pending.open("rb") as source:
+            if not os.path.samestat(details, os.fstat(source.fileno())):
+                return
+            rejected = source.read(limit + 1)
+        if len(rejected) > limit:
+            return
+        digest = hashlib.sha256(rejected).hexdigest()
+        destination = paths.updates_root / f"rejected-pending-{digest}.json"
+        try:
+            retained = destination.lstat()
+        except FileNotFoundError:
+            write_bytes_atomic(destination, rejected, trusted_root=paths.updates_root,
+                max_bytes=limit, protect=PyWin32AclAdapter().protect_update_path)
+        else:
+            _reject_reparse_chain(paths.updates_root, destination)
+            security.assert_update_path(destination)
+            if not stat.S_ISREG(retained.st_mode) or retained.st_nlink != 1 or retained.st_size != len(rejected):
+                return
+            with destination.open("rb") as source:
+                if source.read(limit + 1) != rejected:
+                    return
+            flush_existing_file(destination, trusted_root=paths.updates_root)
+            flush_directory(paths.updates_root)
+        current = pending.lstat()
+        if (not os.path.samestat(details, current)
+                or current.st_mtime_ns != details.st_mtime_ns
+                or current.st_size != details.st_size):
+            return
         durable_unlink(pending, trusted_root=paths.updates_root)
     except (OSError, ValueError, WindowsAclError):
         # Preserve the original handoff if it cannot be moved safely.  The
@@ -1273,7 +1461,7 @@ def run_windows_updater_service() -> int:
 
         def SvcDoRun(self) -> None:
             result = WindowsUpdater().run_once()
-            if result.status not in {"applied", "rolled_back"}:
+            if result.status not in {"applied", "rolled_back", _CORE_STOP_UNVERIFIED}:
                 # Let PythonService.service_main translate the exception into
                 # its native service-specific terminal failure.  The native
                 # host owns the sole SERVICE_STOPPED report after SvcRun exits.

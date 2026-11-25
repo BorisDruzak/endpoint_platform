@@ -17,12 +17,15 @@ from starlette.websockets import WebSocketDisconnect
 from endpoint_contracts import AgentHelloV1, GatewayErrorV1, GatewayHelloV1
 from endpoint_contracts.cups_actions import CUPS_ACTION_PARAMETERS
 from endpoint_contracts.gateway_ws import (
+    COMMAND_JOURNAL_FEATURE,
+    COMMAND_JOURNAL_HEADER,
     ActivityObservationEnvelopeV1,
     BrowserStatusReportEnvelopeV1,
     PolicySensorHealthReportEnvelopeV1,
     AgentHelloEnvelopeV1,
     CommandAckEnvelopeV1,
     CommandResultEnvelopeV1,
+    CommandStartEnvelopeV1,
     EndpointPolicyAckEnvelopeV1,
     ErrorEnvelopeV1,
     GatewayHelloEnvelopeV1,
@@ -58,13 +61,14 @@ from endpoint_server.policy.service import resolve_effective_policy
 
 from .telemetry import ingest_optional_report
 
-from .command_service import CommandService, CommandStateRejected
+from .command_service import CommandService, CommandStateRejected, wss_work_available
 from .connection_registry import (
     GatewayConnection,
     RegistryCapacityExceeded,
 )
 from .presence_service import GatewayPresence, PresenceRejected, PresenceService
 from .protocol import (
+    AgentEnvelope,
     GatewayProtocolError,
     receive_agent_envelope,
     send_envelope,
@@ -184,26 +188,33 @@ async def _send_safe_error(websocket: WebSocket, code: str) -> None:
 
 @router.websocket("/agent/v1/connect")
 async def connect_agent(websocket: WebSocket) -> None:
+    registry = websocket.app.state.gateway_connection_registry
+    db_slots = registry.handshake_db_slots
     try:
-        authenticated = await authenticate_gateway_websocket(websocket)
+        async with db_slots:
+            authenticated = await authenticate_gateway_websocket(websocket)
     except GatewayHandshakeRejected as rejection:
         await websocket.close(code=rejection.close_code)
         return
 
-    await websocket.accept()
+    if websocket.headers.get(COMMAND_JOURNAL_HEADER) == "1":
+        await websocket.accept(headers=[(COMMAND_JOURNAL_HEADER.encode("ascii"), b"1")])
+    else:
+        await websocket.accept()
     presence: GatewayPresence | None = None
+    connection: GatewayConnection | None = None
+    published = False
+    prefetched: asyncio.Task[AgentEnvelope] | None = None
+    replaced_socket_cleanup: asyncio.Task[None] | None = None
     close_reason = "disconnected"
     device_id = authenticated.principal.device.id
     presence_service = PresenceService(websocket.app.state.session_provider)
     command_service = CommandService(websocket.app.state.session_provider)
+    receive = partial(
+        receive_agent_envelope, websocket, maximum_message_bytes=MAXIMUM_MESSAGE_BYTES,
+    )
     try:
-        first = await asyncio.wait_for(
-            receive_agent_envelope(
-                websocket,
-                maximum_message_bytes=MAXIMUM_MESSAGE_BYTES,
-            ),
-            timeout=_HEARTBEAT_TIMEOUT_SECONDS,
-        )
+        first = await asyncio.wait_for(receive(), timeout=_HEARTBEAT_TIMEOUT_SECONDS)
         if not isinstance(first, AgentHelloEnvelopeV1):
             raise GatewayProtocolError(1008, "agent_hello_required")
         validate_agent_hello(authenticated, first.payload)
@@ -220,11 +231,6 @@ async def connect_agent(websocket: WebSocket) -> None:
                     await _send_safe_error(websocket, "agent_upgrade_required")
                 await websocket.close(code=1002)
                 return
-        presence = await presence_service.open_session(
-            device_id=device_id,
-            hello=first.payload,
-            source_address=str(authenticated.source_address),
-        )
         effective_capabilities = [
             capability
             for capability in first.payload.capabilities
@@ -240,17 +246,33 @@ async def connect_agent(websocket: WebSocket) -> None:
                 )
             )
         ]
-        connection = GatewayConnection(
-            device_id=device_id,
-            session_id=presence.session_id,
-            websocket=websocket,
-            agent_version=first.payload.agent_version,
-            platform=first.payload.platform,
-            effective_capabilities=frozenset(effective_capabilities),
-            protocol_features=frozenset(first.payload.protocol_features),
-        )
-        await websocket.app.state.gateway_connection_registry.register(connection)
-        async with websocket.app.state.session_provider() as session:
+        async with registry.handshake_lock(device_id):
+            await registry.require_capacity(device_id)
+            async with db_slots:
+                presence = await presence_service.open_session(
+                    device_id=device_id,
+                    hello=first.payload,
+                    source_address=str(authenticated.source_address),
+                    effective_capabilities=effective_capabilities,
+                )
+            connection = GatewayConnection(
+                device_id=device_id,
+                session_id=presence.session_id,
+                websocket=websocket,
+                agent_version=first.payload.agent_version,
+                platform=first.payload.platform,
+                effective_capabilities=frozenset(effective_capabilities),
+                protocol_features=frozenset(first.payload.protocol_features),
+            )
+            previous = await registry.publish(connection)
+            if previous is not None and previous.session_id in presence.replaced_session_ids:
+                previous.session_closed_by_replacement.set()
+            published = True
+        if previous is not None:
+            replaced_socket_cleanup = asyncio.create_task(registry.close_replaced(previous))
+        if await registry.get(device_id) is not connection:
+            return
+        async with db_slots, websocket.app.state.session_provider() as session:
             await queue_connect_refreshes(
                 session,
                 device_id,
@@ -262,11 +284,13 @@ async def connect_agent(websocket: WebSocket) -> None:
             if not websocket.app.state.settings.endpoint_policy_enabled:
                 policy_readiness = "not_required"
             else:
-                async with websocket.app.state.session_provider() as session:
+                async with db_slots, websocket.app.state.session_provider() as session:
                     effective_policy = await resolve_effective_policy(session, device_id)
                 policy_readiness = (
                     "not_required" if effective_policy is None else "required"
                 )
+        if await registry.get(device_id) is not connection:
+            return
         await connection.send(
             GatewayHelloEnvelopeV1(
                 schema_version="gateway_ws_envelope_v1",
@@ -283,7 +307,7 @@ async def connect_agent(websocket: WebSocket) -> None:
                     protocol_features=[
                         feature for feature in (
                             TELEMETRY_RESULTS_FEATURE, POWER_EVENTS_FEATURE,
-                            POLICY_READINESS_FEATURE,
+                            POLICY_READINESS_FEATURE, COMMAND_JOURNAL_FEATURE,
                         ) if feature in connection.protocol_features
                     ],
                     policy_readiness=policy_readiness,
@@ -291,32 +315,36 @@ async def connect_agent(websocket: WebSocket) -> None:
             ),
         )
         if websocket.app.state.settings.endpoint_policy_enabled:
-            async with websocket.app.state.session_provider() as session:
+            async with db_slots, websocket.app.state.session_provider() as session:
                 policy_delivery = await prepare_policy_delivery(session, first.payload)
                 await session.commit()
             if policy_delivery is not None:
                 await connection.send(policy_delivery)
+        if await registry.get(device_id) is not connection:
+            return
         await command_service.deliver_next(
             device_id,
             presence.session_id,
-            connection.send,
+            partial(connection.send, owner_registry=registry),
             allowed_capabilities=frozenset(effective_capabilities),
             agent_platform=first.payload.platform,
         )
+        connection.ready_for_dispatch.set()
 
         while True:
             envelope = await asyncio.wait_for(
-                receive_agent_envelope(
-                    websocket,
-                    maximum_message_bytes=MAXIMUM_MESSAGE_BYTES,
-                ),
+                prefetched if prefetched is not None else receive(),
                 timeout=_HEARTBEAT_TIMEOUT_SECONDS,
             )
+            prefetched = None
+            if await registry.get(device_id) is not connection:
+                return
             if isinstance(envelope, HeartbeatEnvelopeV1):
-                await presence_service.record_heartbeat(
+                has_work = await presence_service.record_heartbeat(
                     device_id=device_id,
                     session_id=presence.session_id,
                     heartbeat=envelope.payload,
+                    work_available=wss_work_available(device_id, connection.effective_capabilities),
                 )
                 if websocket.app.state.settings.endpoint_policy_enabled:
                     async with websocket.app.state.session_provider() as session:
@@ -328,21 +356,35 @@ async def connect_agent(websocket: WebSocket) -> None:
                         await session.commit()
                     if changed_policy is not None:
                         await connection.send(changed_policy)
+                if not has_work:
+                    continue
             elif isinstance(envelope, CommandAckEnvelopeV1):
-                await command_service.record_ack(
+                decision = await command_service.record_ack(
                     device_id=device_id,
                     session_id=presence.session_id,
                     acknowledgement=envelope.payload,
+                    start_permission=COMMAND_JOURNAL_FEATURE in connection.protocol_features,
                 )
+                if decision is not None:
+                    await connection.send(decision)
+                    if isinstance(decision, CommandStartEnvelopeV1):
+                        # Read the running command's next frame before probing
+                        # for another command. Results and heartbeats still dispatch.
+                        continue
             elif isinstance(envelope, CommandResultEnvelopeV1):
-                acknowledgement = await command_service.record_result(
+                acknowledgement, has_work = await command_service.record_result_with_work_hint(
                     device_id=device_id,
                     device_instance_id=presence.device_instance_id,
                     session_id=presence.session_id,
                     result_sequence=envelope.sequence,
                     result=envelope.payload,
+                    durable_replay=COMMAND_JOURNAL_FEATURE in connection.protocol_features,
+                    allowed_capabilities=connection.effective_capabilities,
                 )
                 await connection.send(acknowledgement)
+                if not has_work:
+                    # The periodic scan will find work committed after the lookup.
+                    continue
             elif isinstance(envelope, EndpointPolicyAckEnvelopeV1):
                 if not websocket.app.state.settings.endpoint_policy_enabled:
                     raise GatewayProtocolError(1008, "policy_disabled")
@@ -386,10 +428,26 @@ async def connect_agent(websocket: WebSocket) -> None:
             elif isinstance(envelope, PowerEventBatchEnvelopeV1):
                 if POWER_EVENTS_FEATURE not in connection.protocol_features:
                     raise GatewayProtocolError(1008, 'power_events_disabled')
-                await commit_and_ack_power_events(
+                if COMMAND_JOURNAL_FEATURE in connection.protocol_features:
+                    prefetched = asyncio.create_task(receive())
+                has_work = await commit_and_ack_power_events(
                     websocket.app.state.session_provider,
                     device_id, envelope.payload, sequence=envelope.sequence, send=connection.send,
+                    work_available=wss_work_available(
+                        device_id, connection.effective_capabilities, current_session_id=connection.session_id,
+                    ),
                 )
+                # A waiting start request owns the next receive turn. Power
+                # ACK stays after commit and all frames are handled in order.
+                if (
+                    prefetched is not None and prefetched.done()
+                    and not prefetched.cancelled() and prefetched.exception() is None
+                ):
+                    waiting = prefetched.result()
+                    if isinstance(waiting, CommandAckEnvelopeV1) and waiting.payload.status == "running":
+                        continue
+                if not has_work:
+                    continue
             elif isinstance(envelope, SecurityEventBatchEnvelopeV1):
                 if (
                     not websocket.app.state.settings.endpoint_policy_enabled
@@ -409,13 +467,7 @@ async def connect_agent(websocket: WebSocket) -> None:
                     pass
             else:
                 raise GatewayProtocolError(1008, "unexpected_message")
-            await command_service.deliver_next(
-                device_id,
-                presence.session_id,
-                connection.send,
-                allowed_capabilities=frozenset(effective_capabilities),
-                agent_platform=first.payload.platform,
-            )
+            await registry.request_dispatch(connection)
     except WebSocketDisconnect:
         pass
     except TimeoutError:
@@ -440,24 +492,36 @@ async def connect_agent(websocket: WebSocket) -> None:
         SensorHealthRejected,
         SecurityEventRejected,
     ) as error:
+        if published and await registry.get(device_id) is not connection:
+            return
         logger.warning("Gateway state rejected: %s: %s", type(error).__name__, error)
         close_reason = "state_rejected"
         await _send_safe_error(websocket, "state_rejected")
         await websocket.close(code=1008)
     except Exception:
+        if published and await registry.get(device_id) is not connection:
+            return
         close_reason = "internal_error"
         await websocket.close(code=1011)
     finally:
-        if presence is not None:
-            await websocket.app.state.gateway_connection_registry.unregister(
-                device_id,
-                presence.session_id,
-            )
-            await presence_service.close_session(
-                device_id=device_id,
-                session_id=presence.session_id,
-                reason=close_reason,
-            )
+        try:
+            if prefetched is not None:
+                prefetched.cancel()
+                await asyncio.gather(prefetched, return_exceptions=True)
+            if presence is not None:
+                await registry.unregister(
+                    device_id,
+                    presence.session_id,
+                )
+                if connection is None or not connection.session_closed_by_replacement.is_set():
+                    await presence_service.close_session(
+                        device_id=device_id,
+                        session_id=presence.session_id,
+                        reason=close_reason,
+                    )
+        finally:
+            if replaced_socket_cleanup is not None:
+                await asyncio.shield(replaced_socket_cleanup)
 
 
 __all__ = [

@@ -2,8 +2,16 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
+import subprocess
 
+import pytest
+
+from pc_agent.context_profiles.probe import (
+    MAX_PROBE_BYTES, WINDOWS_INVENTORY_COMMAND, WINDOWS_INVENTORY_TIMEOUT_SECONDS,
+    WINDOWS_PHYSICAL_STORAGE_COMMAND, SystemProbe,
+)
 from pc_agent.context_profiles.registry import execute_context_capability
 from pc_agent.version import AGENT_VERSION
 
@@ -39,6 +47,9 @@ class WindowsGoldenProbe:
 
     def windows_health(self) -> dict[str, object]:
         return {"uptime_seconds": 123, "free_bytes": 4294967296}
+
+    def windows_updater_status(self) -> str:
+        return "active"
 
     def windows_inventory(self) -> dict[str, object]:
         return {
@@ -107,3 +118,41 @@ def test_windows_inventory_exposes_physical_storage_and_network_identity() -> No
     assert result.sections.memory.modules[0].speed_mt_s == 3200
     assert result.sections.interfaces[0].stable_key == "mac-001122334455"
     assert result.sections.interfaces[0].ipv4 == ["192.0.2.10"]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows PowerShell required")
+@pytest.mark.parametrize(("cpu", "expected"), [
+    ("@{Architecture=9;AddressWidth=64}", "x86_64"),
+    ("@{Architecture=12;AddressWidth=64}", "aarch64"),
+    ("@{Architecture=9;AddressWidth=32}", None),
+    ("@{Architecture=0;AddressWidth=32}", None),
+    ("@{Architecture=6;AddressWidth=64}", None),
+    ("@{Architecture=65535;AddressWidth=64}", None),
+    ("@{AddressWidth=64}", None),
+    ("@{Architecture=9}", None),
+    ("$null", None),
+])
+def test_inventory_architecture_from_local_processor_and_os_width(monkeypatch, cpu, expected):
+    def run(argv, timeout_seconds, max_bytes):
+        if argv == WINDOWS_PHYSICAL_STORAGE_COMMAND:
+            return "[]"
+        assert argv == WINDOWS_INVENTORY_COMMAND
+        assert argv[:-1] == (
+            "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
+        )
+        assert timeout_seconds == WINDOWS_INVENTORY_TIMEOUT_SECONDS
+        assert max_bytes == MAX_PROBE_BYTES
+        cim = (
+            "function Get-CimInstance { param($ClassName, $Filter) "
+            f"if($ClassName -eq 'Win32_Processor'){{{cpu}}} }};"
+        )
+        return subprocess.run(
+            (*argv[:-1], cim + argv[-1]), check=True, capture_output=True,
+            text=True, timeout=timeout_seconds,
+        ).stdout
+
+    probe = SystemProbe()
+    monkeypatch.setattr(probe, "run", run)
+    result = execute_context_capability("context.inventory.collect", {}, probe, collected_at=FIXED_TIME)
+    assert result.sections.system.os_name == "Windows"
+    assert result.sections.system.architecture == expected

@@ -1,0 +1,622 @@
+{
+  "schema_version": 1,
+  "version": "3.2.274",
+  "platform": "alt_linux_amd64",
+  "status": "local_signed_candidate",
+  "published": false,
+  "runtime_source_commit": "9f9dc4f17820506c2099eb9124466a24e3dde162",
+  "provider_baseline": {
+    "observed_at_utc": "2026-11-20T22:05:12.498453Z",
+    "source_commit": "44d96b5cce415e3886328c077499bee5f3b969ec",
+    "migration_head": "0056_context_collection_history",
+    "verification": {
+      "path": "C:/endpoint-platform-wix-build/stab14-provider-baseline-276-274/verified-provider-baseline.json",
+      "sha256": "e801db10b3e7b759eca1a2d27fc06aa397e14b2ecd1336d1a02d199e6cd1442e"
+    }
+  },
+  "source_parent_commit": "1c00d4bcd207c760b8b6780bb9a4907273b4a6e5",
+  "signed_baseline_commit": "ffd379bc86bbf845b241f0617d10d5d696d35d67",
+  "publisher_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+  "frozen_manifest_sha256": "9aab2f92cbcf5d2cabc014661f49520552cc91532c2364c956ff962e54ea0771",
+  "components": {
+    "endpoint-agent": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt-native-274/local-signing/signed/endpoint-agent-3.2.274-alt6.x86_64.rpm",
+      "sha256": "f22203823dbc28c038eaf9b1e0b248a808277a8b5df1cdacd13cc122a1d87d13"
+    },
+    "endpoint-agent-user-sensor": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt-native-274/local-signing/signed/endpoint-agent-user-sensor-3.2.274-alt6.x86_64.rpm",
+      "sha256": "14c6688e03d0795e774c4bdd2a7852c848c19c66276a111fb8cecc7e5f30d7d1"
+    }
+  },
+  "archive": {
+    "path": "C:/endpoint-platform-wix-build/stab15-alt-native-274/local-signing/offline-kit/endpoint-alt-pilot-3.2.274-1.tar.gz",
+    "sha256": "6a674fd49cdde461d8b9a486760dfae75d6c869f3a8f53f1fadabfb538db2a87"
+  },
+  "archive_signature": {
+    "path": "C:/endpoint-platform-wix-build/stab15-alt-native-274/local-signing/offline-kit/endpoint-alt-pilot-3.2.274-1.tar.gz.sig",
+    "sha256": "df22f098b8e88dd113b65a3cd39f35ced636f201ed786903ed1d8d8fe98e66fa"
+  },
+  "manifest": {
+    "path": "C:/endpoint-platform-wix-build/stab15-alt-native-274/local-signing/offline-kit/endpoint-alt-pilot-3.2.274-1.manifest.json",
+    "sha256": "43000138764b317166b93b1dacee6e50e9a6630d9d13093cd78ecfc1964b9364"
+  },
+  "manifest_signature": {
+    "path": "C:/endpoint-platform-wix-build/stab15-alt-native-274/local-signing/offline-kit/endpoint-alt-pilot-3.2.274-1.manifest.json.sig",
+    "sha256": "0d72cfd1fc7a7974da0a06a239a096ff938b0a6fb853e216921d8ecce85eae23"
+  },
+  "build_verification": {
+    "build": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt-native-274/local-signing/build-receipt.json",
+      "sha256": "824a0d57d11b3f1fb9c95dfe132acb2ac5b7ee22aec8fc365b8ab62816e6fa5f"
+    },
+    "linux_source_tests_passed": 315,
+    "artifact_test_deferred_then_passed": 1,
+    "source_gate": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt-native-274/local-signing/linux-release-gate-274-verified.xml",
+      "sha256": "76d928eda1801c0882eec2d4d83e5a613ed5ad8ba9fb5fa501ecd67460ffc344"
+    },
+    "signed_payload_test": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt-native-274/local-signing/signed-payload-gate.xml",
+      "sha256": "c8217a8e6b7efcb865cba15bf2a34564f3a75cebd422a48fadcb8eec535ec759"
+    },
+    "source_restore": {
+      "path": "C:/endpoint-platform-wix-build/stab14-candidate-source-restore/candidate-source-restore-274-native.json",
+      "sha256": "e932a004e39de9b95e1a1de10fdd4aecbc04b16d57e4c46f653461cb770d8074"
+    },
+    "signed_rpm_verification": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt-native-274/local-signing/verified-pair.json",
+      "sha256": "e1c577c711417a127dcbefe8300fc36d6d4b56cc6d0dd8c830edc40c6f880cca"
+    },
+    "independent_kit_verification": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt274-local-support/3.2.274-independent-kit-verification.json",
+      "sha256": "4440429f648cfb5df80346b68459320d54f1cf4fe0f44d6ac014a261705aa35f"
+    },
+    "integration_targeted_suite": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt274-local-support/service-and-contracts.xml",
+      "sha256": "33ab794e58e4eff3684bf27d3cadf8ff4e33013a49e832f1aada66e496902a0a"
+    },
+    "ubuntu_workflow_mirror": {
+      "passed": 5437,
+      "skipped": 734,
+      "subtests_passed": 2,
+      "failed": 0,
+      "hosted_github_run": false,
+      "report": {
+        "path": "C:/endpoint-platform-wix-build/stab15-alt-native-274/full-linux-gate/verified-gate-result.json",
+        "sha256": "64284268fecf74f9b592f48b635351fc8cea5169195891c79ca722827c07444e"
+      }
+    },
+    "rpm_requirements_matching_installed": {
+      "endpoint-agent": 105,
+      "endpoint-agent-user-sensor": 22
+    },
+    "requirements_evidence": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt-native-274/native-lab/installed-dependency-match.json",
+      "sha256": "2d0a50104a0ce0869ff7380f005545dd9362a8dffcfb62e4ec5a71daac228b15"
+    },
+    "toolchain_input_verification": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt-native-274/verified-toolchain-inputs.json",
+      "sha256": "ac1271f9e7328fbc8249f80ee6bc274de57f2fb1617164990d353de9abe958d8"
+    }
+  },
+  "pre_rpm_retained_input_write_failure": {
+    "evidence_kind": "exact_release_source_review",
+    "finding": "Interrupted copy of a retained RPM or Setup can leave an incomplete file under its final name. Later verification can reject that file after disk space recovers.",
+    "native_failure_exercised": false,
+    "verification": {
+      "path": "C:/endpoint-platform-wix-build/stab13-alt274-retained-input-audit/source-review.json",
+      "sha256": "9f21d9afd81e7bc547d822fb960bfc7fad9a0b820a2075fc4dfbf02f4ff2476e"
+    }
+  },
+  "native_11_4_factory_offline_plasma_x11": {
+    "profile": "Factory ALT Workstation K 11.4, Plasma X11, before enrollment",
+    "version": "3.2.274",
+    "setup_exit": 21,
+    "rpm_exit": 0,
+    "ordinary_reboot": true,
+    "same_rpm_transaction": true,
+    "xdg_launched_user_sensor": true,
+    "managed_kde_probe_observed": true,
+    "loaded_qt": "6.10.3-alt2",
+    "loaded_kf6idletime": "6.26.0-alt1",
+    "sample_capture": "Three valid XCB samples from a sequential run of the installed probe in the same session. Original UserSensor restored and child observed in 10 of 10 checks.",
+    "installation_ack": 0,
+    "gateway_delivery_observed": false,
+    "verification": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt274-stock-plasma-391/verified-stock-plasma.json",
+      "sha256": "0f0f56ee5d18a79b0f19b3a5c2e044ea505d7609b0ae89fe62dc00d5dbf97520"
+    },
+    "evidence_index": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt274-stock-plasma-391/deliverables.sha256",
+      "sha256": "073c434d9d632242b86a07d53a52e83a2ba6b94d8b5933a8fb6efe51313a4d69"
+    },
+    "cleanup": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt274-stock-plasma-391/cleanup-verified.log",
+      "sha256": "35fc490c5273ba75598babe7fd573109747ec085d4cbbed1e3a5bddfba551a1a"
+    }
+  },
+  "native_11_4_factory_offline_remove_before_enrollment": {
+    "native_install_exit": 0,
+    "setup_install_exit": 21,
+    "setup_remove_exit": 21,
+    "original_install_pending": true,
+    "before_and_after_remove_identical": true,
+    "both_rpms_verified_after_reboot": true,
+    "postboot_reconcile_exit": 21,
+    "installation_events": 0,
+    "verification": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt274-stock-offline-remove-397/verification.json",
+      "sha256": "b73170254e56bc89842fdbd5febceec6b2f0e1b3fc851a8976f5bd93f8a98bd8"
+    }
+  },
+  "native_11_4_factory_offline_install_before_enrollment": {
+    "profile": "ALT Workstation K 11.4 x86_64 factory p11",
+    "stock_packages": [
+      "plasma-workspace-6.6.5-alt1.x86_64",
+      "kwin-x11-6.6.5-alt1.x86_64",
+      "libqt6-core-6.10.3-alt2.x86_64",
+      "libqt6-gui-6.10.3-alt2.x86_64",
+      "libkf6idletime-6.26.0-alt1.x86_64",
+      "libssl3-3.3.3-alt1.x86_64",
+      "libcrypto3-3.3.3-alt1.x86_64",
+      "glibc-core-2.38.0.123.650a0-alt1.x86_64"
+    ],
+    "os_inventory_sha256": "d35b3a1975647b2b733fb856e043d99ba5bc3d48134f015a553ab4c5574983be",
+    "precondition": "On the disposable clone, changed existing CA-only configuration directory mode from 0700 to documented 0755; CA contents unchanged.",
+    "setup_exit": 21,
+    "rpm_exit": 0,
+    "after_ordinary_reboot": {
+      "rpm_verify_both_packages": 0,
+      "same_native_transaction": true,
+      "reconcile_exit": 21,
+      "agent_enabled": true,
+      "agent_running": false,
+      "support_running": false,
+      "installation_ack": 0
+    },
+    "registered_connectivity_tested": false,
+    "interactive_sensor_tested": false,
+    "verification": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt274-stock-offline-351/verified-stock-offline.json",
+      "sha256": "b89a5bfdd6ce026af055502f338dd711a0f7bfb3f964829d0bee760060956fe7"
+    },
+    "report": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt274-stock-offline-351/qualification.md",
+      "sha256": "1c0b4575eeef23f41cce94bc6fae8f033d30e46adaabdd26157eb14c7252f542"
+    },
+    "receipts": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt274-stock-offline-351/receipts.sha256",
+      "sha256": "07a8033813f94c5baa5a09fa365cdf3cfc4f116afa4195900c4e2d8b4342c7a9"
+    },
+    "cleanup": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt274-stock-offline-351/cleanup-verified.log",
+      "sha256": "8fd32e53993faaf429dd4e572c1892015333bbf6817200f8fd2e3d368ce2f7a4"
+    }
+  },
+  "native_11_4_support_reporting_with_core_stopped": {
+    "profile": "ALT Workstation K 11.4 x86_64, updated p11, registered .274 pair",
+    "support_reports_after_core_session_closed": 2,
+    "support_process_and_registration_preserved": true,
+    "access_enabled": false,
+    "ssh_tunnel_tested": false,
+    "core_restart": {
+      "new_wss_on_original_card": true,
+      "health_deliveries": 1,
+      "health_results": 1,
+      "health_snapshots": 1
+    },
+    "verification": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt274-independent-support-408-409/native/verified-support-independence-274.json",
+      "sha256": "600dc92035bdfd6d589ab82ec08dfa3c8b8d31b95453b6747ec81b942e0e3218"
+    },
+    "receipts": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt274-independent-support-408-409/receipts.sha256",
+      "sha256": "c7f282ee25069efe3821e7cbca3b90fdf399a6f1bd3761a2101a75038bbdfdaa"
+    },
+    "cleanup": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt274-independent-support-408-409/cleanup-verified.log",
+      "sha256": "db4e63eeccc442d371b68e921dc5cfc6d6f8265bcae603d2ceda0edea9d6acd5"
+    }
+  },
+  "native_11_4_registered_result_replay_after_power_loss": {
+    "profile": "Registered ALT Workstation K 11.4 x86_64 with updated p11 packages",
+    "command_profile": "health_v1",
+    "fault": "Lab Gateway withheld the first logical result ACK after committing the result; the client then lost power.",
+    "client_changed_for_test": false,
+    "offline_cold_boot_retained_result": true,
+    "result_digest_preserved": true,
+    "first_session_ack_held": 6,
+    "new_session_result_sequence": 1,
+    "new_session_ack_sent": 1,
+    "delivery_result_snapshot_ids_preserved": true,
+    "local_outbox_after_replay": 0,
+    "verification": {
+      "path": "C:/endpoint-platform-wix-build/stab02-alt274-held-ack-native/verified-ackhold-274.json",
+      "sha256": "2cf4f05ab7b7f486b85ec07bec8f4bee8604e21f1ead68ea6b826d407cbdc282"
+    },
+    "receipts": {
+      "path": "C:/endpoint-platform-wix-build/stab02-alt274-held-ack-native/receipts.sha256",
+      "sha256": "114d80708a7d815b4ec3dc75c4faeb14928891a0afc3cbf954cdd6e51813d497"
+    }
+  },
+  "native_11_4_registered_repair_after_two_missing_files": {
+    "profile": "ALT Workstation K 11.4 x86_64, updated p11",
+    "removed_members": [
+      {
+        "package": "endpoint-agent",
+        "guest_path": "/usr/share/doc/endpoint-agent/README.md",
+        "size": 7923,
+        "sha256": "d4729139fd322bb4e2c0dab00facdd6a2b77c803ea7da8c1d88049aa574581e6"
+      },
+      {
+        "package": "endpoint-agent-user-sensor",
+        "guest_path": "/usr/lib/endpoint-agent/policy-helper/pc_agent/platform/linux/__init__.py",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "setup_exit": 0,
+    "rpm_exit": 0,
+    "rpm_verify_after_repair_and_normal_reboot": true,
+    "server_ack_before_and_after": 4,
+    "new_lifecycle_events": 0,
+    "identity_preserved": true,
+    "postboot_core_wss_and_support": true,
+    "report": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt274-damaged-pair-repair-345-346/qualification.md",
+      "sha256": "364746e107d08f1fa0a1771d39e60fe8009d469bc36e51bb77530ecd9c87e64b"
+    },
+    "verification": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt274-damaged-pair-repair-345-346/verified-repair.json",
+      "sha256": "b3eb698b9184f70fda7ea907593579a272578859e809be41530d2493262bfb35"
+    },
+    "receipts": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt274-damaged-pair-repair-345-346/receipts.sha256",
+      "sha256": "23086fc44c9335a0a3013e409795a7d63b67f62dda8a64598f44a3db2f9d1d02"
+    }
+  },
+  "native_11_4_support_first_local_failure": {
+    "profile": "ALT Workstation K 11.4 x86_64 updated p11, isolated disposable pair",
+    "source_version": "3.2.270",
+    "offline_upgrade": {
+      "fresh_wss": true,
+      "native_rpm_exit": 0,
+      "normal_support_ready": true,
+      "pending_seq_after_offline_boot": 4,
+      "prior_ack": 3,
+      "reconnect_ack": 4,
+      "same_identity_and_generation": true,
+      "same_rpm_transaction": true,
+      "setup_exit": 21
+    },
+    "link_outage_status": "policy_unavailable",
+    "link_outage_journal_messages": 0,
+    "fixture": "Reversible local fault on a public Support key file with access disabled",
+    "first_journal_message": "ENDPOINT_SUPPORT_POLICY_FAILURE stage=key_check type=SupportError",
+    "journal_count_after_two_polls": 1,
+    "public_error_on_same_revision": "service_failed",
+    "recovery": {
+      "gateway_last_status_utc": "2026-11-20T12:24:03.195623+00:00",
+      "journal_records": 1,
+      "new_revision": 2,
+      "new_rights": 0,
+      "previous_revision": 1,
+      "recovery_http": 200,
+      "same_registration": true,
+      "status_error_cleared": true
+    },
+    "new_cards": 0,
+    "new_grants": 0,
+    "package_verification_exit_codes": [
+      0,
+      0
+    ],
+    "original_270_failure_cause": "undetermined",
+    "verification": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt-native-274/native-lab/verified-native274.json",
+      "sha256": "ef3486bb646edca56fee479da22ca61f20b123d196b2ca9c9d9afb5ad4fdd32d"
+    },
+    "client_and_gateway_cleanup": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt-native-274/native-lab/cleanup.log",
+      "sha256": "76020d6501ff1bfb0c60de991994032521cfa99b9ce045bbd766d1b976ffb484"
+    },
+    "builder_cleanup": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt-native-274/cleanup-builder.log",
+      "sha256": "6e4a9297a19c73d2537efb77801a63b4c9da7954d704cd4e3e7c6cac6be78c2d"
+    }
+  },
+  "local_operator_kit": {
+    "guide": "alt-3.2.274-lab.ru.md",
+    "guide_sha256": "b5872c4ce4f8f24bc5c21f116455af5a48067bb961a1eb675070a845aaa0bd7a",
+    "directory": "C:/endpoint-platform-wix-build/stab15-alt-native-274/distribution-verified-sources/lab/endpoint-alt-pilot-3.2.274-1",
+    "files": 8,
+    "distribution_verification": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt-native-274/distribution-verified-sources/distribution-evidence.json",
+      "sha256": "91c8769bbdc9c4aeed192bff1005fe50de97b7db9bf13944364912375ffdf20e"
+    },
+    "stock_11_4_verification": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt-native-274/distribution-check/stock-verification.json",
+      "sha256": "aa20c5b01c570dc76cb7aa646fe67e4fb4055e02eaddec0ab96336adb44934d1"
+    },
+    "stock_rpm_transaction_test_exit": 0,
+    "stock_installation_performed": false,
+    "source_guard_verification": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt-native-274/distribution-verified-sources/source-guard-verification.json",
+      "sha256": "c6cc4a6503dc67abee91016f20053c4adf466e5ecf5b5776c887e3cb7093832c"
+    }
+  },
+  "registered_direct_sources_11_4_updated_p11": {
+    "profile": "ALT Workstation K 11.4 x86_64, Plasma 6.7.5, Qt 6.11.2 and OpenSSL 3.5.7",
+    "direct_267": {
+      "scope": "Isolated registered p11 workstation, direct Setup upgrade",
+      "source_ack": 2,
+      "target_ack": 3,
+      "post_reboot_ack": 3,
+      "setup_exit": 0,
+      "verified_target_rpm_count": 2,
+      "support": {
+        "original_support_registration": true,
+        "same_host_and_tunnel_fingerprints": true,
+        "post_reboot_report_utc": "2026-11-20T23:15:48.1963+00:00",
+        "last_error_code": null,
+        "access_enabled": false,
+        "observations": [
+          {
+            "path": "C:/endpoint-platform-wix-build/stab02-alt274-native-health-400-401/native/baseline.json",
+            "sha256": "3f09d06250adbfb6b1e1024009e6c4ba26150728f1fb362587b1ce2f30a2822f"
+          },
+          {
+            "path": "C:/endpoint-platform-wix-build/stab02-alt274-native-health-400-401/native/forward274.json",
+            "sha256": "f5a8a072a97222fb6e0dc506544935373f3d9701cf8b86cf11e2a0f606879bc4"
+          },
+          {
+            "path": "C:/endpoint-platform-wix-build/stab02-alt274-native-health-400-401/native/forward274-boot.json",
+            "sha256": "43575bc1fcb4bbabe19e39da490a4838d60f9c2245ea81f7b56a460acfefabd3"
+          }
+        ]
+      },
+      "post_reboot_health_v1": {
+        "deliveries": 1,
+        "successful_results": 1,
+        "result_sequence": 22,
+        "snapshots": 1,
+        "local_command_state": "completed",
+        "local_pending_results_for_command": 0,
+        "result_ack_frame_captured": false
+      },
+      "report": {
+        "path": "C:/endpoint-platform-wix-build/stab02-alt274-native-health-400-401/native/health-verified.json",
+        "sha256": "0d93b4f7f5da4015114f43c6ab9ae9d80b04369317d3b81d7daa536de439b149"
+      }
+    },
+    "direct_265": {
+      "source_ack": 3,
+      "target_ack": 4,
+      "return_to_265_ack": 5,
+      "setup_and_rpm_exit": [
+        0,
+        0
+      ],
+      "report": {
+        "path": "C:/endpoint-platform-wix-build/stab15-alt265-to274-roundtrip-337-338/verified-roundtrip.json",
+        "sha256": "1574fd69eb92ec9d9fddc2cb1d065f42aa03034fb8f4cb04ab65a8dbd6d861c5"
+      }
+    },
+    "direct_183": {
+      "source_ack": 6,
+      "target_ack": 7,
+      "setup_and_rpm_exit": [
+        0,
+        0
+      ],
+      "report": {
+        "path": "C:/endpoint-platform-wix-build/stab15-alt265-to274-roundtrip-337-338/direct183/verified-direct183.json",
+        "sha256": "0f497dcdb07030b0ec5e30d9b815814be888c940079a6d7ea428e4adc334b213"
+      }
+    },
+    "same_registration_identity_and_generation": true,
+    "fresh_core_and_support_after_every_reboot": true,
+    "report": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt265-to274-roundtrip-337-338/qualification.md",
+      "sha256": "504d13eecb71a553b200696b6d1a41b5f9142beca2b915c633839c7ca4a73bbc"
+    },
+    "fixture_cleanup": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt265-to274-roundtrip-337-338/cleanup-verified.log",
+      "sha256": "89850e9baf7cea8498c66860b12dec93a1e519f5a1b4328684984270ff3d0361"
+    }
+  },
+  "registered_265_to_274_plasma_x11": {
+    "profile": "pre-existing lab card, ALT Workstation K 11.4 x86_64, updated p11, Plasma X11",
+    "source_ack": 3,
+    "target_ack": 4,
+    "ordinary_graphical_login_before_upgrade_and_after_reboot": true,
+    "verified_source_and_target_sensor_samples": true,
+    "same_applied_activity_policy": true,
+    "new_enrollments": 0,
+    "verification": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt274-plasma-x11-355-356/verified-plasma-x11.json",
+      "sha256": "6b76515e77d9506d8d00990711d7b79e237a639bf9ba66065fafcba685526ba4"
+    },
+    "report": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt274-plasma-x11-355-356/qualification.md",
+      "sha256": "08957e8d2e13eba47e519f97f6a8a5ed4dbd5becb5eb5f2ae42e4170bd63b525"
+    },
+    "receipts": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt274-plasma-x11-355-356/native/receipts.sha256",
+      "sha256": "332a596ce3b43ffd9e3ff33ebc36fc1aac38ebdc4b76851911e981eb3b425b5e"
+    },
+    "cleanup": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt274-plasma-x11-355-356/cleanup-verified.log",
+      "sha256": "119a21b6a0f6b2633b5c0abf4d9faa423a8e12995903992353bf5af933dd9cf7"
+    }
+  },
+  "registered_274_offline_remove_and_reinstall": {
+    "profile": "ALT Workstation K 11.4 x86_64, updated p11, existing isolated registration",
+    "remove_and_reinstall_each_setup_rpm": [
+      21,
+      0
+    ],
+    "normal_offline_reboots": 2,
+    "ordered_server_ack_sequence": [
+      5,
+      6
+    ],
+    "original_core_registration_preserved": true,
+    "fresh_target_wss_after_reconnect": true,
+    "support_server_keys_unchanged": true,
+    "support_pending_after_reinstall": true,
+    "support_new_local_keys_declined_by_gateway": true,
+    "support_access_grants": 0,
+    "reconcile_setup_exit": 21,
+    "verification": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt274-offline-remove-reinstall-357-358/verified-removal-reinstall.json",
+      "sha256": "205edd79fd5db0aeca37c9b22bad979278527320f3ba5e0d5f2d3b38a37b6026"
+    },
+    "report": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt274-offline-remove-reinstall-357-358/qualification.md",
+      "sha256": "4b9902641909386d6a9dbea886ef956898e2bc2f7b15b738bf9b026358b5e165"
+    },
+    "receipts": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt274-offline-remove-reinstall-357-358/native/receipts.sha256",
+      "sha256": "3a4e3c4fd28b9699035f030a805c3b66df62c0ce76ea6ebd7feaf60101db710d"
+    },
+    "cleanup": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt274-offline-remove-reinstall-357-358/cleanup-verified.log",
+      "sha256": "119a21b6a0f6b2633b5c0abf4d9faa423a8e12995903992353bf5af933dd9cf7"
+    }
+  },
+  "updated_p11_confirm_support_after_offline_reinstall": {
+    "profile": "ALT Workstation K 11.4 with updated p11, one retained lab device following final removal and reinstall",
+    "pending_reconcile_exit": 21,
+    "operator_confirmation_http": 204,
+    "completed_reconcile_exit": 0,
+    "installation_ack": 6,
+    "core_identity_preserved": true,
+    "same_support_registration_with_new_keys": true,
+    "grants": 0,
+    "ssh_enabled": false,
+    "tunnel_connected": false,
+    "after_ordinary_reboot": "Fresh Core WSS and Support status on the original device. Both RPM verifications passed.",
+    "evidence": [
+      {
+        "path": "C:/endpoint-platform-wix-build/stab15-alt274-support-reconcile-359-360/verified-support-reconcile.json",
+        "sha256": "1b10b155c36b978a767e18cdd7a61922f12a739ffc5d1911b38291f58c2a4c87"
+      },
+      {
+        "path": "C:/endpoint-platform-wix-build/stab15-alt274-support-reconcile-359-360/qualification.md",
+        "sha256": "6fd1567edab598ee0df659c33958ccd25cc9fae8f388f62f1f33895281a635ba"
+      },
+      {
+        "path": "C:/endpoint-platform-wix-build/stab15-alt274-support-reconcile-359-360/native/receipts.sha256",
+        "sha256": "2c888147a6d610e7a4564035cc411b94be6d40153a2320198cd55305b369d312"
+      },
+      {
+        "path": "C:/endpoint-platform-wix-build/stab15-alt274-support-reconcile-359-360/cleanup-verified.log",
+        "sha256": "119a21b6a0f6b2633b5c0abf4d9faa423a8e12995903992353bf5af933dd9cf7"
+      }
+    ]
+  },
+  "registered_183_to_274_and_return_to_183": {
+    "profile": "ALT Workstation K 11.4 x86_64 with updated p11",
+    "accepted_versions": [
+      "3.2.183",
+      "3.2.274",
+      "3.2.183"
+    ],
+    "installation_acks": [
+      3,
+      4,
+      5
+    ],
+    "rollback_setup_exit": 0,
+    "rollback_native_rpm_exit": 0,
+    "running_commands_before_rollback": 0,
+    "pending_results_before_rollback": 0,
+    "active_gateway_commands_before_rollback": 0,
+    "normal_reboot_fresh_core_and_support": true,
+    "same_device_generation_identity_and_support_registration": true,
+    "interactive_sensor_checked": false,
+    "support_access_enabled": false,
+    "evidence": [
+      {
+        "path": "C:/endpoint-platform-wix-build/stab15-alt274-to183-native-return-337-338/verified-return183.json",
+        "sha256": "261d85418b402836aa8d47b22ba67247a8de76b64e540adbdc038dd68d2002bd"
+      },
+      {
+        "path": "C:/endpoint-platform-wix-build/stab15-alt274-to183-native-return-337-338/receipts.sha256",
+        "sha256": "796b8409f08d3a09e13f425601e9697c2d74e88b893071ae7e5b88ad23a22ceb"
+      },
+      {
+        "path": "C:/endpoint-platform-wix-build/stab15-alt274-to183-native-return-337-338/qualification.md",
+        "sha256": "67f20f1ee1eff82a7d63fbbbc72190437a55223cd615df1ce450ca47a50b6781"
+      },
+      {
+        "path": "C:/endpoint-platform-wix-build/stab15-alt274-to183-native-return-337-338/cleanup-verified.log",
+        "sha256": "1ffcc23ecb8df2b2771b82316059a2db311daadc8a715d6c97e712e0912d0d7e"
+      }
+    ]
+  },
+  "registered_274_offline_return_to_270": {
+    "profile": "ALT Workstation K 11.4 (Nemorosa) with updated p11",
+    "offline_setup_exit": 21,
+    "native_rpm_exit": 0,
+    "rpm_verify_exit": [
+      0,
+      0
+    ],
+    "offline_ack": 4,
+    "accepted_original_event_sequence_after_reboot_and_reconnect": 5,
+    "same_identity_and_rpm_transaction": true,
+    "fresh_core_wss": true,
+    "support_registration_preserved": true,
+    "support_last_error": "service_failed",
+    "support_first_service_failed_utc": "2026-11-20T18:42:58.304749+00:00",
+    "support_last_service_failed_utc": "2026-11-20T18:47:59.14783+00:00",
+    "consecutive_sampled_reports_with_service_failed": 9,
+    "healthy_support_reports_observed": 0,
+    "new_support_grants": 0,
+    "evidence": [
+      {
+        "path": "C:/endpoint-platform-wix-build/stab15-alt274-to270-offline-return-337-338/verified-return270.json",
+        "sha256": "9ed422beb150f3468d726260992071251215136e54bda5c44b187aa61ffad67c"
+      },
+      {
+        "path": "C:/endpoint-platform-wix-build/stab15-alt274-to270-offline-return-337-338/receipts.sha256",
+        "sha256": "b7aa82764542f3c9eeb9a644396484d19379e5bb61f6b43f51813eac3c2d2c71"
+      },
+      {
+        "path": "C:/endpoint-platform-wix-build/stab15-alt274-to270-offline-return-337-338/cleanup-verified.log",
+        "sha256": "7bdab537c37e738178465ccc6182cb7a174ec3f12374fe0280993e7c8bc1e93f"
+      }
+    ]
+  },
+  "registered_274_offline_return_to_270_repeat": {
+    "profile": "ALT Workstation K 11.4, updated p11; independent repeat on clones of the same paired snapshots",
+    "accepted_original_sequence": 5,
+    "rpm_verify": [
+      0,
+      0
+    ],
+    "same_device_and_support_registration": true,
+    "healthy_support_reports_after_ack": 4,
+    "support_revision": 1,
+    "policy_changed": false,
+    "authority_granted": false,
+    "initial_service_failed_reproduced": false,
+    "operator_recovery_tested": false,
+    "evidence": [
+      {
+        "path": "C:/endpoint-platform-wix-build/stab15-alt274-to270-operator-recovery-337-338/native/verified-operator-recovery.json",
+        "sha256": "86e0e3aacee0f75c291e1b2273ca343e4644de18ed82f90f23c98b2f9d5e4220"
+      },
+      {
+        "path": "C:/endpoint-platform-wix-build/stab15-alt274-to270-operator-recovery-337-338/receipts.sha256",
+        "sha256": "27b3339993665cc225f0db59b50ae1076177fa3c557208c78ebe11e54201d9e9"
+      },
+      {
+        "path": "C:/endpoint-platform-wix-build/stab15-alt274-to270-operator-recovery-337-338/cleanup-verified.log",
+        "sha256": "4c9329c7d620d0a0286649c927a677fa413c85db8bdf90c18538623f61f742d0"
+      }
+    ]
+  }
+}

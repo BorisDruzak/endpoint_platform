@@ -2,6 +2,8 @@
 Description=Endpoint Platform ALT update applier
 Documentation=file:///usr/share/doc/endpoint-agent/ALT_AGENT_INSTALL.md
 After=network-online.target
+StartLimitIntervalSec=900s
+StartLimitBurst=3
 
 [Service]
 Type=oneshot
@@ -11,7 +13,12 @@ Environment=PC_AGENT_DATA_DIR=/var/lib/endpoint-agent
 Environment=PC_AGENT_INSTALL_ROOT=/opt/endpoint-agent
 Environment=ENDPOINT_AGENT_ALT_UPDATE_MODE=1
 ExecStart=/usr/lib/endpoint-agent/apply-pending-alt-update
+ExecStopPost=/usr/lib/endpoint-agent/apply-pending-alt-update --recover-service
 TimeoutStartSec=180s
+TimeoutStopSec=60s
+KillMode=control-group
+StateDirectory=endpoint-agent-update
+StateDirectoryMode=0700
 ReadWritePaths=/opt/endpoint-agent /var/lib/endpoint-agent
 NoNewPrivileges=true
 PrivateTmp=true

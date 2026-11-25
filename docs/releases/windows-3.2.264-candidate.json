@@ -1,0 +1,397 @@
+{
+  "schema_version": 1,
+  "version": "3.2.264",
+  "platform": "windows_amd64",
+  "status": "production_single_device_pilot_qualified",
+  "lab_status": "lab_direct_upgrade_from_205_and_compound_msi_boundaries_verified",
+  "verified_utc": "2026-11-19T10:41:49.911844Z",
+  "runtime_source_commit": "ffa9178a70d799512793a0cc8c8fe682cf802357",
+  "integration_change": "a14825db2c98392863473219da33c680a39e30d1",
+  "dependency_evidence": {
+    "source_file_sha256": {
+      "requirements/agent-core.txt": "b0be29f47609e73482ee607741724de40d3880e78f844314686b56bd7b81b9f9",
+      "requirements/build-windows.txt": "8b72ffc429178f48cca558be2c51f7431c5d9f7c90695ec178ae9c5d2a932ad9"
+    },
+    "builder_pip_freeze_sha256": "2aaf4ba5615106a630f5bb8f1ec7e0339407169cbfa9d86f2d1528d671865798",
+    "windows_ci_freeze_sha256": "420064163806f22c4c9f03dd482baf9adf867a4fb32830fd7dcde085a5f6985d"
+  },
+  "initial_runtime_file_count": 119,
+  "initial_runtime_tree_sha256": "665a51288f1998a2710b6737f863d7b6156d2c3165a2fd975f57fc60c5daf5a6",
+  "setup": {
+    "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/native/releases/EndpointAgentSetup-3.2.264-x64.exe",
+    "sha256": "7c278545e6ea37e38f55d9aa954c2622f5767aba789f225551c8fb445e1749a4",
+    "size": 177728264,
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776"
+  },
+  "msi": {
+    "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/native/releases/EndpointAgent-3.2.264-x64.msi",
+    "sha256": "f05bd0a67375015e21b39ae25e778baacd609acb91d4d076e1f6d8e11c9c7539",
+    "size": 136331264,
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776"
+  },
+  "embedded_core_sha256": "c44e38a47dde733a64b7b8090fa39b9cb113925434e21256c2406bac453ea1d6",
+  "embedded_core_archive_name": "EndpointCore.zip",
+  "embedded_core_executable_name": "pc_agent.exe",
+  "embedded_core_executable_sha256": "4bfae186a773f53492e3717f0a476f6ff98ed4e7f69671eecae9dbbc4cd27f48",
+  "setup_observer": {
+    "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/EndpointSetupUpdater.ps1",
+    "sha256": "b504a8fb96ead642262494b53327c0c5a01da49a0285d9190c0364da72e399aa",
+    "size": 107313,
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+    "version": "1.0.13"
+  },
+  "production_full_setup_update": {
+    "registered": true,
+    "release_id": "c35e3605-60ba-4e63-9aab-9843bc3a2e73",
+    "registered_utc": "2026-11-19T09:15:13.003Z",
+    "source_qualifications": [
+      {
+        "id": "99fc17e9-6af5-40ba-bd4c-51078142ffa1",
+        "release_id": "c35e3605-60ba-4e63-9aab-9843bc3a2e73",
+        "sha256": "7c278545e6ea37e38f55d9aa954c2622f5767aba789f225551c8fb445e1749a4",
+        "source_foundation": "3.2.205",
+        "evidence_code": "native0_sensor_source_verified",
+        "qualified_at": "2026-11-19T10:38:54.571385Z",
+        "expires_at": "2026-12-19T10:38:54.571385Z",
+        "evidence_assignment_id": "b3fab3e0-3532-432f-a6fd-cbc48a032836",
+        "device_id": "13f38b93-cc73-4130-b58c-41f534b1893e",
+        "attempt_id": "290cc8a8-f5a6-41b5-9d94-be32c6345eba",
+        "status": "applied",
+        "safe_code": "setup_post_restart_confirmed"
+      }
+    ],
+    "qualification_os_evidence": "Windows 11 IoT Enterprise LTSC 26100 x86_64",
+    "qualification_receipt": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/production-pilot-a2/production-qualified-264.json",
+      "sha256": "9940e0569d57793a272bad3e994251062633d30b9fe432ea875cfe82c0a80657"
+    },
+    "post_applied_watch": {
+      "minutes": 70,
+      "observations": 137,
+      "observed_session_drops": 0,
+      "observation_gaps": 0,
+      "receipt_archive": {
+        "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/production-pilot-a2/a2-264-native-and-70min-evidence.zip",
+        "sha256": "d8e56073d38fd8de315788e643fe9e0a6b76b5457a2c65e451b8adb900aa1e17"
+      }
+    },
+    "read_only_coverage_2026_11_20": {
+      "observed_at": "2026-11-19T19:29:28.921875+00:00",
+      "source": "deployed_fleet_policy_functions_in_read_only_transaction",
+      "draft_scope": "all_active",
+      "qualified_source": "3.2.205",
+      "devices_evaluated": 53,
+      "eligible": 5,
+      "already_current": 1,
+      "waiting_reconnect": 11,
+      "blocked": 17,
+      "outside_scope": 19,
+      "active_chains": 1,
+      "free_slots": 0,
+      "preview_receipt": {
+        "path": "C:/endpoint-platform-wix-build/stability-qualification-cohorts-20261120/eligible-preview.json",
+        "sha256": "6a7b526089b33bb25206c4151b56e379527cffa25925374c4fd9084c098943f7"
+      },
+      "saved_policy_receipt": {
+        "path": "C:/endpoint-platform-wix-build/stability-qualification-cohorts-20261120/fleet.json",
+        "sha256": "2bb86cee65c6c72f3e496bd6100d8ce77ffe69782bb6033f7d245ec714990bac"
+      }
+    },
+    "console_coverage": {
+      "scanned": 53,
+      "ready": 6,
+      "current": 1,
+      "waiting": 3,
+      "blocked": 24,
+      "free_slots": 0,
+      "receipt": {
+        "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/production-pilot-a2/console-coverage.txt",
+        "sha256": "680aebf4266dc0756cbcf2c3f8b770e7026465a603dbf3a417a6a9f993892a94"
+      },
+      "preview": {
+        "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/production-pilot-a2/console-preview.jpg",
+        "sha256": "37858d3acfcbc7cc023c9d70d9180d83aa1f6226489caa3910a76f20a94ab36f"
+      }
+    },
+    "production_primary": "3.2.205",
+    "fleet_revision": 21,
+    "fleet_enabled": false,
+    "fleet_rollout_started": false,
+    "registration_receipt": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/production-pilot-a2/setup264-operator-registration-trusted.json",
+      "sha256": "c991945a545663ff3fbbbe186543b6612dde945f6759bc88240c53f75a673e27"
+    },
+    "pilot": {
+      "hostname": "A2-MUNSLU-N",
+      "device_id": "13f38b93-cc73-4130-b58c-41f534b1893e",
+      "os": "Windows 11 IoT Enterprise LTSC 26100 x86_64",
+      "source_version": "3.2.205",
+      "source_ack_sequence": 7,
+      "assignment_id": "b3fab3e0-3532-432f-a6fd-cbc48a032836",
+      "attempt_id": "290cc8a8-f5a6-41b5-9d94-be32c6345eba",
+      "status": "applied",
+      "safe_code": "setup_post_restart_confirmed",
+      "applied_utc": "2026-11-19T09:27:23.023511Z",
+      "native_exit": 0,
+      "target_ack_sequence": 8,
+      "target_wss_session_id": "5f1b1eaa-277b-4955-a9a9-a2d5b8f5691d",
+      "connected_soak_seconds": 182.121,
+      "observer_version": "1.0.13",
+      "observer_ready": true,
+      "user_sensor_ready": true,
+      "passive_health_v1_completed": true,
+      "other_target_assignments": 0,
+      "fleet_enabled": false,
+      "report": "docs/verification/2026-11-19-windows264-production-pilot.md",
+      "terminal_receipt": {
+        "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/production-pilot-a2/a2-264-terminal.json",
+        "sha256": "96ca78ffc705bb23ddfb5d5cf396f03fde4be2a01e94f473c00b93adbd105ed8"
+      },
+      "passive_health_receipt": {
+        "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/production-pilot-a2/a2-264-health-passive-initial.json",
+        "sha256": "d5b01f1fcdb9eb76f19f754e4443132186cd6ef52afa84fd212ae6707dc4bcd4"
+      }
+    }
+  },
+  "production_operator_download": {
+    "url": "https://endpoint.sosnadmin.local/api/admin/console/installer/releases/f2c56512-a460-4b74-bbe6-b774be65fc8a/download",
+    "catalog_link_observed_in_authenticated_console": true,
+    "public_download": false,
+    "server_file_verified": true,
+    "authenticated_download_verified": true,
+    "download_receipt": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/production-pilot-a2/verified-operator-download-bytes.json",
+      "sha256": "2ba5d793630273220e294b3b15a387d7b27d5b746cdaae40c93d9ac519c61afd"
+    },
+    "receipt": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/production-pilot-a2/authorized-download-readonly.json",
+      "sha256": "08319a02cedef490425b7aa5ba06b2a84e76bde366d910af72b44a5df2d58867"
+    }
+  },
+  "production_native_accounting": {
+    "observed_utc": "2026-11-19T07:53:28.433164+00:00",
+    "registered": true,
+    "release_id": "f2c56512-a460-4b74-bbe6-b774be65fc8a",
+    "product_code": "{91ABECF5-E554-400E-8754-BA2DB02C080E}",
+    "published": false,
+    "primary_version": "3.2.205",
+    "auto_campaigns": 0,
+    "dispatch_releases": 0,
+    "assignments": 0,
+    "fleet_enabled": false,
+    "receipt": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/production-accounting/catalog-after264.json",
+      "sha256": "8795dd3c002564b62567a37f970f7996218fcd5ab6bec2949001050ce98d81e8"
+    },
+    "receipt_index": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/production-accounting/accounting264-receipts.sha256",
+      "sha256": "afa83508c9078d9e5f7cc5a3bd265292c051f83ba54a8f7967a885c761954bb8"
+    }
+  },
+  "verification_receipts": {
+    "local_build": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/setup264-local-build-proof.json",
+      "sha256": "ec1e77715ff107c27a58168ae70f39179f9509817b938ae24a198a94423bd196"
+    },
+    "windows_release_gate": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/release-gate/source.json",
+      "sha256": "14c7ec86ba646586d0beada6a6c419e71b0748a46725c1f5eb124a9290b54c5a",
+      "scope": "local_workflow_equivalent",
+      "passed": 3029,
+      "skipped": 4,
+      "errors": 0,
+      "failures": 0,
+      "junit": {
+        "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/release-gate/windows-264-release-gate.xml",
+        "sha256": "4ef3a95067810a0a1b6783d9e80b8496b8de295a3851e006cdd874acad9a05ad"
+      },
+      "receipt_manifest": {
+        "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/release-gate/receipts.sha256",
+        "sha256": "7c0294a60b528507ebe949b168e72b6112e3ff80b9f09f28981ed6a52d7ba7aa"
+      }
+    },
+    "shipped_wrapper": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/exact-wrapper-reuse.json",
+      "sha256": "c8d1565c0b3bde6fa22a6f97337f2550ef72681101ef3fb48660e834f89b755f"
+    },
+    "production_catalog_check": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/production-catalog-readonly.json",
+      "sha256": "79dff6e5a5bac16c28d94d372d8353d420428598a6616988d88f13c092bf8ba7"
+    },
+    "source_commits": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/verified-commits.txt",
+      "sha256": "421afc6517a45b5c32952837e34ed406de0ca38bb528c624827308ab1e62ebfe"
+    },
+    "native_qualification_archive": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/native-qualification-receipts.zip",
+      "sha256": "3c148f182ec82877eae60cfd46e1587636e37324c8852399c9155d755f77f622"
+    },
+    "initial_runtime_binding": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/initial-runtime-3.2.264.json",
+      "sha256": "ad91f77d4bd8dc3a3f646f41262f7ff2d9835e5fc0f153b7ce1d699879bf9a26"
+    },
+    "receipt_manifest": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/candidate-receipts.sha256",
+      "sha256": "099e3e7e322cd999f79116964f619bac6fa23ebf654de4f9c365cbeec8dd5946"
+    }
+  },
+  "report": "docs/verification/2026-11-19-stab15-windows-264-msi-hold.md",
+  "lab_qualification": {
+    "os": "Windows 10 Enterprise Evaluation 19045 x64",
+    "source_version": "3.2.192",
+    "direct_online_205": {
+      "source_version": "3.2.205",
+      "target_version": "3.2.264",
+      "result": "applied",
+      "lab_qualification_id": "288f96fc-1932-4d97-b120-6e8108dbaf46",
+      "connected_soak_seconds": 182.148,
+      "target_sensor_count": 1,
+      "health_command_completed": true,
+      "device_identity_preserved": true,
+      "report": "docs/verification/2026-11-19-stab15-windows-primary205-to-264.md",
+      "receipt_archive": {
+        "path": "C:/endpoint-platform-wix-build/stab15-win264-prod205-lab/win205-to264-native-evidence.zip",
+        "sha256": "6fd314b9a3fd74cd4c63616d2b2358d438da6f15223ebed356b47a6a4e2fe788"
+      }
+    },
+    "active_compound_msi_power_loss": {
+      "vm_id": 243,
+      "operation_id": "6d37c85e-5e97-4fd7-becc-33efb38c45cd",
+      "pending_native_attempt_id": "09db3110-b4a1-45f0-8e3c-304f1618db07",
+      "preserved_phase": "switching",
+      "preserved_sequence": 2,
+      "first_boot_task_result": 21,
+      "ordinary_restart_task_result": 21,
+      "new_msi_events_after_either_boot": false,
+      "source_operational": false,
+      "receipt": {
+        "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/native-lab-243/native-summary.json",
+        "sha256": "5ad9647a293a38f7cb4934fd29a2308415dfd329f97cbb6e39db921309672917"
+      }
+    },
+    "prepared_pre_msi_power_loss": {
+      "vm_id": 244,
+      "operation_id": "1a539ac4-7849-4349-b3b2-5f8aa84c2095",
+      "terminal_phase": "rolled-back",
+      "terminal_sequence": 2,
+      "safe_code": "preparation_cancelled",
+      "recorded_setup_result": 67,
+      "new_native_attempt_recorded": false,
+      "source_services_and_identity_preserved": true,
+      "receipt": {
+        "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-264/native-lab-244/native-summary.json",
+        "sha256": "b7e7a749bb9618964a3fd115eb3dc085bb224e7c022dda18657781bdfc2e03a3"
+      }
+    }
+  },
+  "windows_10_offline_reinstall_automatic_delivery": {
+    "os": "Windows 10 Enterprise Evaluation 19045 x64",
+    "source_version": "3.2.264",
+    "target_version": "3.2.264",
+    "removal_msi_status": 0,
+    "removal_wrapper_exit": null,
+    "reinstall_setup_exit": 10,
+    "same_device_and_generation": true,
+    "identity_files_preserved": 4,
+    "ordinary_restart_confirmed": true,
+    "automatic_delivery": true,
+    "installation_ack_sequences": [
+      5,
+      6
+    ],
+    "last_ack_seconds_after_link_restore": 35.55,
+    "new_msiexec_starts_during_delivery": 0,
+    "fresh_wss_and_health_completed": true,
+    "support_error": "support_dependency_recovery_required",
+    "report": "docs/verification/2026-11-19-stab15-windows-264-automatic-offline-delivery.md",
+    "receipt_archive": {
+      "path": "C:/endpoint-platform-wix-build/stab15-win264-automatic-offline-delivery/offline-auto-delivery-264.zip",
+      "sha256": "f6ce1b403d7c61943fd72ed028f472ba2bee27c7dc389069857c473834114333"
+    }
+  },
+  "windows_10_clean_offline_install": {
+    "os": "Windows 10 Enterprise Evaluation 19045.2006 x64",
+    "license_status": 5,
+    "grace_minutes": 0,
+    "candidate_msi_exit": 0,
+    "setup_exit": 41,
+    "setup_detail": "PROVISIONING_UNEXPECTED",
+    "installation_event_delivery": "awaiting_enrollment",
+    "exact_msi_and_core_retained_after_reboot": true,
+    "new_msi_events_after_reboot": false,
+    "device_identity_created": false,
+    "core_running": false,
+    "gateway_ack": false,
+    "report": "docs/verification/2026-11-19-stab15-windows10-264-clean-offline.md",
+    "receipt_index": {
+      "path": "C:/endpoint-platform-wix-build/stab15-win10-clean264-251/receipts.sha256",
+      "sha256": "32425ac6c88821f6eab78452b69c687f989bf28153a16bae7a16f439bb4c53d9"
+    }
+  },
+  "windows_10_offline_removal_before_enrollment": {
+    "os": "Windows 10 Enterprise Evaluation 19045.2006 x64",
+    "setup_install_exit": 41,
+    "msi_install_exit": 0,
+    "uninstall_wrapper_exit": 0,
+    "native_removal_exit": 0,
+    "removal_event_delivery": "undeliverable",
+    "msi_events_added_after_reboot": 0,
+    "remaining_after_reboot": ["installer-state", "installer-cache", "ProgramData Agent", "EndpointSetupUpdater"],
+    "report": "C:/endpoint-platform-wix-build/stab15-win10-clean-remove264-267/clean-offline-removal-264.md",
+    "receipt_index": {
+      "path": "C:/endpoint-platform-wix-build/stab15-win10-clean-remove264-267/receipts.sha256",
+      "sha256": "4bb1a152bfea1a8ff10044c9634d859e31902e1264a46eecce139f769c59b92e",
+      "file_count": 38
+    }
+  },
+  "windows_11_offline_trial": {
+    "os": "Windows 11 Enterprise LTSC 26100.9457 x64",
+    "source_version": "3.2.205",
+    "license_status": 5,
+    "grace_minutes": 0,
+    "preflight_exit": 0,
+    "candidate_msi_exit": 0,
+    "exact_trial_core_running": true,
+    "setup_exit": 67,
+    "result": "rolled_back",
+    "source_core_and_msi_restored": true,
+    "gateway_ack": false,
+    "report": "docs/verification/2026-11-19-stab15-windows11-264-offline-rollback.md",
+    "receipt_index": {
+      "path": "C:/endpoint-platform-wix-build/stab15-win11-offline264-250/receipts.sha256",
+      "sha256": "88191cc7b9d0a5a6d4eace918e7d9992c90f53e1fc03e669f24627be52a75ae2"
+    }
+  },
+  "windows_11_staging_local_upgrade": {
+    "os": "Windows 11 Enterprise LTSC 26100.9457 x64",
+    "source_version": "3.2.205",
+    "setup_exit": 0,
+    "msi_exit": 0,
+    "installation_ack_sequence": 8,
+    "same_device_and_generation": true,
+    "identity_files_preserved": 4,
+    "target_wss_observed_seconds": 240.579,
+    "subsequent_core_stop": {
+      "tray_reason": "TRANSPORT_TERMINAL",
+      "child_exit": 1,
+      "scm_event": 7024,
+      "utc": "2026-11-19T08:39:43.008580Z",
+      "confirmed_trigger": null,
+      "report": "docs/verification/2026-11-20-windows11-264-vm130-transport-stop.md",
+      "receipt": {
+        "path": "C:/endpoint-platform-wix-build/stab15-win11-online264-130/read-only-agent-stop-triage-20261120.json",
+        "sha256": "eba237740467b35d286afc13620e63063fe0cac0d22daa9349b42725c3acc945"
+      }
+    },
+    "console_assignment_exercised": false,
+    "report": "docs/verification/2026-11-19-stab15-windows11-264-staging-preflight.md",
+    "receipt_archive": {
+      "path": "C:/endpoint-platform-wix-build/stab15-win11-online264-130/win11-vm130-staging205-to264-evidence.zip",
+      "sha256": "37db1aaae8df55d6883a7286a78336e6f1b26832a8b4d6f3118b2a9665c94bfd"
+    }
+  },
+  "integration_fixture_change": "875914124cb0880e0e22d52adee0d6e8ef76f4ec"
+}

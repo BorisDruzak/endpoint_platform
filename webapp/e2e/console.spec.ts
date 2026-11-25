@@ -28,6 +28,7 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
       id: 'rollout-timing', version: '3.2.83', mode: 'canary', status: 'completed', counts: {},
       created_at: null, started_at: null, completed_at: null, reason: null, targets_total: 1,
       targets: [{ device_id: 'known', device_name: 'PC-KNOWN', status: 'failed', assigned_at: '2026-10-03T08:00:00Z',
+        assignment_id: 'd0d3f170-33ef-420a-9a84-8a725a607bb2', connection_state: 'offline',
         requested_at: '', scheduled_at: null, updated_at: '2026-10-03T08:02:00Z', terminal_at: '2026-10-03T08:02:00Z',
         safe_reason: null, report_status: 'failed', reported_version: '3.2.83',
         safe_code: '<img src=x onerror=alert(1)>', report_created_at: '2026-10-03T08:03:00Z' }],
@@ -37,7 +38,7 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
     await expect(page.getByRole('columnheader', { name: 'Foundation / Launcher' })).toBeVisible()
     await expect(page.getByText('Core новее Foundation · информационно')).toBeVisible()
     const unknown = page.getByRole('row').filter({ hasText: 'Без Foundation' })
-    await expect(unknown.getByText('В сети', { exact: true })).toBeVisible()
+    await expect(unknown.getByText('Установка не подтверждена · в сети', { exact: true })).toBeVisible()
     await expect(unknown.getByText('Неизвестна')).toBeVisible()
     await page.getByLabel('Core Agent ниже версии', { exact: true }).fill('3.2.82')
     await page.getByLabel('Foundation ниже версии', { exact: true }).fill('3.2.83')
@@ -53,6 +54,8 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
     const dialog = page.getByRole('dialog', { name: 'Развёртывание', exact: true })
     await expect(dialog).toBeVisible()
     await expect(dialog.getByText('Последний отчёт', { exact: true })).toBeVisible()
+    await expect(dialog.getByText('Нет свежей связи', { exact: true })).toBeVisible()
+    await expect(dialog.getByText('d0d3f170-33ef-420a-9a84-8a725a607bb2')).toBeVisible()
     await expect(dialog.getByText('<img src=x onerror=alert(1)>', { exact: true })).toBeVisible()
     await expect(dialog.locator('img')).toHaveCount(0)
     await expect(dialog.getByText('3 окт. 2026 г., 13:03')).toBeVisible()
@@ -78,6 +81,9 @@ test('administrator can approve enrollment, roll back an update and run a module
   await expect(page.getByText('Тестовый компьютер')).toBeVisible()
   await page.getByRole('link', { name: 'Открыть' }).first().click()
   await expect(page.getByRole('heading', { name: 'Тестовый компьютер' })).toBeVisible()
+  const components = page.getByRole('region', { name: 'Компоненты агента' })
+  await expect(components.getByText('Updater', { exact: true })).toBeVisible()
+  await expect(components.getByText('Подтверждение SSH отсутствует')).toBeVisible()
   await expect(page.getByText(/Windows 11.*Агент/)).toBeVisible()
   await page.getByRole('button', { name: 'Контекст' }).click()
   await expect(page.getByText('Свежесть: Актуален')).toBeVisible()

@@ -23,8 +23,10 @@ from sqlalchemy.schema import CreateIndex
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from endpoint_contracts.capabilities import MODULE_CAPABILITY_REGISTRY
+from endpoint_server.context.models import ContextCollection
 from endpoint_server.db.models import DeviceSession, EndpointOperation
 from endpoint_server.modules.execution_routes import _project_module_operation
+from tests.server.test_update_postgresql import update_migration_database_urls
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -151,7 +153,189 @@ def test_migration_history_has_exactly_one_head() -> None:
         _alembic_config("postgresql+asyncpg://unused@127.0.0.1/unused")
     )
 
-    assert script.get_heads() == ["0040_cups_operations"]
+    assert script.get_heads() == ["0057_stability_cups_merge"]
+    merged = script.get_revision("0057_stability_cups_merge")
+    assert merged.is_merge_point
+    assert merged.down_revision == ("0056_context_collection_history", "0040_cups_operations")
+    assert script.get_revision("0040_cups_operations").down_revision == "0039_power_source_state"
+    assert script.get_revision("0056_context_collection_history").down_revision == "0055_command_delivery_lookup"
+    assert script.get_revision("0055_command_delivery_lookup").down_revision == "0054_periodic_context_profiles"
+    assert script.get_revision("0054_periodic_context_profiles").down_revision == "0053_activity_dirty_since"
+    assert script.get_revision("0053_activity_dirty_since").down_revision == "0052_inventory_installation"
+    assert script.get_revision("0052_inventory_installation").down_revision == "0051_staging_linux_worktime"
+    merge = script.get_revision("0051_staging_linux_worktime")
+    assert merge.is_merge_point
+    assert merge.down_revision == ("0050_linux_enrollment_binding", "0044_worktime_helpdesk")
+
+
+@pytest.mark.parametrize("starting_revision", ["0056_context_collection_history", "0040_cups_operations"])
+def test_stability_cups_merge_preserves_existing_rows(empty_database_url: str, starting_revision: str) -> None:
+    config = _alembic_config(empty_database_url)
+    plain_url = make_url(empty_database_url).set(drivername="postgresql").render_as_string(hide_password=False)
+    command.upgrade(config, starting_revision)
+    device_id = uuid4()
+    asyncio.run(_execute(plain_url, f"INSERT INTO devices (id, device_identifier) VALUES ('{device_id}', 'merge-device')"))
+    if starting_revision == "0040_cups_operations":
+        client_id = uuid4()
+        asyncio.run(_execute(plain_url, f"""
+            INSERT INTO service_clients (id, client_identifier, display_name)
+            VALUES ('{client_id}', 'merge-client', 'Merge fixture');
+            INSERT INTO endpoint_operations
+                (id, requested_by_service_client_id, device_id, idempotency_key, capability,
+                 parameters, status, deadline_at, completed_at, action_result)
+            VALUES ('{uuid4()}', '{client_id}', '{device_id}', 'merge-operation',
+                    'printer.cups.testpage.submit', '{{}}', 'succeeded', now() + interval '1 minute',
+                    now(), '{{"job_id": 11}}');
+        """))
+
+    command.upgrade(config, "head")
+    revisions = "SELECT version_num FROM alembic_version"
+    assert [row["version_num"] for row in asyncio.run(_fetch(plain_url, revisions))] == ["0057_stability_cups_merge"]
+    assert asyncio.run(_fetch(plain_url, "SELECT id FROM devices"))[0]["id"] == device_id
+    index_query = "SELECT to_regclass('ix_context_collections_device_profile_requested') AS history_index"
+    assert asyncio.run(_fetch(plain_url, index_query))[0]["history_index"] is not None
+    results = asyncio.run(_fetch(plain_url, "SELECT action_result->>'job_id' AS job_id FROM endpoint_operations"))
+    assert [row["job_id"] for row in results] == (["11"] if starting_revision == "0040_cups_operations" else [])
+
+    command.downgrade(config, "0056_context_collection_history")
+    assert {row["version_num"] for row in asyncio.run(_fetch(plain_url, revisions))} == {
+        "0056_context_collection_history", "0040_cups_operations",
+    }
+    command.upgrade(config, "head")
+    assert [row["version_num"] for row in asyncio.run(_fetch(plain_url, revisions))] == ["0057_stability_cups_merge"]
+    assert asyncio.run(_fetch(plain_url, "SELECT action_result->>'job_id' AS job_id FROM endpoint_operations")) == results
+
+
+def test_periodic_context_profile_migration_preserves_unknown_and_empty(empty_database_url: str):
+    config = _alembic_config(empty_database_url)
+    plain_url = make_url(empty_database_url).set(drivername="postgresql").render_as_string(hide_password=False)
+    command.upgrade(config, "0053_activity_dirty_since")
+    insert_device = "INSERT INTO devices (id, device_identifier) VALUES ('%s', '%s')"
+    legacy_id, known_id = uuid4(), uuid4()
+    asyncio.run(_execute(plain_url, insert_device % (legacy_id, "legacy-context")))
+    command.upgrade(config, "0054_periodic_context_profiles")
+    asyncio.run(_execute(plain_url, insert_device % (known_id, "known-context")))
+    asyncio.run(_execute(plain_url,
+        "UPDATE devices SET scheduled_context_profiles = '[]' "
+        f"WHERE id = '{known_id}'"))
+    rows = asyncio.run(_fetch(plain_url,
+        "SELECT device_identifier, scheduled_context_profiles::text AS profiles "
+        "FROM devices ORDER BY device_identifier"))
+    assert [(row["device_identifier"], row["profiles"]) for row in rows] == [
+        ("known-context", "[]"), ("legacy-context", None),
+    ]
+    command.downgrade(config, "0053_activity_dirty_since")
+    rows = asyncio.run(_fetch(plain_url, "SELECT id FROM devices"))
+    assert {row["id"] for row in rows} == {legacy_id, known_id}
+    command.upgrade(config, "0054_periodic_context_profiles")
+    rows = asyncio.run(_fetch(plain_url, "SELECT scheduled_context_profiles FROM devices"))
+    assert len(rows) == 2 and all(row["scheduled_context_profiles"] is None for row in rows)
+
+
+def test_command_delivery_index_round_trip_preserves_rows(empty_database_url: str) -> None:
+    config = _alembic_config(empty_database_url)
+    plain_url = make_url(empty_database_url).set(drivername="postgresql").render_as_string(hide_password=False)
+    command.upgrade(config, "0054_periodic_context_profiles")
+    device_id, command_id = uuid4(), uuid4()
+    first_delivery, second_delivery = uuid4(), uuid4()
+    asyncio.run(_execute(plain_url, f"""
+        INSERT INTO devices (id, device_identifier) VALUES ('{device_id}', 'legacy-command-device');
+        INSERT INTO commands (id, command_identifier, device_id, command_kind, status)
+            VALUES ('{command_id}', 'legacy-command', '{device_id}', 'context.health.collect', 'delivered');
+        INSERT INTO command_deliveries (id, command_id, delivery_identifier, status) VALUES
+            ('{first_delivery}', '{command_id}', 'first-delivery', 'delivered'),
+            ('{second_delivery}', '{command_id}', 'second-delivery', 'acknowledged');
+        """))
+    row_query = "SELECT id, command_id, status FROM command_deliveries ORDER BY delivery_identifier"
+    index_query = """
+        SELECT indisvalid, indisunique, indnkeyatts, pg_get_indexdef(indexrelid, 1, true) AS indexed_column
+        FROM pg_index
+        WHERE indrelid = 'command_deliveries'::regclass
+          AND indexrelid = to_regclass('ix_command_deliveries_command_id')
+    """
+    expected_rows = [
+        (first_delivery, command_id, "delivered"),
+        (second_delivery, command_id, "acknowledged"),
+    ]
+
+    command.upgrade(config, "head")
+    indexes = asyncio.run(_fetch(plain_url, index_query))
+    assert [tuple(row) for row in indexes] == [(True, False, 1, "command_id")]
+    assert [tuple(row) for row in asyncio.run(_fetch(plain_url, row_query))] == expected_rows
+
+    command.downgrade(config, "0054_periodic_context_profiles")
+    assert not asyncio.run(_fetch(plain_url, index_query))
+    assert [tuple(row) for row in asyncio.run(_fetch(plain_url, row_query))] == expected_rows
+
+
+def test_context_collection_history_index_order_matches_model() -> None:
+    index, = (
+        index for index in ContextCollection.__table__.indexes
+        if index.name == "ix_context_collections_device_profile_requested"
+    )
+    ddl = str(CreateIndex(index).compile(dialect=postgresql.dialect()))
+    assert ddl == (
+        "CREATE INDEX ix_context_collections_device_profile_requested ON context_collections "
+        "(device_id, profile, requested_at DESC, id DESC)"
+    )
+
+
+def test_context_collection_history_index_round_trip_preserves_rows(empty_database_url: str) -> None:
+    config = _alembic_config(empty_database_url)
+    plain_url = make_url(empty_database_url).set(drivername="postgresql").render_as_string(hide_password=False)
+    command.upgrade(config, "0055_command_delivery_lookup")
+    device_id = uuid4()
+    asyncio.run(_execute(plain_url, f"""
+        INSERT INTO devices (id, device_identifier) VALUES ('{device_id}', 'context-history-device');
+        INSERT INTO context_collections (id, device_id, profile, requested_by, idempotency_key, status, requested_at)
+        VALUES
+            ('{uuid4()}', '{device_id}', 'health_v1', 'scheduler', 'completed', 'completed', '2026-01-01 00:00:00+00'),
+            ('{uuid4()}', '{device_id}', 'health_v1', 'scheduler', 'requested', 'requested', '2026-01-01 00:00:00+00');
+    """))
+    rows_query = "SELECT to_jsonb(collection)::text FROM context_collections AS collection ORDER BY id"
+    original = asyncio.run(_fetch(plain_url, rows_query))
+    assert len(original) == 2
+    index_query = """
+        SELECT indisvalid, indisunique, indnkeyatts, pg_get_indexdef(indexrelid) AS definition
+        FROM pg_index
+        WHERE indrelid = 'context_collections'::regclass
+          AND indexrelid = to_regclass('ix_context_collections_device_profile_requested')
+    """
+    assert not asyncio.run(_fetch(plain_url, index_query))
+
+    command.upgrade(config, "head")
+    index, = asyncio.run(_fetch(plain_url, index_query))
+    assert (index["indisvalid"], index["indisunique"], index["indnkeyatts"]) == (True, False, 4)
+    assert index["definition"].endswith("(device_id, profile, requested_at DESC, id DESC)")
+    assert asyncio.run(_fetch(plain_url, rows_query)) == original
+
+    command.downgrade(config, "0055_command_delivery_lookup")
+    assert not asyncio.run(_fetch(plain_url, index_query))
+    assert asyncio.run(_fetch(plain_url, rows_query)) == original
+
+
+def test_candidate_visibility_migration_preserves_legacy_default_and_roundtrip(update_migration_database_urls):
+    database_url, plain_url = update_migration_database_urls
+    config = _alembic_config(database_url)
+    command.upgrade(config, '0047_support_install_access')
+    insert = """INSERT INTO windows_setup_releases
+        (id, version, agent_version, artifact_identifier, filename, setup_sha256, msi_sha256,
+         source_commit, msi_source_commit, authenticode_status, msi_authenticode_status)
+        VALUES ('%s', '%s', '%s', '%s.exe', '%s.exe', '%s', '%s', '%s', '%s', 'valid', 'valid')"""
+    def add(version):
+        asyncio.run(_execute(plain_url, insert % (uuid4(), version, version, version, version,
+            'a' * 64, 'b' * 64, 'c' * 40, 'd' * 40)))
+    add('3.2.176')
+    command.upgrade(config, '0048_installation_lifecycle')
+    add('3.2.178')
+    rows = asyncio.run(_fetch(plain_url, 'SELECT download_published, product_code FROM windows_setup_releases'))
+    assert len(rows) == 2 and all(row['download_published'] is True and row['product_code'] is None for row in rows)
+    command.downgrade(config, '0047_support_install_access')
+    rows = asyncio.run(_fetch(plain_url, 'SELECT version FROM windows_setup_releases ORDER BY version'))
+    assert [row['version'] for row in rows] == ['3.2.176', '3.2.178']
+    command.upgrade(config, '0048_installation_lifecycle')
+    assert all(row['download_published'] is True for row in asyncio.run(_fetch(plain_url,
+        'SELECT download_published FROM windows_setup_releases')))
 
 
 def test_launcher_foundation_migration_only_adds_nullable_columns():

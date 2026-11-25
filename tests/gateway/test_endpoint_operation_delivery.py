@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, event, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from endpoint_contracts import (
@@ -50,6 +50,7 @@ from endpoint_server.operations.service import create_operation_outcome
 from endpoint_server.modules.operation_service import create_module_parent_operation
 from endpoint_server.policy.network_targets import NetworkTargetPolicyV1
 from endpoint_server.worker import run_worker
+from tests.server.test_update_postgresql import update_service_database_url, update_service_provider
 
 from .conftest import (
     VALID_TOKEN,
@@ -107,11 +108,12 @@ async def _seed_module_operation(
     device_id: UUID,
     version_state: str = "published",
     execution_mode: str = "published",
+    before_commit=None,
 ) -> EndpointOperation:
     recipe = EndpointRecipeModuleSpecV1.model_validate(
         {
             "schema_version": "endpoint_recipe_module_v1",
-            "module_key": "network.dnsping",
+            "module_key": f"network.dnsping{uuid4().hex}",
             "supported_platforms": ["linux_amd64"],
             "inputs": [{"name": "target", "value_type": "string"}],
             "steps": [
@@ -175,6 +177,8 @@ async def _seed_module_operation(
             execution_mode=execution_mode,
         )
         assert created is True
+        if before_commit is not None:
+            await before_commit(session)
         await session.commit()
         return operation
 
@@ -429,6 +433,110 @@ async def test_lab_parent_latches_platform_only_when_a_child_is_delivered(
     assert operation.parameters == {"execution_mode": "lab"}
 
 
+async def _assert_idle_gateway_discovers_operation(session_provider, kind):
+    capabilities, expected = {
+        "diagnostic": (["context.diagnostic.collect"], "context.diagnostic.collect"),
+        "module": (["dns.resolve", "network.ping"], "dns.resolve"),
+    }[kind]
+    from endpoint_server.gateway.connection_registry import ConnectionRegistry, GatewayConnection
+    from endpoint_server.gateway.scheduled_dispatch import run_scheduled_dispatch
+
+    device = await seed_device(session_provider, token=uuid4().hex)
+    presence = await _open_session(
+        session_provider, device_id=device.id, capabilities=capabilities,
+    )
+    received = asyncio.Queue()
+
+    class Socket:
+        async def send_json(self, frame):
+            await received.put(CommandEnvelopeV1.model_validate(frame))
+
+    registry = ConnectionRegistry()
+    connection = GatewayConnection(
+        device.id, presence.session_id, Socket(), platform="linux_amd64",
+        effective_capabilities=frozenset(capabilities),
+    )
+    await registry.register(connection)
+    connection.ready_for_dispatch.set()
+    dispatcher = asyncio.create_task(run_scheduled_dispatch(registry, session_provider))
+    try:
+        if kind == "diagnostic":
+            operation = await _seed_operation(session_provider, device_id=device.id)
+        else:
+            operation = await _seed_module_operation(session_provider, device_id=device.id)
+            assert await CommandService(session_provider).scheduled_pending_devices({
+                device.id: frozenset({"network.ping"}),
+            }) == ()
+        frame = await asyncio.wait_for(received.get(), timeout=4)
+        assert frame.payload.capability == expected
+        assert frame.payload.correlation.request_id == operation.id
+        # A repeat scan must not ask the same open session to replay a delivery.
+        assert await CommandService(session_provider).scheduled_pending_devices({
+            device.id: frozenset(capabilities),
+        }) == ()
+    finally:
+        dispatcher.cancel()
+        await asyncio.gather(dispatcher, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["diagnostic", "module"])
+async def test_idle_gateway_discovers_new_operation(session_provider, kind):
+    await _assert_idle_gateway_discovers_operation(session_provider, kind)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["diagnostic", "module"])
+async def test_postgresql_idle_gateway_discovers_new_operation(update_service_provider, kind):
+    await _assert_idle_gateway_discovers_operation(update_service_provider, kind)
+
+
+@pytest.mark.asyncio
+async def test_postgresql_delivery_checks_module_after_waiting_for_device_lock(update_service_provider):
+    provider = update_service_provider
+    device = await seed_device(provider, token=uuid4().hex)
+    capabilities = ["context.health.collect", "dns.resolve", "network.ping"]
+    connection = await _open_session(provider, device_id=device.id, capabilities=capabilities)
+    async with provider() as session:
+        session.add(ContextCollection(
+            device_id=device.id, profile="health_v1", requested_by="operator",
+            idempotency_key="ordinary-while-module-commits", status="requested", requested_at=datetime.now(UTC),
+        ))
+        await session.commit()
+
+    inserted, release_writer = asyncio.Event(), asyncio.Event()
+    writer_pid = None
+
+    async def wait_to_commit(session):
+        nonlocal writer_pid
+        writer_pid = await session.scalar(text("SELECT pg_backend_pid()"))
+        inserted.set()
+        await release_writer.wait()
+
+    sent = []
+    async with asyncio.timeout(8), asyncio.TaskGroup() as tasks:
+        writer = tasks.create_task(_seed_module_operation(
+            provider, device_id=device.id, before_commit=wait_to_commit,
+        ))
+        await inserted.wait()
+        delivery = tasks.create_task(CommandService(provider).deliver_next(
+            device.id, connection.session_id, sent.append,
+            allowed_capabilities=frozenset(capabilities), agent_platform="linux_amd64",
+        ))
+        async with provider() as observer:
+            while not await observer.scalar(text(
+                "SELECT EXISTS (SELECT 1 FROM pg_stat_activity "
+                "WHERE :writer_pid = ANY(pg_blocking_pids(pid)))"
+            ), {"writer_pid": writer_pid}):
+                await observer.rollback()
+                await asyncio.sleep(0.01)
+        release_writer.set()
+        module = await writer
+        assert await delivery is True
+    assert [item.payload.capability for item in sent] == ["dns.resolve"]
+    assert sent[0].payload.correlation.request_id == module.id
+
+
 @pytest.mark.asyncio
 async def test_module_parent_is_absent_from_http_pull_and_wss_delivers_one_typed_child(
     session_provider: async_sessionmaker[AsyncSession],
@@ -565,6 +673,9 @@ async def test_module_child_ack_and_result_advance_the_next_typed_step(
             completed_at=acknowledged_at,
         ),
     )
+    assert await CommandService(session_provider).scheduled_pending_devices({
+        device.id: frozenset({"network.ping"}),
+    }) == (device.id,)
     second: list[CommandEnvelopeV1] = []
     assert await CommandService(session_provider).deliver_next(
         device.id,
@@ -1714,6 +1825,48 @@ async def test_failed_result_safely_terminalizes_operation_without_snapshot(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("expired_owner", [None, "command", "operation"])
+async def test_gateway_commits_start_or_returns_cancel_under_deadline_lock(
+    session_provider, expired_owner,
+):
+    device = await seed_device(session_provider)
+    operation = await _seed_operation(
+        session_provider, device_id=device.id, now=datetime.now(UTC) - timedelta(minutes=1),
+    )
+    presence = await _open_session(session_provider, device_id=device.id)
+    envelope = await _deliver_operation(
+        session_provider, device_id=device.id, session_id=presence.session_id,
+    )
+    command_id = envelope.payload.command_id
+    if expired_owner is not None:
+        async with session_provider() as session:
+            persisted = await session.get(EndpointOperation, operation.id)
+            command = await session.get(Command, command_id)
+            expired_at = datetime.now(UTC) - timedelta(seconds=1)
+            if expired_owner == "command":
+                command.expires_at = expired_at
+            else:
+                persisted.deadline_at = expired_at
+            await session.commit()
+    decision = await CommandService(session_provider).record_ack(
+        device_id=device.id, session_id=presence.session_id, start_permission=True,
+        acknowledgement=AgentCommandAckV1(
+            schema_version="agent_command_ack_v1", command_id=command_id, device_id=device.id,
+            status="running", acknowledged_at=datetime.now(UTC),
+        ),
+    )
+    expired = expired_owner is not None
+    assert decision.kind == ("command_cancel" if expired else "command_start")
+    assert decision.payload.command_id == command_id
+    if expired:
+        assert decision.payload.reason == "expired"
+    async with session_provider() as session:
+        persisted = await session.get(EndpointOperation, operation.id)
+        command = await session.get(Command, command_id)
+        assert persisted.status == command.status == ("delivered" if expired else "running")
+
+
+@pytest.mark.asyncio
 async def test_result_received_after_server_deadline_cannot_complete_operation(
     session_provider: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -1751,6 +1904,16 @@ async def test_result_received_after_server_deadline_cannot_complete_operation(
                 completed_at=server_now - timedelta(seconds=2),
             ),
         )
+
+    late = await CommandService(session_provider).record_result(
+        device_id=device.id,
+        device_instance_id=presence.device_instance_id,
+        session_id=presence.session_id,
+        result_sequence=2,
+        result=_diagnostic_result(command_id=envelope.payload.command_id, device_id=device.id),
+        durable_replay=True,
+    )
+    assert late.payload.result_sequence == 2
 
     async with session_provider() as session:
         persisted = await session.get(EndpointOperation, operation.id)
@@ -1912,8 +2075,55 @@ async def test_mismatched_diagnostic_reason_rolls_back_without_result_ack(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("reconnected", [False, True])
+async def test_durable_result_reuses_verified_session_owner(
+    session_provider: async_sessionmaker[AsyncSession],
+    reconnected: bool,
+) -> None:
+    device = await seed_device(session_provider)
+    await _seed_operation(session_provider, device_id=device.id)
+    instance_id = uuid4()
+    delivery_owner = await _open_session(session_provider, device_id=device.id, instance_id=instance_id)
+    delivery = await _deliver_operation(
+        session_provider, device_id=device.id, session_id=delivery_owner.session_id,
+    )
+    result_owner = delivery_owner
+    if reconnected:
+        result_owner = await _open_session(session_provider, device_id=device.id, instance_id=instance_id)
+    result = _diagnostic_result(command_id=delivery.payload.command_id, device_id=device.id)
+    engine = session_provider.kw["bind"].sync_engine
+    owner_lookups = 0
+
+    def count_owner_lookups(_conn, _cursor, statement, _parameters, _context, _many):
+        nonlocal owner_lookups
+        if " ".join(statement.split()).startswith(
+            "SELECT device_sessions.device_instance_id FROM device_sessions "
+        ):
+            owner_lookups += 1
+
+    event.listen(engine, "before_cursor_execute", count_owner_lookups)
+    try:
+        ack = await CommandService(session_provider).record_result(
+            device_id=device.id,
+            device_instance_id=result_owner.device_instance_id,
+            session_id=result_owner.session_id,
+            result_sequence=1,
+            result=result,
+            durable_replay=True,
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", count_owner_lookups)
+
+    assert ack.payload.command_id == delivery.payload.command_id
+    assert ack.payload.result_sequence == 1
+    assert owner_lookups == int(reconnected)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("first_result_after_reconnect", [False, True])
 async def test_reconnect_duplicate_is_idempotent_but_conflicting_result_rejects(
     session_provider: async_sessionmaker[AsyncSession],
+    first_result_after_reconnect: bool,
 ) -> None:
     """Reconnect replay may recover an ACK but must never replace terminal content."""
     device = await seed_device(session_provider)
@@ -1934,13 +2144,14 @@ async def test_reconnect_duplicate_is_idempotent_but_conflicting_result_rejects(
         command_id=first_delivery.payload.command_id,
         device_id=device.id,
     )
-    await service.record_result(
-        device_id=device.id,
-        device_instance_id=first.device_instance_id,
-        session_id=first.session_id,
-        result_sequence=9,
-        result=result,
-    )
+    if not first_result_after_reconnect:
+        await service.record_result(
+            device_id=device.id,
+            device_instance_id=first.device_instance_id,
+            session_id=first.session_id,
+            result_sequence=9,
+            result=result,
+        )
     reconnected = await _open_session(
         session_provider,
         device_id=device.id,
@@ -1953,6 +2164,7 @@ async def test_reconnect_duplicate_is_idempotent_but_conflicting_result_rejects(
         session_id=reconnected.session_id,
         result_sequence=1,
         result=result,
+        durable_replay=first_result_after_reconnect,
     )
     assert duplicate_ack.payload.result_sequence == 1
     conflicting = result.model_copy(update={"message": "conflicting terminal replay"})
@@ -1963,6 +2175,7 @@ async def test_reconnect_duplicate_is_idempotent_but_conflicting_result_rejects(
             session_id=reconnected.session_id,
             result_sequence=2,
             result=conflicting,
+            durable_replay=first_result_after_reconnect,
         )
     different_instance = await _open_session(
         session_provider,
@@ -1976,6 +2189,7 @@ async def test_reconnect_duplicate_is_idempotent_but_conflicting_result_rejects(
             session_id=different_instance.session_id,
             result_sequence=1,
             result=result,
+            durable_replay=first_result_after_reconnect,
         )
 
     async with session_provider() as session:

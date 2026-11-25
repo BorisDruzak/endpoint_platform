@@ -39,6 +39,7 @@ async def next_command(request: Request) -> AgentCommandV1 | Response:
                 session,
                 device_id=principal.device.id,
                 source_address=str(observed_client_address(request)),
+                command_poll=True,
             )
             command = await next_pending_command(session, principal.device.id)
             await session.commit()

@@ -53,15 +53,25 @@ def staged(inputs,tmp_path,monkeypatch):
         (acl,('apply_tray_status_acl',)),(service_launcher,('stop_tray_companions',))):
         for name in names:
             monkeypatch.setattr(module,name,lambda *_a,name=name,**_k:events.append(name))
-    monkeypatch.setattr(bridge,'_settled',lambda *_:None)
+    monkeypatch.setattr(bridge,'_settled',lambda *_a,**_k:None)
+    from pc_agent.platform.windows import native_setup_continuation
+    monkeypatch.setattr(native_setup_continuation, 'reserve_native_continuation',
+        lambda *_a: events.append('reserve-continuation'))
     monkeypatch.setattr(bridge,'_matching_inspection',lambda *_a,**_k:events.append('inspection'))
     monkeypatch.setattr(provenance,'inspect_installed_core',lambda *_a,**_k:SimpleNamespace(
         current=SimpleNamespace(digest=cap['selected']),previous=None))
     monkeypatch.setattr(msi_inventory,'read_native_selector',lambda *_:b'exact authored selector fixture')
-    for name in ('prepare_installer_provenance','validate_interrupted_reconciliation','validate_maintenance_recovery'):
+    for name in ('prepare_installer_provenance','validate_maintenance_recovery'):
         monkeypatch.setattr(provenance,name,lambda *_a,name=name,**_k:events.append(name))
     monkeypatch.setattr(msi_inventory,'verify_installed',lambda *_:events.append('native-new-verified'))
     monkeypatch.setattr(msi_inventory,'verify_foundation',lambda *_a,**_k:events.append('native-old-foundation-verified'))
+    monkeypatch.setattr(msi_inventory,'verify_interrupted_foundation',
+        lambda *_a,**_k:events.append('native-old-interrupted-verified') or {'current.json'})
+    def validate_reconciliation(*_a, allow_native_absence=False, **_k):
+        events.append('validate_interrupted_reconciliation')
+        if allow_native_absence:
+            events.append('allow-removed-current')
+    monkeypatch.setattr(provenance,'validate_interrupted_reconciliation',validate_reconciliation)
     monkeypatch.setattr(msi_inventory,'verify_replaced_product',lambda *_a,**_k:events.append('old-owner-absent'),raising=False)
     monkeypatch.setattr(provenance,'retire_maintenance_authority',lambda *_a:events.append('retire-old-authority'))
     monkeypatch.setattr(provenance,'reconcile_installed_core',lambda *_a,**_k:events.append('reconcile-core') or 'migrated')
@@ -171,6 +181,7 @@ def test_commit_retirement_reconcile_and_finish_keep_barrier_until_final_checks(
     with fence.child_fence(client.capability['transaction_id']):assert fence.read_fence(paths) is None
     assert 'retire-old-authority' in events and events.index('old-owner-absent')<events.index('retire-old-authority')
     assert events.index('retire-old-authority')<events.index('reconcile-core')<events.index('restore-services')
+    assert events.index('restore-services') < events.index('reserve-continuation')
     client.phase='compound-complete';bridge.execute_authorized_phase(client,paths)
     assert plan.has_active_upgrade(paths)
     archived=plan._root(paths,client.capability)
@@ -276,14 +287,41 @@ def test_failure_after_ready_write_preserves_parent_and_never_acknowledges_compl
     assert (fence.state_root(paths)/'upgrade.json').exists()
 
 
-@pytest.mark.parametrize('mode',['replace-foundation','repair-successor'])
-def test_recovery_prepare_preserves_original_proofs_and_uses_new_child_attempt(staged,mode):
+@pytest.mark.parametrize(('mode','interruption'), [
+    ('replace-foundation', None), ('repair-successor', None),
+    ('replace-foundation', 'partial'), ('replace-foundation', 'wrong-package'),
+    ('replace-foundation', 'legacy-starting'),
+])
+def test_recovery_prepare_preserves_original_proofs_and_uses_new_child_attempt(
+        staged, monkeypatch, mode, interruption):
     from hashlib import sha256
     from pc_agent.platform.windows.compound_installer import _child
     paths,client,old,original_fence,native,events,done=staged
     bridge.execute_authorized_phase(client,paths)
     original_cap=deepcopy(client.capability);root=fence.state_root(paths)
     (root/'capabilities'/(original_cap['session_id']+'.json')).write_text(json.dumps(original_cap))
+    record = plan.read_plan(paths, original_cap)
+    if mode == 'repair-successor':
+        # The old test inferred settlement from installed product states. Use an
+        # authenticated compound End before admitting a successor repair.
+        for phase in ('old-script-returned', 'new-script-returned', 'committed'):
+            plan.advance_plan(paths, original_cap, phase, native_result=0)
+    elif interruption != 'legacy-starting':
+        from datetime import UTC, datetime
+        from pc_agent.platform.windows import staged_update_state
+
+        # A bound online stage with no reboot.json still precedes the MSI
+        # attempt. The standalone msi-starting fence gives no such proof.
+        old_release, new_release = record['old']['package'], record['new']['package']
+        binding = staged_update_state.StagedUpdateBinding(
+            record['new']['transaction_id'], old_release, new_release,
+            json.dumps({'version': old_release['version']}).encode(),
+            None, 'a' * 64, None, new_release['version'], new_release['source_revision'], 'b' * 64,
+        )
+        stage = staged_update_state.StagedUpdateRecord(
+            binding, 'switching', 2, None, record['owner'], datetime.now(UTC), None,
+        )
+        monkeypatch.setattr(staged_update_state, 'read_staged_update', lambda _: stage)
     original_plan=plan._root(paths,original_cap)/'plan.json';before=original_plan.read_bytes()
     original_child=root/'children'/original_cap['transaction_id']/'transaction.json';child_before=original_child.read_bytes()
     current=deepcopy(original_cap)
@@ -300,8 +338,29 @@ def test_recovery_prepare_preserves_original_proofs_and_uses_new_child_attempt(s
         (root/'capabilities'/(old_current['session_id']+'.json')).write_text(json.dumps(old_current))
     else:
         native[old['package']['product_code']]=-1;native[current['package']['product_code']]=5
+    active_path = root/'transaction.json'
+    if interruption == 'partial':
+        active_path.write_text(json.dumps({**original_fence, 'phase':'msi-executing', 'sequence':2}))
+    if interruption == 'wrong-package':
+        active = deepcopy(original_fence)
+        active['package']['package_code'] = '{BBBBBBBB-BBBB-4BBB-8BBB-BBBBBBBBBBBB}'
+        active_path.write_text(json.dumps(active))
     client.capability=current;client.phase='prepare';events.clear();done.clear()
+    if interruption:
+        active_before = active_path.read_bytes()
+        barrier = root/'upgrade.json'
+        barrier_before = barrier.read_bytes()
+        error = 'PROVENANCE_CONFLICT' if interruption == 'wrong-package' else 'MSI_OUTCOME_UNCONFIRMED'
+        with pytest.raises(ValueError, match=error):
+            bridge.execute_authorized_phase(client,paths)
+        assert not done and not events
+        assert original_plan.read_bytes() == before and original_child.read_bytes() == child_before
+        assert active_path.read_bytes() == active_before and barrier.read_bytes() == barrier_before
+        assert not plan._root(paths, current).exists()
+        return
     bridge.execute_authorized_phase(client,paths)
+    assert 'native-old-interrupted-verified' not in events
+    assert 'allow-removed-current' not in events
     assert done==[('complete',{'result':'compound-recovery-prepared','mode':mode})]
     assert 'data-prepare' not in events and 'prepare_installer_provenance' not in events
     assert events.index('data-restore_native_rollback_inheritance') < events.index('data-before_native')
@@ -312,14 +371,27 @@ def test_recovery_prepare_preserves_original_proofs_and_uses_new_child_attempt(s
     assert plan.read_plan(paths,current)['service_startup']==original_fence['service_startup']
 
 
-@pytest.mark.parametrize('mode',['replace-foundation','repair-successor'])
-def test_recovery_full_helper_sequence_keeps_original_and_previous_completion(staged,mode,monkeypatch):
+def run_recovery_to_ready(staged, mode, monkeypatch, fact_already_recorded):
+    from datetime import datetime, timezone
+
     from pc_agent.platform.windows.compound_installer import _child
+    from pc_agent.platform.windows.installation_lifecycle import outbox_for
     # The fixture's native API/SCM are modeled; actual driver callbacks have
     # compiled-policy tests and installed recovery remains a separate VM gate.
-    test_recovery_prepare_preserves_original_proofs_and_uses_new_child_attempt(staged,mode)
+    test_recovery_prepare_preserves_original_proofs_and_uses_new_child_attempt(staged, monkeypatch, mode, None)
     paths,client,old,original,native,events,done=staged
     cap=client.capability;root=fence.state_root(paths)
+    box = outbox_for(paths)
+    prior_fact = None
+    if fact_already_recorded:
+        release = cap['package']
+        native_fact = dict(version=release['version'], product_code=release['product_code'],
+                           source_revision=release['source_revision'], msi_sha256=release['package_sha256'],
+                           exit_code=0)
+        box.record(transaction_id=cap['transaction_id'], action='installed', device_id=None,
+                   native=native_fact, cleanup={'support':'not_applicable','browser':'not_applicable'},
+                   occurred_at=datetime(2026, 11, 14, tzinfo=timezone.utc))
+        prior_fact, = box._load()[1]['facts']
     original_parent=root/'upgrades'/cap['compound']['recovery']['original_upgrade_id']/'plan.json'
     parent_before=original_parent.read_bytes()
     prior=root/'transactions'/cap['transaction_id']/'completed.json';prior.parent.mkdir(parents=True,exist_ok=True)
@@ -347,3 +419,81 @@ def test_recovery_full_helper_sequence_keeps_original_and_previous_completion(st
     assert bridge.completion_root(paths,cap).joinpath('completed.json').exists()
     with _child(cap):assert fence.read_fence(paths) is None
     assert done[-1][1]['result']=='compound-ready' and 'retire-replaced' in events
+    _, journal = box._load()
+    fact, = journal['facts']
+    assert fact['transaction_id'] == cap['transaction_id']
+    assert fact['action'] == 'installed'
+    assert fact['native']['msi_sha256'] == cap['package']['package_sha256']
+    assert fact['native']['exit_code'] == 0
+    if prior_fact is not None:
+        assert fact == prior_fact
+
+
+@pytest.mark.parametrize('mode', ['replace-foundation', 'repair-successor'])
+@pytest.mark.parametrize('fact_already_recorded', [False, True])
+def test_recovery_full_helper_sequence_keeps_original_and_previous_completion(
+        staged, mode, monkeypatch, fact_already_recorded):
+    run_recovery_to_ready(staged, mode, monkeypatch, fact_already_recorded)
+
+
+@pytest.mark.parametrize('defect', [None, 'no-commit', 'different-product',
+                                    'damaged-original', 'native-started', 'different-package-code',
+                                    'another-active-child'])
+def test_rollback_exclusion_accepts_only_a_proven_superseded_child(staged, monkeypatch, defect):
+    from hashlib import sha256
+    from pc_agent.platform.windows import staged_restoration_continuation as restoration, update_transaction
+
+    run_recovery_to_ready(staged, 'replace-foundation', monkeypatch, False)
+    paths, client, _, _, _, _, done = staged
+    cap = client.capability
+    root = fence.state_root(paths)
+    (root/'capabilities'/(cap['session_id']+'.json')).write_text(json.dumps(cap))
+    recovered_id = cap['compound']['upgrade_id']
+    history = root/'upgrade-history'/recovered_id
+    marker = done[-1][1]['marker']
+    (history/'complete.json').write_text(json.dumps(marker))
+    child = root/'children'/cap['transaction_id']/'transaction.json'
+    receipt = bridge.completion_root(paths, cap)/'completed.json'
+    original = root/'upgrades'/cap['compound']['recovery']['original_upgrade_id']/'plan.json'
+
+    # Another upgrade was accepted after this recovery, as on the held VM.
+    later_id = '99999999-9999-4999-8999-999999999999'
+    later = root/'upgrade-history'/later_id
+    later.mkdir()
+    barrier = {**json.loads((history/'barrier.json').read_text()), 'upgrade_id': later_id}
+    ready = {**json.loads((history/'ready.json').read_text()), 'upgrade_id': later_id}
+    ready_bytes = json.dumps(ready).encode()
+    (root/'upgrade.json').write_text(json.dumps(barrier))
+    (later/'barrier.json').write_text(json.dumps(barrier))
+    (later/'ready.json').write_bytes(ready_bytes)
+    (later/'complete.json').write_text(json.dumps({**marker, 'upgrade_id': later_id,
+                                                  'ready_sha256': sha256(ready_bytes).hexdigest()}))
+    assert not plan.has_active_upgrade(paths)
+
+    if defect == 'no-commit':
+        (history/'complete.json').unlink()
+    elif defect in {'different-product', 'different-package-code'}:
+        value = json.loads(receipt.read_text())
+        key = 'product_code' if defect == 'different-product' else 'package_code'
+        value['package'][key] = '{DDDDDDDD-DDDD-4DDD-8DDD-DDDDDDDDDDDD}'
+        receipt.write_text(json.dumps(value))
+    elif defect == 'damaged-original':
+        value = json.loads(original.read_text())
+        value['service_startup']['EndpointAgent']['delayed_auto'] ^= True
+        original.write_text(json.dumps(value))
+    elif defect == 'native-started':
+        value = json.loads(child.read_text())
+        child.write_text(json.dumps({**value, 'phase': 'msi-executing', 'sequence': 2}))
+    elif defect == 'another-active-child':
+        sibling = child.parent/'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+        sibling.mkdir()
+        (sibling/'transaction.json').write_bytes(child.read_bytes())
+
+    child_bytes = child.read_bytes()
+    monkeypatch.setattr(update_transaction, 'active_update_state', lambda *_: None)
+    if defect is None:
+        restoration._no_other_operations(paths, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', cap['package'])
+    else:
+        with pytest.raises(ValueError, match='RECOVERY_REQUIRED'):
+            restoration._no_other_operations(paths, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', cap['package'])
+    assert child.read_bytes() == child_bytes

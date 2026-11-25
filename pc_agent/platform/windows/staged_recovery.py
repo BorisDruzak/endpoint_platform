@@ -80,6 +80,56 @@ def _assert_owner_dead(owner):
         kernel.CloseHandle(handle)
 
 
+def read_recoverable_stage(paths, operation_id):
+    """Open a protected copy only for the scheduled operation's malformed primary."""
+    state._uuid(operation_id)
+    try:
+        return state.read_staged_update(paths), None
+    except state.UnreadableStagedPayload as damaged:
+        record = state._read_record_path(state._recovery_path(paths))
+        if record is None or record.binding.operation_id != operation_id:
+            _fail()
+        return record, damaged.raw
+
+
+def _require_system_recovery():
+    import win32api
+    import win32security
+
+    token = win32security.OpenProcessToken(win32api.GetCurrentProcess(), win32security.TOKEN_QUERY)
+    try:
+        sid = win32security.GetTokenInformation(token, win32security.TokenUser)[0]
+        if win32security.ConvertSidToStringSid(sid) != 'S-1-5-18':
+            _fail()
+    finally:
+        token.Close()
+
+
+def restore_damaged_stage(paths, expected, damaged):
+    """Restore the journal after admission, before the native owner is launched."""
+    from .update_transaction import _windows_transaction
+
+    _require_system_recovery()
+    operation_id = expected.binding.operation_id
+    with _windows_transaction(timeout_ms=0):
+        record, current_damage = read_recoverable_stage(paths, operation_id)
+        if record != expected or current_damage != damaged:
+            _fail()
+        _assert_owner_dead(record.owner)
+        _validate_recovery_inputs(paths, record)
+        root = _root(paths, operation_id)
+        archive = root / ('damaged-stage-' + hashlib.sha256(damaged).hexdigest() + '.bin')
+        with durable_state.installer_mutation_checkpoints(lambda: _assert_owner_dead(record.owner)):
+            if archive.exists():
+                fence.assert_state_security(archive, secret=True)
+                if provenance._read(archive, state._MAX_BYTES) != damaged:
+                    _fail()
+            else:
+                durable_state.write_bytes_atomic(archive, damaged, trusted_root=root, max_bytes=state._MAX_BYTES,
+                    protect=lambda leaf: fence.protect_state(leaf, secret=True))
+            state._write_record_path(state._path(paths), state._record_value(record))
+
+
 def owner_authorized(paths, record, owner):
     if owner == record.owner:
         return True
@@ -127,6 +177,10 @@ def _validate_task_definition(xml, operation_id, executable, logon_type):
             or restarts[0].findtext('t:Interval', namespaces=ns) != 'PT1M'
             or restarts[0].findtext('t:Count', namespaces=ns) != '3'):
         _fail()
+    xml_logon = principals[0].findtext('t:LogonType', namespaces=ns) if len(principals) == 1 else None
+    # Scheduler 1.3 on Windows Server 2012 R2 exports a SYSTEM service-account
+    # principal as InteractiveToken. Require the independent COM type below.
+    legacy_system_xml = root.get('version') == '1.3' and xml_logon == 'InteractiveToken'
     if (len(actions) != 1 or len(root.findall('t:Actions/*', ns)) != 1
             or len(root.findall('t:Triggers/*', ns)) != 1 or len(principals) != 1
             or actions[0].findtext('t:Command', namespaces=ns) != str(executable)
@@ -134,7 +188,7 @@ def _validate_task_definition(xml, operation_id, executable, logon_type):
             or principals[0].findtext('t:UserId', namespaces=ns) != 'S-1-5-18'
             or principals[0].findtext('t:RunLevel', namespaces=ns) != 'HighestAvailable'
             or logon_type != 5
-            or principals[0].findtext('t:LogonType', namespaces=ns) not in (None, 'ServiceAccount')
+            or (xml_logon not in (None, 'ServiceAccount') and not legacy_system_xml)
             or len(root.findall('t:Triggers/t:BootTrigger', ns)) != 1):
         _fail()
 
@@ -217,6 +271,7 @@ def _native_attempt(paths, record):
 
 def begin_native_attempt(paths, operation_id, owner):
     from . import staged_boot_marker as marker
+    from .companion_processes import stop_tray_companions
     from uuid import uuid4
     durable_state.installer_mutation_checkpoint(required=True)
     record = state.read_staged_update(paths)
@@ -229,6 +284,11 @@ def begin_native_attempt(paths, operation_id, owner):
     prior = _native_attempt(paths, record)
     if prior and prior['schema_version'] == 2 and prior['owner'] != owner:
         _assert_owner_dead(prior['owner'])
+    # MSI checks file use before its deferred actions run. Stop the staged
+    # companions here so their foundation archives can be removed without a reboot.
+    durable_state.installer_mutation_checkpoint(required=True)
+    stop_tray_companions(paths)
+    durable_state.installer_mutation_checkpoint(required=True)
     # Publish unresolved BEFORE any new native attempt. Failed publication
     # leaves the old authoritative record intact and launches no native work.
     token = marker.capture(operation_id)
@@ -381,6 +441,9 @@ def execute_staged_recovery_phase(client, paths):
             or cap['recovery'] or cap['uninstall_finalization'] or 'compound' in cap
             or 'staged_rollback' in cap or 'recovery_parent' in cap):
         _fail()
+    if client.phase == 'restore-staged-companions' and record.phase == 'accepted':
+        from .native_setup_continuation import execute_native_continuation
+        return execute_native_continuation(client, paths)
     if client.phase == 'inspect-staged-recovery':
         inputs = _validate_recovery_inputs(paths, record)
         _assert_owner_dead(record.owner)
@@ -413,12 +476,42 @@ def execute_staged_recovery_phase(client, paths):
 _COMPANIONS = {'sensor': 'EndpointUserSensor.exe', 'tray': 'EndpointAgentTray.exe'}
 
 
+def _tray_bootloader_pair(processes):
+    """Only one observed parent/child pair is one PyInstaller Tray instance.
+
+    WMI parent PIDs can be reused. Compare complete creation timestamps as well;
+    incomplete WMI dates or an ambiguous tree must retain duplicate evidence.
+    The caller groups only identical executable, session and owner SID records.
+    """
+    from datetime import datetime, timedelta
+    if (len(processes) != 2 or len({row['pid'] for row in processes}) != 2
+            or any(row['pid'] <= 0 or row['parent'] < 0 or row['parent'] == row['pid'] for row in processes)):
+        return False
+    children = [row for row in processes if any(
+        row['parent'] == other['pid'] for other in processes if other is not row)]
+    if len(children) != 1:
+        return False
+    child = children[0]
+    parent = next(row for row in processes if row is not child)
+    def created(row):
+        value = row['created']
+        if not isinstance(value, str) or not re.fullmatch(r'[0-9]{14}\.[0-9]{6}[+-][0-9]{3}', value):
+            raise ValueError('incomplete WMI birth time')
+        local = datetime.strptime(value[:21], '%Y%m%d%H%M%S.%f')
+        return local - timedelta(minutes=int(value[21:]))
+    try:
+        return parent['pid'] > 0 and child['pid'] > 0 and created(parent) <= created(child)
+    except (ValueError, OverflowError):
+        return False
+
+
 def _probe_companions(paths):
     import win32com.client
     service = win32com.client.GetObject('winmgmts:root\\cimv2')
     rows = service.ExecQuery("SELECT * FROM Win32_Process WHERE Name='EndpointUserSensor.exe' OR Name='EndpointAgentTray.exe'")
     expected = {os.path.normcase(str(paths.install_root / filename)): role for role, filename in _COMPANIONS.items()}
     result = []
+    groups = {}
     for process in rows:
         if not process.ExecutablePath or os.path.normcase(process.ExecutablePath) not in expected:
             continue
@@ -430,10 +523,16 @@ def _probe_companions(paths):
             _fail()
         sid = str(output.Properties_('Sid').Value)
         item = {'role': expected[os.path.normcase(process.ExecutablePath)], 'session_id': session, 'sid': sid}
-        if item not in result:
-            result.append(item)
+        result.append(item)
+        key = item['role'], session, sid
+        groups.setdefault(key, []).append({'pid': int(process.ProcessId),
+            'parent': int(process.ParentProcessId), 'created': process.CreationDate})
     companion_restore_decisions(result, [])  # validate strict bounded records
-    return result
+    logical = []
+    for (role, session, sid), processes in groups.items():
+        count = 1 if role == 'tray' and _tray_bootloader_pair(processes) else len(processes)
+        logical.extend({'role': role, 'session_id': session, 'sid': sid} for _ in range(count))
+    return logical
 
 
 def prepare_staged_companions(paths, binding):
@@ -463,7 +562,7 @@ def _active_sessions():
     result = []
     for session in win32ts.WTSEnumerateSessions():
         session_id = session['SessionId']
-        if session_id <= 0 or session['State'] != win32ts.WTSActive:
+        if session_id <= 0 or session['State'] not in (win32ts.WTSActive, win32ts.WTSDisconnected):
             continue
         user = win32ts.WTSQuerySessionInformation(None, session_id, win32ts.WTSUserName)
         domain = win32ts.WTSQuerySessionInformation(None, session_id, win32ts.WTSDomainName)
@@ -477,36 +576,131 @@ def _active_sessions():
 def _restore_companion_task(paths, operation_id, item):
     """A password-free existing interactive token; never a SYSTEM GUI process."""
     import win32com.client
+    import win32security
     if item not in companion_restore_decisions([item], _active_sessions()):
         return False
     scheduler = win32com.client.Dispatch('Schedule.Service'); scheduler.Connect()
     folder = scheduler.GetFolder('\\')
     name = 'EndpointCompanionRestore-' + operation_id + '-' + item['role'] + '-' + str(item['session_id'])
     definition = scheduler.NewTask(0)
-    definition.Principal.UserId = item['sid']
+    # ScheduledTasks rejects a literal user SID on supported domain clients.
+    # Resolve the account but keep the original SID/session as launch authority.
+    name_part, domain, _ = win32security.LookupAccountSid(None, win32security.ConvertStringSidToSid(item['sid']))
+    account = domain + '\\' + name_part if domain else name_part
+    resolved, *_ = win32security.LookupAccountName(None, account)
+    if win32security.ConvertSidToStringSid(resolved) != item['sid']:
+        _fail()
+    definition.Principal.UserId = account
     definition.Principal.LogonType = 3  # TASK_LOGON_INTERACTIVE_TOKEN
     definition.Principal.RunLevel = 0  # TASK_RUNLEVEL_LUA
     definition.Settings.Enabled = True
     definition.Settings.DisallowStartIfOnBatteries = False
     definition.Settings.StopIfGoingOnBatteries = False
     definition.Settings.ExecutionTimeLimit = 'PT0S'
+    definition.Settings.MultipleInstances = 2  # IgnoreNew also bounds retained launcher retries.
     action = definition.Actions.Create(0)
     action.Path = str(paths.install_root / _COMPANIONS[item['role']])
     action.Arguments = ''
     security = 'O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;GRGX;;;' + item['sid'] + ')'
+    durable_state.installer_mutation_checkpoint(required=True)
     try:
-        # No update/replace flag: a pre-existing foreign task is a conflict.
-        task = folder.RegisterTaskDefinition(name, definition, 2, item['sid'], None, 3, security)
+        # Never replace a task by name. A crash may leave our exact protected
+        # registration; only full readback below authorizes its reuse.
+        task = folder.RegisterTaskDefinition(name, definition, 2, account, None, 3, security)
     except Exception:
-        return False
+        try:
+            task = folder.GetTask(name)
+        except Exception:
+            return False
+    _validate_companion_launcher(task, paths, item)
     try:
         if item not in companion_restore_decisions([item], _active_sessions()):
             return False
+        durable_state.installer_mutation_checkpoint(required=True)
         task.RunEx(None, 4, item['session_id'], '')  # TASK_RUN_USE_SESSION_ID
         return True
     finally:
         # Deleting the launcher registration does not stop its interactive process.
+        durable_state.installer_mutation_checkpoint(required=True)
         folder.DeleteTask(name, 0)
+
+
+def _validate_companion_launcher(task, paths, item):
+    from xml.etree import ElementTree as ET
+    import win32security
+    xml = ET.fromstring(task.Xml)
+    actions = xml.findall('{*}Actions/{*}Exec')
+    principal = task.Definition.Principal
+    if (len(xml.findall('{*}Principals/{*}Principal')) != 1
+            or principal.LogonType != 3 or principal.RunLevel != 0
+            or xml.findall('{*}Triggers/*') or task.Definition.Settings.MultipleInstances != 2
+            or len(actions) != 1 or len(xml.findall('{*}Actions/*')) != 1
+            or actions[0].findtext('{*}Command') != str(paths.install_root / _COMPANIONS[item['role']])
+            or actions[0].findtext('{*}Arguments') not in (None, '')
+            or actions[0].findtext('{*}WorkingDirectory') not in (None, '')):
+        _fail()
+    user_id = xml.findtext('{*}Principals/{*}Principal/{*}UserId', default='')
+    if user_id != item['sid']:
+        # Server 2012 R2 can export interactive launchers as schema 1.2 with a
+        # qualified account name. Resolve it back to the captured session SID.
+        domain, _, user = user_id.partition('\\')
+        if xml.get('version') != '1.2' or not domain or not user or '\\' in user:
+            _fail()
+        try:
+            sid, _, account_type = win32security.LookupAccountName(None, user_id)
+        except win32security.error:
+            _fail()
+        if account_type != win32security.SidTypeUser or win32security.ConvertSidToStringSid(sid) != item['sid']:
+            _fail()
+    descriptor = win32security.ConvertStringSecurityDescriptorToSecurityDescriptor(task.GetSecurityDescriptor(7), 1)
+    owner, acl = descriptor.GetSecurityDescriptorOwner(), descriptor.GetSecurityDescriptorDacl()
+    admins = {'S-1-5-18', 'S-1-5-32-544'}
+    if owner is None or acl is None or win32security.ConvertSidToStringSid(owner) not in admins:
+        _fail()
+    for index in range(acl.GetAceCount()):
+        kind, mask, sid = acl.GetAce(index)
+        sid = win32security.ConvertSidToStringSid(sid)
+        # pywin32 returns the DWORD as signed when GENERIC_READ is set.
+        mask &= 0xFFFFFFFF
+        if kind[0] != 0 or sid not in admins | {item['sid']} or (sid == item['sid'] and mask & ~0xA01200A9):
+            _fail()
+
+
+def restore_expected_companions(paths, operation_id, *, checkpoint, timeout_seconds=20):
+    """Accepted native payload needs both roles, including previously absent ones.
+
+    A RunEx request is never running proof. Only the original matching SID and
+    session with the installed executable path can satisfy the bounded probe.
+    The caller holds verified Foundation bytes throughout this operation.
+    """
+    import time
+    sessions = _active_sessions()
+    if len(sessions) > 32:
+        _fail()
+    expected = [{'role': role, **session} for session in sessions for role in _COMPANIONS]
+    companion_restore_decisions(expected, sessions)
+    if not expected:
+        return 'not-required'
+    for item in expected:
+        checkpoint()
+        if not companion_restore_decisions([item], _active_sessions()):
+            continue
+        if item not in _probe_companions(paths):
+            if not _restore_companion_task(paths, operation_id, item):
+                if companion_restore_decisions([item], _active_sessions()):
+                    _fail()
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        checkpoint()
+        required = companion_restore_decisions(expected, _active_sessions())
+        if not required:
+            return 'session-unavailable'
+        running = _probe_companions(paths)
+        if all(running.count(item) == 1 for item in required):
+            return 'running'
+        if time.monotonic() >= deadline:
+            _fail()
+        time.sleep(0.2)
 
 
 def _service_outcomes(paths, record):

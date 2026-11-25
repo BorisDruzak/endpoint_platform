@@ -1,0 +1,14 @@
+# STAB-15 signed ALT 3.2.251 native repair
+
+Passed on ALT Workstation K 11.4 x86_64. Disposable VM196 had one NIC on closed bridge vmbr144, no default route, and one approved test card on the separate TLS Gateway and database. The isolated release registry accepted both exact signed sources. There were no OTA targets or reports.
+
+- Exact 3.2.251 source `10a0a1c33bef241aaee0937b243b7954b67c6525`, kit SHA-256 `c8c2b6b2feff3f26fd51165a5b0b8d6e99a0f99d754e4e72b950d4433a82c945`, publisher `BC24B8EE43DBB05A748E11A4343B5DA748370631`.
+- Core SHA-256 `e03b37cf74a13f981b3f1b0eb0b8c4e3dcc8b9e94a5e1db57cb026ac38d7465a`, UserSensor SHA-256 `e32c905f9cf24e7ff02b9febf7a66897f0d40e20d51eb5d8e278bc373d6d550a`. The supplied Setup matched the copy in the signed Core RPM.
+- Clean Setup 3.2.249 established the test card with ACK 1 and WSS. The exact 3.2.251 Setup `upgrade` returned 0, then both RPMs passed `rpm -V`. The same card received ACK 2 and established a 3.2.251 WSS session.
+- With carrier down and the trusted Gateway unreachable, a change to the RPM-owned non-executable README produced the expected size, digest and timestamp verification flags. The exact 3.2.251 Setup `repair` returned outer 0 and native 0, restored the original README hash and passed `rpm -V` for both packages. The settled local repair retained both operation-bound scriptlet receipts.
+- The device, journal generation, previous event, sequence and ACK 2 stayed the same. Configuration, CA, enrollment identity and device credential retained their inodes, modes, owners, bytes and ACLs. Native selector and runtime-ready hashes were unchanged. The Core, updater path, active-but-disabled Support and browser policy resumed their prior active states without changes to enablement. Previously inactive updater units stayed inactive. UserSensor PID 5904 continued in the same active local KDE X11 session.
+- After restoring carrier, the same card established new 3.2.251 WSS session `c0375d10-14be-4f6a-9c68-5e02339eeb36` at 05:48:02 UTC. Gateway still had exactly two installation events at ACK 2 and recorded listener READY and a fresh sample at 05:48:12 UTC.
+
+The separate offline builder VM198 produced both RPMs from the recorded release commit. Pre-sign inspection checked 175 Core files, 18 UserSensor files, their modes and the repair scriptlets. The signed kit and manifest passed detached-signature verification. The builder and both temporary disks were removed. Build receipts and the signed offline kit are under `C:/endpoint-platform-wix-build/stab05-alt-native-251-20261118`.
+
+VM196, its disk, PVE staging and dedicated Gateway processes, database, IP alias and scratch were removed. Source VM132 remained stopped and VM142's original three services remained active. The native qualification receipts are under `C:/endpoint-platform-wix-build/stab15-alt-native-251-qualification`. Receipt manifest SHA-256 is `5035c84194dbb72cb081489fe37f3d032152ef97201262058163a0786f77b153`.

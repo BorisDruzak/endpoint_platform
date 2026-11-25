@@ -87,6 +87,31 @@ def derive_enrollment_receipt(
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
 
 
+def _cleanup_time(now: datetime | None) -> datetime:
+    timestamp = now or datetime.now(UTC)
+    if timestamp.tzinfo is None:
+        raise ValueError("now must be timezone-aware")
+    return timestamp.astimezone(UTC)
+
+
+async def enrollment_retry_backlog_age(
+    session: AsyncSession, *, now: datetime | None = None,
+) -> float:
+    """Measure time past the oldest expiry, including rows locked for recovery."""
+    measured_at = _cleanup_time(now)
+    oldest = await session.scalar(
+        select(EnrollmentRetryEnvelope.expires_at)
+        .where(EnrollmentRetryEnvelope.expires_at <= measured_at)
+        .order_by(EnrollmentRetryEnvelope.expires_at)
+        .limit(1)
+    )
+    if oldest is None:
+        return 0.0
+    if oldest.tzinfo is None:  # SQLite stores these timestamps in UTC without tzinfo.
+        oldest = oldest.replace(tzinfo=UTC)
+    return max(0.0, (measured_at - oldest).total_seconds())
+
+
 async def cleanup_expired_retry_envelopes(
     session: AsyncSession,
     *,
@@ -97,12 +122,9 @@ async def cleanup_expired_retry_envelopes(
     """Lock, delete, and audit one bounded batch of expired envelopes."""
     if not 1 <= limit <= 100:
         raise ValueError("cleanup limit must be between 1 and 100")
-    cleaned_at = now or datetime.now(UTC)
-    if cleaned_at.tzinfo is None:
-        raise ValueError("now must be timezone-aware")
+    cleaned_at = _cleanup_time(now)
     if not request_id.strip():
         raise ValueError("request_id must not be blank")
-    cleaned_at = cleaned_at.astimezone(UTC)
     result = await session.execute(
         select(EnrollmentRetryEnvelope)
         .where(EnrollmentRetryEnvelope.expires_at <= cleaned_at)

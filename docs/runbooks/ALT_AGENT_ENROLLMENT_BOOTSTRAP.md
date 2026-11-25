@@ -76,3 +76,33 @@ Before any permitted ALT test-host installation, verify a diff and generated
 artifacts contain no real claim, device credential, `Authorization: Bearer`
 value, CA private material, or TLS-verification bypass. A live test must use
 only the dedicated test agent and record token-redacted service evidence.
+
+## Inventory installation assignment and evidence
+
+Before launching a directed installation, inventory calls
+`POST /api/v1/enrollment/installation-assignments` with a credential scoped
+to `enrollment.installation-assignments.issue`. The request contains the
+private installation ID (`inventory-<asset-uuid>-<machine-uuid>-<32 lowercase hex digits>`),
+the platform and the hardware fingerprint independently obtained from the
+approved target. Endpoint persists the owner, digests and its own 30-minute
+window. Exact retries by the same service client return that original window.
+
+The first eligible canonical request to obtain a claim is pinned to the
+assignment in the same transaction. The claim expires at or before the
+assignment deadline. Existing claim recovery serves that same request
+within the window. The inventory ID is accepted by the canonical
+request and claim flow.
+
+To check progress, the same service client sends the installation ID to
+`POST /api/v1/enrollment/installation-receipts/lookup` with the separate
+`enrollment.installation-receipts.read` scope. Endpoint uses its persisted
+window. A claim consumed before the deadline can still be confirmed after
+expiry when a fresh authenticated heartbeat arrives in a new session.
+An unconsumed assignment yields `expired` after its deadline. Waiting and
+expired responses carry no UUID. Conflicting or retired device evidence
+yields HTTP 409. Keep assignment proof and service credentials on the server.
+
+Staging rollout requires migration `0052_inventory_installation`. Before
+an application rollback, stop assignment issuance and drain active
+assignments and claims. Preserve the assignment table and its request
+ownership records.

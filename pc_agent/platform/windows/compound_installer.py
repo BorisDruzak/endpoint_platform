@@ -85,6 +85,7 @@ def _prepare_recovery(client,paths,expected):
     from . import installer_transaction_bridge as bridge
     cap=client.capability
     original,raw,original_cap=plan.read_recovery_original(paths,cap)
+    plan.assert_recovery_msi_outcome(paths,cap,original)
     record=plan.make_recovery_plan(cap,original,raw,original_cap)
     old=_old_capability(paths,cap)
     mode=record['recovery']['mode'];native=msi_inventory.NativeMsi()
@@ -96,10 +97,20 @@ def _prepare_recovery(client,paths,expected):
     if mode=='replace-foundation':
         old_request=bridge._request_data(paths,old)
         old_expected=msi_inventory.read_expected_package(old_request['package_path'],old['package'])
-        msi_inventory.verify_foundation(old_expected.package,paths.install_root,expected=old_expected)
         active=fence.read_fence(paths)
-        if active is None or active['transaction_id']!=old['transaction_id']:_fail()
-        provenance.validate_interrupted_reconciliation(paths,request)
+        wanted=bridge._public_fence(old_expected,old)
+        if (active is None or active['phase'] not in {'msi-starting', 'msi-executing'}
+                or active['startup_restored'] or active['service_startup']!=record['service_startup']
+                or any(active[key]!=wanted[key] for key in
+                    ('transaction_id','package','operation','selected','previous','service_states'))):
+            _fail()
+        selector_removed = False
+        if active['phase'] == 'msi-executing':
+            removed = msi_inventory.verify_interrupted_foundation(old_expected, paths.install_root, native=native)
+            selector_removed = 'current.json' in removed
+        else:
+            msi_inventory.verify_foundation(old_expected.package,paths.install_root,expected=old_expected)
+        provenance.validate_interrupted_reconciliation(paths,request,allow_native_absence=selector_removed)
     else:
         provenance.validate_interrupted_reconciliation(paths,request,
             native_current=msi_inventory.read_native_selector(request['package_path'],expected))
@@ -187,7 +198,7 @@ def execute_compound_phase(client,paths,*,feature_states=None,rollback_disabled=
     data_request=_data_request(paths,cap)
     expected=msi_inventory.read_expected_package(request['package_path'],cap['package'])
     if phase=='verify-settled':
-        bridge._settled(paths)
+        bridge._settled(paths, continuation=cap)
         record=plan.read_plan(paths,cap)
         marker=plan.committed_marker(paths)
         if record['phase']!='ready' or marker is None or any(marker[key]!=value for key,value in plan._barrier(record).items()):_fail()
@@ -206,7 +217,10 @@ def execute_compound_phase(client,paths,*,feature_states=None,rollback_disabled=
                 rollback_disabled=rollback_disabled,uninstall_finalization=uninstall_finalization)
     result={}
     with durable_state.installer_mutation_checkpoints(client.checkpoint):
-        bridge._settled(paths)
+        if phase == 'compound-complete':
+            bridge._settled(paths, continuation=cap)
+        else:
+            bridge._settled(paths)
         if phase=='prepare':
             if cap['recovery']:
                 result=_prepare_recovery(client,paths,expected)

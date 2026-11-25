@@ -1,0 +1,259 @@
+{
+  "schema_version": 1,
+  "version": "3.2.269",
+  "platform": "alt_linux_amd64",
+  "status": "local_signed_candidate",
+  "published": false,
+  "stock_alt_11_4_loader_check": {
+    "stock_rpm_dependency_check_passed": false,
+    "stock_python": "3.12.7",
+    "bundled_python": "3.12.13",
+    "stock_openssl": "3.3.3",
+    "bundled_core_sqlite": "3.53.3",
+    "stock_sqlite": "3.50.4",
+    "elf_objects_examined": 272,
+    "extensions_resolved_with_bundled_python_and_stock_openssl_pair": 215,
+    "extension_load_failures_with_stock_python_and_bundled_extensions": 8,
+    "report": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt114-269-cpython-audit/verified-stock-abi.json",
+      "sha256": "ada3e3d9c591ace17b912199141fa3f01058a6d1ceb38a2835443786f00a7388"
+    },
+    "index": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt114-269-cpython-audit/evidence.sha256",
+      "sha256": "6c2872221395123cee5a163859c3260259a6b9438c151b604ac0afb327553e96"
+    }
+  },
+  "source_parent_commit": "0db35e3f3b291778c1849dd5904244f78eac6a8c",
+  "runtime_source_commit": "eec6cf4aa586777b02f9bf28691a1d6e5b744a96",
+  "integration_fixes": [
+    "b7dddffa93e09458e7b78a8d35e5470d8f6f8fdf"
+  ],
+  "publisher_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+  "frozen_manifest_sha256": "6bb6c78104ec0183c9f64f9d0637e714563a3e6aba590c7bc619aa73b150234a",
+  "build": {
+    "path": "C:/endpoint-platform-wix-build/stab15-alt-native-269/final/build-receipt.json",
+    "sha256": "60add01f08054ad31ce2d0e3ab840994697048b72dfc543802fed47224f7c228"
+  },
+  "bundle_restoration": {
+    "path": "C:/endpoint-platform-wix-build/stab14-candidate-source-restore/candidate-source-restore-269.json",
+    "sha256": "189369aca47334f85f9d11387ec6d3cb1a142958abefeed3f70e067e73ef37ab"
+  },
+  "archive": {
+    "path": "C:/endpoint-platform-wix-build/stab15-alt-native-269/final/offline-kit/endpoint-alt-pilot-3.2.269-1.tar.gz",
+    "sha256": "c89aab5f3d5192aa8db2d784b7c27f964701eca3f2c0c6e919c4a4f5a249fe4f"
+  },
+  "components": {
+    "core": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt-native-269/final/signed/endpoint-agent-3.2.269-alt6.x86_64.rpm",
+      "sha256": "89e948509772eba3c129890a8974fe32d0ea040398088a4d3f81ae1ca64427f8"
+    },
+    "user_sensor": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt-native-269/final/signed/endpoint-agent-user-sensor-3.2.269-alt6.x86_64.rpm",
+      "sha256": "542895cd47b7ce2e73be2c82c25b3586dfdbc5e38b082a0bc5f3667e97a2ceaf"
+    }
+  },
+  "build_gate": {
+    "alt_source_passed": 303,
+    "signed_payload_passed": 1,
+    "linux": {
+      "passed": 5431,
+      "skipped": 734,
+      "subtests_passed": 2,
+      "support_regression_cases_passed": 6,
+      "evidence": {
+        "path": "C:/endpoint-platform-wix-build/stab15-alt-native-269/full-linux-gate/verified-gate-result.json",
+        "sha256": "dbcd85ce8a89837072fe71c15a640f2a3f5d235f072af132aadb932906408e4f"
+      }
+    }
+  },
+  "clean_offline_before_first_enrollment": {
+    "setup_exit": 21,
+    "rpm_exit": 0,
+    "ordinary_reboot": true,
+    "postboot_observation_seconds": 26.946,
+    "support_start_events": 0,
+    "support_restarts": 0,
+    "service_unit_state": "disabled",
+    "report": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt269-preenrollment-261/native-clean-preenrollment-269.json",
+      "sha256": "290ecf49d74534881783d248f614c0a8e32bbb4ff9a4e4ad9a4ba652d1c126b9"
+    },
+    "index": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt269-preenrollment-261/receipts.sha256",
+      "sha256": "56e02034c0e0455eaf2198ffaa2d6e90477594b28d89b46693db41bca66d716a",
+      "files": 13
+    }
+  },
+  "registered_upgrade": {
+    "from": "3.2.267",
+    "setup_exit": 0,
+    "rpm_exit": 0,
+    "ack_before": 2,
+    "ack_after": 3,
+    "same_device_and_generation": true,
+    "new_wss_after_reboot": true,
+    "support_registration_preserved": true,
+    "operator_grant": false,
+    "report": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt267-to269-273/verified-summary.json",
+      "sha256": "3640659c869f3892dc763a97c54c76415127437df3d7d79d85eaef4c273f2f64"
+    },
+    "index": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt267-to269-273/receipts.sha256",
+      "sha256": "d1dccd49bb562111a78dc8490f551b736d7e960e70534525044f864553b3182a",
+      "files": 41
+    }
+  },
+  "plasma_x11_user_sensor": {
+    "desktop": "Plasma X11",
+    "login": "LightDM",
+    "autostart": "XDG",
+    "kde_probe_running": true,
+    "gateway_sensor_status": "READY",
+    "fresh_samples_after_login_at_least": 1,
+    "installation_ack": 3,
+    "report": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt269-usersensor/usersensor-receipt.json",
+      "sha256": "dd1777f30bbb0accbbc6238568f3fed4bfb1671295ce80fddac5e25d3c377ea2"
+    }
+  },
+  "registered_offline_removal_and_reinstall": {
+    "platform": "ALT Workstation K 11.4 x86_64",
+    "source_version": "3.2.269",
+    "remove_setup_exit": 21,
+    "remove_rpm_exit": 0,
+    "reinstall_setup_exit": 21,
+    "reinstall_rpm_exit": 0,
+    "gateway_ack_before_reinstall": 3,
+    "removal_ack": 4,
+    "reinstall_ack": 5,
+    "reconcile_exit": 21,
+    "support_registration_http": 409,
+    "support_pending": true,
+    "original_card_and_generation_preserved": true,
+    "postboot_health_on_new_session": true,
+    "rpm_transaction_preserved_after_reconcile": true,
+    "report": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt269-offline-reinstall-273/verified-offline-reinstall-269.json",
+      "sha256": "dda42ae1ef3ddadde63f1082d10c0d3bca02aa34147f7c56c0e32eb6e3d3219c"
+    },
+    "receipt_index": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt269-offline-reinstall-273/receipts.sha256",
+      "sha256": "524ffd8cf8ddf04f4aab495e4af4a70e226a327ab4a383e2c90b3a7439063744",
+      "files": 42
+    }
+  },
+  "stock_health_result_power_loss": {
+    "command_count": 1,
+    "gateway_results_before_cut": 0,
+    "gateway_snapshots_before_cut": 0,
+    "same_outbox_result_digest_after_offline_boot": true,
+    "gateway_results_after_reconnect": 1,
+    "gateway_snapshots_after_reconnect": 1,
+    "client_outbox_after_ack": 0,
+    "replay_of_previously_accepted_server_result_exercised": false,
+    "report": {
+      "path": "C:/endpoint-platform-wix-build/stab02-alt269-stock-final/stock-power-result.md",
+      "sha256": "7c37ff729e712508bb0324876d34d8045a40ae8f82e38c86a41a4a483665a5b3"
+    },
+    "native_evidence": {
+      "path": "C:/endpoint-platform-wix-build/stab02-alt269-stock-final/final-native-receipts.tar.gz",
+      "sha256": "2214442c2c3c762d692c66b8ab12e11389d445cdc4da3f15314eabfa2eea0321",
+      "indexed_files": 31
+    }
+  },
+  "health_power_loss_before_worker_start": {
+    "gateway_fixture": "held_command_start_for_one_health_collection",
+    "client_unmodified": true,
+    "offline_cold_boot_start_reservations": 1,
+    "offline_cold_boot_workers": 0,
+    "offline_cold_boot_outbox": 0,
+    "recovery_code": "AGENT_COMMAND_INTERRUPTED_BEFORE_START",
+    "gateway_results": 1,
+    "gateway_snapshots": 0,
+    "pending_results_after_ack": 0,
+    "report": {
+      "path": "C:/endpoint-platform-wix-build/stab02-alt269-before-start-273/verified-before-start-269.json",
+      "sha256": "7dc258776b78d95ea9fa058abca3105492c70a87f01a133fc246bddcd05adeca"
+    },
+    "receipt_index": {
+      "path": "C:/endpoint-platform-wix-build/stab02-alt269-before-start-273/evidence.sha256",
+      "sha256": "d7dc6adaca8b63777bdf977b307b99e378dc75898b0c567287845ec51f8d1d78",
+      "indexed_files": 52
+    }
+  },
+  "stock_health_power_loss_after_worker_start": {
+    "worker_observed_before_power_off": true,
+    "witness_age_upper_ns": 26509567,
+    "offline_cold_boot_state": "running",
+    "offline_cold_boot_start_reservations": 0,
+    "offline_cold_boot_outbox": 0,
+    "recovery_code": "AGENT_COMMAND_OUTCOME_UNKNOWN",
+    "gateway_results": 1,
+    "gateway_snapshots": 0,
+    "pending_results_after_ack": 0,
+    "report": {
+      "path": "C:/endpoint-platform-wix-build/stab02-alt269-deferred-start-273/verified-deferred-start-269.json",
+      "sha256": "3dddb84c3bd36c9061f332ddbb6d7212c008079fb28c015f0181e7a1b9b8a786"
+    },
+    "receipt_index": {
+      "path": "C:/endpoint-platform-wix-build/stab02-alt269-deferred-start-273/evidence.sha256",
+      "sha256": "2af808137af33022ceff5d55bceca8a19457c7dfda1954937c671f14c6db99e4",
+      "indexed_files": 44
+    }
+  },
+  "stock_health_result_after_client_disk_restore": {
+    "gateway_already_committed_at_client_restore": true,
+    "same_pending_command_and_payload_after_offline_restore": true,
+    "gateway_results_after_reconnect": 1,
+    "gateway_snapshots_after_reconnect": 1,
+    "gateway_delivery_rows_after_reconnect": 1,
+    "original_server_records_unchanged": true,
+    "client_outbox_after_reconnect": 0,
+    "ack_observation": "inferred_from_stock_outbox_drain_on_new_session",
+    "report": {
+      "path": "C:/endpoint-platform-wix-build/stab02-alt269-client-rewind/client-disk-rewind.md",
+      "sha256": "205d0e3d2a02dcac87d962c36570c9d84cd1c5b63e7e74af6e4d6fcaadf87e6a"
+    },
+    "native_evidence": {
+      "path": "C:/endpoint-platform-wix-build/stab02-alt269-client-rewind/final-native-receipts.tar.gz",
+      "sha256": "0338cbc9cc8450bf21e3a6041d8393a23280e615e3cb26b93a5986fb5ff9fdf4",
+      "indexed_files": 38
+    }
+  },
+  "primary_183_lifecycle": {
+    "setup_and_rpm_exits": {
+      "direct_upgrade": [
+        0,
+        0
+      ],
+      "same_version_repair": [
+        0,
+        0
+      ],
+      "operator_return_to_183": [
+        0,
+        0
+      ]
+    },
+    "acks": {
+      "accepted_183": 3,
+      "accepted_269": 4,
+      "after_repair": 4,
+      "returned_183": 5
+    },
+    "repair_reinstalled_both_rpms": true,
+    "same_device_generation_and_support": true,
+    "direct_upgrade_and_repair_rebooted": true,
+    "return_via_older_signed_setup": true,
+    "report": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt183-to269/verified-summary.json",
+      "sha256": "388beb2389c3cc35404a56bacb365ac9028bea9b2e9b4c37a30aa886da7400cd"
+    },
+    "receipt_index": {
+      "path": "C:/endpoint-platform-wix-build/stab15-alt183-to269/receipts.sha256",
+      "sha256": "fa901c26fb5ef6372501431a600d4d40fac4dfe4121873c590de7aa449522e37",
+      "files": 6
+    }
+  }
+}

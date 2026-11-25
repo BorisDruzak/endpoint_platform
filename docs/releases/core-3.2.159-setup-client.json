@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "purpose": "Windows-only Core bridge; primary full Setup stays158",
+  "status": "withdrawn for new Setup preparations: Core applied but client1.0.0 mutex SID constructor failed before network/native launch",
+  "source_revision": "5947a167aef7f578135d5a6cedc6e0ad82c3fd8e",
+  "builds": [
+    {
+      "schema_version": "update_build_manifest_v1",
+      "build_identifier": "endpoint-windows-core-3.2.159-setup-client",
+      "version": "3.2.159",
+      "platform": "windows_amd64",
+      "channel": "canary",
+      "artifact_url": "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/endpoint-windows-core-3.2.159-setup-client",
+      "artifact_name": "EndpointCore-3.2.159-5947a16.zip",
+      "archive_type": "zip",
+      "sha256": "85248db0d9b35678574e63feebc5bc980e7f5316b6899c12c6eab480f1ae11c4",
+      "size": 22903674,
+      "minimum_launcher_version": "3.2.156",
+      "release_notes": "Full Setup automatic preparation for explicitly assigned test120"
+    },
+    {
+      "schema_version": "update_build_manifest_v1",
+      "build_identifier": "endpoint-windows-core-3.2.157-setup-source",
+      "version": "3.2.157",
+      "platform": "windows_amd64",
+      "channel": "canary",
+      "artifact_url": "https://endpoint.sosnadmin.local/agent/v1/updates/artifacts/endpoint-windows-core-3.2.157-setup-source",
+      "artifact_name": "EndpointCore-3.2.157-0bd354e.zip",
+      "archive_type": "zip",
+      "sha256": "84ff5f5477150cfea51834a91321c5a5ff248be34bf26907a3880cf6bcb22c40",
+      "size": 22879717,
+      "minimum_launcher_version": "3.2.157",
+      "release_notes": "Full Setup automatic preparation for explicitly assigned test120"
+    }
+  ],
+  "toolchain": {
+    "python": "3.12.14",
+    "pyinstaller": "6.22.3",
+    "hooks": "2026.8",
+    "python_hash_seed": "0",
+    "source_date_epoch": "1793697265"
+  },
+  "client": {
+    "version": "1.0.0",
+    "sha256": "c664ce0936a251e1076cb1704c3149d54cb81b4fad8c154cc0bf370cd08109ab",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+    "authenticode": "Valid with timestamp"
+  },
+  "runtime159": {
+    "file_count": 119,
+    "tree_sha256": "ca35c4148c24d4eb584031068629dcee5edf17f36872af7912c05878cdffb4dd"
+  },
+  "retained157_qualified_tree": {
+    "file_count": 118,
+    "tree_sha256": "c7a96081734a7b59f38bfe0624d15bbfb47c5cfaf3bb9adda53ce94b405201d2"
+  },
+  "live_result": {
+    "device_id": "0051645c-0e81-4c21-bf52-befcd5ef5407",
+    "core_applied_at": "2026-11-03T10:04:07Z",
+    "safe_failure": "client_run_failed at mutex rule construction",
+    "replacement": "Core160 / client1.0.1; immutable159 artifact retained"
+  }
+}

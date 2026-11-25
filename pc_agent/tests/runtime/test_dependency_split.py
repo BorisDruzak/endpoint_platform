@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from hashlib import sha256
+import json
+import re
 import runpy
 import subprocess
 import sys
+from importlib.metadata import version
 from pathlib import Path
 
 import pytest
@@ -143,6 +147,23 @@ def _capture_analysis(spec_path: Path, workpath: Path) -> dict[str, object]:
     return captured
 
 
+@pytest.fixture
+def setup_client_input(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, str, str]:
+    # Qualify the actual staging path with a public fixture. Only the trusted
+    # digest is replaced in the test process, never the compatibility checks.
+    from tools.canary import setup_client_payload
+
+    source = (PROJECT_ROOT / "packaging/windows/EndpointSetupUpdater.ps1").read_text(encoding="utf-8-sig").rstrip()
+    fixture = tmp_path / "EndpointSetupUpdater.ps1"
+    fixture.write_text(source + "\n# SIG # Begin signature block\n# test fixture\n"
+                       "# SIG # End signature block\n", encoding="utf-8")
+    version = re.search(r"^\$script:ClientVersion='([0-9.]+)'$", source, re.M)[1]
+    digest = sha256(fixture.read_bytes()).hexdigest()
+    monkeypatch.setitem(setup_client_payload._CANONICAL_SHIPPED_CLIENTS, version, digest)
+    monkeypatch.setenv("ENDPOINT_SIGNED_SETUP_CLIENT", str(fixture))
+    return fixture, version, digest
+
+
 def test_agent_core_lock_contains_only_headless_runtime_dependencies() -> None:
     """Adding a GUI, Helpdesk, or Remote Assist dependency to core is a bug."""
     locked = _locked_requirements(CORE_REQUIREMENTS)
@@ -190,15 +211,20 @@ def test_forbidden_artifact_modules_match_namespaced_agent_modules(
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows PyInstaller artifact check")
 def test_windows_core_artifact_excludes_all_optional_runtime_packages(
-    tmp_path: Path,
+    tmp_path: Path, setup_client_input: tuple[Path, str, str],
 ) -> None:
     """A packaged Windows core artifact must not regain optional runtime files."""
+    fixture, client_version, digest = setup_client_input
     dist_path = tmp_path / "dist"
     result = subprocess.run(
         [
             sys.executable,
-            "-m",
-            "PyInstaller",
+            "-c",
+            "import sys; from tools.canary import setup_client_payload; "
+            "setup_client_payload._CANONICAL_SHIPPED_CLIENTS[sys.argv[1]] = sys.argv[2]; "
+            "from PyInstaller.__main__ import run; run(sys.argv[3:])",
+            client_version,
+            digest,
             "--noconfirm",
             "--distpath",
             str(dist_path),
@@ -215,6 +241,8 @@ def test_windows_core_artifact_excludes_all_optional_runtime_packages(
     assert result.returncode == 0, result.stderr
     artifact_root = dist_path / "endpoint_agent_core"
     assert artifact_root.is_dir()
+    packaged_client = artifact_root / "_internal/setup-updater/EndpointSetupUpdater.ps1"
+    assert packaged_client.read_bytes() == fixture.read_bytes()
     from pc_agent.version import AGENT_VERSION
     version = subprocess.run([str(artifact_root/'endpoint_agent_core.exe'), '--print-version'],
         capture_output=True, text=True, timeout=30)
@@ -229,8 +257,20 @@ def test_windows_core_artifact_excludes_all_optional_runtime_packages(
 
 
 @pytest.mark.parametrize("platform", ("linux", "windows"))
-def test_core_specs_build_only_the_headless_runtime(platform: str, tmp_path: Path) -> None:
+def test_core_specs_build_only_the_headless_runtime(
+    platform: str, tmp_path: Path, setup_client_input: tuple[Path, str, str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Changing a core package back to a GUI or legacy entrypoint is a bug."""
+    if platform == "linux":
+        def git_output(args, **kwargs):
+            assert kwargs["cwd"] == PROJECT_ROOT
+            assert args[0] == "git"
+            if args[1:] == ["rev-parse", "HEAD"]:
+                return "a" * 40 + "\n"
+            assert args[1:3] == ["status", "--porcelain"]
+            return ""
+
+        monkeypatch.setattr(subprocess, "check_output", git_output)
     captured = _capture_analysis(
         PROJECT_ROOT / "pc_agent" / f"pyinstaller_endpoint_core_{platform}.spec", tmp_path/'work'
     )
@@ -238,8 +278,21 @@ def test_core_specs_build_only_the_headless_runtime(platform: str, tmp_path: Pat
     assert captured["scripts"] == [
         str(PROJECT_ROOT / "pc_agent" / "runtime" / "main.py")
     ]
-    assert captured["datas"] == [
+    expected_datas = [
         (str(PROJECT_ROOT / "browser_sensor" / "extension-id.txt"), "browser_sensor")
     ]
+    if platform == "windows":
+        fixture, _, digest = setup_client_input
+        staged = tmp_path / "work" / "setup-client-payload" / digest / fixture.name
+        assert staged.read_bytes() == fixture.read_bytes()
+        expected_datas.append((str(staged), "setup-updater"))
+    else:
+        identity = tmp_path / "work" / "endpoint-core-build.json"
+        expected_datas.append((str(identity), "."))
+        assert json.loads(identity.read_text(encoding="ascii")) == {
+            "source_revision": "a" * 40,
+            "pyinstaller_version": version("PyInstaller"),
+        }
+    assert captured["datas"] == expected_datas
     assert not FORBIDDEN_SPEC_IMPORTS.intersection(captured["hiddenimports"])
     assert FORBIDDEN_SPEC_IMPORTS.issubset(captured["excludes"])

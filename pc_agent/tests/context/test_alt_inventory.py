@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import platform
+
+import pytest
+
 from pc_agent.context_profiles.inventory import collect_inventory
 from pc_agent.tests.context.conftest import FIXED_TIME
 
@@ -34,3 +38,14 @@ def test_alt_inventory_returns_null_optional_dmi_data_with_safe_warning(fake_pro
     assert result.sections.hardware.serial_number is None
     assert result.sections.hardware.product_uuid is None
     assert "source_unavailable" in result.warnings
+
+
+@pytest.mark.parametrize(("machine", "architecture"), [
+    ("x86_64", "x86_64"), ("AMD64", "x86_64"),
+    ("aarch64", "aarch64"), ("arm64", "aarch64"),
+    ("i686", None), ("riscv64", None), ("", None),
+])
+def test_alt_inventory_reports_only_known_architectures(fake_probe, monkeypatch, machine, architecture):
+    monkeypatch.setattr(platform, "machine", lambda: machine)
+    result = collect_inventory(fake_probe, collected_at=FIXED_TIME)
+    assert result.sections.system.architecture == architecture

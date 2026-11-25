@@ -131,6 +131,16 @@ def test_bad_headless_crash_requests_root_rollback_without_writing_selector(
             raise PermissionError("root-owned selector")
         return original_write_text(path, *args, **kwargs)
 
+    class RootWorkerTakesOver(Exception):
+        pass
+
+    delays = []
+
+    def wait(seconds: float) -> None:
+        delays.append(seconds)
+        if len(delays) == launcher_main.IMMEDIATE_CRASH_RETRY_LIMIT:
+            raise RootWorkerTakesOver
+
     monotonic_values = iter([0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
     monkeypatch.setenv("ENDPOINT_AGENT_ALT_UPDATE_MODE", "1")
     monkeypatch.setattr(
@@ -140,15 +150,17 @@ def test_bad_headless_crash_requests_root_rollback_without_writing_selector(
         launcher_main, "resolve_install_root", lambda cli_value=None: install_root
     )
     monkeypatch.setattr(launcher_main.subprocess, "Popen", fake_popen)
-    monkeypatch.setattr(launcher_main.time, "monotonic", lambda: next(monotonic_values))
-    monkeypatch.setattr(launcher_main.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        launcher_main, "time",
+        SimpleNamespace(monotonic=lambda: next(monotonic_values), sleep=wait),
+    )
     monkeypatch.setattr(Path, "write_text", deny_root_selector_write)
     monkeypatch.setattr(sys, "argv", ["launcher.py", "--no-gui"])
 
-    with pytest.raises(SystemExit) as exc_info:
+    with pytest.raises(RootWorkerTakesOver):
         launcher_main.main()
 
-    assert exc_info.value.code == 0
+    assert delays == [1.0, 2.0, 60.0]
     assert json.loads(current_path.read_text(encoding="utf-8")) == {
         "schema_version": 1,
         "source_revision": "badheadless",
@@ -311,3 +323,40 @@ def test_unprivileged_alt_worker_cli_refuses_before_dispatch(monkeypatch, tmp_pa
     with pytest.raises(SystemExit) as caught:
         launcher_main.main()
     assert caught.value.code == 1
+
+
+@pytest.mark.parametrize("pending_exit", [False, True])
+def test_alt_launcher_runs_selected_core_with_unconsumed_pending(
+    monkeypatch, tmp_path, pending_exit,
+):
+    install = tmp_path / "install"
+    data = tmp_path / "data"
+    install.mkdir()
+    (install / "current.json").write_text("{}")
+    pending = data / "updates" / "pending_alt_update.json"
+    pending.parent.mkdir(parents=True)
+    pending.write_text("{}")
+    monkeypatch.setenv("ENDPOINT_AGENT_ALT_UPDATE_MODE", "1")
+    monkeypatch.setattr(launcher_main, "_load_current_state", lambda *_: (
+        {}, "3.2.1", None, install / "endpoint-agent",
+    ))
+    monkeypatch.setattr(launcher_main, "_alt_previous_version", lambda *_, **__: None)
+    monkeypatch.setattr(launcher_main, "_agent_argv", lambda *_, **__: ["endpoint-agent"])
+    monkeypatch.setattr(launcher_main, "apply_alt_update", lambda *_: pytest.fail("unprivileged apply"))
+    monkeypatch.setattr(launcher_main.time, "sleep", lambda _: None)
+    exits = iter([42, 0] if pending_exit else [0])
+    launches = []
+
+    def spawn(*args, **kwargs):
+        launches.append(args[0])
+        return SimpleNamespace(wait=lambda: next(exits))
+
+    monkeypatch.setattr(launcher_main.subprocess, "Popen", spawn)
+    monkeypatch.setattr(sys, "argv", [
+        "launcher", "--data-dir", str(data), "--install-root", str(install), "--no-gui",
+    ])
+    with pytest.raises(SystemExit) as exit_info:
+        launcher_main.main()
+    assert exit_info.value.code == 0
+    assert len(launches) == (2 if pending_exit else 1)
+    assert pending.read_text() == "{}"

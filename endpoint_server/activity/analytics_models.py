@@ -55,5 +55,6 @@ class ActivityDaily(OwnershipRecord, Base):
     timezone: Mapped[str] = mapped_column(String(64))
     day: Mapped[date] = mapped_column(Date)
     dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default='true')
+    dirty_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     payload: Mapped[dict] = mapped_column(JSON, default=dict)

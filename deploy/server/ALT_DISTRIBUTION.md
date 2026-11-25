@@ -7,6 +7,12 @@ existing network ACL, certificates, API and WebSocket locations. Test Nginx
 before reload; retain the prior site config and release pointer for rollback.
 No application route, SDK or OTA contract changes for this static download path.
 
+The canonical `endpoint-platform.nginx.conf` includes
+`/etc/nginx/snippets/endpoint-alt-distribution.conf` inside its HTTPS server.
+First installation copies this reviewed real snippet before the site asset is
+enabled (see `PRODUCTION_RUNBOOK.md`). Later logging-only repairs retain this
+include and reject unrelated site drift rather than removing download routes.
+
 Only publish public kit archives, detached archive/manifest signatures, manifest,
 checksums, public RPM key and operator guide. All directories must be root-owned
 0755, files root-owned 0644 and regular (no symlinks). Never copy the signer home,

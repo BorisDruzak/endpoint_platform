@@ -26,6 +26,7 @@ from endpoint_server.network import observed_client_address
 
 from .campaigns import EnrollmentDenied, hardware_fingerprint_digest, issue_install_claim
 from .credentials import recover_retry_token, seal_retry_envelope
+from .inventory_assignments import bind_inventory_assignment, load_inventory_assignment, utc
 from .requests import (
     build_enrollment_request,
     deny_enrollment_request,
@@ -93,7 +94,11 @@ async def create_enrollment_request(
     now = datetime.now(UTC)
     async with request.app.state.session_provider() as session:
         try:
-            result = await session.execute(select(EnrollmentCampaign).with_for_update())
+            assignment = await load_inventory_assignment(
+                session, installation_id=body.installation_id, hardware_fingerprint=body.hardware_fingerprint,
+                platform=body.platform, pepper=request.app.state.settings.device_token_pepper,
+            )
+            result = await session.execute(select(EnrollmentCampaign).order_by(EnrollmentCampaign.id).with_for_update())
             fingerprint_digest = hardware_fingerprint_digest(
                 body.hardware_fingerprint,
                 request.app.state.settings.device_token_pepper,
@@ -130,6 +135,8 @@ async def create_enrollment_request(
                 pepper=request.app.state.settings.device_token_pepper,
                 now=now,
             )
+            if assignment is not None:
+                record.expires_at = min(record.expires_at, utc(assignment.expires_at))
             recent_requests = await session.execute(
                 select(EnrollmentRequest)
                 .where(EnrollmentRequest.created_at >= now - timedelta(hours=1))
@@ -150,6 +157,9 @@ async def create_enrollment_request(
                 now=now,
             )
             await session.commit()
+        except EnrollmentDenied:
+            await session.rollback()
+            raise HTTPException(409, "Enrollment request is no longer eligible") from None
         except Exception:
             await session.rollback()
             raise
@@ -193,6 +203,8 @@ async def enrollment_request_status(
         if (
             now >= record.expires_at.astimezone(UTC)
             and record.status not in {"denied", "expired", "failed", "cancelled"}
+            and not (record.platform == 'linux' and record.device_id is not None
+                and record.status in {'device_registered', 'waiting_wss', 'completed'})
         ):
             record.status = "expired"
             record.decision_reason = "REQUEST_EXPIRED"
@@ -311,7 +323,10 @@ async def handoff_enrollment_request_claim(
                 pepper=settings.device_token_pepper,
             )
             if now >= record.expires_at.astimezone(UTC):
-                if record.status not in {"denied", "expired", "failed", "cancelled"}:
+                if record.status not in {"denied", "expired", "failed", "cancelled"} and not (
+                    record.platform == 'linux' and record.device_id is not None
+                    and record.status in {'device_registered', 'waiting_wss', 'completed'}
+                ):
                     record.status = "expired"
                     record.decision_reason = "REQUEST_EXPIRED"
                     record.updated_at = now
@@ -348,6 +363,9 @@ async def handoff_enrollment_request_claim(
                     .with_for_update()
                 )
             ).scalar_one_or_none()
+            if record.platform == 'linux':
+                from .linux_requests import validate_linux_request
+                await validate_linux_request(session, record)
             if campaign is None or not selected_campaign_still_allows_request(
                 record, campaign, now=now
             ):
@@ -359,6 +377,10 @@ async def handoff_enrollment_request_claim(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="Enrollment request is no longer eligible",
                 )
+            assignment_expiry = await bind_inventory_assignment(
+                session, record, installation_id=installation_id,
+                hardware_fingerprint=hardware_fingerprint, pepper=settings.device_token_pepper,
+            )
             if record.status == "claim_issued":
                 envelope = (
                     await session.execute(
@@ -396,6 +418,7 @@ async def handoff_enrollment_request_claim(
                 now + _INSTALL_CLAIM_LIFETIME,
                 campaign_expiry,
                 record.expires_at.astimezone(UTC),
+                assignment_expiry or campaign_expiry,
             )
             issued = issue_install_claim(
                 campaign,

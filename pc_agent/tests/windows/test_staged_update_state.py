@@ -159,3 +159,73 @@ def test_normal_transaction_honors_preparation_reservation(staged):
     with pytest.raises(UpdateInProgress):
         with update_transaction(paths, timeout_ms=0):
             pytest.fail("OTA admitted while staged installer owns preparation")
+
+
+@pytest.mark.parametrize('defect', ['torn', 'wrong-operation', 'readable-invalid', 'unsafe-primary', 'busy'])
+def test_watchdog_restores_only_the_exact_protected_stage_copy(staged, monkeypatch, defect):
+    from contextlib import contextmanager
+    from pc_agent.platform.windows import staged_recovery, update_transaction
+
+    state, paths, binding, owner = staged
+    begin(staged)
+    move(staged, "preparing", "prepared")
+    move(staged, "prepared", "switching")
+    move(staged, "switching", "native-settled")
+    expected = move(staged, "native-settled", "trial", attempt_id=str(uuid4()))
+    journal = state._path(paths)
+    primary = journal.read_bytes()
+    mirror = journal.with_name("staged-update-recovery.json")
+    assert mirror.read_bytes() == primary
+    installer_fence.assert_state_security(mirror)
+    damaged = b"INDX" + b"\0" * 64
+    if defect == "readable-invalid":
+        damaged = b"{}"
+    journal.write_bytes(damaged)
+    if defect == "unsafe-primary":
+        original = installer_fence.assert_state_security
+        def check(path, **kwargs):
+            if path == journal:
+                raise ValueError("UPDATE_STATE_INVALID")
+            return original(path, **kwargs)
+        monkeypatch.setattr(installer_fence, "assert_state_security", check)
+
+    calls = []
+    @contextmanager
+    def mutex(timeout_ms):
+        assert timeout_ms == 0
+        if defect == "busy":
+            raise UpdateInProgress("UPDATE_IN_PROGRESS")
+        calls.append("locked")
+        yield
+    monkeypatch.setattr(update_transaction, "_windows_transaction", mutex)
+    monkeypatch.setattr(staged_recovery, "_require_system_recovery", lambda: calls.append("system"))
+    def owner_dead(actual):
+        assert actual == owner
+        calls.append("original-owner-dead")
+    monkeypatch.setattr(staged_recovery, "_assert_owner_dead", owner_dead)
+    monkeypatch.setattr(staged_recovery, "_validate_recovery_inputs", lambda p, r: calls.append("inputs"))
+    root = staged_recovery._root(paths, binding.operation_id, create=True)
+
+    with pytest.raises(ValueError):
+        state.assert_staged_update_allowed(paths, purpose="ota")
+    if defect in ("torn", "busy"):
+        record, raw = staged_recovery.read_recoverable_stage(paths, binding.operation_id)
+        assert record == expected and raw == damaged
+        if defect == "busy":
+            with pytest.raises(UpdateInProgress):
+                staged_recovery.restore_damaged_stage(paths, record, raw)
+            assert journal.read_bytes() == damaged
+            assert not list(root.glob("damaged-stage-*"))
+        else:
+            staged_recovery.restore_damaged_stage(paths, record, raw)
+            assert calls.index("system") < calls.index("locked") < calls.index("inputs")
+            assert journal.read_bytes() == primary and mirror.read_bytes() == primary
+            assert state.read_staged_update(paths) == expected
+            archive, = root.glob("damaged-stage-*")
+            assert archive.read_bytes() == damaged
+            installer_fence.assert_state_security(archive, secret=True)
+    else:
+        operation = str(uuid4()) if defect == "wrong-operation" else binding.operation_id
+        with pytest.raises(ValueError):
+            staged_recovery.read_recoverable_stage(paths, operation)
+        assert journal.read_bytes() == damaged

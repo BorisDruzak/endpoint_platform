@@ -883,6 +883,7 @@ def test_agent_enrollment_transport_models_are_strict_and_secret_aware() -> None
     assert delivery.issued_at.isoformat() == "2026-07-29T12:00:00+00:00"
     assert proof.enrollment_receipt == "B" * 43
     assert rotation.overlap_expires_at.isoformat() == "2026-07-29T12:10:00+00:00"
+    assert request.installation_id not in repr(request)
     assert "A" * 43 not in repr(request)
     assert "B" * 43 not in repr(delivery)
     assert "C" * 43 not in repr(delivery)

@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -36,8 +37,129 @@ def _text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+@pytest.mark.parametrize("checker_exit", [0, 1])
+def test_native_rpm_match_requires_a_runnable_core(monkeypatch, checker_exit):
+    from pc_agent.platform.linux.installation_coordinator import RPMBackend
+
+    source = {
+        "core_nevra": "endpoint-agent-3.2.183-alt6.x86_64",
+        "user_sensor_nevra": "endpoint-agent-user-sensor-3.2.183-alt6.x86_64",
+    }
+    checker = "/usr/lib/endpoint-agent/check-start-prerequisites"
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append(args)
+        if args[:2] == ["/usr/bin/rpm", "-q"]:
+            rows = "\n".join(source.values()).encode()
+            return subprocess.CompletedProcess(args, 0, rows, b"")
+        if args[:2] == ["/usr/bin/rpm", "-V"]:
+            return subprocess.CompletedProcess(args, 0, b"", b"")
+        assert args == [checker, "--allow-unconfigured"]
+        return subprocess.CompletedProcess(args, checker_exit, b"", b"")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    backend = RPMBackend(None)
+    assert backend.matches("install", source) is (checker_exit == 0)
+    assert calls[-1] == [checker, "--allow-unconfigured"]
+    assert backend.installed_packages_match("install", source)
+    assert calls[-1][:2] == ["/usr/bin/rpm", "-V"]
+
+
+def test_native_browser_policy_unit_waits_for_full_bootstrap() -> None:
+    unit = "%buildroot/usr/lib/systemd/system/endpoint-agent-browser-policy.service"
+    spec = _text(SPEC)
+    after_install = spec.split(f"install -m 0644 %{{SOURCE44}} {unit}\n", 1)[1]
+    native_setup = after_install.split("%if_with native_setup\n", 1)[1].split("%endif", 1)[0]
+    assert "ConditionPathExists=/var/lib/endpoint-agent-installation/runtime-ready" in native_setup
+    assert unit in native_setup
+
+
+@pytest.mark.parametrize(
+    ("rpm_count", "repair", "retained", "expected"),
+    [
+        (1, "no", None, ""),
+        (2, "no", None, "enable endpoint-support-access.service"),
+        ("", "no", None, "enable endpoint-support-access.service"),
+        (1, "no", "private", "enable endpoint-support-access.service"),
+        (1, "no", "public", "enable endpoint-support-access.service"),
+        (1, "yes", None, "scriptlet --intent repair-core-done"),
+    ],
+)
+def test_native_support_boot_enable_waits_for_first_configuration(tmp_path, rpm_count, repair, retained, expected):
+    shell = shutil.which("bash")
+    if shell is None:
+        pytest.skip("bash is required for RPM scriptlets")
+    private, public = (tmp_path / name for name in ("private", "public"))
+    if retained is not None:
+        (tmp_path / retained).mkdir()
+    section = _text(SPEC).split("# Only the owning coordinator may bootstrap or start Core after real native0.\n", 1)[1]
+    section = section.split("\n%else\n", 1)[0]
+    section = section.replace("/usr/lib/endpoint-agent-setup/endpoint-agent-setup ", "setup_command ")
+    section = section.replace("/var/lib/endpoint-support-access-public", shlex.quote(public.as_posix()))
+    section = section.replace("/var/lib/endpoint-support-access", shlex.quote(private.as_posix()))
+    script = f'repair={repair}\nsystemctl() {{ echo "$*"; }}\nsetup_command() {{ echo "$*"; }}\n{section}'
+    result = subprocess.run(
+        [shell, "-c", script, "scriptlet", str(rpm_count)],
+        text=True, capture_output=True, check=True,
+    )
+    assert result.stdout.strip() == expected
+
+
 def test_rpm_spec_disables_debuginfo_rewriting_of_manifest_covered_payload() -> None:
     assert "%global __find_debuginfo_files %{nil}" in _text(SPEC)
+
+
+def test_headless_rpm_includes_the_pinned_ota_verifier_inputs() -> None:
+    from pc_agent.alt_update_installer import _PUBLISHER_KEY, _PUBLISHER_KEY_SHA256
+
+    key = PACKAGE_ROOT / "pilot" / _PUBLISHER_KEY.name
+    key_path = _PUBLISHER_KEY.as_posix()
+    spec = _text(SPEC)
+    assert hashlib.sha256(key.read_bytes()).hexdigest() == _PUBLISHER_KEY_SHA256
+    assert f"Source57: {key.name}\n%if_with native_setup" in spec
+    assert "Requires: gnupg\n%if_with native_setup" in spec
+    assert f"install -m 0644 %{{SOURCE57}} %buildroot{key_path}" in (
+        spec.split("%install\n", 1)[1].split("%if_with native_setup", 1)[0]
+    )
+    assert key_path in (
+        spec.split("%files\n", 1)[1].split("%if_with native_setup", 1)[0]
+    )
+    assert f'stage_file 0644 "$script_dir/pilot/{key.name}"' in (
+        _text(BUILD).split("native_setup=false", 1)[0]
+    )
+
+
+@pytest.mark.parametrize(
+    ("selected_version", "previous_rpm_version", "refresh"),
+    [("3.2.205", "3.2.205", True), ("3.2.183", "3.2.183", True),
+     ("3.2.206", "3.2.205", False)],
+)
+def test_rpm_refreshes_the_selected_package_release(
+    tmp_path: Path, selected_version: str, previous_rpm_version: str, refresh: bool,
+) -> None:
+    """A same-version RPM transaction replaces the selected manifest's bytes."""
+    shell = shutil.which("bash")
+    if shell is None:
+        pytest.skip("bash is required for RPM scriptlets")
+    releases = tmp_path / "package-releases"
+    releases.mkdir()
+    (releases / previous_rpm_version).touch()
+    scriptlet = _text(SPEC).split('elif [ "$1" -gt 1 ]; then\n', 1)[1].split(
+        "\nfi\n", 1
+    )[0].replace(
+        "/usr/lib/endpoint-agent/check-start-prerequisites --print-selected-version",
+        'printf "%s\\n" "$SELECTED_VERSION"',
+    ).replace(
+        "/usr/lib/endpoint-agent/package-releases", "$PACKAGE_RELEASES"
+    ).replace("%{version}", "3.2.205")
+    result = subprocess.run(
+        [shell, "-ec", 'install_current_selector() { echo refreshed; }\n' + scriptlet],
+        env={**os.environ, "SELECTED_VERSION": selected_version,
+             "PACKAGE_RELEASES": releases.as_posix()},
+        check=True, capture_output=True, text=True,
+    )
+    assert result.stdout == ("refreshed\n" if refresh else "")
 
 
 def test_git_archive_emits_the_alt_spec_with_lf_line_endings() -> None:
@@ -459,8 +581,10 @@ def test_rpm_installed_release_is_accepted_as_an_ota_rollback_baseline(tmp_path:
     archive, sidecar, launcher = _write_release_fixture(tmp_path)
     source = tmp_path / "unpacked"
     source.mkdir()
-    with tarfile.open(archive) as bundle:
-        bundle.extractall(source, filter="data")
+    # Match the RPM preparation shell's payload permissions under a private CI umask.
+    subprocess.run(
+        ["tar", "-xzf", str(archive)], cwd=source, check=True, umask=0o022,
+    )
     buildroot = tmp_path / "buildroot"
     install = _text(SPEC).split("%install\n", 1)[1].split(
         "install -m 0644 %{SOURCE10}", 1
@@ -609,3 +733,26 @@ def test_built_rpm_contains_only_the_approved_absolute_paths() -> None:
         "/var/lib/endpoint-agent/device-credential",
         "/var/lib/endpoint-agent/enrollment-identity.json",
     }.intersection(paths)
+
+
+def test_rpm_update_path_rearms_after_rate_limit_without_manual_reset() -> None:
+    units = ROOT / "deploy" / "agent" / "alt"
+    updater = _text(units / "endpoint-agent-update.service")
+    timer = _text(units / "endpoint-agent-update-rearm.timer")
+    rearm = _text(units / "endpoint-agent-update-rearm.service")
+    assert "StartLimitIntervalSec=900s" in updater
+    assert "StartLimitBurst=3" in updater
+    assert "PartOf=endpoint-agent-update.path" in timer
+    assert "OnActiveSec=16min" in timer
+    assert "RemainAfterElapse=no" in timer
+    assert "OnUnitActiveSec=" not in timer
+    assert "ExecCondition=/usr/bin/systemctl is-enabled --quiet endpoint-agent-update.path" in rearm
+    assert "ExecCondition=/usr/bin/systemctl is-failed --quiet endpoint-agent-update.path" in rearm
+    assert "ExecStart=/usr/bin/systemctl start endpoint-agent-update.path" in rearm
+    assert "reset-failed" not in rearm
+    spec = _text(SPEC)
+    assert "OnFailure=endpoint-agent-update-rearm.timer" in spec
+    assert "endpoint-agent-update.path endpoint-agent-update-rearm.service; do" in spec
+    for name in ("endpoint-agent-update-rearm.timer", "endpoint-agent-update-rearm.service"):
+        assert f"/usr/lib/systemd/system/{name}" in spec
+        assert f"/deploy/agent/alt/{name}" in _text(BUILD)

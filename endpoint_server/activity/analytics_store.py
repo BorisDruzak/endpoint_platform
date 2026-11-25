@@ -1,9 +1,10 @@
 """Transactional append/extend path and bounded worker jobs for Activity history."""
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, select
+from sqlalchemy import case, delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +16,7 @@ from .analytics_models import ActivityCursor, ActivityDaily, ActivityInterval
 from .analytics_policy import AnalyticsPolicy
 
 
-async def _dirty(session, user_key, start, end, policy):
+async def _dirty(session, user_key, start, end, policy, *, queued_at):
     if user_key is None:
         return
     values = []
@@ -24,14 +25,21 @@ async def _dirty(session, user_key, start, end, policy):
         day, last = start.astimezone(zone).date(), end.astimezone(zone).date()
         while day <= last:
             values.append(dict(id=uuid4(), user_key=user_key, timezone=timezone, day=day,
-                               dirty=True, updated_at=start, payload={}))
+                               dirty=True, dirty_since=queued_at, updated_at=start, payload={}))
             day += timedelta(days=1)
     insert = pg_insert if session.bind.dialect.name == 'postgresql' else sqlite_insert
     statement = insert(ActivityDaily).values(values)
     # Preserve the last completed payload and its timestamp until the worker
     # publishes the replacement. Locking this row prevents lost dirty marks.
     await session.execute(statement.on_conflict_do_update(
-        index_elements=['user_key', 'timezone', 'day'], set_={'dirty': True},
+        index_elements=['user_key', 'timezone', 'day'],
+        set_={
+            'dirty': True,
+            'dirty_since': case(
+                (ActivityDaily.dirty.is_(True), ActivityDaily.dirty_since),
+                else_=statement.excluded.dirty_since,
+            ),
+        },
     ))
 
 
@@ -61,6 +69,7 @@ async def record_observation(
     when = utc(observation.observed_at)
     if cursor and (when <= utc(cursor.last_observed_at) or observation.observation_id == cursor.observation_id):
         return
+    queued_at = datetime.now(UTC)
     user_key = normalize_login(observation.user_login, device_id)
     previous = await session.get(ActivityInterval, cursor.interval_id) if cursor and cursor.interval_id else None
     if previous is not None:
@@ -95,7 +104,8 @@ async def record_observation(
                 )
                 session.add(continued)
                 previous = continued
-            await _dirty(session, (previous.user_key if not gap or attributable_gap else None), start, end, policy)
+            await _dirty(session, (previous.user_key if not gap or attributable_gap else None),
+                         start, end, policy, queued_at=queued_at)
             start = end
             if start == boundary and start < when and not gap:
                 # Force a fresh row on the next day.
@@ -131,8 +141,28 @@ async def record_observation(
     cursor.user_key, cursor.user_login = user_key, observation.user_login
     cursor.interval_id, cursor.observation_id = previous.id, observation.observation_id
     cursor.last_observed_at, cursor.session_state = when, state
-    await _dirty(session, user_key, when, when, policy)
+    await _dirty(session, user_key, when, when, policy, queued_at=queued_at)
     await session.flush()
+
+
+def _dirty_rollups(policy: AnalyticsPolicy):
+    return ActivityDaily.dirty.is_(True), ActivityDaily.timezone.in_(policy.timezones)
+
+
+async def analytics_backlog_age(
+    session: AsyncSession, *, policy: AnalyticsPolicy, now: datetime | None = None,
+) -> float | None:
+    """Return unknown while a dirty row lacks its original enqueue time."""
+    result = await session.execute(
+        select(ActivityDaily.dirty_since).where(*_dirty_rollups(policy))
+        .order_by(ActivityDaily.dirty_since.asc().nulls_first()).limit(1)
+    )
+    oldest = result.first()
+    if oldest is None:
+        return 0.0
+    if oldest[0] is None:
+        return None
+    return max(0.0, (utc(now or datetime.now(UTC)) - utc(oldest[0])).total_seconds())
 
 
 async def rebuild_daily(session: AsyncSession, *, policy: AnalyticsPolicy,
@@ -146,7 +176,7 @@ async def rebuild_daily(session: AsyncSession, *, policy: AnalyticsPolicy,
         raise ValueError('aggregate batch must be between 1 and 256')
     when = utc(now or datetime.now(UTC))
     daily = list((await session.scalars(select(ActivityDaily).where(
-        ActivityDaily.dirty.is_(True), ActivityDaily.timezone.in_(policy.timezones),
+        *_dirty_rollups(policy),
     ).order_by(ActivityDaily.updated_at, ActivityDaily.day, ActivityDaily.user_key)
         .limit(batch_size).with_for_update(skip_locked=True))).all())
     for row in daily:
@@ -161,12 +191,26 @@ async def rebuild_daily(session: AsyncSession, *, policy: AnalyticsPolicy,
             continue
         row.payload = summarize(intervals, start, min(end, when))
         row.updated_at, row.dirty = when, False
+        row.dirty_since = None
     await session.flush()
     return len(daily)
 
 
 async def retain_analytics(session: AsyncSession, *, policy: AnalyticsPolicy,
                            now: datetime | None = None, batch_size: int = 500) -> int:
+    batch = await retain_analytics_with_backlog(session, policy=policy, now=now, batch_size=batch_size)
+    return batch.detail_deleted
+
+
+@dataclass(frozen=True, slots=True)
+class AnalyticsRetentionBatch:
+    detail_deleted: int
+    oldest_due_age_seconds: float
+
+
+async def retain_analytics_with_backlog(
+    session: AsyncSession, *, policy: AnalyticsPolicy, now: datetime | None = None, batch_size: int = 500,
+) -> AnalyticsRetentionBatch:
     if not 1 <= batch_size <= 1000:
         raise ValueError('retention batch must be between 1 and 1000')
     when = utc(now or datetime.now(UTC))
@@ -179,13 +223,33 @@ async def retain_analytics(session: AsyncSession, *, policy: AnalyticsPolicy,
         ActivityInterval.ended_at < cutoff,
         (ActivityInterval.user_key.is_(None) | ActivityInterval.user_key.not_in(dirty_users)),
     ).order_by(ActivityInterval.ended_at).limit(batch_size)
-    result = await session.execute(delete(ActivityInterval).where(ActivityInterval.id.in_(eligible)))
+    detail = (await session.scalars(
+        delete(ActivityInterval).where(ActivityInterval.id.in_(eligible)).returning(ActivityInterval.ended_at)
+    )).all()
+    aggregate_cutoff = when - timedelta(days=policy.aggregate_days)
     stale = select(ActivityDaily.id).where(
-        ActivityDaily.day < (when - timedelta(days=policy.aggregate_days)).date(),
+        ActivityDaily.day < aggregate_cutoff.date(),
     ).order_by(ActivityDaily.day).limit(batch_size)
-    await session.execute(delete(ActivityDaily).where(ActivityDaily.id.in_(stale)))
+    daily = (await session.scalars(
+        delete(ActivityDaily).where(ActivityDaily.id.in_(stale)).returning(ActivityDaily.day)
+    )).all()
     cursors = select(ActivityCursor.id).where(
-        ActivityCursor.last_observed_at < when - timedelta(days=policy.aggregate_days),
+        ActivityCursor.last_observed_at < aggregate_cutoff,
     ).limit(batch_size)
-    await session.execute(delete(ActivityCursor).where(ActivityCursor.id.in_(cursors)))
-    return result.rowcount
+    observed = (await session.scalars(
+        delete(ActivityCursor).where(ActivityCursor.id.in_(cursors)).returning(ActivityCursor.last_observed_at)
+    )).all()
+
+    deadlines = [when]
+    if detail:
+        ended = utc(min(detail))
+        # Detail becomes eligible when the cutoff has passed its local day in every report timezone.
+        deadlines.append(max(
+            day_bounds(ended.astimezone(ZoneInfo(z)).date() + timedelta(days=policy.detail_days + 1), z)[0]
+            for z in policy.timezones
+        ))
+    if daily:
+        deadlines.append(day_bounds(min(daily) + timedelta(days=policy.aggregate_days + 1), 'UTC')[0])
+    if observed:
+        deadlines.append(utc(min(observed)) + timedelta(days=policy.aggregate_days))
+    return AnalyticsRetentionBatch(len(detail), (when - min(deadlines)).total_seconds())

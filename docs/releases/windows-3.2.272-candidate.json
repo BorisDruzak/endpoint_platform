@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "version": "3.2.272",
+  "platform": "windows_amd64",
+  "status": "held",
+  "published": false,
+  "production_assignments": 0,
+  "hold_reason": "After automatic ACK, the notification task continued running every minute with exit 75 on the isolated Windows 10 client.",
+  "windows_10_264_to_272": {
+    "delivery": "Local signed Full Setup, isolated registered client",
+    "setup_exit": 0,
+    "msi_exit": 0,
+    "source_ack": 4,
+    "target_ack": 5,
+    "event_id": "dd401b5f-227f-5ba0-8cbe-2a5ef8b27a20",
+    "server_ack_utc": "2026-11-20T10:17:26.213605Z",
+    "same_pending_event_across_normal_reboot": true,
+    "automatic_delivery": true,
+    "notification_task_retired_after_ack": false,
+    "effective_task_owner": "BUILTIN\\Administrators",
+    "task_dacl_protected": false,
+    "same_card_generation_and_four_identity_files": true,
+    "report": {
+      "path": "C:/endpoint-platform-wix-build/stab15-win272-offline-delivery-320-321/held-win272-delivery-retirement.md",
+      "sha256": "6d765c6f9af9f6dc20f7345b9f7fae41f5ceff6116e2164ee7b714c24d04f7a8"
+    },
+    "receipt_index": {
+      "path": "C:/endpoint-platform-wix-build/stab15-win272-offline-delivery-320-321/held272-evidence.sha256",
+      "sha256": "f51e3a90b71763278fc62873341ca9d8edc4807cbcceb3d5e3f6ecb81b3c936d"
+    }
+  },
+  "runtime_source_commit": "25cda2682dba42fe0db6df2643dd8ea3c93b8cdf",
+  "previous_signed_source": "4d0bb2c41f1c89fffc49ecfcc9230c2410f0d7db",
+  "integration_change": "26b2b921e20c3f0e8950b0e6f840f66a17d5d7de",
+  "setup": {
+    "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-272/native/releases/EndpointAgentSetup-3.2.272-x64.exe",
+    "size_bytes": 177825472,
+    "sha256": "c94feb1b36aa203f531bd7866d52d77718cb795809226560950e27ab629d1861",
+    "auth_status": "Valid",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+    "timestamp": true
+  },
+  "msi": {
+    "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-272/native/releases/EndpointAgent-3.2.272-x64.msi",
+    "size_bytes": 136404992,
+    "sha256": "5ab1d086804d02171ab10794d6289ee77326d01cd34bd2522920dc1c3b4fd5d2",
+    "auth_status": "Valid",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+    "timestamp": true
+  },
+  "setup_manifest": {
+    "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-272/native/releases/EndpointAgentSetup-3.2.272-x64.release.json",
+    "size_bytes": 730,
+    "sha256": "688643cea992c3443a840ce524f0982975aec123ef379a0ff28bc26f6be101ff"
+  },
+  "msi_manifest": {
+    "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-272/native/releases/EndpointAgent-3.2.272-x64.release.json",
+    "size_bytes": 366,
+    "sha256": "ca9bac03f23e388b5b9a3c3192965e1858d6ab25fbbd9662313c067e59ee98c5"
+  },
+  "windows_gate": {
+    "tests": 3131,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 4,
+    "passed": 3127
+  },
+  "accepted_upgrade_supplement": {
+    "tests": 47,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 47
+  },
+  "build_evidence": {
+    "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-272/signed-candidate-272.json",
+    "sha256": "ce6259131f00c578f384f623dfddb388b8a502d8d28ab81ad6ae42e4a5d6ba4c"
+  },
+  "build_index": {
+    "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-272/signed-candidate-272.sha256",
+    "sha256": "5e7b5fd89b884717ea485c78b8f08a257fc707cb06857dbef1336058a7cb8a79"
+  },
+  "source_restore": {
+    "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-272/source-bundle-restore.json",
+    "sha256": "6dc1d3254db7033d45fcd570b40923c215bc9c8e492fe2d8c3151cb0cf5c435d"
+  }
+}

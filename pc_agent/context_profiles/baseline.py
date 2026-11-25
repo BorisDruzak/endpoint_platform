@@ -8,6 +8,7 @@ import json
 import platform
 
 from endpoint_contracts.context import DeviceContextBaselineV1
+from endpoint_contracts.json_types import MAX_JSON_LIST_ITEMS
 from pc_agent.version import AGENT_VERSION
 
 from .probe import IP_LINK_COMMAND, LSBLK_COMMAND
@@ -184,7 +185,9 @@ def _interfaces(probe: object, warnings: list[str]) -> list[dict[str, str]]:
                 "link_type": link_type,
             }
         )
-    return result[:64]
+    if len(result) > MAX_JSON_LIST_ITEMS:
+        warnings.append("data_truncated")
+    return result[:MAX_JSON_LIST_ITEMS]
 
 
 def _unique_warnings(warnings: list[str]) -> list[str]:

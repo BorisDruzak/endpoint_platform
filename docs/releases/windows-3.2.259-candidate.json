@@ -1,0 +1,215 @@
+{
+  "schema_version": 1,
+  "version": "3.2.259",
+  "platform": "windows_amd64",
+  "status": "lab_setup_upgrade_and_core_ota_restart_and_offline_rollback_verified",
+  "verified_utc": "2026-11-18T17:11:36.4420786Z",
+  "runtime_source_commit": "85f78df48ca891956e614cd6afd63eb03c22dea2",
+  "initial_runtime_file_count": 119,
+  "initial_runtime_tree_sha256": "1f3fa851e7a493e75efa7053b5c41dd4a8a6fb069f89a6911b45a998138d8a05",
+  "setup": {
+    "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-259/native/releases/EndpointAgentSetup-3.2.259-x64.exe",
+    "sha256": "75b3a6fa5ac88f03f8061e88431741cd283c689d5297541b63e2b4a64e973b02",
+    "size": 177706664,
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776"
+  },
+  "msi": {
+    "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-259/native/releases/EndpointAgent-3.2.259-x64.msi",
+    "sha256": "9b30625fd8568b4d45c76fbb9c712b146c4a70d958e7c6449185b96ab4564943",
+    "size": 136318976,
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776"
+  },
+  "embedded_core_sha256": "112600b84180311756b7fbb2d65919f6de86303f1d41dff5bfc07708f0b0b0c3",
+  "setup_observer": {
+    "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-259/EndpointSetupUpdater.ps1",
+    "sha256": "b504a8fb96ead642262494b53327c0c5a01da49a0285d9190c0364da72e399aa",
+    "size": 107313,
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+    "version": "1.0.13"
+  },
+  "production_full_setup_update": {
+    "source_qualifications": [],
+    "registered": false
+  },
+  "verification_receipts": {
+    "local_build": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-259/setup259-local-build-proof.json",
+      "sha256": "d821d0e6e9ce096643dcb5756c02556c23858aab600641890071946b06a2f76b"
+    },
+    "windows_release_gate": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-259/release-gate/source.json",
+      "sha256": "8d900db4f25ef0ddfd2b9eb557e240b199b3b4824ac656819413ee4583b59adb",
+      "scope": "local_workflow_equivalent",
+      "passed": 3001,
+      "skipped": 4,
+      "failures": 0,
+      "errors": 0,
+      "junit": {
+        "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-259/release-gate/windows-259-release-gate.xml",
+        "sha256": "cce1f57365f996252b9ae948998728c22d6163dbae41e6ca1e2cdfe59d2eacea"
+      },
+      "receipt_manifest": {
+        "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-259/release-gate/receipts.sha256",
+        "sha256": "76c9caea75b758452e8464c3255b79496afc4e522a7e23a0258e2c80d01ba393"
+      }
+    },
+    "release_adapter": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-259/adapter-gate.xml",
+      "sha256": "c7e57074c80df9b91ea27e9843d5c22b32fbfe198e1c33f44abd5966918373e5"
+    },
+    "core260_fixture": {
+      "path": "C:/endpoint-platform-wix-build/core-stability-lab-260/lab-core260-receipt.json",
+      "sha256": "b02fba223fa42273f4fab4c33ae5f8cc99bea75e7b8d8dfcd2a745252b6d2f9e"
+    },
+    "setup_upgrade_provider": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-259/native-lab/setup259-provider-terminal.json",
+      "sha256": "3a02b3b900389e8cd885dbc0933b29104e8b0de553e39f59712679d6f8a22033"
+    },
+    "setup_upgrade_guest": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-259/native-lab/guest259-local-accepted.json",
+      "sha256": "09d4d62fe009a289678b28dfc57c1b6f0774b2d7ac39b1f93db31561084a8c66"
+    },
+    "unchanged_selector_first": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-259/native-lab/guest260-held-first.json",
+      "sha256": "be37f976855683f66aa80bdf148906cd094af5579dbaee6c4bfa0448a5f6ca61"
+    },
+    "unchanged_selector_before_restart": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-259/native-lab/guest260-held-and-ordinary-restart.json",
+      "sha256": "d19e2d8e375a79d698151caa783f108452ad36ec01453b20b6e37da2944056ac"
+    },
+    "core260_provider_applied": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-259/native-lab/provider-260-positive-terminal.json",
+      "sha256": "2ab4c1011a507052a369058bddb5fe0e420c2a1a38cb1e9e72ca0e5689fed42f"
+    },
+    "core260_guest_accepted": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-259/native-lab/guest260-positive-accepted.json",
+      "sha256": "4f24538738122020f128c088f2b1ef02695fa6b773f68fb985d29d0bfecc5046"
+    },
+    "core260_guest_final_state": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-259/native-lab/guest260-positive-final-markers.json",
+      "sha256": "376a1187a0a4a358686b30e36afa53f18aecdd54ba6fd91ffbb347db33538528"
+    },
+    "core260_post_restart_health": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-259/native-lab/positive260-health-terminal.json",
+      "sha256": "400814f79ce7d1d931c0c6bcf8c72bc696bceb8fe5bcad0b85c993c469007f45"
+    },
+    "positive_provider_checkpoint": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-259/native-lab/provider-positive260-db-checkpoint.txt",
+      "sha256": "41bee21ce1dfdc0ba9bc2bedaffa150769e6b8cdbaf60a8babbaf18609ebfa27"
+    },
+    "core260_positive_verdict": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-259/native-lab/native259-260-positive-verdict.json",
+      "sha256": "08fa88696ce93afd7e0d96985517fd8bb8ec45dc55e8a3c4f528728e91afdec8"
+    },
+    "core260_negative_before": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-259/native-lab/guest260-negative-pre-private4.json",
+      "sha256": "cb7bedaacd89e16e9f20bda023b10d8d6ce76ddd392b805f2a10228db064217d"
+    },
+    "core260_negative_live": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-259/native-lab/guest260-negative-trial-live.json",
+      "sha256": "67547204dd1c4d5a22aa1b6d3704fdf8bf459c79a790c9f8351ea6510a116698"
+    },
+    "core260_negative_terminal": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-259/native-lab/guest260-negative-terminal.json",
+      "sha256": "abb98825262bfba1b913b927d15ad9ee4b663d30f50121d84594b91f3c0031b0"
+    },
+    "core260_negative_identity_after": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-259/native-lab/guest260-negative-private4-final.json",
+      "sha256": "fa91c3f513e913f761708b6f6b1fb3436093a1b4865ceaf399362eb1a31a1415"
+    },
+    "core260_negative_selector_and_terminal": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-259/native-lab/guest260-negative-exact-file-evidence.json",
+      "sha256": "c399b23f3c08485d4f1d95d4deeb3e32f9126e53dc9d4c4a6f11d9c8b392892c"
+    },
+    "core260_same_boot_provider": {
+      "path": "C:/endpoint-platform-wix-build/stab09-260-same-boot/native-lab/provider-native-260-terminal.json",
+      "sha256": "86a7aeb6e36b6258c16b3b9d9384765aef4b938d5184f2e027c425f61604918c"
+    },
+    "core260_same_boot_guest": {
+      "path": "C:/endpoint-platform-wix-build/stab09-260-same-boot/native-lab/guest-native-260-terminal.json",
+      "sha256": "4ef2b2900669292c4a236dece72b956005514966200b826ded363caa2019b0d5"
+    },
+    "slow_https_traffic": {
+      "path": "C:/endpoint-platform-wix-build/stab09-260-same-boot/native-lab/transfer-raw.jsonl",
+      "sha256": "ce129703f5e3689cdc11c5fe8ba882f9c53b2d835f8be4af8249ff3261cc185d"
+    },
+    "slow_https_gateway": {
+      "path": "C:/endpoint-platform-wix-build/stab09-260-same-boot/native-lab/core260-provider-timed-access.json",
+      "sha256": "702b25c9c0af80df631faae297b440ddd51e41031410aa765dceecdfff696895"
+    },
+    "slow_https_temp_files": {
+      "path": "C:/endpoint-platform-wix-build/stab09-260-same-boot/native-lab/guest-download-boundaries-native.json",
+      "sha256": "81a26f00f328242a0457f589999587948cdb6a605e059c7fd9e2dd1f9980ac0b"
+    },
+    "same_boot_before": {
+      "path": "C:/endpoint-platform-wix-build/stab09-260-same-boot/native-lab/native-boot-id-pre-ota.json",
+      "sha256": "d97b65897304c0fc9f6c5eea2416d23374c2dcd3f0dbea2cd00931f273ee7083"
+    },
+    "same_boot_after": {
+      "path": "C:/endpoint-platform-wix-build/stab09-260-same-boot/native-lab/native-boot-id-post-ota.json",
+      "sha256": "2ff68511415e8b4cd12fc77ccfe6dd30ef2c211053d4792c4696e04930ddbb98"
+    },
+    "native_offline_rollback_verdict": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-259/native-lab/native259-260-negative-verdict.json",
+      "sha256": "9b59b33da2bf1420f59cbdd65186d9491ba1a08d496e30969e531ff1338f09b6"
+    },
+    "native_ota_receipt_manifest": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-259/native-lab/qualification-receipts.sha256",
+      "sha256": "d76a9e4a52e6f7a0870c3402d326d074498f73d497d543fde3d1952e91293c79"
+    }
+  },
+  "report": "docs/verification/2026-11-18-stab03-windows-setup259.md",
+  "lab_setup_upgrade": {
+    "source_version": "3.2.253",
+    "os": "Windows 10 build 19045",
+    "provider_status": "applied",
+    "native_exit": 0,
+    "installation_ack": 4,
+    "connected_seconds": 181.212
+  },
+  "lab_core_ota": {
+    "source_version": "3.2.259",
+    "target_version": "3.2.260",
+    "operation_id": "888af451-6ec0-478b-93ab-38f4d994776e",
+    "archive_sha256": "064729f9e5221caf5be56c4379a47e92a4c65d3958535f753c3d40fac48e693a",
+    "archive_size": 22799051,
+    "source_selector_sha256": "877da57c857323056f6bbba506125a9aade0c4b275f19fb229967b9dddae0157",
+    "ordinary_restart": {
+      "boot_id_before": 5,
+      "boot_id_after": 6,
+      "kernel_guid_changed": false,
+      "provider_status": "applied",
+      "report_code": "post_restart_handshake_confirmed",
+      "health_v1": "succeeded",
+      "installation_ack": 4
+    },
+    "offline_confirmation_timeout": {
+      "trial_core_version": "3.2.260",
+      "trial_core_started_utc": "2026-11-18T16:33:52.2274560Z",
+      "local_terminal_utc": "2026-11-18T16:43:52.6210824Z",
+      "local_status": "rolled_back",
+      "local_code": "launcher_rolled_back",
+      "reported_version": "3.2.259",
+      "source_selector_restored": true,
+      "private_files_preserved": 4,
+      "network_connected": false,
+      "gateway_receipt": false,
+      "pending_preserved_for_delivery": true
+    },
+    "automatic_transfer_retry": {
+      "operation_id": "45aaed51-27b2-45f8-b6a6-25fb0685af61",
+      "http_attempts": 2,
+      "stalled_after_bytes": 65536,
+      "idle_seconds": 15.024378,
+      "second_response_body_seconds": 27.544681,
+      "received_bytes": 22799051,
+      "range_requested": false,
+      "boot_id_before_and_after": 6,
+      "kernel_boot_event_before_and_after": 450,
+      "applied_reports": 1
+    }
+  }
+}

@@ -30,6 +30,13 @@ PEPPER = b"agent-enrollment-device-pepper-for-testing"
 DELIVERY_NONCE = "N" * 43
 
 
+@pytest.fixture(autouse=True)
+def fresh_enrollment_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Collection may precede these tests by more than the ten-minute claim TTL.
+    # Keep real expiry checks and short TTLs while creating authority per test.
+    monkeypatch.setitem(globals(), "NOW", datetime.now(UTC))
+
+
 def _settings(
     *,
     trusted_proxy_cidrs: tuple = (),
@@ -209,7 +216,7 @@ def _claim() -> tuple[str, EnrollmentCampaign, EnrollmentClaim]:
 def _enrollment_body(
     *,
     delivery_nonce: str = DELIVERY_NONCE,
-    requested_at: datetime = NOW,
+    requested_at: datetime | None = None,
 ) -> dict[str, str]:
     return {
         "schema_version": "agent_enrollment_request_v1",
@@ -217,7 +224,7 @@ def _enrollment_body(
         "hardware_fingerprint": "sha256:agent-device-a",
         "installation_id": "installation-session-a",
         "delivery_nonce": delivery_nonce,
-        "requested_at": requested_at.isoformat(),
+        "requested_at": (requested_at or NOW).isoformat(),
     }
 
 

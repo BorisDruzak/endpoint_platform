@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from endpoint_contracts import AgentHelloV1
+from endpoint_server.db.models import Device, DeviceCredential
 from endpoint_server.gateway.ws_routes import (
     GatewayHandshakeRejected,
     authenticate_gateway_websocket,
@@ -23,11 +26,42 @@ async def test_valid_device_bearer_authenticates_from_trusted_tls_proxy(
 ) -> None:
     device = await seed_device(session_provider)
     socket = FakeGatewaySocket(session_provider)
+    statements = []
 
-    authenticated = await authenticate_gateway_websocket(socket)
+    def observe(_connection, _cursor, statement, *_):
+        statements.append(statement)
+
+    engine = session_provider.kw["bind"].sync_engine
+    event.listen(engine, "before_cursor_execute", observe)
+    try:
+        authenticated = await authenticate_gateway_websocket(socket)
+    finally:
+        event.remove(engine, "before_cursor_execute", observe)
 
     assert authenticated.principal.device.id == device.id
     assert str(authenticated.source_address) == "192.168.101.20"
+    assert len(statements) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_active_device", [False, True])
+async def test_retired_device_bearer_remains_ineligible(session_provider, with_active_device):
+    active = await seed_device(session_provider)
+    retired = await seed_device(session_provider, token=uuid4().hex) if with_active_device else active
+    async with session_provider() as session:
+        device = await session.get(Device, retired.id)
+        device.retired_at = datetime.now(UTC)
+        if with_active_device:
+            current = await session.scalar(select(DeviceCredential).where(DeviceCredential.device_id == active.id))
+            duplicate = await session.scalar(select(DeviceCredential).where(DeviceCredential.device_id == retired.id))
+            duplicate.pending_token_digest = current.token_digest
+            duplicate.rotation_overlap_expires_at = datetime.now(UTC) + timedelta(minutes=5)
+        await session.commit()
+
+    with pytest.raises(GatewayHandshakeRejected) as rejected:
+        await authenticate_gateway_websocket(FakeGatewaySocket(session_provider))
+
+    assert rejected.value.close_code == 4401
 
 
 @pytest.mark.asyncio

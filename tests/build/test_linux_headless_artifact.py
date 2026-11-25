@@ -10,11 +10,13 @@ import stat
 import subprocess
 import sys
 import tarfile
+from importlib.metadata import version
 from pathlib import Path
 
 import pytest
 from PyInstaller.archive.readers import CArchiveReader
 
+from pc_agent.version import AGENT_VERSION
 from tools import build_linux_agent
 
 
@@ -39,7 +41,7 @@ FORBIDDEN_PATH_PARTS = {"qt", "qt6", "ui_gui", "ui_bridge"}
 GUI_ASSET_SUFFIXES = (".ico", ".png", ".qss", ".svg")
 
 
-def _capture_spec_outputs() -> dict[str, object]:
+def _capture_spec_outputs(workpath: Path) -> dict[str, object]:
     captured: dict[str, object] = {}
 
     def analysis(scripts: list[str], **kwargs: object) -> object:
@@ -63,6 +65,7 @@ def _capture_spec_outputs() -> dict[str, object]:
         str(SPEC_PATH),
         init_globals={
             "SPECPATH": str(SPEC_PATH.parent),
+            "workpath": str(workpath),
             "Analysis": analysis,
             "PYZ": lambda pure: pure,
             "EXE": executable,
@@ -128,8 +131,6 @@ def _run_builder(source: Path, output: Path) -> subprocess.CompletedProcess[str]
             str(source),
             "--output",
             str(output),
-            "--version",
-            "3.1.76",
             "--revision",
             "dc8182f",
         ],
@@ -212,15 +213,22 @@ def built_artifact_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
     )
 
 
-def test_linux_spec_names_the_new_headless_artifact_and_core_executable() -> None:
+def test_linux_spec_names_the_new_headless_artifact_and_core_executable(tmp_path: Path) -> None:
     """Keeping the transitional core name would break the supported artifact path."""
-    captured = _capture_spec_outputs()
+    captured = _capture_spec_outputs(tmp_path)
 
     assert captured["scripts"] == [
         str(PROJECT_ROOT / "pc_agent" / "runtime" / "main.py")
     ]
     assert captured["executable_name"] == "endpoint-agent"
     assert captured["collect_name"] == "endpoint-agent"
+    identity = json.loads((tmp_path / "endpoint-core-build.json").read_text(encoding="ascii"))
+    assert identity == {
+        "source_revision": subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=PROJECT_ROOT, text=True,
+        ).strip(),
+        "pyinstaller_version": version("PyInstaller"),
+    }
 
 
 @pytest.mark.skipif(
@@ -300,21 +308,22 @@ def test_release_builder_writes_a_deterministic_immutable_linux_artifact(
     first = _run_builder(source, output)
 
     assert first.returncode == 0, first.stderr
-    archive = output / "endpoint-agent-linux_amd64-3.1.76.tar.gz"
-    manifest_path = output / "endpoint-agent-linux_amd64-3.1.76.manifest.json"
+    build_id = f"endpoint-agent-linux_amd64-{AGENT_VERSION}"
+    archive = output / f"{build_id}.tar.gz"
+    manifest_path = output / f"{build_id}.manifest.json"
     first_archive = archive.read_bytes()
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest == {
         "archive_type": "tar.gz",
         "artifact_name": archive.name,
-        "build_identifier": "endpoint-agent-linux_amd64-3.1.76",
+        "build_identifier": build_id,
         "channel": "canary",
         "platform": "linux_amd64",
         "schema_version": "endpoint_linux_agent_artifact_v1",
         "sha256": hashlib.sha256(first_archive).hexdigest(),
         "size": len(first_archive),
         "source_revision": "dc8182f",
-        "version": "3.1.76",
+        "version": AGENT_VERSION,
     }
 
     with tarfile.open(archive, "r:gz") as bundle:
@@ -423,7 +432,7 @@ def test_release_builder_refuses_to_replace_an_existing_immutable_build(
     _write_fixture_artifact(source)
     first = _run_builder(source, output)
     assert first.returncode == 0, first.stderr
-    archive = output / "endpoint-agent-linux_amd64-3.1.76.tar.gz"
+    archive = output / f"endpoint-agent-linux_amd64-{AGENT_VERSION}.tar.gz"
     original = archive.read_bytes()
     (source / "_internal" / "runtime.dat").write_bytes(b"changed\n")
 
@@ -449,8 +458,8 @@ def test_two_clean_pyinstaller_builds_produce_identical_release_bytes(
 
     assert first_result.returncode == 0, first_result.stderr
     assert second_result.returncode == 0, second_result.stderr
-    archive_name = "endpoint-agent-linux_amd64-3.1.76.tar.gz"
-    manifest_name = "endpoint-agent-linux_amd64-3.1.76.manifest.json"
+    archive_name = f"endpoint-agent-linux_amd64-{AGENT_VERSION}.tar.gz"
+    manifest_name = f"endpoint-agent-linux_amd64-{AGENT_VERSION}.manifest.json"
     assert (first_output / archive_name).read_bytes() == (
         second_output / archive_name
     ).read_bytes()

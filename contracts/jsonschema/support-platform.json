@@ -1,0 +1,31 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "device_id": {
+      "format": "uuid",
+      "title": "Device Id",
+      "type": "string"
+    },
+    "platform": {
+      "anyOf": [
+        {
+          "enum": [
+            "linux_amd64",
+            "windows_amd64"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Platform"
+    }
+  },
+  "required": [
+    "device_id",
+    "platform"
+  ],
+  "title": "SupportPlatform",
+  "type": "object"
+}

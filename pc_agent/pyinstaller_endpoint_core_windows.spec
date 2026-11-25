@@ -10,6 +10,10 @@ sys.path.insert(0, str(project_root))
 from tools.canary.tzdata_payload import configure_tzdata_archive
 from tools.canary.ssl_payload import configure_ssl_resources
 
+from tools.canary.setup_client_payload import stage_signed_setup_client
+
+signed_setup_client, _ = stage_signed_setup_client(project_root, Path(workpath))
+
 _excluded_optional_runtime = [
     "PySide6",
     "qasync",
@@ -48,7 +52,8 @@ a = Analysis(
         "pc_agent.context_profiles.probe",
         "pc_agent.context_profiles.registry",
     ],
-    datas=[(str(project_root / "browser_sensor" / "extension-id.txt"), "browser_sensor")],
+    datas=[(str(project_root / "browser_sensor" / "extension-id.txt"), "browser_sensor"),
+           (str(signed_setup_client), 'setup-updater')],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[str(pc_agent_root / "runtime_hook_tzdata_zip.py")],

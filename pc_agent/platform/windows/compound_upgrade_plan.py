@@ -7,11 +7,13 @@ No credential content, credential digest or arbitrary path is accepted here.
 """
 from copy import deepcopy
 from hashlib import sha256
+from itertools import islice
+import os
 import re
 import stat
 import uuid
 
-from endpoint_contracts.runtime_payload import read_json, version_tuple
+from endpoint_contracts.runtime_payload import PayloadConflict, read_json, version_tuple
 from . import durable_state, installer_fence
 
 PHASES = ('prepared', 'old-script-returned', 'new-script-returned',
@@ -240,6 +242,24 @@ def _read_bytes(path, *, secret=False, maximum=_MAX_PLAN):
         return stream.read(maximum + 1)
 
 
+def _read_recovery_plan(root):
+    """Preserve the original before-state across a torn phase replacement."""
+    raw = _read_bytes(root / 'plan.json', secret=True)
+    try:
+        return read_json(raw, _MAX_PLAN), raw
+    except PayloadConflict as damaged:
+        # Only an unreadable payload can select the prepared copy. The same
+        # ACL, bound capability, pointer and native recovery checks still apply.
+        try:
+            raw = _read_bytes(root / 'prepared-plan.json', secret=True)
+        except FileNotFoundError:
+            raise damaged
+        prepared = read_json(raw, _MAX_PLAN)
+        if prepared.get('phase') != 'prepared' or prepared.get('sequence') != 0:
+            _failed()
+        return prepared, raw
+
+
 def _validate_prepared_source(capability,source):
     role=capability['compound']['prepared_old']
     if (not isinstance(source,dict) or 'compound' in source or 'recovery_parent' in source
@@ -283,15 +303,19 @@ def read_plan(paths, capability):
     root = _root(paths, capability)
     installer_fence.assert_state_security(root, secret=True)
     record = _read(root/'plan.json', secret=True)
+    _validate_stored_plan(paths, capability, record)
+    if _read(installer_fence.state_root(paths)/'upgrade.json', maximum=4096) != _barrier(record):
+        _failed()
+    return record
+
+
+def _validate_stored_plan(paths, capability, record):
     validate_bound_plan(record, capability)
     if 'prepared_old' in record:read_prepared_source(paths,capability)
     if 'recovery' in record:
         original,raw,original_cap=read_recovery_original(paths,capability)
         prepared=make_recovery_plan(capability,original,raw,original_cap)
         if any(record[key]!=prepared[key] for key in _FIELDS-{'phase','sequence'}):_failed()
-    if _read(installer_fence.state_root(paths)/'upgrade.json', maximum=4096) != _barrier(record):
-        _failed()
-    return record
 
 
 def read_recovery_original(paths,capability):
@@ -299,9 +323,8 @@ def read_recovery_original(paths,capability):
     link=capability['compound']['recovery']
     root=installer_fence.state_root(paths)/'upgrades'/link['original_upgrade_id']
     installer_fence.assert_state_security(root,secret=True)
-    raw=_read_bytes(root/'plan.json',secret=True)
+    original,raw=_read_recovery_plan(root)
     if sha256(raw).hexdigest()!=link['original_plan_sha256']:_failed()
-    original=read_json(raw,_MAX_PLAN)
     if not isinstance(original,dict) or original.get('schema_version')!=1:_failed()
     from .installer_transaction_bridge import _read_capability
     original_cap=_read_capability(paths,original['new']['session_id'])
@@ -315,9 +338,8 @@ def _read_recovery_predecessor(paths,capability,original):
     link=capability['compound']['recovery']
     root=installer_fence.state_root(paths)/'upgrades'/link['predecessor_upgrade_id']
     installer_fence.assert_state_security(root,secret=True)
-    raw=_read_bytes(root/'plan.json',secret=True)
+    previous,raw=_read_recovery_plan(root)
     if sha256(raw).hexdigest()!=link['predecessor_plan_sha256']:_failed()
-    previous=read_json(raw,_MAX_PLAN)
     from .installer_transaction_bridge import _read_capability
     previous_cap=_read_capability(paths,previous['new']['session_id'])
     validate_bound_plan(previous,previous_cap)
@@ -349,6 +371,65 @@ def _recovery_committed_marker(paths,barrier):
     except ValueError:return None
 
 
+def _unconfirmed_fence(fence, binding, operation, record, *, starting_is_ambiguous):
+    if fence is None or fence['transaction_id'] != binding['transaction_id']:
+        return False
+    package = binding['package']
+    if (fence['operation'] != operation or fence['selected'] != record['selected']
+            or fence['previous'] != record['previous']
+            or any(fence['package'][key] != package[name] for key, name in (
+                ('sha256','package_sha256'), ('product_code','product_code'),
+                ('version','version'), ('source_revision','source_revision')))):
+        _failed()
+    return (fence['phase'] in {'msi-executing', 'msi-returned', 'reconciling', 'complete'}
+            or (starting_is_ambiguous and fence['phase'] == 'msi-starting'))
+
+
+def _unconfirmed_msi(paths, record):
+    """Either leg can enter MSI before the compound outcome is durable."""
+    # Only the authenticated compound End transition proves that a returned
+    # script committed. Product registration and either callback do not.
+    if record['phase'] in {'committed', 'repair-committed', 'retired', 'reconciled', 'ready'}:
+        return False
+    if record['phase'] in {'old-script-returned', 'new-script-returned', 'repair-script-returned'}:
+        return True
+    from . import staged_recovery, staged_update_state
+    staged = staged_update_state.read_staged_update(paths)
+    staged_matches = staged is not None and staged.binding.operation_id == record['new']['transaction_id']
+    if staged_matches:
+        if (staged.binding.old_release != record['old']['package']
+                or staged.binding.new_release != record['new']['package']):
+            _failed()
+        # A staged attempt is persisted before either MSI API is called.
+        # Even an exit code or staged terminal phase is contradictory while
+        # the authenticated compound End is missing.
+        if (staged.phase not in {'preparing', 'prepared', 'switching'}
+                or staged_recovery._native_attempt(paths, staged) is not None):
+            return True
+    # Historic standalone compounds have no pre-API attempt receipt. Their
+    # starting fence cannot distinguish before entry from before the callback.
+    old = installer_fence.read_fence(paths)
+    if _unconfirmed_fence(old, record['old'], 'uninstall', record,
+                          starting_is_ambiguous=not staged_matches):
+        return True
+    target = record['new']
+    attempt_id = record['upgrade_id'] if record['schema_version'] == 2 else None
+    with installer_fence.child_fence(target['transaction_id'], attempt_id=attempt_id):
+        child = installer_fence.read_fence(paths)
+    if child is not None and child['transaction_id'] != target['transaction_id']:
+        _failed()
+    return _unconfirmed_fence(child, target, 'install', record,
+                             starting_is_ambiguous=not staged_matches)
+
+
+def assert_recovery_msi_outcome(paths, capability, original):
+    previous = _read_recovery_predecessor(paths, capability, original)
+    if _unconfirmed_msi(paths, original) or (
+            previous['upgrade_id'] != original['upgrade_id'] and _unconfirmed_msi(paths, previous)):
+        raise ValueError('MSI_OUTCOME_UNCONFIRMED')
+    return previous
+
+
 def inspect_recovery_authority(paths,release,*,helper_sha256=None):
     """Read-only discovery of an exact surviving parent, never settlement."""
     pointer=installer_fence.state_root(paths)/'upgrade.json'
@@ -361,7 +442,7 @@ def inspect_recovery_authority(paths,release,*,helper_sha256=None):
     if _recovery_committed_marker(paths,barrier) is not None:return None
     root=installer_fence.state_root(paths)/'upgrades'/barrier['upgrade_id']
     installer_fence.assert_state_security(root,secret=True)
-    raw=_read_bytes(root/'plan.json',secret=True);record=read_json(raw,_MAX_PLAN)
+    record,raw=_read_recovery_plan(root)
     from .installer_transaction_bridge import _read_capability
     current_cap=_read_capability(paths,record['new']['session_id'])
     validate_bound_plan(record,current_cap)
@@ -376,6 +457,8 @@ def inspect_recovery_authority(paths,release,*,helper_sha256=None):
         'selected':original['selected'],'previous':original['previous'],'service_states':original_cap['service_states'],
         'old':deepcopy(original['old']),'original_upgrade_id':original['upgrade_id'],
         'original_plan_sha256':sha256(original_raw).hexdigest(),'predecessor_plan_sha256':sha256(raw).hexdigest()}
+    if _unconfirmed_msi(paths, original) or (record is not original and _unconfirmed_msi(paths, record)):
+        result['msi_outcome_unconfirmed'] = True
     if 'prepared_old' in original:
         read_prepared_source(paths,current_cap)
         result['prepared_old']=deepcopy(original['prepared_old'])
@@ -387,7 +470,7 @@ def publish_recovery_plan(paths,capability,record):
     from .installation_provenance import _archive_directory
     original,raw,original_cap=read_recovery_original(paths,capability)
     if record!=make_recovery_plan(capability,original,raw,original_cap):_failed()
-    previous=_read_recovery_predecessor(paths,capability,original)
+    previous=assert_recovery_msi_outcome(paths,capability,original)
     barrier=installer_fence.state_root(paths)/'upgrade.json'
     if _read(barrier,maximum=4096)!=_barrier(previous):_failed()
     # A valid terminal predecessor is already complete. Invalid/torn publication
@@ -402,6 +485,7 @@ def publish_recovery_plan(paths,capability,record):
         installer_fence.protect_state(root,secret=True)
     path=root/'plan.json'
     if path.exists() and _read(path,secret=True)!=record:_failed()
+    _immutable_json(root/'prepared-plan.json',record,secret=True,maximum=_MAX_PLAN)
     durable_state.write_json_atomic(path,record,trusted_root=root,max_bytes=_MAX_PLAN,
         protect=lambda target:installer_fence.protect_state(target,secret=True))
     _immutable_json(_history(paths,record['upgrade_id'])/'barrier.json',_barrier(record))
@@ -443,6 +527,7 @@ def publish_plan(paths, capability, record):
     _immutable_json(history/'barrier.json',_barrier(record))
     if previous is not None:
         _immutable_json(root/'predecessor.json',previous,secret=True)
+    _immutable_json(root/'prepared-plan.json',record,secret=True,maximum=_MAX_PLAN)
     durable_state.write_json_atomic(path, record, trusted_root=root, max_bytes=_MAX_PLAN,
         protect=lambda target: installer_fence.protect_state(target, secret=True))
     durable_state.write_json_atomic(barrier_path, _barrier(record), trusted_root=barrier_path.parent,
@@ -489,11 +574,11 @@ def _history(paths,upgrade_id):
     return _archive_directory(_archive_directory(installer_fence.state_root(paths),'upgrade-history'),upgrade_id)
 
 
-def _immutable_json(path,value,*,secret=False):
+def _immutable_json(path,value,*,secret=False,maximum=4096):
     if path.exists():
-        if _read(path,secret=secret,maximum=4096)!=value:_failed()
+        if _read(path,secret=secret,maximum=maximum)!=value:_failed()
         return
-    durable_state.write_json_atomic(path,value,trusted_root=path.parent,max_bytes=4096,
+    durable_state.write_json_atomic(path,value,trusted_root=path.parent,max_bytes=maximum,
         protect=lambda target:installer_fence.protect_state(target,secret=secret))
 
 
@@ -531,6 +616,62 @@ def committed_marker(paths,*,barrier=None):
     expected={**{key:item for key,item in ready.items() if key!='phase'},'ready_sha256':sha256(raw).hexdigest()}
     if _read(path,maximum=4096)!=expected:_failed()
     return expected
+
+
+def superseded_starting_child(paths, leaf):
+    """Prove an unentered original child was replaced by a committed native recovery."""
+    root = installer_fence.state_root(paths)
+    relative = leaf.relative_to(root/'children').parts
+    if len(relative) != 2 or relative[1] != 'transaction.json':
+        return False
+    transaction = relative[0]
+    try:
+        _uuid(transaction)
+        child = installer_fence.validate_fence(_read(leaf, maximum=installer_fence.MAX_FENCE_BYTES))
+        if (child['transaction_id'] != transaction or child['operation'] != 'install'
+                or child['phase'] != 'msi-starting' or child['sequence'] != 1 or child['startup_restored']):
+            return False
+        attempts = root/'transactions'/transaction/'attempts'
+        installer_fence.assert_state_security(attempts)
+        with os.scandir(attempts) as entries:
+            candidates = list(islice(entries, 513))
+        if len(candidates) > 512:
+            return False
+        return any(entry.is_dir(follow_symlinks=False)
+                   and _committed_child_replacement(paths, child, entry.name) for entry in candidates)
+    except (OSError, ValueError):
+        return False
+
+
+def _committed_child_replacement(paths, child, attempt):
+    from .installer_transaction_bridge import _read_capability, completion_root
+
+    root = installer_fence.state_root(paths)
+    try:
+        _uuid(attempt)
+        directory = root/'upgrades'/attempt
+        installer_fence.assert_state_security(directory, secret=True)
+        record = _read(directory/'plan.json', secret=True)
+        if (record['schema_version'] != 2 or record['upgrade_id'] != attempt or record['phase'] != 'ready'
+                or record['new']['transaction_id'] != child['transaction_id']):
+            return False
+        cap = _read_capability(paths, record['new']['session_id'])
+        if cap['operation'] != 'install' or not cap['recovery']:
+            return False
+        _validate_stored_plan(paths, cap, record)
+        marker = committed_marker(paths, barrier=_barrier(record))
+        if (marker is None or marker['successor_product_code'] != cap['package']['product_code']
+                or marker['source_revision'] != cap['package']['source_revision']):
+            return False
+        receipt = _read(completion_root(paths, cap)/'completed.json', maximum=installer_fence.MAX_FENCE_BYTES)
+        _validate_completed(receipt, cap['package'], child['transaction_id'], 'install')
+        return (receipt['service_states'] == cap['service_states']
+                and receipt['service_startup'] == record['service_startup']
+                and all(receipt[key] == record[key] for key in ('selected', 'previous'))
+                and all(receipt[key] == child[key] for key in
+                        ('package', 'selected', 'previous', 'service_states', 'service_startup')))
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
 
 
 def record_standalone_completion(paths,capability,completed):

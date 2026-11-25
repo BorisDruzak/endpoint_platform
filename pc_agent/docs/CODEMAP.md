@@ -2,6 +2,37 @@
 
 ## Runtime boundary
 
+`runtime/lifecycle.py` assigns each Gateway WSS connection one command task and
+a FIFO of up to eight waiting commands. Policy and telemetry ACKs continue during
+execution. Overflow returns `AGENT_COMMAND_QUEUE_FULL`. HTTP pull waits for the
+current result before requesting the next command, including migration fallback.
+Commands that expire while queued are skipped and the server expires their
+operations. Connection teardown cancels execution and discards the in-memory queue.
+For negotiated journaling, a SQLite reservation remains until authorization
+and a durable local start. Recovery reports `AGENT_COMMAND_INTERRUPTED_BEFORE_START`
+for an open reservation. An interrupted durable start or a legacy unresolved
+record is reported as `AGENT_COMMAND_OUTCOME_UNKNOWN`.
+
+`runtime/command_worker.py` starts the fixed Core entrypoint for one allowlisted
+command over bounded stdin/stdout frames. It passes the local network policy,
+checks result identity and assigns the worker to a Windows Job or POSIX process
+group before dispatch. Fixed POSIX probes inherit that process group. Execution
+uses the earlier of the command deadline and the capability budget. The maximum
+is 45 seconds for context, 10 for DNS, 25 for TCP, 35 for ping, and 12 for other
+read-only commands. Timeout and cancellation terminate the owned process tree.
+
+Windows inventory-directed Setup and its provisioner use
+`core/device_fingerprint.collect_windows_inventory_fingerprint`. The original
+fingerprint schema is used after successful WMI reads. A failed WMI query gets
+one bounded retry. Exhausted queries stop fingerprint derivation before the
+next enrollment action.
+
+On ALT, `platform/linux/installation_coordinator.py` verifies installed RPMs and
+runs the packaged Core prerequisite checker before completing native install or
+upgrade reconciliation. A missing or unusable runtime selection keeps the
+recorded native result pending and withholds enrollment. Remove verifies the
+installed RPM source before erase and the package absence after erase.
+
 `platform/windows/acl.preserve_state_file_permissions` preserves selector owner
 and DACL using an already-held restore privilege on the effective thread/process
 token. It restores the prior privilege attributes even on failure and never
@@ -33,10 +64,14 @@ and registers PowrProf suspend/resume callbacks. Latest native boot identity is
 separate from historical replay. One bounded reverse Boot27 lookup recovers
 context before the first replay row even if its boot predates the30-day fact
 window. The context shares the existing atomic page/checkpoint transaction.
-The checkpoint also stores a bounded native record-identity digest. An exact
-record lookup validates continuity before cursor reuse; overlapping generations,
-missing records and legacy checkpoints without an anchor reset/replay retained
-coverage explicitly. A later live boot alone does not invalidate the cursor.
+The checkpoint also stores a bounded native record-identity digest. Exact anchor
+validation uses the same Power provider/ID whitelist as collection, so unrelated
+System records sharing a numeric ID cannot trigger replay. Missing/mismatched or
+out-of-range records and legacy checkpoints reset/replay retained coverage
+explicitly. At most two anchor candidates are read; an ambiguous Power identity
+retains its checkpoint/history/counters, reports DEGRADED without reset/replay,
+and suppresses notifications until continuity is provable again. A later live
+boot alone does not invalidate the cursor.
 Fixed subprocess reads (10-second deadline, kill-and-wait on cancellation) share
 one loop-scoped lock with SCM evidence. The frozen core dispatches the private
 stdin-only `--windows-power-read` mode; static imports keep the worker in the
@@ -55,6 +90,12 @@ The fixed Windows `service_launcher.py` forwards SCM shutdown as `S` then EOF;
 ordinary service stop remains EOF only. `runtime/main.py` persists the shutdown
 fact within a two-second budget before stopping the child. Older cores already
 stop on any byte/EOF, and update-pending runtime exit retains precedence.
+`platform/windows/core_process.py` assigns the suspended Core to a dedicated Job
+before resuming it. The host allows ten seconds for graceful stop and then
+terminates the Job, allowing five seconds to confirm that it is empty before
+returning SCM status or scheduling an update. The Core allows five seconds
+for cancellation before exiting itself. The updater requires confirmed SCM
+stop before selector publication or restart after a failed stop.
 
 Gateway WSS EOF/abnormal closure (including aiohttp CLOSED/CLOSING sentinels)
 uses the existing retry lifecycle instead of ending the Windows service. A
@@ -120,10 +161,14 @@ every registered-cache lookup, ACL, namespace, byte size and before/after
 identity check still runs. Fresh post-commit `compound-finalize` may retain
 byte proofs for the exact Foundation files from its authenticated
 MSI. ACL, namespace and descriptor checks still run on every access. Native
-deny-write/delete handles survive metadata-only checkpoints and are released
-on context exit or failure. Other phases, recovery and the default Foundation
-reader perform complete byte verification on every call. Reuse-budget
-exhaustion falls back to the original fresh reader.
+deny-write/delete handles survive metadata-only checkpoints. Before flushing
+an installed file or the registered Windows Installer cache, the durability
+pass releases that file's pin and binds the write handle to the verified
+identity and change time. Later reads
+verify its bytes again. Remaining pins are released on context exit or
+failure. Other phases, recovery and the default Foundation reader perform
+complete byte verification on every call. Reuse-budget exhaustion falls back
+to the original fresh reader.
 
 The fresh compound upgrade uses one `compound-finalize` helper only after real
 native End(Commit)=0 and all required callbacks. It executes the same ordered
@@ -266,6 +311,27 @@ directory/file ACL, hash and descriptor checks surround shared use; post-commit
 pins grow only with that explicit bounded inventory. Installed performance and
 matrix acceptance are recorded separately in the Task 8 report.
 
+Independent Windows support access uses `support_access.py`,
+`support_access_native.py` and `support_access_service.py`. Its LocalSystem
+service and active executable live in the protected Support sibling, outside
+Core, observer, updater and MSI resource control. MSI inventory schema 3 pins
+the signed staged `Agent/EndpointSupportAccess.exe` and identical embedded
+uninstall helper. Setup activates it after native acceptance; fresh enrollment
+does so after durable identity and before Core starts. The service renews its
+own HTTPS policy and outbound SSH tunnel. Native failure and staged rollback
+do not stop the active service. See `docs/runbooks/INDEPENDENT_SUPPORT_ACCESS.md`
+for policy, ownership, installation and live qualification boundaries.
+
+`staged_restoration_continuation.py` finalizes only the old native reservation
+created by a completed staged rollback's restoration role. It binds the private
+plan, three role capabilities, native grant/completion, original payload and
+private state, and exact restored selectors. It records a new derived receipt
+before retiring that reservation; historical grants and selectors stay intact.
+The live rollback owner invokes it automatically. Signed SYSTEM Setup also
+exposes `--recover-staged-restoration` through a fresh authenticated owner,
+genuine native settlement and the same proof path. This executes no MSI replay
+or service changes and does not relax historical continuation validation.
+
 `tools/canary/ssl_payload.py` preserves an interpreter's required adjacent TLS
 policy resource in every Windows analysis containing `ssl`. It binds the
 unmodified stdlib source/resource bytes, rejects missing or ambiguous inputs,
@@ -332,6 +398,17 @@ extraction and journal allocations with a 64-MiB or 10-percent margin, summed
 per receiving volume. Existing retained cores already occupy space. Download
 and extracted files are flushed before durable handoff. A disk-full rejection
 keeps valid pending state for retry and reports bounded `disk_insufficient`.
+The online Core updater downloads to an attempt-specific staging file. After
+the scheduled ACK, it rechecks lifecycle ownership under the update mutex and
+durably writes the prepared handoff. It publishes and flushes the ZIP, then
+renames the prepared handoff to pending. Without an active recovery record, a
+fresh check can retire the exact attempt archive named by an unconsumed
+preparation record after verifying the archive against its size and digest.
+A visible pending handoff keeps its archive and retries the directory flush.
+An exclusive transfer file lock covers the online attempt across awaits.
+Before checking free space, the holder takes a bounded pass under the update
+mutex and retires abandoned files in the lock-aware writer's staging namespace.
+The pass leaves older scratch names and canonical operation archives alone.
 The Windows recovery supervisor keeps the current core and WSS alive after
 SCM starts the updater; the offline worker owns stopping the Agent only after
 verified staging and durable preparation. The worker first reserves exact old
@@ -374,6 +451,11 @@ Linux CUPS maintenance is dispatched by `runtime/command_executor.py` to
 socket and records an intent in `cups-actions.sqlite3` before changing a queue or
 sending a test page. The command identity survives reconnection and restart.
 See [CUPS maintenance](../../docs/architecture/cups-maintenance.md).
+
+The optional server role in `context_profiles/server_health.py` adds service,
+volume and loopback application checks to the existing `health_v1` collection.
+`context_profiles/probe.py` supplies the local read-only probes and the console
+displays the typed section. See `docs/runbooks/SERVER_AGENT_HEALTH.md`.
 
 Endpoint Policy delivery and ACK run in `policy/runtime.py` through the same
 Gateway connection. The Windows local sensor boundary has a service-owned,
@@ -585,9 +667,12 @@ silently discards installed packages after record 2048.
 | Browser machine policy | `pc_agent/platform/windows/{browser_policy,browser_policy_helper,browser_policy_service_entry}.py`, `pc_agent/policy/windows_sensors.py` | fixed extension force-install values, authenticated helper IPC, ownership marker and safe relinquish |
 | Local sensors | `pc_agent/platform/windows/{local_ipc,sensor_pipe_listener,activity_api,user_sensor,user_sensor_runtime,browser_bridge,browser_bridge_entry}.py` | bounded user/browser observation boundary; service listener, per-user sampler and binary native-host entrypoint |
 | Enrollment | `pc_agent/enrollment_identity.py`, `pc_agent/device_credential.py` | device identity and credentials |
+| Windows Setup | `pc_agent/platform/windows/setup_entry.py`, `pc_agent/platform/windows/inventory_setup.py`, `pc_agent/platform/windows/provision.py` | signed MSI entry, staging inventory handoff and enrollment provisioner |
+| Windows enrollment after native Setup | `pc_agent/platform/windows/setup_entry.py`, `pc_agent/platform/windows/provision.py`, `pc_agent/platform/windows/installation_lifecycle.py` | the exact signed package can resume enrollment from its completed MSI receipt, and the provisioner binds that transaction's pending event under the update lock |
 | Context | `pc_agent/context_profiles/` | typed context collection and execution |
 | Modules | `pc_agent/modules/`, `pc_agent/module_manager.py` | managed module lifecycle |
 | Updates | `pc_agent/gateway_update_runtime.py`, `pc_agent/update_adapter.py` | immutable update selection and application |
+| Command journal | `pc_agent/runtime/local_state.py`, `pc_agent/runtime/lifecycle.py` | negotiated WSS start reservations, execution deduplication, and result replay until a matching acknowledgement |
 | Packaging | `packaging/alt/`, `packaging/windows/` | ALT RPM and Windows MSI artifacts |
 
 `platform/windows/staged_candidate_payload.py` prepares incoming Core bytes
@@ -604,6 +689,16 @@ payload before and after execution, and requires exact bounded output and a
 live owner. Windows execution metadata binds the retained handle owner, group,
 DACL and file attributes; loader-updated ChangeTime is not a content identity.
 This offline executability check grants no Native or trial proof.
+
+The accepted-native companion continuation uses the same retained-handle metadata
+identity from `durable_state.execution_metadata_identity`. Only that execution
+scope opts into `verified_foundation_bytes(..., allow_execution_metadata=True)`.
+It snapshots security before hashing and rechecks it before any launch, keeps all
+Foundation deny-write/delete pins through execution and authenticates bytes again
+when Windows changes timestamps. Exact path/handle identity, attributes and
+owner/group/DACL must still match; a read error or changed metadata fails closed.
+Ordinary Foundation reads retain strict ChangeTime checks. Execution is rejected
+inside the separate immutable-Foundation read cache; no cache is rebaselined.
 
 ALT native distribution assembly lives in `tools/build_alt_pilot_kit.py` and
 `packaging/alt/pilot/`. It pins already qualified Core/User Sensor/runtime and
@@ -631,3 +726,5 @@ both platforms; Browser Status resumes after the current ACK even on ERROR, whil
 Activity still requires APPLIED. KDE autostart replaces its private environment
 before restarting its own unit. See the current ALT baseline and parity ledger
 for installed acceptance and remaining external gates.
+
+The Windows Core162 verifier can install the bundled publisher-signed Setup client1.0.4 from its existing fixed Core assignment. `platform/windows/setup_update_bootstrap.py` performs only local admission and registration; `packaging/windows/EndpointSetupUpdater.ps1` owns the separate protected download/Setup/report task outside MSI-owned paths. Native updates remain delegated to signed full Setup, with unknown outcomes blocked against replay. Server `endpoint_server/setup_updates/{service,preparation}.py` owns separate Setup assignments and canonical Core children. A known exit21 may settle as failed only after verified unchanged-source/private/session proof; the recovery observer bootstrap and exact Core157 return retain the original native hold. `tools/release/verify_setup_core_archive.py` binds reused ZIP bytes to the frozen MSI runtime instead of recompressing its immutable transport. See `docs/runbooks/WINDOWS_FULL_SETUP_AUTOUPDATE.md` for operator and recovery boundaries.

@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "version": "3.2.178",
+  "kind": "linux_native_candidate",
+  "status": "signed_verified_staging_registered_not_installed",
+  "source_revision": "ece04b8add2d13c2603a4d52d61db3f9880f86f4",
+  "publisher_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+  "frozen_manifest_sha256": "cb72ab8a8b2be0368985e70381ecbfe5d01b1ffbeadb0318da5fb7a728055901",
+  "native_packages": {
+    "core": {
+      "nevra": "endpoint-agent-3.2.178-alt6.x86_64",
+      "signer_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+      "source_revision": "ece04b8add2d13c2603a4d52d61db3f9880f86f4",
+      "frozen_manifest_sha256": "cb72ab8a8b2be0368985e70381ecbfe5d01b1ffbeadb0318da5fb7a728055901",
+      "sha256": "a0f5a454b76391080b737bfde8aa060df96483674e183eec707ca38700a2543d",
+      "version": "3.2.178",
+      "package": "endpoint-agent",
+      "setup_sha256": "f6f43e00eab0ca7edbb97140d07c1c5bb23f179e1abbcd12d5acc92d6260d126"
+    },
+    "sensor": {
+      "nevra": "endpoint-agent-user-sensor-3.2.178-alt6.x86_64",
+      "signer_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+      "source_revision": "ece04b8add2d13c2603a4d52d61db3f9880f86f4",
+      "frozen_manifest_sha256": "cb72ab8a8b2be0368985e70381ecbfe5d01b1ffbeadb0318da5fb7a728055901",
+      "sha256": "2363ad78949aef139a26d879f09605be8d45be83989b067b407eb9ac32c9b586",
+      "version": "3.2.178",
+      "package": "endpoint-agent-user-sensor",
+      "setup_sha256": "f6f43e00eab0ca7edbb97140d07c1c5bb23f179e1abbcd12d5acc92d6260d126"
+    }
+  },
+  "kit": {
+    "endpoint-alt-pilot-3.2.178-1.tar.gz": {
+      "size": 71332497,
+      "sha256": "d69d68e1804f4174ed563b7d6674632630ca39c57f43e94163d4aaf2698a32f8"
+    },
+    "endpoint-alt-pilot-3.2.178-1.manifest.json": {
+      "size": 1005,
+      "sha256": "f3d783683787ba4d3ce746f95f2cd297725a6a85d3cca1f92f962c2b6b854086"
+    }
+  },
+  "detached_signatures": {
+    "endpoint-alt-pilot-3.2.178-1.manifest.sig": {
+      "sha256": "17943f51ff5dd83d0350aa63c62d4c0c2442d06c1d98ed96fe16ba8a979e6b12",
+      "size": 438
+    },
+    "endpoint-alt-pilot-3.2.178-1.tar.gz.sig": {
+      "sha256": "cf0d2147be377c4fa1ff97dafbf38d536024bfa1d9ffe82e5c30be1b25472ace",
+      "size": 438
+    }
+  },
+  "source_publication": {
+    "environment": "staging",
+    "origin": "https://endpoint-staging.sosnadmin.local",
+    "observed_utc": "2026-11-08T10:20:21.499207+00:00",
+    "release_id": "520499bd-df1f-418a-a70d-cfefd6ba6ed0",
+    "mandatory_real_verifier": true
+  },
+  "native_installation_attempted": false,
+  "staging_source_qualified": false,
+  "primary_promoted": false,
+  "fleet_acceptance": false,
+  "limits": [
+    "The actual retained VM107 Core156 has a canonical root-owned staging.conf drop-in; Setup178 rejects every drop-in before invoking native RPM.",
+    "This is a source-and-actual-configuration preflight finding; no failed or accepted native assignment is invented.",
+    "A distinct179 candidate will preserve and strictly verify the approved staging configuration. Existing178 signed bytes and source row remain immutable."
+  ],
+  "operator_artifact_directory": "C:/endpoint-platform-wix-build/linux178-native",
+  "verification_receipt": "docs/verification/2026-11-08-linux-signing-input-compatibility.md"
+}

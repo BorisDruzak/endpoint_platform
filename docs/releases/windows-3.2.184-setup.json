@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "version": "3.2.184",
+  "platform": "windows_amd64",
+  "status": "candidate_native_accepted_support_first_start_failed_do_not_promote",
+  "verified_utc": "2026-11-09T19:35:56.985754+00:00",
+  "runtime_source_commit": "7b20706e6c87eb17cd280e278d3db5ac99744ed4",
+  "windows_packaging_commit": "6e208e42594a1c82c6f8f80d8c70b4f32102a1dd",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.184.json",
+  "setup": {
+    "filename": "EndpointAgentSetup-3.2.184-x64.exe",
+    "sha256": "f01495dbd8fa44c2deb9e3399e912d5590a9a85565affec8081db26dc21c12c3",
+    "size": 166954144,
+    "release_id": "8db8a252-7802-481c-970e-d255fe4c0cf1",
+    "download_published": false,
+    "operator_path": "C:/endpoint-platform-wix-build/setup184-inbox-7b20706/native-setup-build/releases/EndpointAgentSetup-3.2.184-x64.exe",
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776"
+  },
+  "msi": {
+    "sha256": "3360e904967c8b2d0ad5606cb246482da01fb2ea712c060ccfaef749727c3ab6",
+    "size": 125149184,
+    "product_code": "{25EDC309-435A-4282-9A69-1835D7A267DE}"
+  },
+  "support": {
+    "component_version": "1.1.0",
+    "sha256": "dc11aa567281c363c90ca0199c814716d87e9a98025d7c11e326cea0b0b34887",
+    "size": 10144816,
+    "profile": "windows-openssh-fod-v1",
+    "bundled_preview_archive": false,
+    "first_native_activation": "failed and compensated to previous1.0.1",
+    "later_diagnostic_activation": "succeeded using unchanged signed1.1.0 after readiness file existed",
+    "migration_qualified": false
+  },
+  "setup_update_release_id": "3de3c0e5-49dd-4434-bcdb-b6209d7842ba",
+  "test120": {
+    "device_id": "c87eaa22-4fd1-4830-bc11-88142afda87e",
+    "assignment_id": "013f47e7-27c2-4472-9aec-239d342cf380",
+    "attempt_id": "d93d73a4-c4fe-4520-af98-963cf47e75d1",
+    "source_foundation": "3.2.177",
+    "source_client": "1.0.7",
+    "native_acceptance": {
+      "foundation_version": "3.2.184",
+      "core_version": "3.2.184",
+      "source_revision": "7b20706e6c87eb17cd280e278d3db5ac99744ed4",
+      "msi_sha256": "3360e904967c8b2d0ad5606cb246482da01fb2ea712c060ccfaef749727c3ab6",
+      "native_phase": "accepted",
+      "exit_code": 0,
+      "native_verified": true,
+      "core_verified": true,
+      "provenance_verified": true,
+      "pending": false,
+      "services_verified": true,
+      "companions_restored": true,
+      "private": {
+        "credential": true,
+        "identity": true,
+        "origin": true,
+        "ca": true
+      },
+      "soak": {
+        "duration_seconds": 185.318,
+        "samples": 6,
+        "sensor_count": 1,
+        "sensor_cpu_percent_max": 0.0063,
+        "services_stable": true,
+        "companions_stable": true,
+        "connected": true
+      }
+    },
+    "complete_support_acceptance": false
+  },
+  "source_qualifications": [],
+  "fleet_promoted": false,
+  "primary_windows_unchanged": "3.2.177",
+  "primary_linux_unchanged": "3.2.183",
+  "verification": "docs/verification/2026-11-10-test120-windows184-support-first-start.md",
+  "tests": {
+    "windows_passed": 2572,
+    "skipped": 4,
+    "runtime_contract_passed": 14
+  }
+}

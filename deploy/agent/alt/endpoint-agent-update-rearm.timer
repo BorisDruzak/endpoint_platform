@@ -1,0 +1,8 @@
+[Unit]
+Description=Delay rearming the ALT update watcher after systemd rate limiting
+PartOf=endpoint-agent-update.path
+
+[Timer]
+# Keep the updater's 900-second start limit in force before rearming.
+OnActiveSec=16min
+RemainAfterElapse=no

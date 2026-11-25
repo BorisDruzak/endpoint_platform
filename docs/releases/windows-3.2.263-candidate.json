@@ -1,0 +1,161 @@
+{
+  "schema_version": 1,
+  "version": "3.2.263",
+  "platform": "windows_amd64",
+  "status": "lab_active_msi_power_loss_recovery_incomplete",
+  "verified_utc": "2026-11-19T01:38:55.822079Z",
+  "runtime_source_commit": "479edc51592593d7643cbcc4b6e72e9e3fb3f586",
+  "integration_change": "e563fcdf935dedf05aff4e962b8476ee1f7fa252",
+  "dependency_evidence": {
+    "source_file_sha256": {
+      "requirements/agent-core.txt": "e6912c66f6502265525a80d2786ee103aac090462bdba2252fb4e8e881147aa3",
+      "requirements/build-windows.txt": "d45ab88050e73c05088d46323f9b151101593ee05b4093694f99612d7734cd3c"
+    },
+    "builder_pip_freeze_sha256": "2aaf4ba5615106a630f5bb8f1ec7e0339407169cbfa9d86f2d1528d671865798",
+    "windows_ci_freeze_sha256": "420064163806f22c4c9f03dd482baf9adf867a4fb32830fd7dcde085a5f6985d"
+  },
+  "initial_runtime_file_count": 119,
+  "initial_runtime_tree_sha256": "042c24e351e02b35c2b365d421f44c1e2125df1168336e866e72fed6a2f5eb76",
+  "setup": {
+    "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-263/native/releases/EndpointAgentSetup-3.2.263-x64.exe",
+    "sha256": "b52b82391d6b3d1c17bbcc6d0fe654e05a1b2b6ccce61e08b4e04ef9651829c5",
+    "size": 177713448,
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776"
+  },
+  "msi": {
+    "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-263/native/releases/EndpointAgent-3.2.263-x64.msi",
+    "sha256": "876e0886e123ef6c0f5f8cc62e4401e8f144c8e5cc07faef18a23d4b3c861cc0",
+    "size": 136323072,
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776"
+  },
+  "embedded_core_sha256": "8ea32f515c6408530e78c5bddbde62e061cdf2a8f084d383d77694595c7b4055",
+  "embedded_core_archive_name": "EndpointCore.zip",
+  "embedded_core_executable_name": "pc_agent.exe",
+  "embedded_core_executable_sha256": "d2980dff5233bcf7621f6185bd94d13c7d8fd8292c447ff9186532fa7986bb79",
+  "setup_observer": {
+    "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-263/EndpointSetupUpdater.ps1",
+    "sha256": "b504a8fb96ead642262494b53327c0c5a01da49a0285d9190c0364da72e399aa",
+    "size": 107313,
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776",
+    "version": "1.0.13"
+  },
+  "production_full_setup_update": {
+    "registered": false,
+    "source_qualifications": []
+  },
+  "verification_receipts": {
+    "command_journal_across_rollback_to_192": {
+      "scope": "packaged_agent_modules_synthetic_sqlite",
+      "report": "docs/verification/2026-11-19-stab02-windows-192-263-journal.md",
+      "path": "C:/endpoint-platform-wix-build/stab02-windows-192-263-journal/receipt.json",
+      "sha256": "1a472e3300300b6265bab8e8ea7b496e3391501ba1926e790c042f038b107c5d"
+    },
+    "local_build": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-263/setup263-local-build-proof.json",
+      "sha256": "515b3ee0369cf6f098fd7ce805cfec64e40d23d2ffd3620c27c8926a68bb1c1e"
+    },
+    "windows_release_gate": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-263/release-gate/source.json",
+      "sha256": "1ac119fff0ebccf028f30574dc54cfd6486f4434956cc4837c415254f4f9a4c6",
+      "scope": "local_workflow_equivalent",
+      "passed": 3015,
+      "skipped": 4,
+      "errors": 0,
+      "failures": 0,
+      "junit": {
+        "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-263/release-gate/windows-263-release-gate.xml",
+        "sha256": "b3b7222cd0e497df94654965362b858d336bde8d5d97d5a23d07e5e2f0ffe592"
+      },
+      "receipt_manifest": {
+        "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-263/release-gate/receipts.sha256",
+        "sha256": "850ebd52df954c994cd6ac61d2401e201ca6e04bb50156be57a859c932ba6a93"
+      }
+    },
+    "staged_recovery_regression": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-263/registration-regression.xml",
+      "sha256": "37a37cf1ebbbc2d7962b7713ed4a520b7ee1b91508b5a857aa71c0a26ac51222",
+      "passed": 12,
+      "skipped": 0,
+      "errors": 0,
+      "failures": 0
+    },
+    "receipt_manifest": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-263/candidate-receipts.sha256",
+      "sha256": "99245eac4281acb857c49ca63cbe2ec082bd84fe2ac538091029e7aa66e20780"
+    },
+    "shipped_wrapper": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-263/exact-wrapper-reuse.json",
+      "sha256": "2eefb4c1360d5056cfc59292ea594ec79a0237b5f80c7575246d123d0602b3d1"
+    },
+    "local_source_restore": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-263/restricted-source-restore/source-restore.json",
+      "sha256": "96a5835e810e24a630c23bb460117866904f591f0feb605d8be77e58adbb0da9",
+      "verified_ref": "refs/verified-releases/windows/3.2.263"
+    },
+    "production_catalog_check": {
+      "path": "C:/endpoint-platform-wix-build/setup-stability-candidate-263/production-catalog-readonly.json",
+      "sha256": "bc56b9133ba5371c122a11d36e5aade17d42af2b60f940b02aaf62ee5dc94b37"
+    }
+  },
+  "report": "docs/verification/2026-11-19-stab15-windows-263-pre-native-recovery.md",
+  "lab_qualification": {
+    "os": "Windows 10 Enterprise Evaluation 19045 x64",
+    "source_version": "3.2.192",
+    "pre_native_power_loss": {
+      "operation_id": "d07a3b2c-f9c9-43b6-b1b5-75349dd065db",
+      "terminal_phase": "rolled-back",
+      "safe_code": "preparation_cancelled",
+      "recorded_setup_result": 67,
+      "new_native_attempt_recorded": false,
+      "source_services_and_identity_preserved": true,
+      "archive": {
+        "path": "C:/endpoint-platform-wix-build/stab15-hivex-263-native/primary-capture.zip",
+        "sha256": "1d52799c842905423d16204f087f96eb85e546db9343eb107e93852aad7cdf48"
+      },
+      "msi_costing_control_archive": {
+        "path": "C:/endpoint-platform-wix-build/stab15-hivex-263-native/costing-control.zip",
+        "sha256": "dfcd5160f03f0fcf27bde5c988a7b520d3da5e9a08cd7e4e619de8849300c645"
+      }
+    },
+    "ordinary_retry_without_gateway": {
+      "operation_id": "6b861b34-4933-454b-823d-d005e7a9f11c",
+      "native_attempt_id": "aa7e0c34-e5b1-4f1a-a2ea-b2b4bd57b55c",
+      "terminal_phase": "rolled-back",
+      "terminal_sequence": 6,
+      "process_exit": 67,
+      "recorded_result": "ROLLED_BACK",
+      "source_services_and_identity_preserved": true,
+      "archive": {
+        "path": "C:/endpoint-platform-wix-build/stab15-hivex-263-native/offline-retry.zip",
+        "sha256": "c846f2aea30f932443cd4b75dec36f32a46976297925ef78f8f867ba38840448"
+      }
+    },
+    "active_msi_power_loss": {
+      "operation_id": "2d87b136-cc84-40d4-b014-666719972353",
+      "source_version": "3.2.192",
+      "journal_phase": "rolled-back",
+      "journal_sequence": 6,
+      "recorded_setup_status": "STARTED",
+      "recovery_task_result_first_boot": 60,
+      "recovery_task_result_after_ordinary_restart": 60,
+      "original_services_restored_after_ordinary_restart": true,
+      "original_attempt_outcome_known": false,
+      "post_cut_forward_msi_transaction_observed": true,
+      "fresh_msi_transaction_after_ordinary_restart": false,
+      "report": "docs/verification/2026-11-19-stab15-windows-263-active-msi-power-cut.md",
+      "archives": {
+        "power_cut": {
+          "path": "C:/endpoint-platform-wix-build/stab15-win263-active-msi/power-cut-238.zip",
+          "sha256": "d783331708437e2afd06d835ee6803de5848b3c6a0a3f4b71dc3a9e6d3de4526"
+        },
+        "ordinary_restart": {
+          "path": "C:/endpoint-platform-wix-build/stab15-win263-active-msi/ordinary-restart-diagnostic-238.zip",
+          "sha256": "62708138a8d2cfe62cf22c8cdc5c76a4b2439f20a7c6e402ad38dd03900ff019"
+        }
+      }
+    }
+  }
+}

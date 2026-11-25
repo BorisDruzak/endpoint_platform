@@ -195,6 +195,36 @@ async def _record_delay(delays: list[float], delay: float) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("status", [503, 401, 426])
+async def test_reserve_wss_is_only_used_after_primary_unavailability(tmp_path, monkeypatch, status):
+    from pc_agent.transport import websocket
+
+    reserve = "https://endpoint-reserve.example.test"
+    calls = []
+    expected = object()
+
+    async def connect(_self, _hello, origin):
+        calls.append(origin)
+        if origin == _ORIGIN:
+            raise aiohttp.WSServerHandshakeError(None, (), status=status)
+        return expected
+
+    monkeypatch.setattr(websocket.WebSocketGatewayTransport, "_connect_once", connect)
+    transport = websocket.WebSocketGatewayTransport(
+        ca_file=tmp_path / "endpoint-ca.pem", credential="r" * 43, endpoint_origin=_ORIGIN,
+        fallback_endpoint_origin=reserve,
+    )
+    if status == 503:
+        assert await transport.connect(_hello()) is expected
+        assert calls == [_ORIGIN, reserve]
+    else:
+        error = websocket.GatewayCredentialRejected if status == 401 else websocket.GatewayProtocolIncompatible
+        with pytest.raises(error):
+            await transport.connect(_hello())
+        assert calls == [_ORIGIN]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("status", [401, 403])
 async def test_authentication_denial_is_terminal_without_retry(
     monkeypatch: pytest.MonkeyPatch,
@@ -712,6 +742,21 @@ def test_windows_has_one_service_update_owner_outside_connected_tasks(tmp_path, 
     finally:
         for task in (*service_tasks, *connected):
             task.close()
+
+
+def test_linux_deb_leaves_core_update_to_the_package_manager(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from pc_agent.runtime import application
+
+    monkeypatch.setattr(application, "os", SimpleNamespace(name="posix"))
+    settings = application.RuntimeSettings(
+        data_root=tmp_path / "data", install_root=tmp_path / "install",
+        ca_file=tmp_path / "ca.crt", endpoint_origin=_ORIGIN, transport_mode="gateway_wss",
+        package_managed_updates=True,
+    )
+    websocket = object.__new__(application.WebSocketGatewayTransport)
+    dependencies = application._default_dependencies()
+    assert dependencies.create_connected_tasks(settings, "c" * 43, websocket) == ()
 
 
 @pytest.mark.asyncio

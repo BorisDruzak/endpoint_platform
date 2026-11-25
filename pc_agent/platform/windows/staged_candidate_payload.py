@@ -151,18 +151,7 @@ def publish_candidate_payload(paths, record, expected):
 
 
 def _execution_metadata(descriptor, details):
-    if os.name != 'nt':
-        return details.st_ctime_ns
-    import msvcrt
-    import win32security
-    flags = (win32security.OWNER_SECURITY_INFORMATION |
-             win32security.GROUP_SECURITY_INFORMATION |
-             win32security.DACL_SECURITY_INFORMATION)
-    security = win32security.GetSecurityInfo(
-        msvcrt.get_osfhandle(descriptor), win32security.SE_FILE_OBJECT, flags)
-    return (details.st_file_attributes,
-            win32security.ConvertSecurityDescriptorToStringSecurityDescriptor(
-                security, win32security.SDDL_REVISION_1, flags))
+    return durable_state.execution_metadata_identity(descriptor, details)
 
 
 def check_candidate_executable(paths, record, expected):

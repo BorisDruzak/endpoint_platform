@@ -1,0 +1,37 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "allowed_native_releases": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "maxItems": 64,
+      "minItems": 1,
+      "title": "Allowed Native Releases",
+      "type": "array"
+    },
+    "enrollment_mode": {
+      "enum": [
+        "auto",
+        "manual"
+      ],
+      "title": "Enrollment Mode",
+      "type": "string"
+    },
+    "policy_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "title": "Policy Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "policy_id",
+    "enrollment_mode",
+    "allowed_native_releases"
+  ],
+  "title": "LinuxEnrollmentPolicyV1",
+  "type": "object"
+}

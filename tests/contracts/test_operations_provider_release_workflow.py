@@ -29,7 +29,7 @@ def test_operations_provider_release_workflow_covers_required_gate_surface() -> 
         "tests/operations/**",
         "tests/gateway/**",
         "tests/context/**",
-        "python -m pytest tests pc_agent/tests -q -o faulthandler_timeout=120",
+        "python -m pytest tests pc_agent/tests -q -o faulthandler_timeout=120 --ignore=pc_agent/tests/windows",
         '"pc_agent/**"',
         '"packaging/**"',
         '"tools/**"',
@@ -45,10 +45,29 @@ def test_operations_provider_release_workflow_covers_required_gate_surface() -> 
         "python -m compileall -q endpoint_contracts endpoint_server pc_agent",
         "git diff --check",
         "--junitxml=artifacts/endpoint-operations-provider.xml",
+        "python -m pytest -q tests/build --junitxml=artifacts/linux-build.xml",
+        "            artifacts/linux-build.xml",
         "actions/upload-artifact@v4",
         "endpoint-operations-provider",
+        "windows-release-gate:",
     ):
         assert required in workflow
+
+    windows_job = workflow.split("\n  windows-release-gate:", 1)[1]
+    for required in (
+        "runs-on: windows-latest",
+        "-r requirements/build-windows.txt",
+        "          pc_agent/tests/windows",
+        "tests/deploy/test_keycloak_ad_pilot.py",
+        "tests/packaging/test_installation_notification_stage.py",
+        "tests/packaging/test_setup_preflight_process.py",
+        "tests/packaging/test_staged_cleanup_retry.py",
+        "tests/packaging/test_support_access_signing.py",
+        "tests/packaging/test_support_staged_payload.py",
+        "tests/canary/test_legacy_fixture_schema.py",
+        "--junitxml=artifacts/windows-release-gate.xml",
+    ):
+        assert required in windows_job
 
 
 def test_ci_requirements_pin_fastapi_to_the_committed_contract_renderer() -> None:

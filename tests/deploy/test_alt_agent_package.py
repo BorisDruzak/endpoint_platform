@@ -166,8 +166,8 @@ def test_root_owned_update_worker_is_limited_to_fixed_update_and_rollback_paths(
         in update_path
     )
     assert "Unit=endpoint-agent-update.service" in update_path
-    assert "systemctl stop endpoint-agent.service" in helper
-    assert "systemctl start endpoint-agent.service" in helper
+    assert 'systemctl --job-mode=fail stop "$AGENT_SERVICE"' in helper
+    assert 'systemctl --job-mode=fail start "$AGENT_SERVICE"' in helper
     assert "--apply-alt-update" in helper
 
 
@@ -188,8 +188,8 @@ def test_root_owned_update_worker_uses_the_fixed_stable_launcher() -> None:
     assert 'os.replace("updates", quarantine' in helper
     assert 'os.mkdir("updates", 0o700' in helper
     worker_body = helper[helper.index("validate_stable_launcher || exit $?") :]
-    assert worker_body.index("systemctl stop endpoint-agent.service") < (
-        worker_body.index("if ! validate_updates_directory")
+    assert worker_body.index('systemctl --job-mode=fail stop "$AGENT_SERVICE"') < (
+        worker_body.index("validate_updates_directory || exit")
     )
     assert '"$@"' not in helper
     assert "resolve_current_launcher" not in helper
@@ -226,16 +226,10 @@ def test_update_helper_consumes_symlinked_updates_parent_without_path_loop(
     assert failure.is_file() and not failure.is_symlink()
 
 
-def test_root_worker_returns_only_durable_update_state_to_the_service_account() -> None:
-    helper = _text(UPDATE_HELPER)
-
-    assert "update_history.json" in helper
-    assert "last_failed_alt_update.json" in helper
-    assert "last_failed_alt_rollback_request.json" in helper
-    assert "last_failed_launch.json" in helper
-    assert "action_trace.jsonl" in helper
-    assert "chown endpoint-agent:endpoint-agent" in helper
-    assert "chown -R" not in helper
+def test_root_worker_publishes_service_owned_update_state_before_atomic_rename() -> None:
+    source = _text(ROOT / "pc_agent" / "alt_update_installer.py")
+    writer = source[source.index("def _write_update_json("):source.index("def _unlink_update_leaf(")]
+    assert writer.index("os.fchown(descriptor, owner.st_uid, owner.st_gid)") < writer.index("os.replace(")
 
 
 def test_installer_installs_and_enables_the_root_owned_update_path() -> None:
@@ -360,3 +354,10 @@ def test_config_and_runbook_preserve_one_time_token_handoff_boundary() -> None:
     assert "permanent credential" in runbook
     assert "delete" in runbook
     assert "test-agent-lin" in runbook
+
+def test_update_unit_recovers_even_when_main_helper_is_killed():
+    unit = _text(UPDATE_SERVICE)
+    assert "ExecStopPost=/usr/lib/endpoint-agent/apply-pending-alt-update --recover-service" in unit
+    assert "StateDirectory=endpoint-agent-update" in unit
+    assert "TimeoutStopSec=60s" in unit
+    assert "KillMode=control-group" in unit

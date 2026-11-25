@@ -39,6 +39,7 @@ def literal_msi_costing_boundary(monkeypatch, tmp_path):
 
     # These media are bytes fixtures, not native MSI databases. Preserve the
     # real shared planner/aggregation and replace its native inventory read.
+    monkeypatch.setattr(msi_inventory, "binary_size", lambda *a, **kw: 250)
     monkeypatch.setattr(
         msi_inventory,
         "read_expected_package",
@@ -135,6 +136,28 @@ def test_embedded_msi_wrapper_failure_cannot_report_success(
     with pytest.raises(setup_entry.SetupInstallError, match="Windows Setup MSI installation failed") as caught:
         setup_entry._install_embedded_msi(msi)
     assert caught.value.detail == "MSI_EVIDENCE_FAILED"
+
+
+def test_fresh_setup_reports_untrusted_publisher_before_enrollment(monkeypatch, tmp_path):
+    payload = tmp_path / "payload"
+    payload.mkdir()
+    _payload(payload)
+    diagnostics = tmp_path / "diagnostics"
+    monkeypatch.setattr(setup_entry, "_resource_root", lambda: payload)
+    monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path / "agent-data")
+    monkeypatch.setattr(setup_entry, "_diagnostics_root", lambda: diagnostics)
+    monkeypatch.setattr(setup_entry, "_classify_installation_state", lambda *args, **kwargs: "fresh")
+    monkeypatch.setattr(setup_entry, "_agent_service_installed", lambda: False)
+    monkeypatch.setattr(
+        setup_entry.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=64)
+    )
+    monkeypatch.setattr(setup_entry, "HttpsSetupTransport", lambda *args: pytest.fail("enrollment started"))
+
+    assert setup_entry.main(["--quiet"]) == setup_entry.EXIT_INSTALL_FAILED
+    receipt = json.loads((diagnostics / "install-result.json").read_text(encoding="utf-8"))
+    assert (receipt["stage"], receipt["status"], receipt["detail"]) == (
+        "MSI", "INSTALL_FAILED", "SETUP_PUBLISHER_UNTRUSTED",
+    )
 
 
 def test_setup_upgrade_does_not_report_updated_when_provenance_wrapper_fails(

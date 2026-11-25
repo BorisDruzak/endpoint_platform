@@ -198,6 +198,97 @@ class PyWin32AclAdapter:
         """Make agent-created update handoff state readable by the fixed worker only."""
         self._apply(path, DIRECTORY_ACL)
 
+    def prepare_core_update_directories(
+        self, updates: Path, *, existing_only: bool = False, include_downloads: bool = True,
+    ) -> bool:
+        """Validate fixed OTA storage; repair only exact LocalService inheritance."""
+        self._require_windows()
+        updates = updates.absolute()
+        if updates.name.casefold() != "updates":
+            raise WindowsAclError("Core update directory is not the fixed namespace")
+        downloads = updates / "downloads"
+        security, rights = self._modules()
+        try:
+            parent = _validate_existing_machine_data_acl(updates.parent, security, rights)
+            root_mode = _core_update_directory_mode(updates, security, rights, parent)
+            if not include_downloads:
+                if existing_only:
+                    return root_mode == "protected"
+                self._prepare_core_update_directory(updates, root_mode, parent, security, rights)
+                return True
+            child_parent = None
+            if root_mode == "protected":
+                child_parent = security.GetNamedSecurityInfo(
+                    str(updates), security.SE_FILE_OBJECT, security.DACL_SECURITY_INFORMATION,
+                )
+            # Validate both existing paths before any DACL or transfer-lock write.
+            # A partial updates directory cannot already have a downloads subtree.
+            if root_mode != "protected" and (downloads.exists() or downloads.is_symlink()):
+                raise WindowsAclError("Core downloads exist under an unprepared updates directory")
+            child_mode = _core_update_directory_mode(downloads, security, rights, child_parent)
+            if existing_only:
+                return root_mode == child_mode == "protected"
+            for path, mode, parent_descriptor in (
+                (updates, root_mode, parent), (downloads, child_mode, child_parent),
+            ):
+                if mode == "protected":
+                    continue
+                if parent_descriptor is None:
+                    parent_descriptor = security.GetNamedSecurityInfo(
+                        str(path.parent), security.SE_FILE_OBJECT, security.DACL_SECURITY_INFORMATION,
+                    )
+                self._prepare_core_update_directory(path, mode, parent_descriptor, security, rights)
+        except WindowsAclError:
+            raise
+        except Exception as error:
+            raise WindowsAclError("Core update directory ACL validation failed") from error
+        return True
+
+    def _prepare_core_update_directory(self, path, mode, parent_descriptor, security, rights) -> None:
+        if mode == "protected":
+            return
+        if mode == "missing":
+            path.mkdir()
+        self._protect_core_update_directory(path, parent_descriptor, security, rights)
+
+    @staticmethod
+    def _protect_core_update_directory(path, parent_descriptor, security, rights) -> None:
+        import win32con
+        import win32file
+
+        # SetSecurityInfo on a MAXIMUM_ALLOWED handle does not propagate ACEs
+        # to children. The handle also binds the ACL check and write to one object.
+        open_reparse_point = 0x00200000  # FILE_FLAG_OPEN_REPARSE_POINT
+        handle = win32file.CreateFile(
+            str(path), win32con.MAXIMUM_ALLOWED,
+            win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE,
+            None, win32con.OPEN_EXISTING,
+            win32con.FILE_FLAG_BACKUP_SEMANTICS | open_reparse_point, None,
+        )
+        try:
+            attributes = win32file.GetFileInformationByHandle(handle)[0]
+            if attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT or not attributes & stat.FILE_ATTRIBUTE_DIRECTORY:
+                raise WindowsAclError("Core update path is not a plain directory")
+            read_info = security.OWNER_SECURITY_INFORMATION | security.DACL_SECURITY_INFORMATION
+            descriptor = security.GetSecurityInfo(handle, security.SE_FILE_OBJECT, read_info)
+            if _core_update_descriptor_mode(descriptor, security, rights, parent_descriptor) != "inherited":
+                raise WindowsAclError("Core update directory changed during preparation")
+
+            flags = security.OBJECT_INHERIT_ACE | security.CONTAINER_INHERIT_ACE
+            acl = security.ACL()
+            for sid, mask in _strict_update_masks(security, rights).items():
+                acl.AddAccessAllowedAceEx(security.ACL_REVISION, flags, mask, security.ConvertStringSidToSid(sid))
+            security.SetSecurityInfo(
+                handle, security.SE_FILE_OBJECT,
+                security.DACL_SECURITY_INFORMATION | security.PROTECTED_DACL_SECURITY_INFORMATION,
+                None, None, acl, None,
+            )
+            descriptor = security.GetSecurityInfo(handle, security.SE_FILE_OBJECT, read_info)
+            if _core_update_descriptor_mode(descriptor, security, rights, parent_descriptor) != "protected":
+                raise WindowsAclError("Core update directory protection was not established")
+        finally:
+            handle.Close()
+
     def protect_operator_diagnostics(self, path: Path) -> None:
         """Make installer results readable without allowing ordinary-user tampering."""
         if os.name != "nt":
@@ -254,6 +345,32 @@ class PyWin32AclAdapter:
             raise WindowsAclError("could not inspect enrollment material DACL") from error
         if not allowed or not allowed.issubset(_expected_sid_strings(win32security)):
             raise WindowsAclError("enrollment material is not protected")
+
+    def assert_inventory_assignment_file(self, path: Path) -> None:
+        """Protect installer input before any Endpoint service accounts exist."""
+        self._require_windows()
+        self._reject_reparse_point(path)
+        win32security, _ = self._modules()
+        trusted = {"S-1-5-18", "S-1-5-32-544"}
+        try:
+            descriptor = win32security.GetNamedSecurityInfo(
+                str(path), win32security.SE_FILE_OBJECT,
+                win32security.OWNER_SECURITY_INFORMATION | win32security.DACL_SECURITY_INFORMATION,
+            )
+            owner = win32security.ConvertSidToStringSid(descriptor.GetSecurityDescriptorOwner())
+            dacl = descriptor.GetSecurityDescriptorDacl()
+            protected = descriptor.GetSecurityDescriptorControl()[0] & win32security.SE_DACL_PROTECTED
+            if owner not in trusted or not protected or dacl is None or dacl.GetAceCount() == 0:
+                raise WindowsAclError("inventory assignment ACL is invalid")
+            for index in range(dacl.GetAceCount()):
+                ace = dacl.GetAce(index)
+                if (ace[0][0] != win32security.ACCESS_ALLOWED_ACE_TYPE
+                    or win32security.ConvertSidToStringSid(ace[2]) not in trusted):
+                    raise WindowsAclError("inventory assignment ACL is invalid")
+        except WindowsAclError:
+            raise
+        except Exception as error:
+            raise WindowsAclError("could not inspect inventory assignment ACL") from error
 
     def _apply(self, path: Path, rules: tuple[AccessRule, ...]) -> None:
         if os.name != "nt":
@@ -330,6 +447,78 @@ class PyWin32AclAdapter:
         attributes = getattr(path.lstat(), "st_file_attributes", 0)
         if path.is_symlink() or attributes & 0x400:
             raise WindowsAclError("protected enrollment material must not be a reparse point")
+
+
+def _validate_strict_update_dacl(
+    descriptor, win32security, rights=None, *, allow_child_inheritance: bool = False,
+) -> None:
+    """Require Task 11's protected DACL, including only a directory's child ACEs."""
+    control, _revision = descriptor.GetSecurityDescriptorControl()
+    if not control & win32security.SE_DACL_PROTECTED:
+        raise ValueError("wrong owner or ACL on update path")
+    dacl = descriptor.GetSecurityDescriptorDacl()
+    expected_flags = 0
+    if allow_child_inheritance:
+        expected_flags = (
+            win32security.OBJECT_INHERIT_ACE
+            | win32security.CONTAINER_INHERIT_ACE
+        )
+    if _update_ace_masks(dacl, win32security, expected_flags) != _strict_update_masks(win32security, rights):
+        raise ValueError("wrong owner or ACL on update path")
+
+
+def _strict_update_masks(security, rights) -> dict[str, int]:
+    rights = security if rights is None else rights
+    expected = {"S-1-5-18": rights.FILE_ALL_ACCESS, "S-1-5-32-544": rights.FILE_ALL_ACCESS}
+    modify = rights.FILE_GENERIC_READ | rights.FILE_GENERIC_WRITE | rights.DELETE
+    for principal in EXPECTED_PRINCIPALS[2:]:
+        sid, _domain, _kind = security.LookupAccountName(None, principal)
+        expected[security.ConvertSidToStringSid(sid)] = modify
+    return expected
+
+
+def _update_ace_masks(dacl, security, flags) -> dict[str, int]:
+    if dacl is None or dacl.GetAceCount() != 4:
+        raise ValueError("wrong owner or ACL on update path")
+    observed = {}
+    for index in range(dacl.GetAceCount()):
+        ace = dacl.GetAce(index)
+        if len(ace) != 3 or ace[0] != (security.ACCESS_ALLOWED_ACE_TYPE, flags):
+            raise ValueError("wrong owner or ACL on update path")
+        sid = security.ConvertSidToStringSid(ace[2])
+        if sid in observed:
+            raise ValueError("wrong owner or ACL on update path")
+        observed[sid] = ace[1]
+    return observed
+
+
+def _core_update_directory_mode(path, security, rights, inherited_parent) -> str:
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return "missing"
+    _assert_nonreparse_directory(path)
+    descriptor = security.GetNamedSecurityInfo(
+        str(path), security.SE_FILE_OBJECT,
+        security.OWNER_SECURITY_INFORMATION | security.DACL_SECURITY_INFORMATION,
+    )
+    return _core_update_descriptor_mode(descriptor, security, rights, inherited_parent)
+
+
+def _core_update_descriptor_mode(descriptor, security, rights, inherited_parent) -> str:
+    owner = security.ConvertSidToStringSid(descriptor.GetSecurityDescriptorOwner())
+    if descriptor.GetSecurityDescriptorControl()[0] & security.SE_DACL_PROTECTED:
+        if owner in {"S-1-5-18", "S-1-5-19"}:
+            _validate_strict_update_dacl(descriptor, security, rights, allow_child_inheritance=True)
+            return "protected"
+        raise WindowsAclError("Core update directory owner is unexpected")
+    if owner != "S-1-5-19" or inherited_parent is None:
+        raise WindowsAclError("Core update directory inheritance is not attributable to LocalService")
+    inheritance = security.OBJECT_INHERIT_ACE | security.CONTAINER_INHERIT_ACE
+    parent_masks = _update_ace_masks(inherited_parent.GetSecurityDescriptorDacl(), security, inheritance)
+    if _update_ace_masks(descriptor.GetSecurityDescriptorDacl(), security, inheritance | security.INHERITED_ACE) != parent_masks:
+        raise WindowsAclError("Core update directory inheritance differs from its parent")
+    return "inherited"
 
 
 def _assert_nonreparse_directory(path: Path) -> None:

@@ -1,0 +1,13 @@
+[Unit]
+Description=Record orderly reboot for pending Endpoint native writeback
+DefaultDependencies=no
+Before=shutdown.target umount.target systemd-reboot.service
+ConditionPathExists=/var/lib/endpoint-agent-installation/state.json
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStart=/usr/lib/endpoint-agent-setup/endpoint-agent-setup mark-orderly-reboot
+TimeoutStartSec=15s

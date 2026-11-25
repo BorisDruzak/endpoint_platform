@@ -14,7 +14,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from endpoint_server.auth.admin_sessions import AdminPrincipal, require_admin
 from endpoint_server.config import Settings
-from endpoint_server.db.models import AdminSession, AdminUser, Device, UpdateBuild, UpdateReport, UpdateRollout, UpdateTarget
+from endpoint_server.db.models import AdminSession, AdminUser, Device, DeviceInstance, DeviceSession, UpdateBuild, UpdateReport, UpdateRollout, UpdateTarget
+from endpoint_server.installation_lifecycle.models import InstallationState
 from endpoint_server.main import create_app
 from endpoint_server.updates.admin_routes import target_observability
 
@@ -24,7 +25,8 @@ async def test_rollout_read_has_exact_status_counts_and_bounded_targets() -> Non
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(lambda sync: [table.create(sync) for table in (
-            Device.__table__, UpdateBuild.__table__, UpdateRollout.__table__, UpdateTarget.__table__, UpdateReport.__table__,
+            Device.__table__, DeviceInstance.__table__, DeviceSession.__table__, InstallationState.__table__,
+            UpdateBuild.__table__, UpdateRollout.__table__, UpdateTarget.__table__, UpdateReport.__table__,
         )])
         # SQLite cannot express the PostgreSQL-only active-target partial index.
         await connection.exec_driver_sql("DROP INDEX uq_update_targets_active_device")
@@ -50,6 +52,7 @@ async def test_rollout_read_has_exact_status_counts_and_bounded_targets() -> Non
         mode="canary", status="cancelled", started_at=now, cancelled_at=now,
     )
     devices = [Device(id=uuid4(), device_identifier=f"READ-{index}") for index in range(3)]
+    devices[0].retired_at = now
     targets = [UpdateTarget(
         id=uuid4(), rollout_id=rollout.id, device_id=device.id,
         target_identifier=f"target-{index}", operation_id=f"op-{index}",
@@ -63,9 +66,18 @@ async def test_rollout_read_has_exact_status_counts_and_bounded_targets() -> Non
     targets[1].requested_at = now - timedelta(minutes=3)
     targets[1].scheduled_at = now - timedelta(minutes=2)
     targets[1].updated_at = targets[1].terminal_at = now - timedelta(minutes=1)
+    targets[2].assigned_at = now - timedelta(days=18)
     async with sessions() as session:
         session.add_all([build, rollout, completed, cancelled, *devices, *targets, previous_target])
         await session.flush()
+        session.add_all([
+            InstallationState(device_id=devices[0].id, generation_id=uuid4(), sequence=1,
+                              event_id=uuid4(), state="removed", received_at=now),
+            DeviceSession(device_id=devices[1].id, session_identifier="fresh",
+                          last_seen_at=now, expires_at=now + timedelta(hours=1)),
+            DeviceSession(device_id=devices[2].id, session_identifier="expired",
+                          last_seen_at=now, expires_at=now - timedelta(seconds=1)),
+        ])
         session.add_all([
             UpdateReport(id=UUID(f"00000000-0000-4000-8000-{index:012d}"), update_target_id=targets[1].id,
                 device_id=devices[1].id, report_identifier=f"report-{index}", report_key=f"private-report-{index}", status=status,
@@ -132,6 +144,9 @@ async def test_rollout_read_has_exact_status_counts_and_bounded_targets() -> Non
     assert device_updates_first.json()["data"][0]["rollout_id"] == str(rollout.id)
     assert device_updates_second.json()["data"][0]["rollout_id"] == str(completed.id)
     target = next(row for row in all_targets.json()["targets"] if row["device_id"] == str(devices[1].id))
+    assert target["connection_state"] == "online"
+    assert target["assignment_id"] == str(targets[1].id)
+    assert target["age_seconds"] is None
     assert target["report_status"] == "failed"
     assert target["reported_version"] == "3.2.83"
     assert target["safe_code"] == "installation.failed"
@@ -140,6 +155,13 @@ async def test_rollout_read_has_exact_status_counts_and_bounded_targets() -> Non
     assert device_updates.json()["data"][0]["report_status"] == "failed"
     assert device_updates.json()["data"][0]["requested_at"]
     reportless = next(row for row in all_targets.json()["targets"] if row["device_id"] == str(devices[2].id))
+    assert reportless["connection_state"] == "offline"
+    assert reportless["last_contact_at"]
+    assert 18 * 86400 <= reportless["age_seconds"] < 18 * 86400 + 60
+    retired = next(row for row in all_targets.json()["targets"] if row["device_id"] == str(devices[0].id))
+    assert retired["installation_removed"] is True
+    assert retired["device_retired"] is True
+    assert retired["connection_state"] == "unobserved"
     assert all(reportless[key] is None for key in ("report_status", "reported_version", "safe_code", "report_created_at", "requested_at", "scheduled_at", "terminal_at"))
     assert "report_key" not in all_targets.text and "private-report" not in all_targets.text
 

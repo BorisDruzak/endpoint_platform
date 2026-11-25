@@ -62,7 +62,7 @@ class WindowsEnrollmentPolicyV1(ContractModelV1):
 class PreEnrollmentRequestCreateV1(_SecretSafeContractModelV1):
     """Secret-safe public Windows setup evidence; campaign choice is server-only."""
 
-    _repr_secret_fields = frozenset({"hardware_fingerprint", "request_capability"})
+    _repr_secret_fields = frozenset({"installation_id", "hardware_fingerprint", "request_capability"})
 
     schema_version: Literal["pre_enrollment_request_create_v1"]
     platform: Literal["windows"]
@@ -129,7 +129,7 @@ class EnrollmentResponseV1(ContractModelV1):
 
 
 class AgentEnrollmentRequestV1(_SecretSafeContractModelV1):
-    _repr_secret_fields = frozenset({"hardware_fingerprint", "delivery_nonce"})
+    _repr_secret_fields = frozenset({"installation_id", "hardware_fingerprint", "delivery_nonce"})
 
     schema_version: Literal["agent_enrollment_request_v1"]
     platform: Literal["linux", "windows"]

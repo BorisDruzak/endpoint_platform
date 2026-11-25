@@ -190,6 +190,36 @@ async def ingest_context_result(
     command = await session.scalar(select(Command).where(Command.id == record.command_id).with_for_update())
     if command is None:
         raise ContextNotFound("command for result was not found")
+    return await _ingest_locked_context_result(session, record, command, checked_result, now=now)
+
+
+async def ingest_new_context_result(
+    session: AsyncSession,
+    record: CommandResult,
+    command: Command,
+    collection: ContextCollection,
+    result: AgentResultV1,
+    *,
+    now: datetime | None = None,
+) -> ContextCollection:
+    """Ingest a result just inserted while holding its command and collection locks."""
+    if record.command_id != command.id or collection.command_id != command.id:
+        raise ContextConflict("context result rows must belong to the same command")
+    await _advisory_lock(session, f"context.result:{record.id}")
+    return await _ingest_locked_context_result(
+        session, record, command, result, now=now, collection=collection,
+    )
+
+
+async def _ingest_locked_context_result(
+    session: AsyncSession,
+    record: CommandResult,
+    command: Command,
+    checked_result: AgentResultV1,
+    *,
+    now: datetime | None,
+    collection: ContextCollection | None = None,
+) -> ContextCollection:
     if checked_result.command_id != command.id or checked_result.device_id != command.device_id:
         raise ContextValidationError("agent result does not match its command ownership")
 
@@ -205,7 +235,10 @@ async def ingest_context_result(
     else:
         raise ContextValidationError("context result must be terminal")
 
-    collection = await _current_collection(session, command, record, profile)
+    if collection is None:
+        collection = await _current_collection(session, command, record, profile)
+    elif collection.profile != profile:
+        raise ContextConflict("context command profile does not match collection")
     if collection.command_result_id is not None:
         return collection
     observed_at = _now(now or checked_result.completed_at)

@@ -73,6 +73,15 @@ async def test_security_event_console_filters_details_and_redacts_invalid_metada
                              expires_at=now + timedelta(hours=1), revoked_at=None),
     )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
+        # Technical administrator authority alone grants neither DLP list nor detail.
+        assert (await client.get(path)).status_code == 403
+        assert (await client.get(f"{path}/{good_id}")).status_code == 403
+    app.dependency_overrides[require_admin] = lambda: AdminPrincipal(
+        user=AdminUser(id=actor_id, username="officer", password_digest="unused", scopes=["dlp:read"], disabled_at=None),
+        session=AdminSession(id=uuid4(), admin_user_id=actor_id, session_digest="unused",
+                             expires_at=now + timedelta(hours=1), revoked_at=None),
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://endpoint.sosnadmin.local") as client:
         page = await client.get(path, params={"device_id": str(device_id), "limit": 1})
         assert page.status_code == 200, page.text
         assert page.json()["total"] == 2

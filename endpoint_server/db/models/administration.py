@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String, UniqueConstraint, event
+from sqlalchemy import JSON, CheckConstraint, DateTime, ForeignKey, String, UniqueConstraint, event
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -20,10 +20,12 @@ class AdminUser(OwnershipRecord, Base):
     password_digest: Mapped[str] = mapped_column(String(256), nullable=False)
     scopes: Mapped[list[str]] = mapped_column(ARRAY(String(128)), nullable=False)
     disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sso_migrated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class AdminSession(OwnershipRecord, Base):
     __tablename__ = "admin_sessions"
+    __table_args__ = (CheckConstraint("auth_method IN ('local','oidc','breakglass')",name='ck_admin_session_auth_method'),)
 
     admin_user_id: Mapped[UUID] = mapped_column(
         ForeignKey("admin_users.id", ondelete="CASCADE"), nullable=False
@@ -35,6 +37,7 @@ class AdminSession(OwnershipRecord, Base):
         DateTime(timezone=True), nullable=False
     )
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    auth_method: Mapped[str] = mapped_column(String(16), nullable=False, default='local', server_default='local')
 
 
 class ServiceClient(OwnershipRecord, Base):

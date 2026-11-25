@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from pc_agent.update_adapter import EndpointRecommendation
+from pc_agent.platform.windows.durable_state import flush_directory, write_json_atomic
+from pc_agent.platform.windows.update_paths import WindowsUpdatePaths
+from pc_agent.platform.windows.update_transaction import UpdateInProgress, update_transaction
+from pc_agent.update_adapter import EndpointRecommendation, load_endpoint_update_reports
 from pc_agent.update_eligibility import (
     _SEMVER, _is_eligible_recommendation, _parse_semver, _compare_prerelease,
 )
@@ -47,6 +49,9 @@ class GatewayUpdateRuntime:
         self._download = download
 
     async def run_once(self) -> GatewayUpdateRunResult:
+        pending_path = self._data_root / "updates" / "pending_alt_update.json"
+        if pending_path.exists() or pending_path.is_symlink():
+            return GatewayUpdateRunResult("handoff_pending")
         recommendation_result = await self._adapter.fetch_recommendation(
             platform="linux_amd64", channel="canary"
         )
@@ -58,6 +63,8 @@ class GatewayUpdateRuntime:
         if not _is_eligible_recommendation(
             recommendation.version, self._current_version, recommendation.reason
         ):
+            return GatewayUpdateRunResult("idle")
+        if self._has_terminal_outcome(recommendation.operation_id):
             return GatewayUpdateRunResult("idle")
         if not await self._adapter.acknowledge(recommendation.operation_id, "requested"):
             return GatewayUpdateRunResult("request_ack_pending")
@@ -76,28 +83,54 @@ class GatewayUpdateRuntime:
                 pass
             return GatewayUpdateRunResult("download_rejected")
 
-        pending_path = self._data_root / "updates" / "pending_alt_update.json"
-        _write_json_atomically(
-            pending_path,
-            {
-                "archive_type": recommendation.archive_type,
-                "artifact_path": str(artifact_path),
-                "channel": recommendation.channel,
-                "operation_id": recommendation.operation_id,
-                "requested_by": "gateway",
-                "requested_reason": recommendation.reason,
-                "sha256": sha256,
-                "size": size,
-                "target": recommendation.platform,
-                "version": recommendation.version,
-            },
-        )
-        await self._adapter.record_scheduled_handoff(
-            recommendation.operation_id,
-            assigned_version=recommendation.version,
-            rollback_version=self._current_version,
-        )
+        paths = WindowsUpdatePaths(pending_path=pending_path)
+        try:
+            with update_transaction(paths, timeout_ms=0):
+                if pending_path.exists() or pending_path.is_symlink():
+                    return GatewayUpdateRunResult("handoff_pending")
+                if self._has_terminal_outcome(recommendation.operation_id):
+                    return GatewayUpdateRunResult("idle")
+                flush_directory(downloads_dir)
+                if not self._adapter.prepare_scheduled_handoff(
+                    recommendation.operation_id,
+                    assigned_version=recommendation.version,
+                    rollback_version=self._current_version,
+                ):
+                    return GatewayUpdateRunResult("handoff_pending")
+                write_json_atomic(
+                    pending_path,
+                    {
+                        "archive_type": recommendation.archive_type,
+                        "artifact_path": str(artifact_path),
+                        "channel": recommendation.channel,
+                        "operation_id": recommendation.operation_id,
+                        "requested_by": "gateway",
+                        "requested_reason": recommendation.reason,
+                        "sha256": sha256,
+                        "size": size,
+                        "target": recommendation.platform,
+                        "version": recommendation.version,
+                    },
+                    trusted_root=pending_path.parent,
+                    max_bytes=16 * 1024,
+                )
+        except UpdateInProgress:
+            return GatewayUpdateRunResult("handoff_pending")
+        await self._adapter.retry_scheduled_acknowledgement(recommendation.operation_id)
         return GatewayUpdateRunResult("scheduled")
+
+    def _has_terminal_outcome(self, operation_id: str) -> bool:
+        history = _load_history(self._data_root / "updates" / "update_history.json")
+        if any(
+            item.get("operation_id") == operation_id and isinstance(item.get("success"), bool)
+            for item in history
+        ):
+            return True
+        # The report journal can outlive the launcher's bounded history.
+        return any(
+            item["operation_id"] == operation_id and item["status"] in {"failed", "applied", "rolled_back"}
+            for item in load_endpoint_update_reports(self._data_root)
+        )
 
     async def report_startup_outcome(self) -> bool:
         """Report one launcher-derived terminal state after a durable restart."""
@@ -124,16 +157,6 @@ class GatewayUpdateRuntime:
 
 def _archive_extension(archive_type: str) -> str:
     return "tar.gz" if archive_type in {"tar.gz", "tgz"} else "zip"
-
-
-def _write_json_atomically(path: Path, payload: dict[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp")
-    temporary.write_text(
-        json.dumps(payload, ensure_ascii=False, sort_keys=True), encoding="utf-8"
-    )
-    os.chmod(temporary, 0o600)
-    temporary.replace(path)
 
 
 def _is_strictly_newer(candidate: str, installed: str) -> bool:

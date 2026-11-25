@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    JSON,
     String,
     UniqueConstraint,
     desc,
@@ -28,6 +29,7 @@ class Device(OwnershipRecord, Base):
     )
     display_name: Mapped[str | None] = mapped_column(String(256))
     retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scheduled_context_profiles: Mapped[list[str] | None] = mapped_column(JSON(none_as_null=True))
 
 
 class DeviceCredential(OwnershipRecord, Base):
@@ -73,6 +75,7 @@ class DeviceInstance(OwnershipRecord, Base):
     instance_identifier: Mapped[str] = mapped_column(String(128), nullable=False)
     agent_version: Mapped[str] = mapped_column(String(128), nullable=False)
     launcher_version: Mapped[str | None] = mapped_column(String(128))
+    platform: Mapped[str | None] = mapped_column(String(64))
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_result_sequence: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0, server_default="0"

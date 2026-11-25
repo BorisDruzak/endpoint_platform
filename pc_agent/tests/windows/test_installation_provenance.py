@@ -431,6 +431,7 @@ def handoff_input(tmp_path, monkeypatch):
     expected=msi_inventory.ExpectedMsi(package,identity,manifest,(root/'endpoint-runtime-contract.json').read_bytes(),tuple(foundation))
     monkeypatch.setattr(msi_inventory,'read_expected_package',lambda *_:expected)
     monkeypatch.setattr(msi_inventory,'verify_installed',lambda *_:None)
+    monkeypatch.setattr(msi_inventory,'persist_installed',lambda *_, **_kw:None)
     def foundation_verified(_package,install_root,*,expected):
         with msi_inventory.verified_foundation_bytes(expected,install_root): pass
         return 'complete'
@@ -697,6 +698,84 @@ def test_recovery_accepts_only_inventoried_partial_candidate_and_saved_selectors
     assert (root/'unrelated.txt').read_bytes()==b'unknown evidence'
 
 
+def test_native_flush_failure_preserves_prepared_plan_and_allows_retry(handoff_input, monkeypatch):
+    from pc_agent.platform.windows import msi_inventory
+
+    module, paths, root, request, expected = handoff_input
+    assert module.prepare_installer_provenance(paths, request) == 'handoff'
+    (root / '.endpoint-msi-runtime.json').write_text(json.dumps({
+        'schema_version': 1,
+        'version': '3.2.82',
+        'component_guid': '33333333-3333-4333-8333-333333333333',
+    }))
+    state_root = paths.install_root.parent / 'installer-state'
+    plan = state_root / 'provenance' / request['transaction_id'] / 'plan.json'
+    original_plan = plan.read_bytes()
+    original_selector = paths.current_path.read_bytes()
+    receipt = root / '.endpoint-update.json'
+    original_receipt = receipt.read_bytes()
+    attempts = []
+
+    def persist(package, install_root, *, original_path):
+        assert package == expected.package and install_root == paths.install_root
+        assert original_path == request['package_path']
+        assert plan.read_bytes() == original_plan
+        assert not (state_root / 'foundation.json').exists()
+        attempts.append(package)
+        if len(attempts) == 1:
+            raise OSError('native persistence failed')
+
+    monkeypatch.setattr(msi_inventory, 'persist_installed', persist)
+    with pytest.raises(OSError, match='native persistence failed'):
+        module.reconcile_installed_core(paths, request)
+    assert plan.read_bytes() == original_plan
+    assert paths.current_path.read_bytes() == original_selector
+    assert receipt.read_bytes() == original_receipt
+
+    assert module.reconcile_installed_core(paths, request) == 'handoff'
+    assert len(attempts) == 2
+    assert json.loads(plan.read_bytes())['phase'] == 'complete'
+
+
+def test_completed_reconciliation_preserves_zeroed_known_payload_as_conflicting_evidence(handoff_input):
+    module, paths, root, request, _ = handoff_input
+    assert module.prepare_installer_provenance(paths, request) == 'handoff'
+    (root / '.endpoint-msi-runtime.json').write_text(json.dumps({
+        'schema_version': 1,
+        'version': '3.2.82',
+        'component_guid': '33333333-3333-4333-8333-333333333333',
+    }))
+    assert module.reconcile_installed_core(paths, request) == 'handoff'
+    module.validate_interrupted_reconciliation(paths, request)
+
+    state_root = paths.install_root.parent / 'installer-state'
+    plan = state_root / 'provenance' / request['transaction_id'] / 'plan.json'
+    original_plan = plan.read_bytes()
+    original_selector = paths.current_path.read_bytes()
+    assert json.loads(original_plan)['phase'] == 'complete'
+    contract = root / 'endpoint-runtime-contract.json'
+    zeroed = bytes(contract.stat().st_size)
+    contract.write_bytes(zeroed)
+
+    with pytest.raises(module.ProvenanceConflict):
+        module.validate_interrupted_reconciliation(paths, request)
+    assert plan.read_bytes() == original_plan
+    assert paths.current_path.read_bytes() == original_selector
+    assert contract.read_bytes() == zeroed
+
+
+def test_proven_removed_selector_does_not_authorize_other_selector_state(handoff_input):
+    module, paths, _, request, _ = handoff_input
+    module.prepare_installer_provenance(paths, request)
+    paths.current_path.unlink()
+    with pytest.raises(module.ProvenanceConflict):
+        module.validate_interrupted_reconciliation(paths, request)
+    module.validate_interrupted_reconciliation(paths, request, allow_native_absence=True)
+    paths.current_path.write_bytes(b'{"schema_version":1,"version":"3.2.999","source_revision":"unrelated"}')
+    with pytest.raises(module.ProvenanceConflict):
+        module.validate_interrupted_reconciliation(paths, request, allow_native_absence=True)
+
+
 def test_retirement_requires_independent_current_and_previous_zip_cores(handoff_input,monkeypatch):
     from pc_agent.platform.windows import update_transaction
     monkeypatch.setattr(update_transaction,'_assert_state_security',lambda _:None)
@@ -828,6 +907,10 @@ def test_finish_checks_foundation_bytes_before_enable_and_records_restoration_be
     # independent data-security tests exercise the native configuration barrier.
     from pc_agent.platform.windows import installer_data_security
     monkeypatch.setattr(installer_data_security, 'verify_preserved', lambda *_args: None)
+    # Native continuation capture/grant security has independent tests; this
+    # fixture models only Foundation bytes and SCM restoration/retirement order.
+    from pc_agent.platform.windows import native_setup_continuation
+    monkeypatch.setattr(native_setup_continuation, 'reserve_native_continuation', lambda *_args: None)
     monkeypatch.setattr(update_transaction,'_assert_state_security',lambda _:None)
     package=paths.install_root.parent/'installer-cache'/f'msi-{expected.package.sha256}'/'EndpointAgent.msi'
     package.parent.mkdir(parents=True);package.write_bytes(request['package_path'].read_bytes())
