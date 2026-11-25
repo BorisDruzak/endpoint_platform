@@ -232,28 +232,35 @@ def brief(report):
     return "\n".join(lines)
 
 
-def main():
-    parser = ArgumentParser(description=__doc__)
+def add_observation_arguments(parser):
     parser.add_argument("--snapshot", required=True, type=Path)
-    parser.add_argument("--platform", required=True, choices=tuple(NATIVE_CONTRACT))
-    parser.add_argument("--target-version", required=True)
-    parser.add_argument("--target-sha256", required=True, help="Windows Setup EXE or ALT native kit archive")
     parser.add_argument("--windows-preview", type=Path)
     parser.add_argument("--profile-evidence", type=Path)
     parser.add_argument("--lab-candidates", type=Path)
     parser.add_argument("--format", choices=("json", "brief"), default="json")
+
+
+def plan_from_files(args, target):
+    return plan(
+        json.loads(args.snapshot.read_bytes()), target, now=datetime.now(timezone.utc),
+        preview=json.loads(args.windows_preview.read_bytes()) if args.windows_preview else None,
+        profiles=json.loads(args.profile_evidence.read_bytes()) if args.profile_evidence else None,
+        lab_candidates=json.loads(args.lab_candidates.read_bytes()) if args.lab_candidates else None,
+    )
+
+
+def main():
+    parser = ArgumentParser(description=__doc__)
+    parser.add_argument("--platform", required=True, choices=tuple(NATIVE_CONTRACT))
+    parser.add_argument("--target-version", required=True)
+    parser.add_argument("--target-sha256", required=True, help="Windows Setup EXE or ALT native kit archive")
+    add_observation_arguments(parser)
     args = parser.parse_args()
     try:
         if not VERSION.fullmatch(args.target_version) or not SHA256.fullmatch(args.target_sha256):
             raise ValueError("Expected the exact target version and lowercase SHA-256")
-        result = plan(
-            json.loads(args.snapshot.read_bytes()),
-            {"platform": args.platform, "version": args.target_version, "sha256": args.target_sha256},
-            now=datetime.now(timezone.utc),
-            preview=json.loads(args.windows_preview.read_bytes()) if args.windows_preview else None,
-            profiles=json.loads(args.profile_evidence.read_bytes()) if args.profile_evidence else None,
-            lab_candidates=json.loads(args.lab_candidates.read_bytes()) if args.lab_candidates else None,
-        )
+        result = plan_from_files(args, {"platform": args.platform, "version": args.target_version,
+                                        "sha256": args.target_sha256})
     except (OSError, KeyError, TypeError, ValueError, AttributeError) as exc:
         parser.exit(1, f"Compatibility matrix failed: {exc}\n")
     print(brief(result) if args.format == "brief" else json.dumps(result, indent=2, sort_keys=True))

@@ -256,6 +256,23 @@ Signature authenticity and timestamps are verified through the existing
 native gates. Registration, qualification and promotion retain their current
 publisher and Console requirements.
 
+Generate the native Lab matrix from the same reservation and actual files.
+
+```powershell
+python tools/release/agent_release.py qualify-matrix --request-id $request `
+  --platform windows --artifacts-dir $sealedDirectory --snapshot $providerSnapshot `
+  --windows-preview $coverage --profile-evidence $profiles
+```
+
+For ALT, pass `--platform alt` and omit `--windows-preview`. Keep the Windows
+candidate sidecar, MSI manifest and packages together, or the ALT kit, outer
+manifest and detached signatures together. The command reads the target version
+and digest from the ledger and rechecks every recorded file. It stops on a
+missing or changed file and on a rejected candidate. The JSON includes the
+bound source and artifact fingerprints alongside the existing compatibility
+cases. Use `--format brief` for the existing summary. Keep the plan in operator
+storage with the provider snapshot and profile evidence.
+
 Read the reservation and its artifact history with
 `python tools/release/agent_release.py status --request-id REQUEST`. To retire a
 candidate from this release attempt, record the exact Windows EXE or ALT archive

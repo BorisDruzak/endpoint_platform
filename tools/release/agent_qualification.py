@@ -9,7 +9,7 @@ import subprocess
 import sys
 from uuid import UUID
 
-from tools.release import agent_reservations, release_plan
+from tools.release import agent_reservations, compatibility_matrix, release_plan
 from tools.release.agent_candidate_artifacts import _fingerprint
 
 
@@ -36,16 +36,48 @@ PATH_INPUTS = {"ca_file", "initial_runtime_manifest", "initial_runtime_stage_roo
                "initial_runtime_stage_evidence", "runtime_root"}
 
 
-def add_arguments(parser: argparse.ArgumentParser) -> None:
+def _add_request_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--request-id", type=UUID, required=True)
     parser.add_argument("--platform", choices=("windows", "alt"), required=True)
+
+
+def add_arguments(parser: argparse.ArgumentParser) -> None:
+    _add_request_arguments(parser)
     parser.add_argument("--base", required=True, help="Reviewed baseline for delivery selection")
     parser.add_argument("--output-root", type=Path, required=True, help="New directory outside the source checkout")
     parser.add_argument("--inputs", type=Path, help="Local JSON with the selected builder inputs")
     parser.add_argument("--runtime-contract", type=Path, help="Source-bound ALT Core compatibility receipt")
     parser.add_argument("--observed-launcher", help="Verified launcher version of the source profile")
     parser.add_argument("--execute", action="store_true", help="Run the build on the approved platform worker")
+
+
+def add_matrix_arguments(parser: argparse.ArgumentParser) -> None:
+    _add_request_arguments(parser)
+    parser.add_argument("--artifacts-dir", type=Path, required=True, help="Directory of the recorded native artifacts")
+    compatibility_matrix.add_observation_arguments(parser)
+
+
+def matrix(args: argparse.Namespace) -> dict:
+    reserved = agent_reservations.reservation_status(args)
+    candidate = reserved.get("candidates", {}).get(args.platform)
+    if candidate is None:
+        raise ValueError("Record the native candidate before planning its qualification matrix")
+    if candidate["state"] != "candidate":
+        raise ValueError("Candidate is rejected; use a new candidate for qualification")
+    artifacts = candidate["artifacts"]
+    for proof in artifacts.values():
+        filename = proof["filename"]
+        if filename in ("", ".", "..") or any(separator in filename for separator in ("/", "\\", ":")):
+            raise ValueError("Recorded artifact requires a leaf filename")
+        if _fingerprint(args.artifacts_dir / filename) != proof:
+            raise ValueError(f"Artifact differs from the recorded candidate: {filename}")
+    primary = artifacts[agent_reservations.PRIMARY_ARTIFACT[args.platform]]
+    target = {"platform": args.platform, "version": candidate["version"], "sha256": primary["sha256"]}
+    report = compatibility_matrix.plan_from_files(args, target)
+    report["reservation"] = {"request_id": candidate["request_id"], "build_revision": candidate["build_revision"],
+                             "artifacts": artifacts}
+    return report
 
 
 def _assert_source(root: Path, revision: str) -> None:

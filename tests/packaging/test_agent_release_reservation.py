@@ -375,6 +375,38 @@ def test_record_windows_candidate_is_idempotent_and_rejects_replacement(release_
     assert git(repo, "ls-remote", "origin", LEDGER) == before
 
 
+def test_qualify_matrix_uses_the_candidate_bytes_and_rejects_changes(release_inputs):
+    repo, folder = release_inputs
+    request, bound = prepare_bound_source(release_inputs)
+    setup, manifest = windows_candidate(folder, bound["version"], bound["build_revision"])
+    candidate = value(record_candidate(repo, request, "windows", manifest,
+                                       "--expected-publisher", "CN=Endpoint Fixture"))
+    digest = candidate["artifacts"]["setup"]["sha256"]
+    snapshot = folder / "snapshot.json"
+    write(snapshot, {"schema_version": 1, "observed_at": datetime.now(timezone.utc).isoformat(),
+                     "release_planning": {"devices": [], "windows_targets": [],
+                                          "pending_enrollments": [], "enrollment_sources": []}})
+    prefix = [sys.executable, str(CLI)]
+    binding = ["--repo-root", str(repo), "--request-id", str(request), "--platform", "windows"]
+    matrix = prefix + ["qualify-matrix", *binding, "--snapshot", str(snapshot), "--artifacts-dir", str(folder)]
+    before = git(repo, "ls-remote", "origin", LEDGER)
+    report = value(subprocess.run(matrix, capture_output=True, text=True, encoding="utf-8", timeout=90))
+    assert report["target"] == {"platform": "windows", "version": bound["version"], "sha256": digest}
+    assert report["reservation"]["build_revision"] == bound["build_revision"]
+    assert report["reservation"]["request_id"] == str(request)
+    assert report["cases"][0]["test"] == "factory_first_registration"
+    assert git(repo, "ls-remote", "origin", LEDGER) == before
+
+    setup.write_bytes(b"different bytes")
+    mismatch = subprocess.run(matrix, capture_output=True, text=True, encoding="utf-8", timeout=90)
+    assert mismatch.returncode != 0 and "differs from the recorded candidate" in mismatch.stderr
+    setup.write_bytes(b"setup bytes")
+    value(subprocess.run(prefix + ["reject", *binding, "--sha256", digest, "--reason", "Lab rollback failed"],
+                         capture_output=True, text=True, encoding="utf-8", timeout=90))
+    refused = subprocess.run(matrix, capture_output=True, text=True, encoding="utf-8", timeout=90)
+    assert refused.returncode != 0 and "Candidate is rejected" in refused.stderr
+
+
 def test_record_windows_candidate_rejects_a_different_source_commit(release_inputs):
     repo, folder = release_inputs
     request, bound = prepare_bound_source(release_inputs)
@@ -467,3 +499,14 @@ def test_record_alt_candidate_verifies_archive_members_against_the_manifest(rele
     assert candidate["state"] == "candidate"
     assert candidate["artifacts"]["archive"]["sha256"] == hashlib.sha256(archive.read_bytes()).hexdigest()
     assert candidate["artifacts"]["manifest_signature"]["sha256"] == hashlib.sha256(manifest_signature.read_bytes()).hexdigest()
+    snapshot = folder / "lab-snapshot.json"
+    write(snapshot, {"schema_version": 1, "observed_at": datetime.now(timezone.utc).isoformat(),
+                     "release_planning": {"devices": [], "windows_targets": [],
+                                          "pending_enrollments": [], "enrollment_sources": []}})
+    matrix = [sys.executable, str(CLI), "qualify-matrix", "--repo-root", str(repo), "--request-id", str(request),
+              "--platform", "alt", "--snapshot", str(snapshot), "--artifacts-dir", str(folder)]
+    report = value(subprocess.run(matrix, capture_output=True, text=True, encoding="utf-8", timeout=90))
+    assert report["target"]["sha256"] == candidate["artifacts"]["archive"]["sha256"]
+    archive_signature.write_bytes(b"different detached signature")
+    mismatch = subprocess.run(matrix, capture_output=True, text=True, encoding="utf-8", timeout=90)
+    assert mismatch.returncode != 0 and "differs from the recorded candidate" in mismatch.stderr

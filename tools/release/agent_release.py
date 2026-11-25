@@ -14,7 +14,7 @@ from uuid import UUID
 if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from tools.release import agent_qualification, agent_reservations
+from tools.release import agent_qualification, agent_reservations, compatibility_matrix
 
 
 CATALOG = "docs/releases/current-agent-release.json"
@@ -179,6 +179,8 @@ def main() -> None:
     bind.add_argument("--request-id", required=True, type=UUID)
     build = commands.add_parser("qualify-build", help="build the selected artifact from a bound QUALIFY checkout")
     agent_qualification.add_arguments(build)
+    matrix = commands.add_parser("qualify-matrix", help="plan native Lab checks for recorded candidate bytes")
+    agent_qualification.add_matrix_arguments(matrix)
     candidate = commands.add_parser("record-candidate", help="pin native candidate bytes to a reservation")
     candidate.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
     candidate.add_argument("--request-id", required=True, type=UUID)
@@ -203,13 +205,18 @@ def main() -> None:
             result = agent_reservations.bind_source(args)
         elif args.command == "qualify-build":
             result = agent_qualification.build(args)
+        elif args.command == "qualify-matrix":
+            result = agent_qualification.matrix(args)
         elif args.command == "record-candidate":
             result = agent_reservations.record_candidate(args)
         else:
             result = agent_reservations.reject_candidate(args)
     except (OSError, KeyError, TypeError, ValueError, AttributeError, SyntaxError, subprocess.SubprocessError) as exc:
         parser.exit(1, f"Agent release {args.command} failed: {exc}\n")
-    print(json.dumps(result, ensure_ascii=True, indent=2, sort_keys=True))
+    if args.command == "qualify-matrix" and args.format == "brief":
+        print(compatibility_matrix.brief(result))
+    else:
+        print(json.dumps(result, ensure_ascii=True, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":

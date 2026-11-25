@@ -46,8 +46,10 @@ upgrade paths that must run for each qualified artifact.
   direct/bridge routing and reuse of unexpired exact-target Lab results remain open.
 - EP-RE-04 has an explicit [qualification build](tools/release/CODEMAP.md#run-the-qualification-build)
   from the bound reservation. It previews the selected Windows/ALT builder and
-  records output hashes after execution. ALT native Setup, RPM manifests and kit assembly accept
-  the bound candidate version. ALT 11.4 verified staging of synthetic 3.2.278,
+  records output hashes after execution. Its native Lab matrix rechecks the
+  recorded files and uses the existing compatibility planner for the same
+  artifact digest. ALT native Setup, RPM manifests and kit assembly accept the
+  bound candidate version. ALT 11.4 verified staging of synthetic 3.2.278,
   rejection of a mismatched Setup, and RPM spec builds of Core and UserSensor
   for both 3.2.183 and 3.2.278. Signing and Lab acceptance of a distributable
   candidate remain open.
