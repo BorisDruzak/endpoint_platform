@@ -13,6 +13,13 @@ First installation copies this reviewed real snippet before the site asset is
 enabled (see `PRODUCTION_RUNBOOK.md`). Later logging-only repairs retain this
 include and reject unrelated site drift rather than removing download routes.
 
+Prepare the exact signed native kit with
+[`agent_release.py prepare-alt-download`](../../tools/release/CODEMAP.md#prepare-the-verified-alt-download-payload)
+in a private incoming directory on the distribution filesystem. Use the
+same recorded artifact for acceptance and publication. The preparation
+report describes only the incoming directory. The release operation controls
+the public version directory and verifies the actual HTTPS response.
+
 Only publish public kit archives, detached archive/manifest signatures, manifest,
 checksums, public RPM key and operator guide. All directories must be root-owned
 0755, files root-owned 0644 and regular (no symlinks). Never copy the signer home,

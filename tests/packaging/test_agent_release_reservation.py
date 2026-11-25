@@ -1,6 +1,7 @@
 """Exercise reservation through the CLI and a real shared Git remote."""
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+import errno
 import hashlib
 import io
 import json
@@ -536,3 +537,49 @@ def test_record_alt_candidate_verifies_archive_members_against_the_manifest(rele
               "--request-id", str(request), "--artifacts-dir", str(folder), "--reviewed-by", "Lab reviewer"]
     changed = subprocess.run(native, capture_output=True, text=True, encoding="utf-8", timeout=90)
     assert changed.returncode != 0 and "differs from the recorded candidate" in changed.stderr
+    incoming = folder / "incoming"
+    incoming.mkdir(mode=0o700)
+    prepare = [sys.executable, str(CLI), "prepare-alt-download", "--repo-root", str(repo),
+               "--request-id", str(request), "--artifacts-dir", str(folder),
+               "--incoming-root", str(incoming), "--execute"]
+    changed = subprocess.run(prepare, capture_output=True, text=True, encoding="utf-8", timeout=90)
+    assert changed.returncode != 0 and "differs from the recorded candidate" in changed.stderr
+    assert not list(incoming.iterdir())
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Native download staging uses Linux owner permissions")
+def test_alt_download_partial_copy_can_retry_and_cannot_overwrite_conflict(tmp_path, monkeypatch):
+    from tools.release import agent_alt_download as download
+
+    incoming = tmp_path / "incoming"
+    incoming.mkdir(mode=0o700)
+    destination = incoming / "endpoint-alt-pilot-3.2.274-1"
+    name = f"{destination.name}.tar.gz"
+    source = tmp_path / name
+    source.write_bytes(b"verified archive")
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    paths = {name: source}
+    proofs = {name: {"filename": name, "size": source.stat().st_size, "sha256": digest}}
+
+    def interrupted_copy(stream, output, length):
+        output.write(stream.read(3))
+        raise OSError(errno.ENOSPC, "full staging filesystem")
+
+    assert download._prepare_directory(incoming, destination, paths, proofs, execute=False) == "preview"
+    assert not list(incoming.iterdir())
+    with monkeypatch.context() as patch:
+        patch.setattr(download.shutil, "copyfileobj", interrupted_copy)
+        with pytest.raises(OSError, match="full staging filesystem"):
+            download._prepare_directory(incoming, destination, paths, proofs, execute=True)
+    assert not list(incoming.iterdir())
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        operations = [workers.submit(download._prepare_directory, incoming, destination, paths, proofs, execute=True)
+                      for _ in range(2)]
+        assert [operation.result() for operation in operations] == ["prepared", "prepared"]
+    assert list(incoming.iterdir()) == [destination]
+    assert (destination / name).read_bytes() == source.read_bytes()
+    (destination / name).write_bytes(b"x" * source.stat().st_size)
+    with pytest.raises(ValueError, match="conflicts"):
+        download._prepare_directory(incoming, destination, paths, proofs, execute=True)
+    assert (destination / name).read_bytes() == b"x" * source.stat().st_size

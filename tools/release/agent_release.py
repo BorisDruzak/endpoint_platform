@@ -14,7 +14,10 @@ from uuid import UUID
 if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from tools.release import agent_alt_native, agent_promotion, agent_qualification, agent_reservations, compatibility_matrix
+from tools.release import (
+    agent_alt_download, agent_alt_native, agent_promotion, agent_qualification, agent_reservations,
+    compatibility_matrix,
+)
 
 
 CATALOG = "docs/releases/current-agent-release.json"
@@ -185,6 +188,8 @@ def main() -> None:
     agent_promotion.add_arguments(promote)
     native_alt = commands.add_parser("register-alt-native", help="verify or register the recorded signed ALT RPM pair")
     agent_alt_native.add_arguments(native_alt)
+    alt_download = commands.add_parser("prepare-alt-download", help="prepare a private copy of the verified ALT kit")
+    agent_alt_download.add_arguments(alt_download)
     candidate = commands.add_parser("record-candidate", help="pin native candidate bytes to a reservation")
     candidate.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
     candidate.add_argument("--request-id", required=True, type=UUID)
@@ -215,6 +220,8 @@ def main() -> None:
             result = agent_promotion.promote(args)
         elif args.command == "register-alt-native":
             result = agent_alt_native.register(args)
+        elif args.command == "prepare-alt-download":
+            result = agent_alt_download.prepare(args)
         elif args.command == "record-candidate":
             result = agent_reservations.record_candidate(args)
         else:

@@ -331,6 +331,25 @@ existing Linux native publisher. Registration returns the immutable native
 release UUID. Kit download publication and Linux enrollment campaigns have
 their own procedures and scope.
 
+### Prepare the verified ALT download payload
+
+On the protected Linux publisher, use an existing root-owned `0700` incoming
+directory on the distribution filesystem. Keep it outside the Nginx alias.
+
+```bash
+python tools/release/agent_release.py prepare-alt-download --request-id "$request" \
+  --artifacts-dir "$sealed_kit" --incoming-root "$private_incoming"
+```
+
+This previews the exact filenames, sizes and digests from the recorded kit.
+Add `--execute` to prepare one private version directory containing the two
+signed objects, their detached signatures, the pinned public key and both
+checksum sidecars. It appears as a complete directory after all files have
+been written and verified. An exact retry returns the same directory and
+report. Conflicts require operator review. Use the reviewed version-specific
+operator guide and the separately authorized activation procedure in
+[ALT distribution](../../deploy/server/ALT_DISTRIBUTION.md).
+
 ## Plan native qualification
 
 Capture a fresh provider snapshot using `agent_catalog_snapshot.sql`. Keep this
