@@ -24,6 +24,9 @@ from endpoint_server.console.installer import _sha256
 from endpoint_server.db.models import WindowsSetupRelease
 from endpoint_server.db.session import create_session_provider
 from endpoint_server.enrollment.default_campaign import include_windows_release
+from endpoint_server.setup_updates.models import SetupAssignment, SetupFleetQualification, SetupRelease
+from endpoint_server.setup_updates.policy import valid_qualification
+from endpoint_server.setup_updates.service import now_utc
 
 
 _VERSION_RE = r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$"
@@ -85,9 +88,36 @@ def validate_release_inputs(sidecar: Path, setup: Path, msi: Path, msi_manifest:
     return metadata
 
 
+async def _require_promotion_qualification(session, candidate: WindowsSetupRelease,
+                                           qualification_id: UUID | None) -> SetupRelease:
+    if qualification_id is None:
+        raise ValueError('An active native Setup qualification is required to promote a hidden candidate')
+    proof = (await session.execute(
+        select(SetupFleetQualification, SetupRelease, SetupAssignment)
+        .join(SetupRelease, SetupRelease.id == SetupFleetQualification.release_id)
+        .join(SetupAssignment, SetupAssignment.id == SetupFleetQualification.evidence_assignment_id)
+        .where(SetupFleetQualification.id == qualification_id)
+        .with_for_update(of=(SetupFleetQualification, SetupAssignment))
+    )).one_or_none()
+    if proof is None:
+        raise ValueError('Native Setup qualification was not found in this provider')
+    qualification, target, assignment = proof
+    if (not valid_qualification(qualification, target, now_utc())
+            or (target.artifact_name, target.sha256, target.version, target.msi_sha256, target.source_revision) != (
+                candidate.filename, candidate.setup_sha256, candidate.agent_version,
+                candidate.msi_sha256, candidate.msi_source_commit)
+            or assignment.release_id != target.id or assignment.status != 'applied'
+            or assignment.finished_at is None or assignment.attempt_id is None
+            or assignment.source_foundation_version != qualification.source_foundation):
+        raise ValueError('An active qualification for this exact Setup and its applied native source is required')
+    return target
+
+
 async def register_release(metadata: SetupSidecar, setup: Path, *, database_url: str, artifact_root: Path,
         default_campaign_id: UUID | None = None, include_in_auto_campaign: bool = True,
-        candidate_only: bool = False) -> WindowsSetupRelease:
+        candidate_only: bool = False, promotion_qualification_id: UUID | None = None) -> WindowsSetupRelease:
+    if candidate_only and promotion_qualification_id is not None:
+        raise ValueError('Candidate registration cannot request promotion')
     if candidate_only and (
         metadata.product_code is None or metadata.authenticode_status != 'valid'
         or metadata.msi_authenticode_status != 'valid' or not metadata.authenticode_publisher
@@ -106,14 +136,28 @@ async def register_release(metadata: SetupSidecar, setup: Path, *, database_url:
                 if any(getattr(existing, name) != value for name, value in
                        metadata.model_dump(exclude={'schema_version'}).items()):
                     raise ValueError("release version already has different immutable metadata or digest")
+                promoting = not candidate_only and not existing.download_published
+                qualified_target = None
+                if promoting:
+                    if existing.retired_at is not None:
+                        raise ValueError('A retired installer cannot be promoted')
+                    qualified_target = await _require_promotion_qualification(session, existing, promotion_qualification_id)
+                if not candidate_only:
+                    artifact = root / existing.filename
+                    if (not artifact.is_file() or artifact.is_symlink()
+                            or (qualified_target is not None and artifact.stat().st_size != qualified_target.size)
+                            or _sha256(artifact) != existing.setup_sha256):
+                        raise ValueError('Stored Setup artifact differs from the registered release')
                 if include_in_auto_campaign:
                     await include_windows_release(session, existing, campaign_id=default_campaign_id)
-                if not candidate_only and not existing.download_published:
+                if promoting:
                     existing.download_published = True
                     await _audit_publication(session, existing, 'windows_setup_release.download_published',
-                                             include_in_auto_campaign=include_in_auto_campaign)
+                        include_in_auto_campaign=include_in_auto_campaign, qualification_id=promotion_qualification_id)
                 await session.commit()
                 return existing
+            if promotion_qualification_id is not None:
+                raise ValueError('Promotion requires an existing installer candidate')
             target = root / metadata.filename
             if target.exists():
                 if not target.is_file() or target.is_symlink() or _sha256(target) != metadata.setup_sha256:
@@ -152,7 +196,7 @@ async def register_release(metadata: SetupSidecar, setup: Path, *, database_url:
 
 
 async def _audit_publication(session, release: WindowsSetupRelease, action: str, *,
-                             include_in_auto_campaign: bool) -> None:
+                             include_in_auto_campaign: bool, qualification_id: UUID | None = None) -> None:
     await append_audit_event(session, actor_kind='operator', actor_identifier='windows-release-publisher',
         action=action, object_kind='windows_setup_release', object_identifier=str(release.id),
         request_id=f'publish-{release.id}', details={
@@ -160,6 +204,7 @@ async def _audit_publication(session, release: WindowsSetupRelease, action: str,
             'setup_sha256': release.setup_sha256, 'msi_sha256': release.msi_sha256,
             'source_commit': release.source_commit, 'msi_source_commit': release.msi_source_commit,
             'product_code': release.product_code, 'include_in_auto_campaign': include_in_auto_campaign,
+            **({'qualification_id': str(qualification_id)} if qualification_id is not None else {}),
         })
 
 
@@ -173,18 +218,20 @@ def main() -> int:
     parser.add_argument('--default-campaign-id', type=UUID)
     parser.add_argument('--candidate-only', action='store_true',
         help='Register trusted native proof and default AUTO eligibility without primary download publication')
+    parser.add_argument('--promotion-qualification-id', type=UUID,
+        help='Current provider qualification required to promote an existing hidden installer')
     parser.add_argument('--without-auto-enrollment', action='store_true',
         help='Explicit diagnostic publication exception; published releases normally join the default campaign')
     args = parser.parse_args()
     metadata = validate_release_inputs(args.sidecar, args.setup, args.msi, args.msi_manifest, args.expected_publisher,
-                                      candidate_only=args.candidate_only)
+                                      candidate_only=args.candidate_only or args.promotion_qualification_id is not None)
     database_url = os.environ.get("DATABASE_URL", "")
     artifact_root = os.environ.get("ARTIFACT_ROOT", "")
     if not database_url or not artifact_root:
         raise ValueError("DATABASE_URL and ARTIFACT_ROOT are required")
     release = asyncio.run(register_release(metadata, args.setup, database_url=database_url, artifact_root=Path(artifact_root),
         default_campaign_id=args.default_campaign_id, include_in_auto_campaign=not args.without_auto_enrollment,
-        candidate_only=args.candidate_only))
+        candidate_only=args.candidate_only, promotion_qualification_id=args.promotion_qualification_id))
     print(f"registered Windows Setup release {release.version} ({release.id})")
     return 0
 

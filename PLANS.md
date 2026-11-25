@@ -34,8 +34,9 @@ upgrade paths that must run for each qualified artifact.
   build revision. Windows 3.2.276 and ALT 3.2.274 matched their historical
   receipts in read-only checks. `status --request-id` reads the ledger and
   `reject` records a refusal for one exact candidate digest without changing
-  the provider. Qualification, promotion and revocation remain open. Keep the
-  existing publisher authoritative.
+  the provider. The Windows publisher gates same-row promotion on the
+  provider's active qualification, applied native assignment and stored
+  artifact. Lifecycle orchestration and revocation remain open.
 - EP-RE-03 has a read-only [compatibility planner](tools/release/CODEMAP.md#plan-native-qualification)
   and provider snapshot for exact native events, active operations, enrollment
   and catalog exposure. The planner binds Console preview to the exact release

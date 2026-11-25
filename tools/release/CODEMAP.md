@@ -186,6 +186,23 @@ The Git record changes independently of provider availability, policy and
 assignments. Verify exposure and any required Lab reset through their owning
 systems before excluding the source profile from future qualification.
 
+### Promote the exact Windows Setup after native acceptance
+
+After the authorized Console canary and native qualification in the target
+provider, pass its current qualification UUID to the existing publisher.
+
+```powershell
+python -m tools.register_windows_setup_release --sidecar $setupSidecar --setup $signedSetup `
+  --msi $signedMsi --msi-manifest $msiManifest --expected-publisher $trustedPublisher `
+  --promotion-qualification-id $qualificationId
+```
+
+The publisher checks the candidate catalog row, qualified EXE and MSI
+identity, applied assignment and current bytes in `ARTIFACT_ROOT` within the
+same publication transaction. It preserves the installer release ID and records
+the qualification ID in the visibility audit event. Perform the coverage
+preview and authorized delivery in the Console using their existing controls.
+
 ## Plan native qualification
 
 Capture a fresh provider snapshot using `agent_catalog_snapshot.sql`. Keep this
