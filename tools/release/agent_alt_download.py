@@ -73,21 +73,21 @@ def _download_proofs(candidate):
     return folder, proofs, checksums
 
 
-def _check_payload(directory: Path, proofs) -> None:
+def _check_payload(directory: Path, proofs, *, directory_mode=0o700, file_mode=0o600) -> None:
     info = directory.lstat()
     owner = os.geteuid()
-    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != owner or stat.S_IMODE(info.st_mode) != 0o700
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != owner or stat.S_IMODE(info.st_mode) != directory_mode
             or {entry.name for entry in directory.iterdir()} != proofs.keys()):
         raise ValueError("ALT download directory conflicts with the exact prepared payload")
     for name, proof in proofs.items():
         path = directory / name
         info = path.lstat()
         if (not stat.S_ISREG(info.st_mode) or info.st_uid != owner or info.st_nlink != 1
-                or stat.S_IMODE(info.st_mode) != 0o600 or _fingerprint(path, proof["size"]) != proof):
+                or stat.S_IMODE(info.st_mode) != file_mode or _fingerprint(path, proof["size"]) != proof):
             raise ValueError(f"ALT download file conflicts with its retained digest: {name}")
 
 
-def _write_payload(directory: Path, paths, proofs) -> None:
+def _write_payload(directory: Path, paths, proofs, *, directory_mode=0o700, file_mode=0o600) -> None:
     for name, source in paths.items():
         with (directory / name).open("xb") as output:
             if isinstance(source, bytes):
@@ -96,9 +96,17 @@ def _write_payload(directory: Path, paths, proofs) -> None:
                 with source.open("rb") as stream:
                     shutil.copyfileobj(stream, output, length=1024 * 1024)
             output.flush()
-            os.fchmod(output.fileno(), 0o600)
+            os.fchmod(output.fileno(), file_mode)
             os.fsync(output.fileno())
-    _check_payload(directory, proofs)
+    _check_payload(directory, proofs, directory_mode=directory_mode, file_mode=file_mode)
+
+
+def _sync_directory(directory: Path) -> None:
+    fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def _prepare_directory(root: Path, destination: Path, paths, proofs, *, execute: bool) -> str:
@@ -120,11 +128,7 @@ def _prepare_directory(root: Path, destination: Path, paths, proofs, *, execute:
             payload = Path(scratch) / "payload"
             payload.mkdir(mode=0o700)
             _write_payload(payload, paths, proofs)
-            payload_fd = os.open(payload, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(payload_fd)
-            finally:
-                os.close(payload_fd)
+            _sync_directory(payload)
             payload.rename(destination)
             os.fsync(fd)
         return "prepared"
@@ -173,21 +177,38 @@ def _check_https_file(connection, prefix, name, proof):
                 raise ValueError(f"ALT download response digest differs: {name}")
 
 
-def verify_https(args: Namespace) -> dict:
-    origin = urlsplit(args.origin)
+def _https_origin(value):
+    origin = urlsplit(value)
     if (origin.scheme != "https" or not origin.hostname or origin.path not in ("", "/")
             or origin.username is not None or origin.password is not None or origin.query or origin.fragment):
         raise ValueError("ALT download requires an absolute HTTPS origin")
-    candidate = get_recorded_candidate(agent_alt_native.agent_reservations.reservation_status(args), "alt")
-    folder, proofs, _ = _download_proofs(candidate)
+    return origin
+
+
+def _verify_https_files(origin, ca_file, folder, proofs, *, check_access=False) -> str:
     prefix = f"/downloads/alt/{folder}/"
-    context = ssl.create_default_context(cafile=str(args.ca_file))
+    context = ssl.create_default_context(cafile=str(ca_file))
     try:
         with closing(HTTPSConnection(origin.hostname, origin.port, context=context, timeout=15)) as connection:
             for name, proof in proofs.items():
                 _check_https_file(connection, prefix, name, proof)
+            if check_access:
+                for method, path in (("GET", prefix), ("OPTIONS", prefix + folder + ".tar.gz")):
+                    connection.request(method, path)
+                    with connection.getresponse() as response:
+                        if response.status not in (403, 404, 405):
+                            raise ValueError(f"ALT download access probe {method} returned {response.status}")
+                    connection.close()
     except HTTPException as exc:
         raise ValueError("Invalid ALT HTTPS download response") from exc
+    return f"https://{origin.netloc}{prefix}"
+
+
+def verify_https(args: Namespace) -> dict:
+    origin = _https_origin(args.origin)
+    candidate = get_recorded_candidate(agent_alt_native.agent_reservations.reservation_status(args), "alt")
+    folder, proofs, _ = _download_proofs(candidate)
+    prefix = _verify_https_files(origin, args.ca_file, folder, proofs)
     return {"schema_version": 1, "platform": "alt", "state": "https_verified", "request_id": candidate["request_id"],
-            "checked_at": datetime.now(timezone.utc).isoformat(), "url_prefix": f"https://{origin.netloc}{prefix}",
+            "checked_at": datetime.now(timezone.utc).isoformat(), "url_prefix": prefix,
             "files": proofs}

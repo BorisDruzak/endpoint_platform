@@ -386,6 +386,35 @@ read in a repeatable-read, read-only transaction. The report covers first
 enrollment observations only. Release authorization, upgrade paths and
 enrollment campaign changes follow their existing workflows.
 
+### Record ALT acceptance and publish the versioned download
+
+During live Lab acceptance add `--qualification-id "$qualification"` and
+`--valid-until "$valid_until"` to `qualify-alt-enrollment`. Use a stable UUID
+and a timestamp with an explicit UTC offset. The protected publisher writes
+fresh acceptance to the existing Git ledger with the exact archive digest,
+first-enrollment scope, observation IDs and validity. The maximum validity
+is 30 days, matching the native Setup qualification window. Reuse the
+accepted ID when retrying the same authorization.
+
+After release authorization, use the prepared private directory and the
+approved version-specific guide on the Linux distribution host.
+
+```bash
+python tools/release/agent_release.py publish-alt-download --request-id "$request" \
+  --qualification-id "$qualification" --incoming-root "$private_incoming" \
+  --origin "$endpoint_origin" --ca-file "$endpoint_ca" --worker-user "$nginx_user" \
+  --guide "$reviewed_guide" --guide-sha256 "$approved_guide_sha256"
+```
+
+Preview checks the recorded qualification, retained bytes, guide and target
+directory. Add `--execute` to check file readability as the unprivileged
+worker and atomically add the version directory to the existing alias.
+The publisher verifies all eight HTTPS responses and probes the directory
+index and non-download access rules. A failed check withdraws the directory
+created by that invocation and preserves the private prepared bytes. A retry
+requires the exact same public files. Release authority for the primary
+pointer, new enrollment campaigns and existing-device work is separate.
+
 ## Plan native qualification
 
 Capture a fresh provider snapshot using `agent_catalog_snapshot.sql`. Keep this

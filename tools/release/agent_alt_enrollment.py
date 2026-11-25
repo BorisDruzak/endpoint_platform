@@ -21,7 +21,7 @@ from endpoint_server.db.session import create_session_provider
 from endpoint_server.enrollment.linux_models import LinuxEnrollmentBinding
 from endpoint_server.installation_lifecycle.linux_sources import LinuxNativeRelease
 from endpoint_server.installation_lifecycle.models import InstallationEvent, InstallationState
-from tools.release import agent_alt_native
+from tools.release import agent_alt_native, agent_alt_qualification
 from tools.release.agent_candidate_artifacts import alt_rpm_names
 
 
@@ -206,12 +206,17 @@ async def _inspect_provider(database_url, args, candidate):
 
 
 def qualify(args: Namespace) -> dict:
+    if bool(args.qualification_id) != bool(args.valid_until):
+        raise ValueError("Recording requires both --qualification-id and --valid-until")
     candidate = agent_alt_native.recorded_kit(args)
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
         raise ValueError("DATABASE_URL is required for the selected Lab provider")
     with agent_alt_native.verified_kit(candidate, args):
         result = asyncio.run(_inspect_provider(database_url, args, candidate))
-    return {**result, "schema_version": 1, "platform": "alt", "scope": "first_enrollment",
-            "request_id": candidate["request_id"], "version": candidate["version"],
-            "build_revision": candidate["build_revision"], "kit_sha256": candidate["artifacts"]["archive"]["sha256"]}
+    receipt = {**result, "schema_version": 1, "platform": "alt", "scope": "first_enrollment",
+               "request_id": candidate["request_id"], "version": candidate["version"],
+               "build_revision": candidate["build_revision"], "kit_sha256": candidate["artifacts"]["archive"]["sha256"]}
+    if args.qualification_id and receipt["state"] == "accepted":
+        return agent_alt_qualification.record(args, receipt)
+    return receipt

@@ -20,6 +20,14 @@ same recorded artifact for acceptance and publication. The preparation
 report describes only the incoming directory. The release operation controls
 the public version directory and verifies the actual HTTPS response.
 
+Use the [recorded acceptance and publication workflow](../../tools/release/CODEMAP.md#record-alt-acceptance-and-publish-the-versioned-download)
+for a version bound to the agent release ledger. The private staging and public
+alias roots must reside on the same filesystem and use separate paths. The
+publisher verifies an unexpired first-enrollment qualification, requires the
+reviewed guide digest and activates the immutable version directory with one
+rename. Existing primary and campaign controls are managed through their own
+release procedures.
+
 Only publish public kit archives, detached archive/manifest signatures, manifest,
 checksums, public RPM key and operator guide. All directories must be root-owned
 0755, files root-owned 0644 and regular (no symlinks). Never copy the signer home,

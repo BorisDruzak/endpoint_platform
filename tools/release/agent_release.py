@@ -15,7 +15,7 @@ if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from tools.release import (
-    agent_alt_download, agent_alt_native, agent_promotion, agent_qualification, agent_reservations,
+    agent_alt_download, agent_alt_native, agent_alt_publication, agent_promotion, agent_qualification, agent_reservations,
     compatibility_matrix,
 )
 
@@ -192,10 +192,14 @@ def main() -> None:
     agent_alt_download.add_arguments(alt_download)
     alt_https = commands.add_parser("verify-alt-download", help="check exact ALT download bytes over trusted HTTPS")
     agent_alt_download.add_https_arguments(alt_https)
+    alt_publication = commands.add_parser("publish-alt-download", help="preview or activate an exact qualified ALT download")
+    agent_alt_publication.add_arguments(alt_publication)
     alt_enrollment = commands.add_parser("qualify-alt-enrollment", help="inspect exact first-install Lab evidence")
     agent_alt_native.add_kit_arguments(alt_enrollment)
     alt_enrollment.add_argument("--enrollment-request-id", type=UUID, required=True)
     alt_enrollment.add_argument("--device-id", type=UUID, required=True)
+    alt_enrollment.add_argument("--qualification-id", type=UUID, help="Record live acceptance under this stable ID")
+    alt_enrollment.add_argument("--valid-until", help="Expiry of the recorded evidence, including UTC offset")
     candidate = commands.add_parser("record-candidate", help="pin native candidate bytes to a reservation")
     candidate.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
     candidate.add_argument("--request-id", required=True, type=UUID)
@@ -230,6 +234,8 @@ def main() -> None:
             result = agent_alt_download.prepare(args)
         elif args.command == "verify-alt-download":
             result = agent_alt_download.verify_https(args)
+        elif args.command == "publish-alt-download":
+            result = agent_alt_publication.publish(args)
         elif args.command == "qualify-alt-enrollment":
             from tools.release.agent_alt_enrollment import qualify
 

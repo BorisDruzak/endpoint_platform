@@ -650,3 +650,96 @@ def test_alt_download_https_checks_response_bytes_and_never_follows_redirect(tmp
     with pytest.raises(ValueError, match="302"):
         download.verify_https(args)
     assert calls == [("HEAD", f"/downloads/alt/{name}/{name}.tar.gz")]
+
+
+def test_alt_qualification_stays_bound_to_the_candidate_and_expires(release_inputs):
+    from tools.release import agent_alt_qualification as qualification, agent_reservations as ledger
+
+    repo, _ = release_inputs
+    request, reserved = prepare_bound_source(release_inputs)
+    head = ledger._remote_head(repo)
+    candidate = {key: reserved[key] for key in ("request_id", "version", "build_revision")}
+    candidate.update(platform="alt", state="candidate", artifacts={"archive": {"sha256": "d"*64}})
+    assert ledger._append(repo, head, ledger._with_candidate([reserved], reserved, candidate), "fixture alt candidate")
+    now = datetime.now(timezone.utc)
+    args = Namespace(repo_root=repo, request_id=request, qualification_id=uuid4(),
+                     valid_until=(now + timedelta(hours=2)).isoformat())
+    receipt = {key: candidate[key] for key in ("request_id", "version", "build_revision", "platform")}
+    receipt.update(schema_version=1, state="accepted", scope="first_enrollment", kit_sha256="d"*64,
+                   enrollment_status="device_registered", native_sequence=1, checked_at=now.isoformat(),
+                   activity_collected_at=(now-timedelta(seconds=2)).isoformat())
+    for name in ("device_id", "enrollment_request_id", "native_release_id", "native_event_id", "session_id", "baseline_snapshot_id"):
+        receipt[name] = str(uuid4())
+    before = ledger._remote_head(repo)
+    with pytest.raises(ValueError, match="different candidate"):
+        qualification.record(args, {**receipt, "kit_sha256":"c"*64}, now=now)
+    assert ledger._remote_head(repo) == before
+    stored = qualification.record(args, receipt, now=now)
+    assert qualification.require(args, now=now)[1] == stored
+    recorded_head = ledger._remote_head(repo)
+    assert recorded_head != before
+    assert qualification.record(args, receipt, now=now) == stored
+    with pytest.raises(ValueError, match="already bound"):
+        qualification.record(args, {**receipt, "native_event_id":str(uuid4())}, now=now)
+    with pytest.raises(ValueError, match="expired"):
+        qualification.require(args, now=now+timedelta(hours=2))
+    assert ledger._remote_head(repo) == recorded_head
+    ledger.reject_candidate(Namespace(repo_root=repo, request_id=request, platform="alt",
+                                      sha256="d"*64, reason="Reviewed test rejection"))
+    with pytest.raises(ValueError, match="rejected"):
+        qualification.require(args, now=now)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="ALT static publication uses POSIX directory permissions")
+def test_alt_publication_rolls_back_only_its_new_directory_and_retries_exact_bytes(tmp_path):
+    from tools.release import agent_alt_publication as publication
+
+    incoming = tmp_path / "incoming"
+    incoming.mkdir(mode=0o700)
+    distribution = tmp_path / "alt"
+    distribution.mkdir(mode=0o755)
+    folder = "endpoint-alt-pilot-3.2.274-1"
+    target = distribution / folder
+    paths = {"README.ru.md": b"fixture guide", folder+".tar.gz": b"verified archive"}
+    proofs = {name: {"filename":name, "size":len(value), "sha256":hashlib.sha256(value).hexdigest()}
+              for name,value in paths.items()}
+    calls = []
+
+    def validate():
+        calls.append("eligibility")
+
+    def check_worker(payload):
+        assert (payload / "README.ru.md").stat().st_mode & 0o777 == 0o644
+        assert not target.exists()
+        calls.append("worker")
+
+    def reject_served_bytes():
+        assert (target / (folder+".tar.gz")).read_bytes() == b"verified archive"
+        raise ValueError("served digest differs")
+
+    with pytest.raises(ValueError, match="served digest differs"):
+        publication._activate(incoming, target, paths, proofs, validate, check_worker, reject_served_bytes)
+    assert not target.exists() and not list(incoming.iterdir())
+    assert calls == ["worker", "eligibility"]
+
+    def accept_served_bytes():
+        assert all((target / name).read_bytes() == value for name,value in paths.items())
+        calls.append("served")
+
+    assert publication._activate(incoming, target, paths, proofs, validate, check_worker, accept_served_bytes)
+    assert not publication._activate(incoming, target, paths, proofs, validate, check_worker, accept_served_bytes)
+    with pytest.raises(ValueError, match="served digest differs"):
+        publication._activate(incoming, target, paths, proofs, validate, check_worker, reject_served_bytes)
+    assert (target / (folder+".tar.gz")).read_bytes() == b"verified archive"
+
+
+def test_alt_publication_refuses_unreviewed_guide_bytes(tmp_path):
+    from tools.release import agent_alt_publication as publication
+
+    guide = tmp_path / "report.md"
+    guide.write_bytes(b"reviewed public guide")
+    digest = hashlib.sha256(guide.read_bytes()).hexdigest()
+    assert publication._read_guide(guide, digest)[0] == b"reviewed public guide"
+    guide.write_bytes(b"other guide")
+    with pytest.raises(ValueError, match="guide digest"):
+        publication._read_guide(guide, digest)

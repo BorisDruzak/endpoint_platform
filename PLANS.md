@@ -45,13 +45,20 @@ upgrade paths that must run for each qualified artifact.
   a private version directory. Signed .274 passed concurrent exact retries and
   the staging failure exercise on ALT 11.4. `verify-alt-download` checked all
   seven served files over an isolated HTTPS endpoint against the same recorded
-  kit. Bind public activation to exact Lab acceptance and scoped authority.
+  kit. `publish-alt-download` binds versioned download activation to a recorded
+  unexpired Lab qualification, exact retained bytes and the approved guide.
+  An isolated HTTPS trial verified all eight files, exact retry and rollback
+  after a substituted response. The primary pointer and rollout authority
+  still follow their separate release procedures.
   `qualify-alt-enrollment` checks first native enrollment against the bound RPM
   registry, consumed claim, causal ACK, fresh WSS, baseline and interactive
   activity on the Lab provider. Verified with the original signed .274 kit on
   isolated PostgreSQL and with a factory installation on ALT Workstation K
   11.4. The exact .274 first-enrollment route returned `accepted` twice on
   one native event and one WSS after correction of the disposable guest clock.
+  The live check recorded an expiring qualification in an isolated Git ledger
+  and replayed the same ID. The cold run also proved that the baseline gate
+  uses the server-stored command result and accepts bounded device clock skew.
   Preserve exact scope when applying the evidence. Campaign scope and
   revocation remain open.
 - EP-RE-03 has a read-only [compatibility planner](tools/release/CODEMAP.md#plan-native-qualification)
