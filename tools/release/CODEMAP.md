@@ -128,6 +128,10 @@ CUPS changes require the provider and ALT agent capability to agree. The CUPS
 merge reports ALT Core OTA and provider migration `0040_cups_operations`.
 Check that `cups-actions.sqlite3` survives the candidate's update and rollback
 before admitting the new payload to a CUPS deployment.
+Replay the same command after reapplying the candidate and verify that the
+queue still contains only the original test job. Check submission and queue
+control separately under the actual Endpoint service account and CUPS policy.
+Queue control that works only as root does not qualify the agent operation.
 
 ## Reserve and bind a Windows or ALT version
 

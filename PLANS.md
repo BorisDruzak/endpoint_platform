@@ -115,11 +115,17 @@ upgrade paths that must run for each qualified artifact.
   or incompatible Core profiles. Replay of the immutable Core 3.2.164 ZIP's
   contract selected Core-only on Foundation 3.2.158 and held Foundation 3.2.156.
   The historical Windows Lab evidence confirms the native Foundation survived.
-  The CUPS merge selects provider migration 0040 and ALT Core OTA. New native
-  update and rollback evidence for the CUPS journal remains open. The signed
-  3.2.274 candidate source `9f9dc4f17820` predates the CUPS actions in
-  `5a0aa728eb`. The nine CUPS development tests pass. Native CUPS acceptance
-  needs a build containing the merge.
+  The isolated CUPS merge selects provider migration 0040 and ALT Core OTA.
+  The full delta from signed 3.2.274 also selects native RPM for actual Setup
+  and Support changes and adds provider merge migration 0057. The planner
+  recognizes `pc_agent/AGENTS.md` as review guidance. [Native ALT DEVELOP
+  exercise](docs/verification/2026-11-26-alt-cups-ota-development.md) checked
+  3.2.183 → SHA-bound development Core → 3.2.183 → the same development Core
+  through the native updater. The CUPS journal and one spooled job persisted.
+  Actual service-account submission passed on an isolated queue and queue
+  control required authorization. Signed 3.2.274 predates CUPS actions.
+  Exact distributable acceptance with Gateway and service-account queue
+  control remain open.
 - The release engineering branch resolved both hosted failures in the base
   gate. The [follow-up provider gate](https://github.com/BorisDruzak/endpoint_platform/actions/runs/45612060556)
   passed on Linux and Windows with version reservation and build binding.
