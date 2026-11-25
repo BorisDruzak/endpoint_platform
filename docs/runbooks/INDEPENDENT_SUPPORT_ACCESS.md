@@ -103,6 +103,23 @@ the clean reinstall uses the selected existing domain principal
 confirmed domain identity. No Windows
 administrator account is created by this feature.
 
+### Windows OpenSSH Server readiness for isolated networks
+
+Before imaging or qualifying an isolated Windows client, check `OpenSSH.Server~~~~0.0.1.0`
+with `Get-WindowsCapability -Online`. If it is missing and Windows Update is
+unavailable, provide the matching, signature-verified Microsoft Features on
+Demand media for the client release and architecture. Provision the capability
+using `Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 -Source <path> -LimitAccess`.
+Check that servicing completed and resolve any required restart before starting
+Endpoint Setup. Keep the system `sshd` and its default inbound TCP 22 rule
+under the existing workstation policy. Endpoint Support uses its own loopback
+listener and outbound tunnel. [Microsoft offline installation procedure](https://learn.microsoft.com/en-us/troubleshoot/windows-server/system-management-components/cant-install-openssh-features).
+
+An `applied` Core update alone does not establish Support Access readiness.
+Record the Support install result, service state and a fresh provider report
+separately. A real administrator command over the independent channel is
+another acceptance check when authorized and required for the release profile.
+
 ### Existing Windows principal in policy
 
 `windows_admin_username` accepts an existing local SAM name such as

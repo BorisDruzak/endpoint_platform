@@ -9,15 +9,19 @@ retained-input write result. The [Windows 10 network transition](docs/verificati
 from primary 3.2.205 to signed 3.2.276 passed exact-source Lab qualification.
 The [Windows 11 active-MSI trial](docs/verification/2026-11-25-windows11-205-to-276-active-msi.md)
 confirmed stock exit 21, a retained native operation and running local
-Support on exact .205 → .276. Core recovery and the Windows 11 network
-transition remain open. The [Windows 11 evaluation lab](docs/verification/2026-11-25-windows11-ltsc-evaluation-lab.md)
-verified activated Enterprise LTSC Evaluation x64 build 26100.9457 over QEMU
-guest access and an isolated Gateway with exact Setup 3.2.205 and 3.2.276.
-The Evaluation edition is a separate qualification profile from Enterprise
-LTSC. The first signed 3.2.205 Setup on a clean Evaluation guest exited 21
-before native acceptance. Its protected MSI fence and exact cache are retained
-in a stopped snapshot. The DEVELOP wrapper validates recovery media before
-native preparation. Signed ALT 3.2.274 passed native factory
+Support on exact .205 → .276. Core recovery remains open. The
+[Windows 11 evaluation lab](docs/verification/2026-11-25-windows11-ltsc-evaluation-lab.md)
+passed exact 3.2.205 factory installation and the network transition to
+signed 3.2.276 on Enterprise LTSC Evaluation x64 build 26100.1742 with exact
+Lab qualification after separate Support Access recovery. The
+transition took 681 seconds and preserved identity, native ACK2, WSS and
+interactive telemetry. The separate Support Access recovery used verified
+offline OpenSSH Server media. The first signed 3.2.205 Setup on Evaluation
+build 26100.9457 exited 21 before native acceptance and its protected MSI
+fence and exact cache remain in a stopped snapshot. The DEVELOP wrapper
+validates recovery media before native preparation. Network results for
+Evaluation 26100.9457 and the separate Enterprise LTSC profile remain open.
+Signed ALT 3.2.274 passed native factory
 registration with ACK1, fresh WSS, accepted baseline and two real samples
 from a logged-in graphical session. The provider request remained
 `device_registered`. APT publication is deferred.
