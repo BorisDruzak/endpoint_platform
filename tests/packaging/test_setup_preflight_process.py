@@ -1,4 +1,4 @@
-"""Windows PowerShell 5.1 launches and reaps a read-only preflight tree."""
+"""Windows Setup preflight and native admission checks."""
 
 import os
 from pathlib import Path
@@ -8,6 +8,13 @@ import pytest
 
 
 SCRIPT = Path(__file__).resolve().parents[2] / "packaging/windows/EndpointSetupUpdater.ps1"
+
+
+def test_factory_setup_validates_recovery_inputs_before_creating_native_fence():
+    source = SCRIPT.with_name("Install-EndpointAgentCanary.ps1").read_text(encoding="utf-8")
+    recovery_inputs = source.index("Copy-InstallerRecoveryInputs -Bridge $bridge -SetupImage $SetupImagePath")
+    native_prepare = source.index("$preparation=Invoke-InstallerHelper -Bridge $bridge -Phase 'prepare'")
+    assert recovery_inputs < native_prepare
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows jobs and anonymous pipes")
