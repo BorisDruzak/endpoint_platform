@@ -12,8 +12,11 @@ upgrade paths that must run for each qualified artifact.
 - EP-RE-02 has a read-only, backward-compatible current-pointer projection
   via `python tools/release/agent_release.py status`.
   [Catalog owners](tools/release/CODEMAP.md#agent-release-status) identify
-  which live source must be checked next. Atomic reservation and lifecycle
-  operations remain open. Keep the existing publisher authoritative.
+  which live source must be checked next. The read-only provider DB export was
+  verified on production and includes Core platform/channel occupancy. The
+  catalog contains high-numbered canary fixtures away from the release series.
+  Atomic reservation and lifecycle operations remain open. Keep the existing
+  publisher authoritative.
 - EP-RE-03 plans required transitions from read-only observed profiles,
   pending/unknown assignments, recovery holds and enrollment availability.
 - EP-RE-04 composes existing builders, Lab checks and publishers around the

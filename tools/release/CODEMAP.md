@@ -59,3 +59,14 @@ differs from the primary receipt has an unknown digest in this projection.
 The ALT native registry identifies source bytes. Campaign eligibility is
 verified at enrollment. APT package entries alone do not prove that the signed
 index is current; verify signature and expiry before using that delivery path.
+
+For a current provider DB snapshot, run `agent_catalog_snapshot.sql` with
+`psql -X -Atq -v ON_ERROR_STOP=1 -f` using existing read access. It exports
+one JSON object using a read-only transaction and a five-second query timeout.
+Capture production and staging separately. The snapshot retains every occupied
+catalog version, including retired releases and candidate-only installer rows.
+Core rows keep platform and channel. Published canary fixtures can use unusual
+versions such as `3.2.60000` or `99.0.3280`. Occupancy and the next version in
+the supported release series require separate checks. APT package inventories,
+Git records, signing-host candidates and concurrent reservations are additional
+inputs to version allocation.
