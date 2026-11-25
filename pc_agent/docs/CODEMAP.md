@@ -16,6 +16,12 @@ Endpoint Gateway WSS transport. The runtime owns enrollment identity, device
 credentials, local SQLite state, Device Context collection, module lifecycle,
 and update verification.
 
+Linux CUPS maintenance is dispatched by `runtime/command_executor.py` to
+`primitives/service_printer/cups_actions.py`. The runner pins the local CUPS
+socket and records an intent in `cups-actions.sqlite3` before changing a queue or
+sending a test page. The command identity survives reconnection and restart.
+See [CUPS maintenance](../../docs/architecture/cups-maintenance.md).
+
 Endpoint Policy delivery and ACK run in `policy/runtime.py` through the same
 Gateway connection. The Windows local sensor boundary has a service-owned,
 cancellable named-pipe listener in `platform/windows/sensor_pipe_listener.py`.

@@ -22,6 +22,7 @@ from .capabilities import (
     validate_module_capability_parameters,
 )
 from .commands import AgentCommandAckV1, AgentCommandV1, AgentResultV1
+from .cups_actions import CUPS_ACTION_PARAMETERS
 from .endpoint_policy import EndpointPolicyV1, policy_digest
 from .security_events import AgentSecurityEventBatchV1, SecurityEventAckV1
 from .sensor_health import PolicySensorHealthReportV1
@@ -186,6 +187,13 @@ def _gateway_command_schema_extra(schema: dict[str, object]) -> None:
         }
         for capability in MODULE_CAPABILITY_REGISTRY
     )
+    schema["allOf"].extend(
+        {
+            "if": {"properties": {"capability": {"const": capability}}},
+            "then": {"required": ["parameters"], "properties": {"parameters": parameters.model_json_schema()}},
+        }
+        for capability, parameters in CUPS_ACTION_PARAMETERS.items()
+    )
 
 
 class GatewayCommandV1(AgentCommandV1):
@@ -207,6 +215,8 @@ class GatewayCommandV1(AgentCommandV1):
         }
         if self.capability in MODULE_CAPABILITY_REGISTRY:
             validate_module_capability_parameters(self.capability, self.parameters)
+            return self
+        if self.capability in CUPS_ACTION_PARAMETERS:
             return self
         unexpected = set(self.parameters) - allowed_keys[self.capability]
         if unexpected:

@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, WebSocket
 from starlette.websockets import WebSocketDisconnect
 
 from endpoint_contracts import AgentHelloV1, GatewayErrorV1, GatewayHelloV1
+from endpoint_contracts.cups_actions import CUPS_ACTION_PARAMETERS
 from endpoint_contracts.gateway_ws import (
     ActivityObservationEnvelopeV1,
     BrowserStatusReportEnvelopeV1,
@@ -75,6 +76,7 @@ _SUPPORTED_CAPABILITIES = frozenset(
         "context.inventory.collect",
         "context.session.collect",
         *MODULE_CAPABILITY_REGISTRY,
+        *CUPS_ACTION_PARAMETERS,
     }
 )
 
@@ -203,6 +205,7 @@ async def connect_agent(websocket: WebSocket) -> None:
             capability
             for capability in first.payload.capabilities
             if capability in _SUPPORTED_CAPABILITIES
+            and (capability not in CUPS_ACTION_PARAMETERS or first.payload.platform == "linux_amd64")
             and (
                 capability not in MODULE_CAPABILITY_REGISTRY
                 or module_capability_is_compatible(

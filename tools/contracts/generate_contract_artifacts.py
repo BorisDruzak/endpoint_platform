@@ -78,6 +78,7 @@ from endpoint_server.modules.catalog_routes import (  # noqa: E402
 from endpoint_server.modules.routes import router as modules_router  # noqa: E402
 from endpoint_server.modules.execution_routes import router as module_execution_router  # noqa: E402
 from endpoint_server.operations.routes import router as operations_router  # noqa: E402
+from endpoint_server.operations.cups_routes import router as cups_operations_router  # noqa: E402
 from endpoint_server.context.routes import router as context_router  # noqa: E402
 from endpoint_server.device_binding.routes import router as device_binding_router  # noqa: E402
 from endpoint_contracts.device_binding import (  # noqa: E402
@@ -89,6 +90,9 @@ from endpoint_server.browser_sensor.public_routes import (  # noqa: E402
 
 
 _SERVICE_OPERATION_PATHS = (
+    "/api/v1/devices/{device_id}/cups/queue-configurations",
+    "/api/v1/devices/{device_id}/cups/test-pages",
+    "/api/v1/cups-operations/{operation_id}",
     "/api/v1/devices/{device_id}",
     "/api/v1/devices/{device_id}/capabilities",
     "/api/v1/devices/{device_id}/operations",
@@ -719,6 +723,7 @@ def _service_operation_openapi() -> dict[str, object]:
     """Generate published service paths/components from the runtime routers."""
     application = FastAPI()
     application.include_router(operations_router)
+    application.include_router(cups_operations_router)
     application.include_router(modules_router)
     application.include_router(module_capability_catalog_router)
     application.include_router(module_execution_router)

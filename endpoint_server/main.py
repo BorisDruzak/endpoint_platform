@@ -53,6 +53,7 @@ from endpoint_server.operations.routes import router as operations_router
 from endpoint_server.modules.routes import router as modules_router
 from endpoint_server.modules.catalog_routes import router as module_capability_catalog_router
 from endpoint_server.modules.execution_routes import router as module_execution_router
+from endpoint_server.operations.cups_routes import router as cups_operations_router
 from endpoint_server.gateway.routes import router as gateway_router
 from endpoint_server.gateway.connection_registry import (
     ConnectionRegistry,
@@ -165,6 +166,7 @@ def create_app(
     app.include_router(context_router)
     if settings.endpoint_operations_api_enabled:
         app.include_router(operations_router)
+        app.include_router(cups_operations_router)
     if settings.endpoint_module_platform_enabled:
         app.include_router(modules_router)
         app.include_router(module_capability_catalog_router)

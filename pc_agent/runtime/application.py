@@ -426,7 +426,8 @@ def _default_dependencies(
     if settings is not None:
         def create_configured_executor() -> CommandExecutor:
             return CommandExecutor(
-                network_probe_policy=settings.network_probe_policy()
+                network_probe_policy=settings.network_probe_policy(),
+                cups_journal=settings.data_root / "cups-actions.sqlite3",
             )
 
         create_executor = create_configured_executor
@@ -554,6 +555,9 @@ def _load_credential(settings: object) -> str:
 
 
 def _load_hello(settings: object) -> AgentHelloV1:
+    from endpoint_contracts.cups_actions import CUPS_ACTION_PARAMETERS
+    from pc_agent.primitives.service_printer.cups_actions import cups_actions_available
+
     if not isinstance(settings, RuntimeSettings):
         raise ValueError("invalid runtime settings")
     device_id = read_enrollment_device_id(
@@ -575,7 +579,10 @@ def _load_hello(settings: object) -> AgentHelloV1:
         )
         if features:
             values["protocol_features"] = features
-    return compatibility_agent_hello(platform=platform).model_copy(update=values)
+    hello = compatibility_agent_hello(platform=platform)
+    if settings.transport_mode == "gateway_wss" and cups_actions_available():
+        values["capabilities"] = [*hello.capabilities, *CUPS_ACTION_PARAMETERS]
+    return hello.model_copy(update=values)
 
 
 def _policy_protocol_features(

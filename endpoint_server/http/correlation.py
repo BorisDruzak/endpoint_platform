@@ -19,7 +19,7 @@ def is_operation_api_request(method: str, path: str) -> bool:
     if len(segments) == 5 and segments[0] == "" and segments[1:3] == ["api", "v1"]:
         if not segments[4]:
             return False
-        if segments[3] in {"operations", "module-operations"}:
+        if segments[3] in {"operations", "module-operations", "cups-operations"}:
             return method == "GET"
         return (
             segments[3] == "devices"
@@ -40,7 +40,10 @@ def is_operation_api_request(method: str, path: str) -> bool:
                 and segments[5] in {"operations", "module-operations"}
             )
         )
-    return False
+    return (
+        method == "POST" and len(segments) == 7 and segments[:4] == ["", "api", "v1", "devices"]
+        and bool(segments[4]) and segments[5] == "cups" and segments[6] in {"queue-configurations", "test-pages"}
+    )
 
 
 def is_module_api_request(method: str, path: str) -> bool:

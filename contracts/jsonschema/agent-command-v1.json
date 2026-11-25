@@ -413,6 +413,13 @@
             "eventlog.recent_errors"
           ],
           "type": "string"
+        },
+        {
+          "enum": [
+            "printer.cups.queue.configure",
+            "printer.cups.testpage.submit"
+          ],
+          "type": "string"
         }
       ],
       "title": "Capability"

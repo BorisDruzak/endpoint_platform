@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from endpoint_contracts import AgentCommandV1, AgentResultV1
+from endpoint_contracts.cups_actions import CUPS_ACTION_PARAMETERS
 from pc_agent.context_profiles.command_execution import execute_context_agent_command
 from pc_agent.context_profiles.probe import SystemProbe
 from pc_agent.context_profiles.registry import CONTEXT_COLLECTION_CAPABILITIES
 from pc_agent.primitives.network.command_execution import execute_network_agent_command
 from pc_agent.primitives.network.policy import AgentNetworkProbePolicy
 from pc_agent.primitives.read_only.command_execution import execute_read_only_agent_command
+from pc_agent.primitives.service_printer.cups_actions import execute_cups_action
 
 
 async def _execute_context_capability(
@@ -74,6 +78,7 @@ class CommandExecutor:
         execute_network_command: Callable[..., Any] | None = None,
         execute_read_only_command: Callable[..., Any] | None = None,
         network_probe_policy: AgentNetworkProbePolicy | None = None,
+        cups_journal: Path | None = None,
     ) -> None:
         self._probe_factory = probe_factory or SystemProbe
         self._execute_context_command = (
@@ -89,6 +94,7 @@ class CommandExecutor:
             allowed_cidrs=(), allowed_suffixes=()
         )
         self._probe: object | None = None
+        self._cups_journal = cups_journal
 
     async def start(self) -> None:
         self._probe = self._probe_factory()
@@ -97,6 +103,8 @@ class CommandExecutor:
         self._probe = None
 
     async def execute(self, command: AgentCommandV1) -> AgentResultV1:
+        if command.capability in CUPS_ACTION_PARAMETERS:
+            return await asyncio.to_thread(execute_cups_action, command, self._cups_journal)
         handler = BUILTIN_ENDPOINT_CAPABILITIES.get(command.capability)
         if handler is None:
             return AgentResultV1(
