@@ -130,8 +130,11 @@ Check that `cups-actions.sqlite3` survives the candidate's update and rollback
 before admitting the new payload to a CUPS deployment.
 Replay the same command after reapplying the candidate and verify that the
 queue still contains only the original test job. Check submission and queue
-control separately under the actual Endpoint service account and CUPS policy.
-Queue control that works only as root does not qualify the agent operation.
+control separately under the actual Endpoint service account and target CUPS
+policy. Where the operator has configured a policy for a managed test queue,
+verify both directions of enabled and accepting state. Also verify that the
+default-policy queue, an unrelated local identity, and printer administration
+remain restricted. See the [ALT Lab receipt](../../docs/verification/2026-11-26-alt-cups-ota-development.md#политика-выделенной-очереди).
 
 ## Reserve and bind a Windows or ALT version
 

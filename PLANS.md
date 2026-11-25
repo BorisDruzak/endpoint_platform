@@ -128,10 +128,12 @@ upgrade paths that must run for each qualified artifact.
   exercise](docs/verification/2026-11-26-alt-cups-ota-development.md) checked
   3.2.183 → SHA-bound development Core → 3.2.183 → the same development Core
   through the native updater. The CUPS journal and one spooled job persisted.
-  Actual service-account submission passed on an isolated queue and queue
-  control required authorization. Signed 3.2.274 predates CUPS actions.
-  Exact distributable acceptance with Gateway and service-account queue
-  control remain open.
+  The real service account passed print submission and all four queue-state
+  operations on an isolated queue with an explicit CUPS operation policy.
+  The default queue, an unrelated local user and printer administration
+  remained denied. Signed 3.2.274 predates CUPS actions. Acceptance of a signed
+  candidate under the deployed service, Gateway and target site policy remains
+  open.
 - The release engineering branch resolved both hosted failures in the base
   gate. The [follow-up provider gate](https://github.com/BorisDruzak/endpoint_platform/actions/runs/45612060556)
   passed on Linux and Windows with version reservation and build binding.
