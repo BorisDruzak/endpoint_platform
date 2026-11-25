@@ -13,7 +13,8 @@ from endpoint_server.auth.admin_sessions import AdminPrincipal, require_admin, r
 from endpoint_server.db.models import Device
 from .models import SetupFleetPolicy, SetupFleetDecision, SetupRelease
 from .policy import (FleetPolicyUpdate, update_policy, qualifications, qualify_release, active_chain_devices,
-                     load_device_facts, evaluate_device)
+                     load_device_facts, evaluate_device, describe_setup_route)
+from .preparation import preparation_builds
 from .routes import mutate_admin
 from .service import now_utc
 
@@ -98,13 +99,15 @@ async def preview(body: FleetPreviewRequest, request: Request,
         if body.scope == 'selected':
             query = query.where(Device.id.in_(body.device_ids))
         devices = (await session.scalars(query.limit(501))).all()
+        builds = await preparation_builds(session)
         data, counts = [], Counter()
         for device in devices[:500]:
-            facts = await load_device_facts(session, device.id, body.release_id, now=now)
+            facts = await load_device_facts(session, device.id, body.release_id, now=now, setup_builds=builds)
             result = evaluate_device(policy, release, facts, now=now)
             counts[result.status] += 1
             data.append(dict(device_id=device.id, display_name=device.display_name,
-                status=result.status, safe_code=result.code))
+                status=result.status, safe_code=result.code,
+                native_route=describe_setup_route(release, facts, result, builds, now=now)))
         active = len(await active_chain_devices(session))
         return dict(read_only=True, counts=counts, evaluated_count=len(data), truncated=len(devices)>500,
             active_chains=active, available_slots=max(0, body.max_parallel-active), data=data)

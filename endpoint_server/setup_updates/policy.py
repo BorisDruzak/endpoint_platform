@@ -14,7 +14,11 @@ from endpoint_server.db.instance_order import latest_instance_order
 from endpoint_server.db.models import Device, DeviceInstance, DeviceSession, UpdateBuild, UpdateTarget
 from .models import (SetupRelease, SetupAssignment, SetupPreparation, SetupClientPresence,
                      SetupFleetPolicy, SetupFleetDecision, SetupFleetQualification)
-from .preparation import ACTIVE_PREPARATIONS, BRIDGE_VERSION, OBSERVER_BOOTSTRAP, OBSERVER_BOOTSTRAP_VERSION, modern_bootstrap_source, ready as setup_client_ready
+from .preparation import (
+    ACTIVE_PREPARATIONS, BRIDGE_VERSION, OBSERVER_BOOTSTRAP, OBSERVER_BOOTSTRAP_VERSION,
+    bootstrap_observer_absent, direct_setup_ready, legacy_preparation_builds,
+    modern_bootstrap_source, ready as setup_client_ready,
+)
 from .service import SetupConflict, now_utc, utc, require_new_wss
 
 FLEET_LOCK = 735306158
@@ -229,7 +233,7 @@ class Decision:
     code: str
 
 
-async def load_device_facts(session, device_id, release_id, *, now):
+async def load_device_facts(session, device_id, release_id, *, now, setup_builds=None):
     from endpoint_server.installation_lifecycle.service import removed
     installation_removed = await removed(session, device_id)
     device = await session.get(Device, device_id)
@@ -259,12 +263,27 @@ async def load_device_facts(session, device_id, release_id, *, now):
     client = await session.scalar(select(SetupClientPresence).where(
         SetupClientPresence.device_id == device_id).execution_options(populate_existing=True))
     bootstrap = None
-    if client is None or now-utc(client.last_seen_at) > timedelta(minutes=10):
-        bootstrap = await session.scalar(select(UpdateBuild).where(UpdateBuild.build_identifier == OBSERVER_BOOTSTRAP))
+    if bootstrap_observer_absent(client, now):
+        if setup_builds is None:
+            bootstrap = await session.scalar(select(UpdateBuild).where(UpdateBuild.build_identifier == OBSERVER_BOOTSTRAP))
+        else:
+            bootstrap = setup_builds.get(OBSERVER_BOOTSTRAP)
     return dict(installation_removed=installation_removed, device=device, instance=instance, connection=connection, prep=prep, assignment=assignment,
         core=core, client=client, previous=previous or previous_prep or previous_rejection,
         observer_bootstrap=bootstrap,
         qualifications=await qualifications(session, release_id, now=now))
+
+
+def _setup_observation_wait(client, instance, client_ready, now):
+    if client is None or not -timedelta(seconds=30) <= now - utc(client.last_seen_at) <= timedelta(minutes=10):
+        return None
+    if ((client.foundation_version is not None and client.foundation_version != instance.launcher_version)
+            or (client.core_version is not None and client.core_version != instance.agent_version)
+            or (client_ready and (client.foundation_version is None or client.core_version is None))):
+        return 'waiting_source_confirmation'
+    if client.client_version in QUALIFIED_SETUP_CLIENT_VERSIONS and not client.ready:
+        return 'waiting_setup_client'
+    return None
 
 
 def evaluate_device(policy, release, facts, *, now):
@@ -305,15 +324,9 @@ def evaluate_device(policy, release, facts, *, now):
         return Decision('blocked', 'source_not_qualified')
     client = facts['client']
     client_ready = setup_client_ready(client, now)
-    if client is not None and -timedelta(seconds=30) <= now-utc(client.last_seen_at) <= timedelta(minutes=10):
-        # WSS and Setup hello are independent observations. Never dispatch a
-        # native source different from the one whose Foundation was qualified.
-        if ((client.foundation_version is not None and client.foundation_version != instance.launcher_version)
-                or (client.core_version is not None and client.core_version != instance.agent_version)
-                or (client_ready and (client.foundation_version is None or client.core_version is None))):
-            return Decision('waiting', 'waiting_source_confirmation')
-        if client.client_version in QUALIFIED_SETUP_CLIENT_VERSIONS and not client.ready:
-            return Decision('waiting', 'waiting_setup_client')
+    # WSS and Setup hello are independent observations of the native source.
+    if code := _setup_observation_wait(client, instance, client_ready, now):
+        return Decision('waiting', code)
     # Modern Core already carries the qualified observer. A late/missing hello
     # cannot be repaired by downgrading it through the legacy preparation bridge.
     if core >= version(BRIDGE_VERSION) and not client_ready:
@@ -326,6 +339,30 @@ def evaluate_device(policy, release, facts, *, now):
     if not policy.enabled:
         return Decision('waiting', 'policy_paused')
     return Decision('eligible', 'eligible')
+
+
+def describe_setup_route(release, facts, decision, builds, *, now):
+    """Report the observed route without granting qualification or dispatch."""
+    if decision.code not in ('eligible', 'source_not_qualified'):
+        return None
+    client, instance, connection = facts['client'], facts['instance'], facts['connection']
+    if _setup_observation_wait(client, instance, setup_client_ready(client, now), now):
+        return None
+    if direct_setup_ready(client, release, now):
+        return {'kind': 'direct', 'steps': []}
+    bootstrap = builds.get(OBSERVER_BOOTSTRAP)
+    if modern_bootstrap_source(instance, release, bootstrap):
+        if (not bootstrap_observer_absent(client, now) or connection.created_at is None
+                or now - utc(connection.created_at) < timedelta(minutes=3)):
+            return None
+        kind, steps = 'observer_bootstrap', (bootstrap,)
+    else:
+        steps = legacy_preparation_builds(instance, release, builds)
+        if steps is None:
+            return None
+        kind = 'legacy_bridge_return'
+    return {'kind': kind, 'steps': [dict(build_id=str(build.id), version=build.version, sha256=build.sha256_digest)
+                                     for build in steps]}
 
 
 async def active_chain_devices(session):

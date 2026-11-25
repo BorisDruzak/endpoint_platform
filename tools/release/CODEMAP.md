@@ -521,6 +521,14 @@ truncated preview cannot support the matrix. A Console `source_not_qualified`
 result identifies a Lab test to perform for the matching profile. The Console
 continues to own operational admission.
 
+Current Console previews include `native_route`. `direct` has an empty step
+list. `legacy_bridge_return` lists Core163 followed by the compatible Core155
+or Core157 return. `observer_bootstrap` lists the registered upward Core166.
+Every Core step carries its build ID, version and SHA-256. Routes are recorded
+in JSON and shown with step versions in the brief output. An explicit null
+route yields `HOLD / native_route_unconfirmed` for an otherwise testable
+profile. Older previews still produce cases without route evidence.
+
 The Windows source Foundation must agree with the confirmed native MSI event.
 An observed mismatch yields `HOLD / native_foundation_mismatch`. An OTA Core
 version stays independent and forms a separate profile when it differs.

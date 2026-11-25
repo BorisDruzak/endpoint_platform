@@ -89,7 +89,7 @@ def test_plan_keeps_pending_enrollment_as_a_separate_source(tmp_path):
 
 
 def test_plan_groups_only_exact_profiles_and_keeps_canonical_blockers(tmp_path):
-    ids = ("device-1", "device-2", "device-3", "device-4", "device-5", "device-6")
+    ids = ("device-1", "device-2", "device-3", "device-4", "device-5", "device-6", "device-7")
     source = snapshot(*({**device(id, "3.2.205", online=True), "native_event_id": f"{id}-native"} for id in ids))
     source["release_planning"]["devices"][4]["foundation_version"] = "3.2.192"
     source["release_planning"]["devices"][5]["core_version"] = "3.2.264"
@@ -109,8 +109,10 @@ def test_plan_groups_only_exact_profiles_and_keeps_canonical_blockers(tmp_path):
     evidence["devices"][5]["profile"]["core_version"] = "3.2.264"
     preview = {"observed_at": TIME, "scope": "all_active", "release_id": "target", "sha256": SHA,
                "response": {"read_only": True, "truncated": False, "evaluated_count": len(ids), "data": [
-                   {"device_id": id, "status": "blocked", "safe_code": "source_not_qualified"} for id in ids]}}
+                   {"device_id": id, "status": "blocked", "safe_code": "source_not_qualified",
+                    "native_route": {"kind": "direct", "steps": []}} for id in ids]}}
     preview["response"]["data"][3].update(status="waiting", safe_code="waiting_source_confirmation")
+    preview["response"]["data"][6]["native_route"] = None
     preview_path = tmp_path / "preview.json"
     evidence_path = tmp_path / "profiles.json"
     preview_path.write_text(json.dumps(preview), encoding="utf-8")
@@ -121,8 +123,20 @@ def test_plan_groups_only_exact_profiles_and_keeps_canonical_blockers(tmp_path):
     report = json.loads(result.stdout)
     transitions = [case for case in report["cases"] if case.get("test") == "native_transition"]
     assert [case["device_ids"] for case in transitions] == [list(ids[:2]), [ids[2]], [ids[5]]]
+    assert {case["native_route"]["kind"] for case in transitions} == {"direct"}
     holds = {case["device_id"]: case["reason"] for case in report["cases"] if case["category"] == "HOLD"}
-    assert holds == {ids[3]: "waiting_source_confirmation", ids[4]: "native_foundation_mismatch"}
+    assert holds == {ids[3]: "waiting_source_confirmation", ids[4]: "native_foundation_mismatch",
+                     ids[6]: "native_route_unconfirmed"}
+    summary = run(tmp_path, source, "windows", *options, "--format", "brief")
+    assert summary.returncode == 0, summary.stderr
+    assert "REQUIRED observed_native_source direct (3)" in summary.stdout
+
+    route = preview["response"]["data"][0]["native_route"]
+    route["kind"] = "observer_bootstrap"
+    preview_path.write_text(json.dumps(preview), encoding="utf-8")
+    incomplete = run(tmp_path, source, "windows", *options)
+    assert incomplete.returncode != 0 and "native route step count" in incomplete.stderr
+    route["kind"] = "direct"
 
     preview["sha256"] = "f" * 64
     preview_path.write_text(json.dumps(preview), encoding="utf-8")

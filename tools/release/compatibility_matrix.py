@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import re
+from uuid import UUID
 
 
 VERSION = re.compile(r"(?:0|[1-9][0-9]{0,4})(?:\.(?:0|[1-9][0-9]{0,4})){2}")
@@ -15,6 +16,7 @@ NATIVE_CONTRACT = {"windows": "endpoint_installation_event_v1", "alt": "endpoint
 INSTANCE_PLATFORM = {"windows": "windows_amd64", "alt": "linux_amd64"}
 PROFILE_FIELDS = ("os_name", "os_build", "os_edition", "architecture", "core_version", "foundation_version",
                   "setup_client_version", "support_version", "state_schema", "acl_profile", "local_transaction")
+ROUTE_STEPS = {"direct": 0, "observer_bootstrap": 1, "legacy_bridge_return": 2}
 
 
 def _observed_at(record, now):
@@ -111,10 +113,28 @@ def _case(row, target, decision, evidence):
         reason = decision["safe_code"]
     elif platform == "windows" and profile["foundation_version"] != row["native"]["version"]:
         reason = "native_foundation_mismatch"
+    elif decision and "native_route" in decision and decision["native_route"] is None:
+        reason = "native_route_unconfirmed"
     else:
+        if decision and "native_route" in decision:
+            case["native_route"] = decision["native_route"]
         return {**case, "category": "REQUIRED", "reason": "observed_native_source",
                 "test": "native_transition"}
     return {**case, "category": "HOLD", "reason": reason}
+
+
+def _validate_native_route(route):
+    if route is None:
+        return
+    if not isinstance(route, dict) or set(route) != {"kind", "steps"}:
+        raise ValueError("Invalid Windows native route")
+    steps = _array(route, "steps")
+    if ROUTE_STEPS.get(route["kind"]) != len(steps):
+        raise ValueError("Invalid Windows native route step count")
+    for step in steps:
+        if (set(step) != {"build_id", "version", "sha256"} or str(UUID(step["build_id"])) != step["build_id"]
+                or not VERSION.fullmatch(step["version"]) or not SHA256.fullmatch(step["sha256"])):
+            raise ValueError("Windows native route requires exact bridge build identity")
 
 
 def _preview_rows(preview, planning, target, now):
@@ -133,6 +153,8 @@ def _preview_rows(preview, planning, target, now):
     rows = _by_device(_array(result, "data"))
     if result["evaluated_count"] != len(rows):
         raise ValueError("Windows preview count differs from its decisions")
+    for row in rows.values():
+        _validate_native_route(row.get("native_route"))
     return rows
 
 
@@ -227,10 +249,18 @@ def plan(snapshot, target, *, now, preview=None, profiles=None, lab_candidates=N
 
 def brief(report):
     target = report["target"]
-    summary = Counter((row["category"], row["reason"]) for row in report["cases"])
+    summary = Counter()
+    for row in report["cases"]:
+        caption = f'{row["category"]} {row["reason"]}'
+        route = row.get("native_route")
+        if route:
+            caption += " " + route["kind"]
+            if route["steps"]:
+                caption += " [" + " -> ".join(step["version"] for step in route["steps"]) + "]"
+        summary[caption] += 1
     lines = [f'{target["platform"]} {target["version"]} ({target["sha256"]})',
              f'Provider snapshot {report["observed_at"]}']
-    lines.extend(f"- {category} {reason} ({count})" for (category, reason), count in sorted(summary.items()))
+    lines.extend(f"- {caption} ({count})" for caption, count in sorted(summary.items()))
     return "\n".join(lines)
 
 

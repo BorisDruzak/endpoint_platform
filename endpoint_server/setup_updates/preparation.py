@@ -23,6 +23,8 @@ RETURN = 'endpoint-windows-core-3.2.157-setup-source'
 RETURN156 = 'endpoint-windows-core-3.2.155-setup-source-725739f'
 OBSERVER_BOOTSTRAP = 'endpoint-windows-core-3.2.166-observer-bootstrap'
 OBSERVER_BOOTSTRAP_VERSION = '3.2.166'
+_PREPARATION_BUILDS = (BRIDGE, RETURN, RETURN156, OBSERVER_BOOTSTRAP,
+                       'endpoint-windows-core-3.2.159-setup-client', 'endpoint-windows-core-3.2.160-setup-client')
 
 
 def modern_bootstrap_source(instance, release, bootstrap):
@@ -79,6 +81,33 @@ def ready(presence, now):
     return qualified_presence(presence, now) and presence.client_version in QUALIFIED_SETUP_CLIENT_VERSIONS
 
 
+def direct_setup_ready(presence, release, now, *, explicit_observer=False):
+    candidate_ready = (explicit_observer and qualified_presence(presence, now)
+                       and presence.client_version != LEGACY_SETUP_CLIENT_VERSION)
+    return (ready(presence, now) or candidate_ready) and parts(presence.core_version) <= parts(release.version)
+
+
+def bootstrap_observer_absent(presence, now):
+    return presence is None or now - utc(presence.last_seen_at) > timedelta(minutes=10)
+
+
+def legacy_preparation_builds(instance, release, builds):
+    if instance is None:
+        return None
+    foundation = parts(instance.launcher_version)
+    source_identifier = RETURN156 if foundation == (3, 2, 156) else RETURN
+    bridge, source = builds.get(BRIDGE), builds.get(source_identifier)
+    if (bridge is None or source is None
+            or bridge.platform != 'windows_amd64' or source.platform != bridge.platform
+            or bridge.version != BRIDGE_VERSION or source.version != ('3.2.155' if source_identifier == RETURN156 else '3.2.157')
+            or foundation < (3, 2, 156)
+            or (source.minimum_launcher_version is not None and parts(source.minimum_launcher_version) > foundation)
+            or parts(instance.agent_version) >= parts(bridge.version)
+            or not parts(source.version) < parts(release.version)):
+        return None
+    return bridge, source
+
+
 async def _recovery_child(session, job, create):
     """A child of the held native attempt, serialized by the same Device lock.
 
@@ -124,10 +153,16 @@ async def request_client_recovery(session, assignment_id, reason, *, actor, requ
     return prep
 
 
-async def lock_builds(session):
-    builds = (await session.scalars(select(UpdateBuild).where(
-        UpdateBuild.build_identifier.in_((BRIDGE, RETURN, RETURN156, OBSERVER_BOOTSTRAP, 'endpoint-windows-core-3.2.159-setup-client', 'endpoint-windows-core-3.2.160-setup-client'))).order_by(UpdateBuild.id).with_for_update())).all()
+async def preparation_builds(session, *, lock=False):
+    query = select(UpdateBuild).where(UpdateBuild.build_identifier.in_(_PREPARATION_BUILDS)).order_by(UpdateBuild.id)
+    if lock:
+        query = query.with_for_update()
+    builds = (await session.scalars(query)).all()
     return {b.build_identifier: b for b in builds}
+
+
+async def lock_builds(session):
+    return await preparation_builds(session, lock=True)
 
 
 async def request_setup(session, device_id, release_id, reason, *, actor, request_id, now=None, explicit_observer=False):
@@ -148,15 +183,13 @@ async def request_setup(session, device_id, release_id, reason, *, actor, reques
     if owned:
         raise SetupConflict('device already has an active Setup preparation')
     presence = await session.scalar(select(SetupClientPresence).where(SetupClientPresence.device_id == device_id))
-    candidate_ready = (explicit_observer and qualified_presence(presence, now)
-                       and presence.client_version != LEGACY_SETUP_CLIENT_VERSION)
-    if (ready(presence, now) or candidate_ready) and parts(presence.core_version) <= parts(release.version):
+    if direct_setup_ready(presence, release, now, explicit_observer=explicit_observer):
         return await assign_setup(session, device_id, release_id, reason, actor=actor, request_id=request_id, now=now)
     instance = await session.scalar(select(DeviceInstance).where(DeviceInstance.device_id == device_id)
         .order_by(*latest_instance_order()).limit(1))
     bootstrap = builds.get(OBSERVER_BOOTSTRAP)
     if modern_bootstrap_source(instance, release, bootstrap):
-        if presence is not None and now-utc(presence.last_seen_at) <= timedelta(minutes=10):
+        if not bootstrap_observer_absent(presence, now):
             raise SetupConflict('current observer must settle before bootstrap')
         child = await create_rollout(session, bootstrap.id, 'canary', [device_id], reason,
             actor, request_id, now=now)
@@ -166,16 +199,10 @@ async def request_setup(session, device_id, release_id, reason, *, actor, reques
         session.add(prep); await session.flush()
         await audit(session, prep, 'preparation_requested', actor, request_id, now)
         return prep
-    source_identifier = RETURN156 if instance is not None and parts(instance.launcher_version) == (3, 2, 156) else RETURN
-    bridge, source = builds.get(BRIDGE), builds.get(source_identifier)
-    if (instance is None or bridge is None or source is None
-            or bridge.platform != 'windows_amd64' or source.platform != bridge.platform
-            or bridge.version != BRIDGE_VERSION or source.version != ('3.2.155' if source_identifier == RETURN156 else '3.2.157')
-            or parts(instance.launcher_version) < (3, 2, 156)
-            or (source.minimum_launcher_version is not None and parts(source.minimum_launcher_version) > parts(instance.launcher_version))
-            or parts(instance.agent_version) >= parts(bridge.version)
-            or not parts(source.version) < parts(release.version)):
+    legacy = legacy_preparation_builds(instance, release, builds)
+    if legacy is None:
         raise SetupConflict('qualified Setup client preparation unavailable for this source')
+    bridge, source = legacy
     child = await create_rollout(session, bridge.id, 'canary', [device_id], reason,
                                  actor, request_id, now=now)
     prep = SetupPreparation(id=uuid4(), device_id=device_id, release_id=release_id,

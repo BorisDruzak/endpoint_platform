@@ -1,5 +1,7 @@
 """Fleet admission is distinct from native acceptance and never repeats an attempt."""
+from contextlib import asynccontextmanager
 from datetime import timedelta
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -167,6 +169,84 @@ async def test_preview_is_read_only_and_pause_stops_new_chains(db, fleet):
     assert await schedule_one(db, now=NOW) is False
     assert (await db.scalars(select(SetupAssignment).where(SetupAssignment.device_id == fleet[0].id))).all() == []
     assert (await db.scalars(select(SetupFleetDecision))).all() == []
+
+
+@pytest.mark.parametrize('scenario,kind,versions', [
+    ('direct', 'direct', []),
+    ('unqualified', 'direct', []),
+    ('busy', None, []),
+    ('discordant', None, []),
+    ('legacy156', 'legacy_bridge_return', ['3.2.163', '3.2.155']),
+    ('legacy158', 'legacy_bridge_return', ['3.2.163', '3.2.157']),
+    ('missing_return', None, []),
+    ('bootstrap', 'observer_bootstrap', ['3.2.166']),
+    ('bootstrap_grace', None, []),
+])
+async def test_read_only_preview_reports_the_exact_setup_route(db, fleet, monkeypatch, scenario, kind, versions):
+    from endpoint_server.setup_updates import fleet_routes
+    from endpoint_server.setup_updates.models import SetupClientPresence, SetupPreparation
+    from endpoint_server.setup_updates.preparation import BRIDGE, OBSERVER_BOOTSTRAP, RETURN, RETURN156
+    from tests.server.test_setup_preparation import build
+
+    device, release, policy, instance = fleet
+    release.version = '3.2.167'
+    policy.enabled = False
+    presence = await db.scalar(select(SetupClientPresence).where(SetupClientPresence.device_id == device.id))
+    connection = await db.scalar(select(DeviceSession).where(DeviceSession.device_id == device.id))
+    connection.created_at = NOW - timedelta(minutes=4)
+    qualification = await db.scalar(select(SetupFleetQualification).where(SetupFleetQualification.release_id == release.id))
+    rows = []
+    if scenario == 'unqualified':
+        qualification.qualified_at = NOW - timedelta(days=2)
+        qualification.expires_at = NOW - timedelta(days=1)
+    elif scenario == 'busy':
+        presence.ready = False
+    elif scenario == 'discordant':
+        presence.core_version = '3.2.157'
+    elif scenario.startswith('legacy') or scenario == 'missing_return':
+        source = '3.2.156' if scenario != 'legacy158' else '3.2.158'
+        instance.launcher_version = instance.agent_version = qualification.source_foundation = source
+        presence.client_version = '1.0.4'
+        presence.core_version = presence.foundation_version = source
+        rows.append(build('3.2.163', BRIDGE))
+        if scenario != 'missing_return':
+            rows.append(build('3.2.155', RETURN156) if scenario == 'legacy156' else build('3.2.157', RETURN))
+    elif scenario.startswith('bootstrap'):
+        instance.launcher_version = instance.agent_version = qualification.source_foundation = '3.2.165'
+        await db.delete(presence)
+        bootstrap = build('3.2.166', OBSERVER_BOOTSTRAP)
+        bootstrap.minimum_launcher_version = '3.2.158'
+        rows.append(bootstrap)
+        if scenario == 'bootstrap_grace':
+            connection.created_at = NOW - timedelta(minutes=2)
+    db.add_all(rows)
+    await db.flush()
+
+    @asynccontextmanager
+    async def provider():
+        yield db
+
+    monkeypatch.setattr(fleet_routes, 'now_utc', lambda: NOW)
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(session_provider=provider)))
+    before = await decision(db, fleet)
+    result = await fleet_routes.preview(fleet_routes.FleetPreviewRequest(release_id=release.id), request, None)
+    row, = result['data']
+    assert result['read_only'] and not result['truncated']
+    assert row['device_id'] == device.id
+    assert row['status'] == (before.status if before.code != 'policy_paused' else 'eligible')
+    if scenario == 'unqualified':
+        assert (row['status'], row['safe_code']) == ('blocked', 'source_not_qualified')
+    if kind is None:
+        assert row['native_route'] is None
+    else:
+        assert row['native_route']['kind'] == kind
+        assert [step['version'] for step in row['native_route']['steps']] == versions
+        assert [step['build_id'] for step in row['native_route']['steps']] == [str(item.id) for item in rows]
+        assert [step['sha256'] for step in row['native_route']['steps']] == [item.sha256_digest for item in rows]
+    assert not (await db.scalars(select(SetupPreparation))).all()
+    assert not (await db.scalars(select(SetupAssignment).where(SetupAssignment.device_id == device.id))).all()
+    assert not (await db.scalars(select(SetupFleetDecision))).all()
+    assert not policy.enabled
 
 
 async def test_scheduler_measures_wait_for_first_and_repeat_evaluation(db, fleet):

@@ -79,9 +79,11 @@ upgrade paths that must run for each qualified artifact.
   and provider snapshot for exact native events, active operations, enrollment
   and catalog exposure. The planner binds Console preview to the exact release
   ID and digest, groups matching profiles and preserves offline cards,
-  incomplete evidence and recovery holds. The live snapshot was verified for
-  Windows 3.2.276 and ALT 3.2.274. Collection of full device profiles, explicit
-  direct/bridge routing and reuse of unexpired exact-target Lab results remain open.
+  incomplete evidence and recovery holds. Console route evidence distinguishes
+  direct Setup, legacy bridge/return and the registered Core166 bootstrap.
+  Exact Core step digests remain bound to the Console target. The live snapshot
+  was verified for Windows 3.2.276 and ALT 3.2.274. Collection of full device
+  profiles and reuse of unexpired exact-target Lab results remain open.
 - EP-RE-04 has an explicit [qualification build](tools/release/CODEMAP.md#run-the-qualification-build)
   from the bound reservation. It previews the selected Windows/ALT builder and
   records output hashes after execution. Its native Lab matrix rechecks the
