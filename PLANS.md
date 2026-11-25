@@ -1,5 +1,29 @@
 # Endpoint Platform Plan
 
+## Agent release engineering (2026-11-25)
+
+Goal: separate normal development from releases and reduce the install and
+upgrade paths that must run for each qualified artifact.
+
+- EP-RE-01 documents DEVELOP, QUALIFY, RELEASE and HOTFIX in the
+  [agent release workflow](pc_agent/docs/AGENT_UPDATE_WORKFLOW.md). It preserves
+  artifact identity, existing gates and the distinction between tested and
+  exposed source profiles.
+- EP-RE-02 starts with the existing Windows Setup, Core, Linux native and APT
+  catalogs. Add a compatible current-pointer view and an atomic reservation
+  mechanism before adding lifecycle operations. Preserve immutable receipts and
+  use the existing publisher as the authority for promotion.
+- EP-RE-03 plans required transitions from read-only observed profiles,
+  pending/unknown assignments, recovery holds and enrollment availability.
+- EP-RE-04 composes existing builders, Lab checks and publishers around the
+  qualified digest. EP-RE-05 chooses the delivery artifact based on the actual
+  source and dependency changes.
+- Before qualification, resolve failing checks on the base
+  [provider gate run](https://github.com/BorisDruzak/endpoint_platform/actions/runs/45593470857).
+  Linux APT expiry tests invoked the real curl with the production CA path on
+  the hosted runner. The Windows job stopped at exact-source evidence before
+  producing test results because its artifacts directory already existed.
+
 ## Agent and server stability (2026-11-14)
 
 Source and acceptance order originate in the stability audit in the operator

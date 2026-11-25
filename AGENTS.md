@@ -13,269 +13,86 @@
   The main approved read-only server directory above remains unchanged. This
   exception does not authorize wholesale staging promotion or unrelated Helpdesk work.
 
-# Current Worktime server deployment
+# Worktime and Helpdesk identity
 
-- At 2026-11-09T21:06:44Z production and staging Endpoint API/worker run the same
-  runtime `24461a70286ec1b70c8c08369c1ac0787aeb3087`, schema
-  `0051_staging_linux_worktime`. This supersedes the provider revisions recorded
-  at the historical agent-release acceptance checkpoints below; immutable
-  Windows177/Linux183 artifacts and their qualifications are unchanged. The narrow
-  signed108 source-recovery contract is included; no schema/configuration or
-  Helpdesk deployment was performed for the186 candidate. See the
-  [186 receipt](docs/verification/2026-11-10-test120-windows186-inbox-openssh.md).
-- Production Helpdesk runs the scoped backport `1dc2be0d358dec13b12c4861d4f43419c70672d8`,
-  schema153, with Worktime handoff enabled to the fixed production employee
-  portal. Endpoint SSO/Worktime/Helpdesk login are enabled. After the user's
-  missing-AD-entry report, production Helpdesk AD login was enabled and verified
-  at 2026-11-09T16:59Z; its existing confidential `helpdesk-web` client uses the
-  same password-level assurance as staging. Normal password login and local
-  Endpoint administrators remain available. See the [AD correction receipt](docs/verification/2026-11-09-helpdesk-production-ad-entry.md).
-  Confirmed Helpdesk identity bindings are still empty: the visible AD entry and
-  valid provider redirect do not establish a successful employee login. Use the
-  canonical authenticated administrator propose/confirm workflow and independently
-  verified existing person/account/AD ownership; do not fabricate bindings.
-- Main Helpdesk staging independently advanced to
-  `b9361e0f04c1738b09536dcf832e201a8f5cb04f`, schema158. Its unrelated features
-  were preserved. Do not describe the complete Helpdesk repositories as identical.
-- No production person/binding/schedule/category or attendance facts were invented.
-  Genuine production employee handoff and live native Worktime prompts remain
-  distinct acceptance gates. See the [deployment receipt](docs/verification/2026-11-09-worktime-production-parity.md)
-  for actual CI, database preservation, fresh accepted agent telemetry and limits.
+- Confirm existing person, account and AD ownership through the canonical
+  authenticated propose/confirm flow. A visible AD login or provider redirect
+  is separate from a genuine employee Worktime handoff. Keep native prompt
+  acceptance separate. See the [Worktime deployment receipt](docs/verification/2026-11-09-worktime-production-parity.md).
 
 # Canonical agent release
 
-- On 2026-11-16 the latest published production Windows installer was
-  **3.2.205**. The downloaded EXE and its MSI binding have separate source
-  revisions. Both local signatures and the served EXE hash were verified.
-  Policy21 is paused. The current qualification covers Foundation 3.2.192
-  through 2026-12-13T22:59:06Z. The [production release record](docs/releases/windows-3.2.205-production.json)
-  lists the exact files and download link.
-
-- Historical Windows rollout checkpoint, 2026-11-11T16:58Z: the primary Windows
-  installer is **3.2.192**. VM126 (Windows 10 build19045) qualified a direct
-  transition from177/client107 with native0, 182.174 seconds, private4 and
-  genuine UserSensor. With Windows servicing complete and the VM's existing
-  local administrator in its support policy, Setup provisioned Windows
-  OpenSSH and started Support1.1.6 automatically. Pinned SSH passed with the
-  agent/updater stopped and the observer disabled. Service states were restored
-  and fresh UserSensor and inventory were accepted. The earlier 192 failures
-  involved a pending Windows restart and an unresolvable domain principal on
-  this workgroup VM. Keep those receipts. VM100 was untouched during this
-  repeat.
-- At that checkpoint policy18 was enabled for exact 192/source177, selected/max2. The four Windows
-  10 devices .144/.146/.170/.207 await reconnect. The all-active preview would
-  also admit Windows 11 MUNSLU-S2 (.2), whose existing external OpenSSH
-  migration is unverified. It remains outside the selected scope. This policy
-  replaces the earlier automatic 189 target. The Console default Windows
-  download serves192 and the existing Windows AUTO enrollment campaign
-  accepts it. The separately published Linux183 remains primary. See
-  [Setup192](docs/releases/windows-3.2.192-setup.json) and the
-  [acceptance receipt](docs/verification/2026-11-11-windows192-support-activation.md).
-
-- Historical Windows rollout checkpoint, 2026-11-11T15:38Z: signed Setup192
-  is a candidate with Support1.1.6. Setup retries a known transient activation
-  error once after verifying restoration of the running prior Support image
-  and its configuration and authority. The original Setup191 exception
-  remains unknown. Its controlled already-current repeat activated Support1.1.5
-  without a second MSI. Test120 updated 191-to-192 APPLIED/native0 with
-  185.779 seconds, private4, fresh UserSensor and inventory. Support1.1.6
-  activated automatically without exercising the retry. Pinned reserve SSH
-  passed with agent/updater stopped and the observer disabled. Test services
-  and the prior access expiry were restored. Windows 10 source177
-  devices .144/.146/.170/.207 were offline. Separate VM126 (Windows 10
-  build19045) updated directly from177/client107 to192 APPLIED/native0,
-  182.303 seconds, private4, fresh UserSensor and inventory. Support failed
-  with `support_install_failed` and retained1.0.1. The guest reported a
-  pending Windows servicing restart and missing OpenSSH Server. Do not
-  enable Setup192 automatic delivery or promote it until the direct Windows
-  10 source177 test also verifies automatic Support activation.
-  Policy17 still targets189, and Windows177/Linux183 remain primary. See the
-  [192 receipt](docs/verification/2026-11-11-windows192-support-activation.md).
-
-- Historical Windows rollout checkpoint, 2026-11-11T13:30Z: signed Setup191 is
-  registered as a candidate. Test120 from Foundation189/Core190 reached
-  APPLIED/native0 with 185.362 seconds, fresh UserSensor and inventory.
-  Automatic Support1.1.5 activation compensated to1.1.4. A separate diagnostic
-  activation installed signed1.1.5 and passed pinned SSH with agent/updater
-  stopped and observer disabled. The automatic activation failure was not
-  reproduced by the diagnostic activation. The test services were restored.
-  Windows 10 source177 machines are offline. The connected source177 device
-  .2 has a pre-existing external global sshd, and its service was preserved.
-  Setup191 is unqualified, policy17 still targets189, and Windows177/Linux183
-  remain primary. See the
-  [191 receipt](docs/verification/2026-11-11-windows191-test120-canary.md).
-
-- Historical Windows rollout checkpoint, 2026-11-11T12:35Z: direct 177-to-190 on
-  C1-ARHIT-S7 (.138) reached APPLIED/native0, 182.684 seconds of stable
-  observation, fresh UserSensor and Windows x86_64 inventory. The independent
-  service initially retained Support1.0.1 because Setup190 rejected the stock
-  Windows 10 OpenSSH firewall rule. An operator recovery activated signed
-  Support1.1.4 on .138 and verified pinned SSH. The temporary lease was closed.
-  The .146 pilot was cancelled before native start. Source177 qualification
-  and primary promotion are withheld because signed Setup190 lacks the Windows
-  10 rule recognition fix. Policy17 remains on189, and Windows177/Linux183
-  remain primary. The Core target-slot admission guard is committed and tested
-  without a provider deployment. See the
-  [177-to-190 receipt](docs/verification/2026-11-11-windows190-source177-canary.md).
-
-- Historical Windows rollout checkpoint, 2026-11-11T11:51Z: all three first-wave
-  Windows187 to189 policy17 assignments on .27/.22/.29 accepted native0 with
-  fresh UserSensor and Support1.1.4. Signed Full Setup190 contains the Windows
-  CIM timeout fix. .27 qualified exact source189 through 2026-12-11T11:42Z.
-  .27/.22/.29 all applied190 with native0, observed user sensors, and fresh
-  Windows x86_64 inventory without warnings. Test120 already has Core190 on
-  Foundation189 and retains that proven inventory path. The three 190
-  assignments were explicit. Policy17 still targets189 from qualified
-  Foundation187. Windows primary177/Linux183 remain current. See the
-  [190 receipt](docs/verification/2026-11-11-windows190-inventory-fleet.md).
-
-- Historical Windows rollout checkpoint, 2026-11-11T10:52Z: policy17 is enabled
-  on signed189/all_active/max2. Exact source Foundation187 is qualified through
-  2026-12-11T10:27Z. Test120 applied187 to189 with native0, 185.769 seconds and
-  one UserSensor. Support1.1.4 had already passed missing OpenSSH Server
-  installation and the verified stock port22 rule disable on this host. The
-  Windows CIM inventory probe exceeded five seconds as LocalService. Test120
-  applied the signed Core190 inventory fix using temporary scoped OTA directory
-  repair, with original owner and DACL restored. Core190/Foundation189 then
-  reported complete x86_64 inventory and UserSensor. Actual pinned Support SSH
-  passed with Core/updater stopped and observer disabled. The original service
-  states were restored. Two source187 fleet chains reached native switching. The
-  Core190 fix is assigned only to test120. Windows primary177/Linux183 remain
-  current. See the
-  [189 receipt](docs/verification/2026-11-11-test120-windows189-openssh.md).
-
-- Historical Windows rollout checkpoint, 2026-11-10T00:09Z: policy16 remains paused
-  on hidden187/all_active/max2.188/Support1.1.3 fixed the PS5.1 binding and its
-  ADMIN-2 native canary accepted0/191.404seconds/sensor1, but the540second timeout
-  killed the servicing witness. CBS later finalized exact Server session
-  31289507_3567631198 S_OK/no reboot/no repair after about15minutes; old Support101
-  remains active and original v1 receipt12f0efdddccd426f822bd3900495bbec stays
-  servicing. Windows replaced the disabled nonce reservation with its standard
-  Domain allow rule; global sshd remains Stopped/Manual0. Do not infer boundary
-  proof from installed files, remove an unowned rule or replay Add/MSI.188 is not
-  qualified/promoted.189 durable completion work is separate; missing-FoD and
-  native-forward source gates remain. Do not manually prepare OS components to
-  manufacture an unattended canary. Windows primary177/Linux183 remain unchanged.
-  See [188 receipt](docs/verification/2026-11-10-windows188-fleet-auto.md).
-
-- Historical fleet186 checkpoint, 2026-11-09T22:41Z: policy13 briefly enabled186/all_active/max2.
-  Four fleet jobs accepted native0 and genuine telemetry, but27/22/ADMIN-2 retained
-  Support1.0.1. Independent SSH on27 proved optional `endpoint-origin` absent;
-  lifecycle sender incorrectly required it and retained genuine177/186 facts.
-  Policy14 is now paused, running chains completed without cancellation. Do not
-  promote186 or manufacture the missing file. Distinct187 must qualify actual
-  affected186 and untouched177 with ordered facts, new Support and actual SSH
-  before delivery resumes. Public Windows177/Linux183 remain unchanged. See
-  [fleet receipt](docs/verification/2026-11-10-windows186-fleet-auto.md).
-
-- The Windows installer at the 11 November checkpoint was `C:\endpoint-platform-wix-build\setup192-inbox-050b541\native-setup-build\releases\EndpointAgentSetup-3.2.192-x64.exe`, bound by `packaging/windows/initial-runtime-3.2.192.json`. Runtime source `050b541ff0783678ef34df804455ba7f602660a6`, native packaging `721b0ad9061d8120a186bd4424fbcdcf04ed55bd`. The served installer SHA-256 is `b2552b0c46b31d93821679fd41188dd7324e4830f98aee300a772eaa223239b9` and its timestamped Authenticode signature is Valid. Read [current-agent-release.json](docs/releases/current-agent-release.json), [Windows192](docs/releases/windows-3.2.192-setup.json) and [Linux183](docs/releases/linux-3.2.183-native.json) for the exact release bytes and qualification limits.
-- Windows177 remains an immutable historical release with Support1.0.1 and the portable Microsoft10.4.0.0p1-Preview dependency. Policy12 previously delivered177 with native exit0 to the six online devices. Its old source qualifications, artifact and acceptance limits are recorded in [Windows177](docs/releases/windows-3.2.177-setup.json). Preserve historical installer bytes, device cards and failure receipts.
-- Native Linux183 is published at `/srv/endpoint-platform-distribution/alt/endpoint-alt-pilot-3.2.183-1/`, operator kit `C:/endpoint-platform-wix-build/linux178-native/kit183/endpoint-alt-pilot-3.2.183-1.tar.gz`, source `21fc543af8d4b8b24df83f29a27e4e2eeb86c268`, actual archive SHA `c5b552afa4aa27e4df73af0ce68be4ecc88729f30baf3a70e6f9d4c8c709a3f3`. Production provider `fd196e78b2c5cef00c86de79ca359147676f8b2f` uses additive49/50 only; staging `0b8ea9138011c1a4512737629d5a12b0269e4e7d` separately preserves Worktime51. Actual VM107 acceptance covers native0, same-card history/private4, modern full-wipe parent link, genuine user telemetry, expiry/revoke, manual disable through mixed online/offline rebind and root SSH with Core/updater/path stopped108.613629715seconds. See [receipt](docs/verification/2026-11-09-linux183-native-canary.md). Linux fleet rollout was not started, no global Linux enrollment campaign/network authority was created, the initial VM receipt alone does not qualify production Linux SSH; the subsequent explicit physical cohort below supplies separate acceptance. Use the native RPM coordinator, not Core-only OTA, to install privileged Support/helpers. Subsequent explicitly authorized physical105/190/210 acceptance is recorded in `docs/verification/2026-11-09-linux183-physical-cohort.md`: actual production root SSH with Core/updater stopped on each, accepted domain-user telemetry and preserved identity/domain state. The210 historical158 path required archival of an exact redundant production drop-in after canonical not-started recovery; do not generalize that administratively prepared continuation to unattended historical sources or arbitrary drop-ins. No automatic Linux fleet rollout is enabled. The historical156 kit, signatures and Core-only OTA remain immutable; the exact signed156 pair is separately registered for rollback. Historical178-182 candidates remain unqualified.
-- Core **3.2.163**, source `b23857849ad5b877e67d0de3c28d297f9ae5d507`, is the current Windows preparation bridge with signed client1.0.5. Its artifact is `C:\endpoint-platform-wix-build\setup-client-3.2.163-b238578\EndpointCore-3.2.163-b238578.zip`; see [`docs/releases/core-3.2.163-setup-client.json`](docs/releases/core-3.2.163-setup-client.json). It is not a primary installer or Linux release. Historical Core162/client1.0.4 artifacts and reports remain immutable. Foundation156 uses the exact compatible Core155 return, identifier `endpoint-windows-core-3.2.155-setup-source-725739f`, before full Setup158; other qualified profiles retain Core157. Never weaken Core157's Foundation157 minimum. Preserve all failed attempt receipts.
-- Windows power-context patch Core **3.2.164**, source `1c2e54a06d1a7dfb6c2c2e0d2ef2cde2d0fe9896`, requires Foundation **3.2.158**. Immutable artifact: `C:\endpoint-platform-wix-build\core164-power-1c2e54a\EndpointCore-3.2.164-1c2e54a.zip`. See [`docs/releases/core-3.2.164-power-context.json`](docs/releases/core-3.2.164-power-context.json) for actual Endpoint cohort acceptance and limits. This patch does not promote a primary installer, change Foundation158 or replace the compatible163 bridge for Foundation156. Future full Setup media must include the corrected runtime in a new, separately qualified native version; historical installer bytes remain unchanged. Explicit Core cohort assignments do not enable the disabled full-Setup fleet policy or create persistent automatic assignment for future/offline agents.
-- The tested automatic Setup revision is `C:\endpoint-platform-wix-build\setup158-r3-5cb267d\releases\EndpointAgentSetup-3.2.158-r3-x64.exe`. Its wrapper source is `5cb267d3440511a62e466f49e6cc4ce80c3897a8`; native MSI/Core remain source `9423d9c27ea6b2d6c544c1bcdc1edb7cc9d15421`, bound by `packaging/windows/initial-runtime-3.2.158.json`. Exact original MSI and Core ZIP bytes are preserved. Clean Core/Foundation156 to full158 passed on test120 without workstation preparation after baseline acceptance; see [`docs/verification/2026-11-04-test120-clean156-full158.md`](docs/verification/2026-11-04-test120-clean156-full158.md). The earlier Foundation158/Core157 result remains historical. That earlier clean156 proof had no active user sensor and did not qualify its CPU/user telemetry; no Windows158 Core-only release or primary download promotion is implied.
-- Unknown native outcomes keep exclusive recovery ownership; do not cancel, delete journals/cache, or replay installation. A known exit21 may settle as failed only after exact unchanged-source/private/session/180-second proof and the completed recovery return. Historical158-source preparation on test120 needed an explicitly approved owner exception; the04.11 clean156-source test required no exception or updater preparation after baseline acceptance.
-- The second clean156 test with client1.0.5 automatically started UserSensor/Tray and applied full158 with native0 and183.636 seconds of stable observation, sensor_count1. Normal RDP reconnection on05.11 confirmed fresh accepted UserSensor samples and activity without a companion restart. Exact158-r3/source156 qualification872a53bc-17f3-48ac-a481-dfeaaac2f961 expires2026-12-05T04:07:57.728041Z; other source profiles are not inferred. Yandex26.10 browser telemetry remains a known issue explicitly deferred by the user, not a passed browser test. See [`docs/verification/2026-11-04-test120-usersensor156-full158.md`](docs/verification/2026-11-04-test120-usersensor156-full158.md). Fleet policy is deployed but disabled, max_parallel1. Use [`docs/runbooks/FULL_SETUP_FLEET_POLICY.md`](docs/runbooks/FULL_SETUP_FLEET_POLICY.md) for bounded waves.
-- Every subsequent agent release must update this section's version/paths and the canonical record together with runtime version, Windows source binding and Linux kit metadata. Verify actual published bytes/signatures before declaring a new primary. Keep native source qualification, public enrollment, scoped bootstrap and fleet acceptance distinct.
-- Existing156 on A2-INFAN-N/101.29 initially failed to bootstrap163: an Administrators-owned updates root denied LocalService the WRITE_DAC required by frozen156 before download. After explicit user authorization, a one-time owner-only repair changed that root to LocalService while preserving its exact DACL/group and private files. The same Endpoint bridge163/return155/full158 chain then applied05.11 at05:25:49Z, native0,181.622 seconds stable, fresh UserSensor/activity and completed health/inventory. This administratively prepared continuation does not qualify unattended historical156 delivery or replace the clean120 evidence; fleet remains disabled. Do not generalize version eligibility to historical ACL readiness or apply this repair elsewhere without authorization. See [`docs/verification/2026-11-05-test29-endpoint-full158.md`](docs/verification/2026-11-05-test29-endpoint-full158.md).
-
-- The Windows enrollment download remains **3.2.165**, signed EXE `C:\endpoint-platform-wix-build\setup165-final-ed7f77a\native-setup-build\releases\EndpointAgentSetup-3.2.165-x64.exe`, source binding `packaging/windows/initial-runtime-3.2.165.json`. Its exact Foundation158-source canary120 is qualified. The original first-wave146 failure was later recovered under explicit authorization and its165 job is APPLIED; do not treat that administrative continuation as unattended source qualification.144 applied165 without an active user sensor and is currently unavailable. Fleet revision3 remains **paused**, all-active/max2 retained; current169 canary evidence is described below. This is not general fleet acceptance or a new stable-primary declaration. See [`docs/releases/windows-3.2.165-setup.json`](docs/releases/windows-3.2.165-setup.json) and [`docs/verification/2026-11-05-native-canary-recovery-execution.md`](docs/verification/2026-11-05-native-canary-recovery-execution.md). Historical disabled/max1 statements describe earlier checkpoints; Linux primary156 remains unchanged.
-- Full-Setup candidate **3.2.167** failed its Console canary on101.120 after native acceptance, at companion restoration: native/staged writers serialized the same selector differently. Its signed EXE `C:\endpoint-platform-wix-build\setup167-ab31322\native-setup-build\releases\EndpointAgentSetup-3.2.167-x64.exe` and binding `packaging/windows/initial-runtime-3.2.167.json` remain immutable; see [`docs/releases/windows-3.2.167-setup.json`](docs/releases/windows-3.2.167-setup.json). Do not qualify, promote or fleet-assign167. Preserve the original120 failure history: the approved one-off continuation finished and its server job is FAILED/native21 with target recovered; no active120 native hold remains. The current165 enrollment download is unchanged. Core166 remains a distinct upward preparation candidate, not a full installer or primary release: [`docs/releases/core-3.2.166-observer-bootstrap.json`](docs/releases/core-3.2.166-observer-bootstrap.json). The original146 job completed after the explicitly authorized one-off repair; this is not unattended source qualification. Keep the fleet policy paused; a signed build/registry row is not fleet acceptance.
-- Full Setup **3.2.168** fixes the selector producer and passed165-to168 on101.146 (native0,181.509 seconds, fresh UserSensor/Activity). The158-to168 canary101.27 failed before creation of the missing observer1.0.6 directory. The approved one-off recoveries on120 and27 have finished; both original jobs retain FAILED/native21 target-recovered history and no active native hold. **Do not fleet-enable or promote168.** Runtime source is `8c110e8d9b5ec9c002c4e7084eefd4bba8a8d6b3`, binding `packaging/windows/initial-runtime-3.2.168.json`, signed EXE `C:\endpoint-platform-wix-build\setup168-8c110e8\native-setup-build\releases\EndpointAgentSetup-3.2.168-x64.exe`; see [`docs/releases/windows-3.2.168-setup.json`](docs/releases/windows-3.2.168-setup.json). The future-source missing-directory fix is `d7304706263f1427b6ed267e66661a3989ecf8d6`; existing signed167/168 helpers cannot receive it implicitly. The operator explicitly authorized and completed the narrowly scoped27/120 recovery; see `docs/verification/2026-11-05-native-canary-recovery-execution.md`. Preserve grants, captures, private identity and original native21 history.
-- Signed, registered update candidate **3.2.169** includes both selector and missing-observer-directory fixes. Source `4525435f1345e0d44253948f2867a0a099475f6b`, binding `packaging/windows/initial-runtime-3.2.169.json`, EXE `C:\endpoint-platform-wix-build\setup169-4525435\native-setup-build\releases\EndpointAgentSetup-3.2.169-x64.exe`; see [`docs/releases/windows-3.2.169-setup.json`](docs/releases/windows-3.2.169-setup.json). Console canary168-to169 on101.146 is APPLIED/native0 with181.528seconds and fresh user telemetry. The158/client1.0.5-to169 canary101.187 originally held recovery despite observed169/observer1.0.6 and fresh telemetry. Authorized read-only SSH diagnosis found an unresolved Foundation invariant failure and a confirmed Tray parent/child counting bug; source fix `888af5a7559af4b3e208509384eb8143ee4b6f29` addresses only the latter and is built into170; immutable169 does not contain it. **Do not fleet-enable or enrollment-promote169.** No server qualification was created. Preserve original187 native failure evidence: its local exit21 is confirmed, native continuation finished automatically after power return and the later explicit client-only107 exception closed its original job FAILED/native21 target-recovered. No active187 hold remains. Original27/120 holds are already resolved as FAILED/target-recovered. See `docs/verification/2026-11-06-setup169-187-readonly.md` and the107 recovery proposal. Broader native repair, service restart or configuration changes are not authorized by the client-only exception.
+- Default to **DEVELOP**. Implement, run risk-based checks and integrate through
+  normal CI. Keep AGENT_VERSION and native package versions at their existing
+  baseline. Use the Git SHA for isolated development builds. A change merged
+  into main alone does not authorize signing, publication or assignments.
+- Use **QUALIFY** for a new distributable candidate and exact-artifact Lab
+  evidence. Use **RELEASE** to publish and promote the qualified bytes within the
+  authorized scope. **HOTFIX** starts from the affected deployed source and
+  uses the same applicable qualification and release gates. See the
+  [agent release workflow](pc_agent/docs/AGENT_UPDATE_WORKFLOW.md).
+- Choose the affected release cycle independently for agent Core, native
+  Setup/RPM/DEB, Support/Observer, Browser Sensor or provider/Console. Apply
+  existing runtime compatibility, source binding, signatures, TLS/WSS, ACL,
+  enrollment, identity and rollback requirements. Preserve normal CI and
+  the applicable native and release gates.
+- Read platform-specific pointers from
+  [current-agent-release.json](docs/releases/current-agent-release.json) and
+  verify the owning catalog before release. The root version field preserves a
+  historical checkpoint. Update platform records when their releases change.
+  Earlier release and provider facts live in the
+  [checkpoint archive](docs/releases/2026-11-25-historical-checkpoints.md).
+- A candidate confined to Lab creates no mandatory future upgrade source after
+  a verified complete reset. Keep operational pilots, offline or pending
+  assignments, interrupted transactions and uncertain exposure in scope until
+  their state is verified. Retain failed-attempt evidence and recovery ownership.
 
 # Canonical Windows update workflow
 
-- Hidden signed186/Support1.1.1 uses only Windows-serviced OpenSSH and observer108.
-  Actual test120177/client107-to186 repeat is APPLIED/native0/185.119seconds,
-  private4 and genuine user telemetry, without workstation repair for that job.
-  Qualification53c243c3-c346-4000-a16e-f1dd0777b0af covers only exact186/source177,
-  evidence1c0176f2-02e4-4e09-978f-c59bd14c3eeb, through2026-12-09T22:04:33.615258Z.
-  Real domain SSH passed with Core/updater stopped and observer disabled, after
-  owned tunnel/service crashes, bounded HTTPS authority loss and normal reboot;
-  post-boot UserSensor is accepted. Keys/private4/original grant expiry survived;
-  foreign global SSH/configuration/firewall are unchanged. Only120 is updated:
-  download/fleet12 remain177, Linux183 unchanged. Missing-FoD provisioning and a
-  real bundled-Preview migration are not live-qualified on this provisioned PC.
-  Preserve the first prepared177/client108 result separately, without inferring
-  unattended source qualification from it. See the [186 record](docs/releases/windows-3.2.186-setup.json)
-  and [acceptance receipt](docs/verification/2026-11-10-test120-windows186-inbox-openssh.md).
-- Hidden candidate184/Support1.1.0 is retained without qualification or promotion.
-  Its177-to184 test120 job accepted native0/185.318seconds/private4/sensor1, but
-  first Support activation compensated to1.0.1. The first-publish readiness race
-  is corrected in185; later manual canonical1.1.0
-  activation does not qualify unattended migration. Preserve all184 bytes and
-  receipts. See docs/releases/windows-3.2.184-setup.json and
-  docs/verification/2026-11-10-test120-windows184-support-first-start.md.
-- Hidden185 contains that readiness fix but its real177 canary failed before MSI
-  on retained-storage recapture after ordinary reinstall. Its original job is
-  FAILED21/native_failed_source_restored after actual signed108/185.12seconds
-  source proof; retain exact media/history. Source177 was canonically
-  rolled-back/preparation_cancelled, with no MSI replay or journal/selector repair.
-  New186 journals recapture before creating payload and signed108 adds read-only
-  source recovery attestation. Server settlement must retain FAILED21, original
-  attempt, trusted exact177 catalog, fresh108/WSS/real active-user proof; unknown
-  outcomes remain held. Neither184 nor185 is qualified or promoted. See
-  docs/releases/windows-3.2.185-setup.json and its verification receipt.
-
-- Historical Full Setup **3.2.172** was built, signed, registered, source-qualified and enrollment-promoted with Foundation execution fix `d5cfb0daa61aff14f4cd4e9685c716a78300e1c3` and Power stream anchor fix `d4774f78b3a5e1ea356936171bbc46fbcb5fadc4`. Console canaries27/source170/client107 and local/source158/Core164/client105 accepted native0 without workstation preparation for these assignments.27 Power is freshREADY with durable reset8689 stable and36 original facts; counters/history were preserved. Fleet policy7 was enabled/all_active/max2 at that checkpoint; current177 policy12 above supersedes that checkpoint. Source167 was also qualified by Console canary101.120 after an ordinary user login: native0, fresh telemetry, no workstation preparation for that assignment. Total172 acceptance is12devices; known legacy101.69/source79 remains unsupported. See `docs/verification/2026-11-06-setup172-120.md`. Other exact sources require their own qualified canaries. See `docs/verification/2026-11-06-setup172-web-fleet.md` and the172 release record for its historical rollout, evidence and unresolved gates. Signed observer107, private identities and all prior native21 failure histories remain intact.
-
-- Full Setup **3.2.171** is signed and registered as an installer candidate with Foundation execution fix `d5cfb0daa61aff14f4cd4e9685c716a78300e1c3`: accepted-native companion launch binds actual retained-handle security/attributes, identities and bytes; default reads retain strict ChangeTime guards. Signed observer107 is unchanged. The fix passed308direct Windows tests and338integration tests with1skip and independent review. Runtime `3f71f5fca8c74eefab52aacc9c1a1c4cdb6a72dd`, binding `packaging/windows/initial-runtime-3.2.171.json`, native packaging `b0d7cdb09cb34e6de3dc2f1869a85ec6ffe16ce4`; signed EXE `C:\endpoint-platform-wix-build\setup171-3f71f5f\native-setup-build\releases\EndpointAgentSetup-3.2.171-x64.exe`, record `docs/releases/windows-3.2.171-setup.json`. Console canary187 from170/client107 is APPLIED/native0 with183.381seconds, private4 preserved and fresh UserSensor/Activity; no new manual preparation or native21.171 is not enrollment-promoted, server-qualified or fleet-enabled. The independent27 Power stream anchor repair will go into a distinct full172 before mass rollout; do not overwrite171 bytes/binding. Preserve immutable170 and all prior failure histories.
-
-- Full Setup **3.2.170** is signed and registered as an update candidate with the Tray fix, Foundation diagnostic detail and signed observer1.0.7. Runtime `bd2d736f33de5422902adca0f9d07aee40bf2ec7`, binding `packaging/windows/initial-runtime-3.2.170.json`, native packaging `800f9151ea9cff3344b2069474897425c56d0460`; signed EXE `C:\endpoint-platform-wix-build\setup170-bd2d736\native-setup-build\releases\EndpointAgentSetup-3.2.170-x64.exe`, record `docs/releases/windows-3.2.170-setup.json`. Console canary27/source168/client106 is APPLIED/native0 with181.989seconds and fresh telemetry.187/source169/client107 failed native21/change_time for Tray, then recovered automatically with183.629seconds and fresh telemetry; original failure history remains. No new workstation preparation or administrative repair was used for these170 jobs; active chains0. See `docs/superpowers/plans/2026-11-06-foundation-execution-pins.md` for the narrow follow-up using existing Core execution security/attribute proof. It is not qualified, enrollment-promoted or fleet-enabled; Windows enrollment remains165 and Linux primary156. Observer107 source `411b19625e97fd196d84bd1f4cdda28a16c0b614`, signed SHA `8a1a30e7d208fbb431e2f715967d8a21eb82eac43edbfb4e97433a83049a6247`; see `docs/releases/windows-setup-client-1.0.7.json`. Server `ce46fd47a3a929a2fe104f01fac2bc8cc619559d` accepts qualified107 with the unchanged recovered-target native21 gates.187's original native continuation completed automatically after power return; authorized107 replacement then closed its original job FAILED/native21 target-recovered with183.588seconds of fresh proof and no active chain. Do not use a Core bridge or fake pending record to change its MSI169 selection.
-
-- Foundation diagnostic improvement `9aade90a33217c483dc11a9c051ae5dacc333d43` distinguishes path/descriptor identity and native ChangeTime failures while retaining the original strict rejection. The122 public Foundation files on187 matched the actual signed169 MSI at2026-11-06T05:16Z; this does not explain the historical metadata failure or authorize recovery. The operator reports a later power outage;187 is QEMU/SeaBIOS by saved inventory and reconnected after the reported power outage. This improvement and Tray fix888af5a are now built into the distinct170 candidate; do not imply169 contains them. See `docs/verification/2026-11-06-setup169-187-readonly.md`.
-
-- Use one process for every new Windows full release: immutable signed build,
-  candidate publication, Console canary, server qualification, coverage preview,
-  persistent fleet policy, observed acceptance and primary-download promotion.
-  Follow [`docs/runbooks/FULL_SETUP_FLEET_POLICY.md`](docs/runbooks/FULL_SETUP_FLEET_POLICY.md).
-- Author the runtime compatibility contract before freezing initial runtime
-  bytes. Bind its complete tree, reviewed source files, exact Git revision,
-  toolchain and a new component GUID/version. Verify signed MSI and EXE bytes
-  with the existing trusted publisher and timestamp. Never replace old packages.
-- In **Releases and updates -> Full Setup**, use the single exact target through
-  all numbered steps. Select the canary by computer hostname; duplicate enrollment
-  campaign names are not sufficient device identity. A canary draft pins its target.
-- Qualification comes only from a real accepted assignment for that EXE/source:
-  native0, exact Core/Foundation/source/MSI, preserved private identity, stable
-  services/companions, fresh WSS and active-user telemetry, at least180 seconds
-  observed. The Console qualification action never enables the policy itself.
-- After qualification, preview **all active Windows**, select **two concurrent
-  chains**, enable and save. This is a persistent dynamic scope with no frozen
-  UUID list: later registrations and reconnections are evaluated automatically.
-  Include every trusted new installer in the single default AUTO enrollment
-  campaign through the canonical transactional publisher; preserve its authority.
-- Fresh WSS and Setup hello must agree before automatic native admission. Missing,
-  stale or busy modern observers and discordant versions wait for confirmation;
-  they must not trigger a legacy bridge, poison a device or pause the whole fleet.
-  Preserve the existing controlled legacy preparation/return path.
-- After a three-minute WSS grace, an absent/stale observer on Core163–165 and
-  Foundation158–165 may use only registered upward Core166, then a distinct full
-  Setup newer than166. Require applied child, fresh matching observer1.0.6 and
-  WSS, and recheck exact EXE/source qualification before automatic handoff. Do
-  not replace a recently busy observer or reuse the same staged version slot.
-- Enter a bounded public reason using ordinary letters, numbers and simple punctuation. The existing prose validator rejects slashes and diagnostic-shaped text before creating an assignment; correct the description rather than changing workstation state.
-- Keep exact-source qualification and its expiry visible. Unsupported sources
-  remain blocked with a reason. Global slots include manual/recovery chains;
-  real failure pauses new work. Never replay MSI or clear an unknown native outcome.
-- Verify actual assignments and fresh telemetry after update; heartbeat/version
-  alone is not acceptance. Promote the Windows download only after native canary
-  acceptance and verified served bytes. Keep Linux release/version separate.
-- Independent diagnostic access introduced by Setup176 is retained in signed177/Support1.0.1
-  through a separate outbound SSH tunnel, per-device keys, strict host verification,
-  temporary policy, expiry/revocation and audit. Active Support/runtime/state are
-  outside MSI/Core/observer ownership. See the [support spec](docs/superpowers/specs/2026-11-05-pilot-support-tunnel.md)
-  and [live receipt](docs/verification/2026-11-06-independent-support-access.md).
-  Installation defaults may authorize a new/pristine installation automatically
-  after a successful running Support1.0.1 report, using the explicitly configured
-  existing administrator and approved operator keys for at most8hours. Manual
-  disable/revoke/reset and existing per-device policies take precedence; retries
-  never renew an expired or consumed initial grant. Historical176 SSH passed on five devices.
-  Current177 actual SSH is verified on120 with Core/updater/observer stopped;
-  fresh component status on other updated devices is not an administrator SSH proof.
-  Never infer working administrator access from agent version or tunnel alone.
-
+- Follow the [Full Setup fleet policy](docs/runbooks/FULL_SETUP_FLEET_POLICY.md).
+  Bind the runtime contract, complete source tree, reviewed files, Git SHA,
+  toolchain and component GUID/version before freezing bytes. Verify signed MSI
+  and EXE bytes, trusted publisher and timestamp. Historical artifacts and
+  their source bindings remain immutable.
+- Use the same exact EXE through candidate registration, Console canary,
+  qualification, coverage preview, approved bounded delivery and same-row
+  promotion. Identify the canary by hostname and confirmed device card.
+  Qualification uses an accepted native0 assignment, exact Core/Foundation/MSI
+  source, preserved private identity, stable services and companions, fresh
+  WSS and active-user telemetry, and at least 180 seconds of observation.
+  Qualification and preview leave fleet policy unchanged.
+- Choose scope and concurrency for each authorized wave using the Console
+  preview. All-active scope dynamically includes future registrations and
+  reconnections. Keep exact source qualification, expiry, and blocked
+  reasons visible. Manual and recovery chains count toward shared slots.
+- Require matching fresh WSS and Setup hello for direct native admission.
+  Missing, stale, busy or discordant modern observations wait for confirmation.
+  Use only the approved legacy preparation/return route where applicable.
+  For eligible Core163–165/Foundation158–165, after the three-minute WSS grace,
+  use only the registered upward Core166 bridge and a distinct Setup newer than
+  166. Require applied child, matching fresh observer1.0.6 and WSS and renewed
+  exact EXE/source admission checks. Preserve busy observers and staged slots.
+  For the historical Foundation156 preparation route use only the documented
+  exact compatible Core155 return before full Setup158. Keep Core157's
+  Foundation157 minimum. See the [bridge record](docs/releases/core-3.2.163-setup-client.json).
+- Use a bounded public reason accepted by the Console validator. Native failure
+  pauses new work, and unknown native outcomes retain exclusive recovery
+  ownership. Preserve journals and cache and avoid cancellation or MSI replay
+  while the outcome is unknown. Settle a known source-restored exit21 only
+  with exact unchanged-source, private identity and session proof, at least
+  180 seconds of verification, and completed recovery return.
+- Administrative repairs need scoped authority. Treat prepared continuations
+  as evidence for the actual prepared profile. The
+  [historical ACL recovery](docs/verification/2026-11-05-test29-endpoint-full158.md)
+  used a one-time owner-only repair while preserving the exact DACL, group and
+  private files.
+- Verify served bytes and native acceptance before primary promotion. Trusted
+  released Windows installers use the canonical publisher's transactional
+  inclusion in the single default AUTO campaign. Preserve CIDRs, expiry, quota,
+  usage and campaign history. Document any explicit diagnostic exclusion. Keep
+  primary visibility, enrollment, scoped bootstrap and existing-device policy
+  separate. Linux native enrollment uses its own platform-bound registry and
+  separately authorized campaign.
 
 # Confirmed removal and retained installation identity
 
@@ -384,17 +201,6 @@
   events, edit fingerprints or change private keys as a diagnostic shortcut.
 
 # Production host
-
-- Historical first clean176/automatic Support evidence is preserved in
-  `docs/verification/2026-11-07-test120-clean176-support.md`; its UserSensor failure
-  was not a passed user-telemetry test. Later cause proof identified the manual
-  ownership-marker purge and repeated clean176 successfully; see the corrected
-  cause receipt. Current177 clean/native0, genuine before/after Core-stop samples,
-  automatic eight-hour grant and actual independent domain SSH for96.908636seconds
-  are accepted in `docs/verification/2026-11-07-test120-installation-lifecycle177.md`.
-  Keep historical failed evidence, exact-source qualifications and Linux156 separate.
-
-- Publish every new trusted Windows agent/installer release into the single active default Windows auto-enrollment campaign by default. Use the canonical publisher's transactional campaign inclusion; preserve its CIDRs, expiry, quota and usage. Any explicit diagnostic exclusion must be documented. Never create a separate version-specific campaign or expand network authority merely to publish a version. Historical expired/revoked campaigns retain their audit history. Linux native sources use the separate platform-bound native registry and separately approved Linux campaign authority; never insert a Linux source into a Windows policy or create/expand a campaign merely to publish a kit.
 
 - `osn_admin@192.168.100.19` (SSH host alias: `endpoint-platform-server`) is the production machine for the Endpoint Platform service.
 - Use this host for live testing and verification when that is necessary to complete the task. Treat changes, deployments, service restarts, configuration changes, and data changes as production operations.

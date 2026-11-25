@@ -45,6 +45,16 @@ Use repo-local skills when applicable:
 - Docs/CODEMAP drift: `.agents/skills/pc-client-docs-drift/SKILL.md`
 - Release/deploy validation: `.agents/skills/pc-client-release-gate/SKILL.md`
 
+## Development and release
+
+Use the [Endpoint Agent release workflow](docs/AGENT_UPDATE_WORKFLOW.md)
+to select the mode and platform delivery path. **DEVELOP** is the default.
+Run targeted verification and normal integration CI. Keep the released agent
+and native package versions at their existing baseline and identify isolated
+development builds by Git SHA. Move to **QUALIFY** for distributable Lab
+candidates, **RELEASE** for authorized delivery of qualified artifacts, or
+**HOTFIX** for an urgent fix based on the affected deployed source.
+
 ## PC agent implementation rules
 
 - Treat Endpoint Gateway message/lifecycle changes as boundary-sensitive.
