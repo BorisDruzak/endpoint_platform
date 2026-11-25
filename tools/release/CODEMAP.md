@@ -124,3 +124,20 @@ Use the returned `build_revision` for the build and for exact-artifact evidence.
 The command verifies that the checkout is clean, descends from the reserved
 source, and carries the reserved `AGENT_VERSION`. The binding is write-once.
 Use the existing signing and publication flow for the resulting bytes.
+
+### Build the ALT native pair from the bound revision
+
+Check out the `build_revision` returned by `bind-source` on the approved ALT
+builder. Run `packaging/alt/build-rpm.sh --with-native-setup --with-user-sensor`
+with the existing platform build inputs. Setup takes the version from the
+bound `pc_agent/version.py`. Support keeps its own version. When supplying
+prebuilt frozen binaries, use `--setup-executable` together with
+`--support-directory`. The RPM builder checks the build revision and component
+versions before staging them.
+
+After signing the Core and UserSensor RPMs, assemble the kit using
+`python -m tools.build_alt_native_kit --version VERSION --source-revision SHA`
+and its `--core`, `--sensor`, `--setup`, `--public-key`, and `--output` paths.
+The kit assembler verifies both signed RPMs, their common native manifest,
+and the Setup digest carried by Core. Use the existing detached-signature
+procedure and source-specific Lab checks before registration or publication.

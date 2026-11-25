@@ -11,6 +11,7 @@ launcher=''
 output="$project_root/output"
 prepare_only=false
 with_user_sensor=false
+native_requested=false
 support_directory=''
 setup_executable=''
 
@@ -18,6 +19,7 @@ usage() {
     cat <<'USAGE'
 Usage: build-rpm.sh [--release-archive FILE --release-manifest FILE --launcher FILE]
                     [--output DIRECTORY] [--prepare-only] [--with-user-sensor]
+                    [--with-native-setup [--support-directory DIR --setup-executable FILE]]
 
 Without explicit inputs, builds the Task 8 Linux headless release and stable
 Task 9 launcher before invoking rpmbuild. --prepare-only validates and stages
@@ -38,6 +40,7 @@ while [[ $# -gt 0 ]]; do
         --output) output=${2:-}; shift 2 ;;
         --prepare-only) prepare_only=true; shift ;;
         --with-user-sensor) with_user_sensor=true; shift ;;
+        --with-native-setup) native_requested=true; shift ;;
         --support-directory) support_directory=${2:-}; shift 2 ;;
         --setup-executable) setup_executable=${2:-}; shift 2 ;;
         --help|-h) usage; exit 0 ;;
@@ -292,7 +295,7 @@ stage_file 0644 "$script_dir/SOURCES/endpoint-agent.tmpfiles" "$build_root/SOURC
 stage_file 0644 "$script_dir/SOURCES/endpoint-agent.logrotate" "$build_root/SOURCES/endpoint-agent.logrotate"
 stage_file 0644 "$script_dir/pilot/endpoint-rpm-release.asc" "$build_root/SOURCES/endpoint-rpm-release.asc"
 native_setup=false
-if [[ "$version" == 3.2.183 ]]; then
+if [[ "$native_requested" == true || "$version" == 3.2.183 ]]; then
     native_setup=true
     [[ "$(uname -s)" == Linux ]] || die 'native Setup builds require Linux'
     [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || die 'native source requires exact committed revision'
@@ -308,9 +311,9 @@ if [[ "$version" == 3.2.183 ]]; then
     fi
     [[ -d "$support_directory" && ! -L "$support_directory" && -f "$setup_executable" && ! -L "$setup_executable" ]] || die 'complete frozen Support and Setup required'
     [[ "$("$support_directory/endpoint-support-access" --version)" == 1.0.0 ]] || die 'Support frozen version mismatch'
-    "$python_command" - "$setup_executable" "$support_directory/endpoint-support-access" "$revision" <<'PY'
+    "$python_command" - "$setup_executable" "$support_directory/endpoint-support-access" "$revision" "$version" <<'PY'
 import json, subprocess, sys
-for path, component, version in ((sys.argv[1], 'setup', '3.2.183'), (sys.argv[2], 'support', '1.0.0')):
+for path, component, version in ((sys.argv[1], 'setup', sys.argv[4]), (sys.argv[2], 'support', '1.0.0')):
     result = subprocess.run([path, '--build-info'], check=True, capture_output=True, timeout=30)
     if len(result.stdout) > 1024 * 1024:
         raise SystemExit('native build identity exceeds bound')
@@ -326,6 +329,8 @@ PY
         stage_file 0644 "$script_dir/SOURCES/$name" "$build_root/SOURCES/$name"
     done
     stage_file 0644 "$project_root/tools/build_linux_native_manifest.py" "$build_root/SOURCES/build_linux_native_manifest.py"
+elif [[ -n "$support_directory" || -n "$setup_executable" ]]; then
+    die 'frozen Support and Setup inputs require --with-native-setup'
 fi
 if [[ "$with_user_sensor" == true ]]; then
     [[ "$(uname -s)" == Linux ]] || die 'KDE sensor builds require Linux'

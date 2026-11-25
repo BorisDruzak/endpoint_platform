@@ -187,7 +187,8 @@ echo {version} > %buildroot/opt/task4-fixture/value
     assert native_state_matches('remove', source, absent.returncode, absent.stdout, absent.stderr)
 
 
-def test_actual_spec_builds_two_packages_with_identical_complete_source_closure(root):
+@pytest.mark.parametrize("version", ["3.2.183", "3.2.278"])
+def test_actual_spec_builds_two_packages_with_identical_complete_source_closure(root, version):
     from tools.release.linux_native_verifier import run, read_cpio, inspect_source, NATIVE_PATHS
     repository = Path(__file__).resolve().parents[2]
     build = root/'build'
@@ -218,7 +219,7 @@ def test_actual_spec_builds_two_packages_with_identical_complete_source_closure(
     (sources/'foreground.js').write_text('// native fixture\n')
     (sources/'extension-id.txt').write_text('a'*32)
     (sources/'browser-native-host.json').write_text('{}')
-    manifest = json.dumps({'schema_version':1,'version':'3.2.183','source_revision':'a'*40,'files':[]}).encode()
+    manifest = json.dumps({'schema_version':1,'version':version,'source_revision':'a'*40,'files':[]}).encode()
     def archive(path, entries):
         with tarfile.open(path,'w:gz') as target:
             for name, raw in entries.items():
@@ -226,14 +227,14 @@ def test_actual_spec_builds_two_packages_with_identical_complete_source_closure(
                 info.size = len(raw)
                 info.mode = 0o755 if name.endswith(('endpoint-agent','endpoint-support-access')) else 0o644
                 target.addfile(info,io.BytesIO(raw))
-    archive(sources/'endpoint-agent-linux_amd64-3.2.183.tar.gz', {'manifest.json':manifest,
+    archive(sources/f'endpoint-agent-linux_amd64-{version}.tar.gz', {'manifest.json':manifest,
         'endpoint-agent/endpoint-agent':dummy,'endpoint-agent/_internal/fixture':b'fixture'})
-    (sources/'endpoint-agent-linux_amd64-3.2.183.manifest.json').write_text('{}')
+    (sources/f'endpoint-agent-linux_amd64-{version}.manifest.json').write_text('{}')
     archive(sources/'endpoint-support-access.tar.gz',{'endpoint-support-access':dummy,'_internal/fixture':b'support'})
     spec = build/'SPECS/endpoint-agent.spec'
     spec.write_bytes((repository/'packaging/alt/endpoint-agent.spec').read_bytes())
     result = subprocess.run(['/usr/bin/rpmbuild','-bb','--nodeps','--with','user_sensor','--with','native_setup',
-        '--define','_allow_root_build 1','--define',f'_topdir {build}','--define','agent_version 3.2.183',
+        '--define','_allow_root_build 1','--define',f'_topdir {build}','--define',f'agent_version {version}',
         '--define','source_revision '+'a'*40,str(spec)],capture_output=True,timeout=60)
     assert result.returncode == 0, result.stderr.decode()[-4000:]
     rpms = list((build/'RPMS').rglob('*.rpm'))
@@ -246,7 +247,7 @@ def test_actual_spec_builds_two_packages_with_identical_complete_source_closure(
             files, selected = read_cpio(payload)
         raw = selected[NATIVE_PATHS[package]]
         files.pop(NATIVE_PATHS[package])
-        common.append(inspect_source(raw,package,'3.2.183',files,
+        common.append(inspect_source(raw,package,version,files,
             core_manifest_digest=hashlib.sha256(manifest).hexdigest() if package == 'endpoint-agent' else None))
     assert common[0] == common[1]
 

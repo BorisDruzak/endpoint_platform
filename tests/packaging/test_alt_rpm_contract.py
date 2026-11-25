@@ -217,6 +217,8 @@ def _write_release_fixture(
     launcher_version: str = "3.1.76",
     manifest_mode: int = 0o644,
     runtime_mode: int = 0o644,
+    release_version: str = "3.1.76",
+    source_revision: str = "967fa56",
 ) -> tuple[Path, Path, Path]:
     payload_root = root / "payload"
     executable = payload_root / "endpoint-agent" / "endpoint-agent"
@@ -259,13 +261,13 @@ def _write_release_fixture(
     inner_manifest = {
         "files": manifest_files,
         "schema_version": 1,
-        "source_revision": "967fa56",
-        "version": "3.1.76",
+        "source_revision": source_revision,
+        "version": release_version,
     }
     (payload_root / "manifest.json").write_text(
         json.dumps(inner_manifest, sort_keys=True) + "\n", encoding="utf-8"
     )
-    archive = root / "endpoint-agent-linux_amd64-3.1.76.tar.gz"
+    archive = root / f"endpoint-agent-linux_amd64-{release_version}.tar.gz"
 
     def normalized_mode(info: tarfile.TarInfo) -> tarfile.TarInfo:
         if info.isdir():
@@ -286,20 +288,20 @@ def _write_release_fixture(
                 recursive=False,
                 filter=normalized_mode,
             )
-    sidecar = root / "endpoint-agent-linux_amd64-3.1.76.manifest.json"
+    sidecar = root / f"endpoint-agent-linux_amd64-{release_version}.manifest.json"
     sidecar.write_text(
         json.dumps(
             {
                 "archive_type": "tar.gz",
                 "artifact_name": archive.name,
-                "build_identifier": "endpoint-agent-linux_amd64-3.1.76",
+                "build_identifier": f"endpoint-agent-linux_amd64-{release_version}",
                 "channel": "stable",
                 "platform": "linux_amd64",
                 "schema_version": "endpoint_linux_agent_artifact_v1",
                 "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
                 "size": archive.stat().st_size,
-                "source_revision": "967fa56",
-                "version": "3.1.76",
+                "source_revision": source_revision,
+                "version": release_version,
             },
             sort_keys=True,
         )
@@ -756,3 +758,75 @@ def test_rpm_update_path_rearms_after_rate_limit_without_manual_reset() -> None:
     for name in ("endpoint-agent-update-rearm.timer", "endpoint-agent-update-rearm.service"):
         assert f"/usr/lib/systemd/system/{name}" in spec
         assert f"/deploy/agent/alt/{name}" in _text(BUILD)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="ALT native staging requires Linux")
+def test_prepare_only_stages_native_inputs_for_a_new_agent_version(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    for name in (
+        "packaging/alt",
+        "deploy/agent/alt",
+        "tools/build_linux_native_payload.py",
+        "tools/build_linux_native_manifest.py",
+    ):
+        origin, target = ROOT / name, source / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if origin.is_dir():
+            shutil.copytree(origin, target)
+        else:
+            shutil.copyfile(origin, target)
+    git = ["git", "-C", str(source)]
+    subprocess.run([*git, "init"], check=True, capture_output=True)
+    subprocess.run([*git, "add", "."], check=True, capture_output=True)
+    subprocess.run(
+        [*git, "-c", "user.name=ALT Fixture", "-c", "user.email=alt@example.invalid",
+         "commit", "-m", "test: pin ALT packaging fixture"],
+        check=True, capture_output=True,
+    )
+    revision = subprocess.check_output([*git, "rev-parse", "HEAD"], text=True).strip()
+    version = "3.2.278"
+    archive, sidecar, launcher = _write_release_fixture(
+        tmp_path / "inputs", core_version=version, launcher_version=version,
+        release_version=version, source_revision=revision,
+    )
+    support = tmp_path / "support"
+    support.mkdir()
+    setup = tmp_path / "setup"
+
+    def write_executable(path, component, reported_version):
+        data = {
+            "schema_version": "endpoint_linux_native_build_v1",
+            "source_revision": revision, "component": component, "version": reported_version,
+        }
+        path.write_text(
+            "#!/bin/sh\n"
+            f"if [ \"$1\" = '--version' ]; then echo '{reported_version}'; "
+            f"else echo '{json.dumps(data)}'; fi\n", encoding="utf-8",
+        )
+        path.chmod(0o755)
+
+    write_executable(support / "endpoint-support-access", "support", "1.0.0")
+    write_executable(setup, "setup", version)
+    command = [
+        "bash", str(source / "packaging/alt/build-rpm.sh"),
+        "--release-archive", str(archive), "--release-manifest", str(sidecar),
+        "--launcher", str(launcher), "--prepare-only", "--with-native-setup",
+        "--support-directory", str(support), "--setup-executable", str(setup),
+    ]
+    accepted = subprocess.run(
+        [*command, "--output", str(tmp_path / "accepted")],
+        text=True, capture_output=True, check=False, timeout=30,
+    )
+    assert accepted.returncode == 0, accepted.stderr
+    sources = tmp_path / "accepted/rpmbuild/SOURCES"
+    assert (sources / "endpoint-agent-setup.bin").read_bytes() == setup.read_bytes()
+    assert (sources / "endpoint-support-access.tar.gz").is_file()
+    assert (sources / "build_linux_native_manifest.py").is_file()
+    write_executable(setup, "setup", "3.2.183")
+    rejected = subprocess.run(
+        [*command, "--output", str(tmp_path / "rejected")],
+        text=True, capture_output=True, check=False, timeout=30,
+    )
+    assert rejected.returncode != 0
+    assert "native frozen source identity mismatch" in rejected.stderr
+    assert not (tmp_path / "rejected/rpmbuild/SOURCES/endpoint-agent-setup.bin").exists()

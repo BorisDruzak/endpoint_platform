@@ -30,8 +30,13 @@ upgrade paths that must run for each qualified artifact.
 - EP-RE-03 plans required transitions from read-only observed profiles,
   pending/unknown assignments, recovery holds and enrollment availability.
 - EP-RE-04 composes existing builders, Lab checks and publishers around the
-  qualified digest. EP-RE-05 chooses the delivery artifact based on the actual
-  source and dependency changes.
+  qualified digest. ALT native Setup, RPM manifests and kit assembly now accept
+  the bound candidate version. ALT 11.4 verified staging of synthetic 3.2.278,
+  rejection of a mismatched Setup, and RPM spec builds of Core and UserSensor
+  for both 3.2.183 and 3.2.278. Signing and Lab acceptance of a distributable
+  candidate remain open.
+- EP-RE-05 chooses the delivery artifact based on the actual source and
+  dependency changes.
 - Before qualification, resolve failing checks on the base
   [provider gate run](https://github.com/BorisDruzak/endpoint_platform/actions/runs/45593470857).
   Linux APT expiry tests invoked the real curl with the production CA path on

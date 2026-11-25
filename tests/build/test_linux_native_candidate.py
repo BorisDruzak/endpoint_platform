@@ -11,9 +11,14 @@ import pytest
 from tools.release.linux_native_verifier import VerifiedNativeRPM, PUBLISHER
 
 
-@pytest.mark.parametrize('component,version', [('setup','3.2.183'),('support','1.0.0')])
-def test_native_freezer_seals_candidate_source_identity(tmp_path, monkeypatch, component, version):
+@pytest.mark.parametrize('component,agent_version,version', [
+    ('setup','3.2.183','3.2.183'), ('setup','3.2.278','3.2.278'), ('support','3.2.278','1.0.0'),
+])
+def test_native_freezer_seals_candidate_source_identity(tmp_path, monkeypatch, component, agent_version, version):
     from tools.release import freeze_linux_native_identity as f
+    source = tmp_path/'pc_agent'/'version.py'
+    source.parent.mkdir()
+    source.write_text(f'AGENT_VERSION = "{agent_version}"\n', encoding='utf-8')
     def git(argv, **kwargs):
         return 'a'*40+'\n' if 'rev-parse' in argv else ''
     monkeypatch.setattr(f.subprocess,'check_output',git)
@@ -69,3 +74,18 @@ def test_native183_dispatches_to_current_builder_without_legacy_pilot_flow(monke
     monkeypatch.setattr(native,'main',lambda argv:received.append(argv))
     assert dispatcher.main() == 0
     assert received == [['--core','fixed.rpm']]
+
+
+
+def test_native_kit_builds_explicit_candidate_and_checks_bound_revision(tmp_path, monkeypatch):
+    k, paths = kit_inputs(tmp_path, monkeypatch, '3.2.278')
+    with pytest.raises(ValueError):
+        k.build(*paths, tmp_path/'wrong', version='3.2.278', source_revision='d'*40)
+    assert not (tmp_path/'wrong').exists()
+    target, metadata = k.build(*paths, tmp_path/'output', version='3.2.278', source_revision='a'*40)
+    assert target.name == 'endpoint-alt-pilot-3.2.278-1.tar.gz'
+    manifest = json.loads(metadata.read_text())
+    assert manifest['agent_version'] == '3.2.278'
+    assert manifest['agent_source_revision'] == 'a'*40
+    with tarfile.open(target) as archive:
+        assert archive.extractfile('endpoint-alt-pilot-3.2.278-1/native-kit-manifest.json').read() == metadata.read_bytes()

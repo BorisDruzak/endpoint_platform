@@ -1,5 +1,6 @@
 """PyInstaller build-time attestation of the exact clean committed source."""
 import hashlib
+import re
 import json
 from pathlib import Path
 import subprocess
@@ -13,9 +14,16 @@ def freeze_identity(root, component):
         raise ValueError('NATIVE_FREEZE_REQUIRES_CLEAN_SOURCE')
     paths = subprocess.check_output(['git','-C',str(root),'ls-files','pc_agent','endpoint_contracts','tools/release','packaging/alt'],text=True).splitlines()
     files = {name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in paths if (root/name).is_file()}
+    version = '1.0.0'
+    if component == 'setup':
+        source = (root/'pc_agent/version.py').read_text(encoding='utf-8')
+        match = re.search(r'^AGENT_VERSION\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"', source, re.MULTILINE)
+        if match is None:
+            raise ValueError('NATIVE_FREEZE_REQUIRES_AGENT_VERSION')
+        version = match[1]
     stage = Path(tempfile.mkdtemp(prefix='endpoint-native-source-'))
     target = stage/'linux-native-build.json'
     target.write_text(json.dumps({'schema_version':'endpoint_linux_native_build_v1','component':component,
-        'version':'1.0.0' if component == 'support' else '3.2.183','source_revision':revision,
+        'version':version,'source_revision':revision,
         'source_files':files},sort_keys=True,separators=(',',':')),encoding='ascii')
     return str(target)
