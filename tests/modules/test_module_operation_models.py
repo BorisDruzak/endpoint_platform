@@ -17,6 +17,8 @@ def test_module_parent_and_step_models_have_closed_runtime_shape() -> None:
     assert ENDPOINT_OPERATION_CAPABILITIES == (
         "context.diagnostic.collect",
         "endpoint.module.recipe",
+        "printer.cups.queue.configure",
+        "printer.cups.testpage.submit",
     )
     assert MODULE_OPERATION_STEP_STATUSES == (
         "queued",
