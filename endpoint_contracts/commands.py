@@ -9,6 +9,7 @@ from .capabilities import (
     ModuleCapabilityNameV1,
     validate_module_capability_parameters,
 )
+from .cups_actions import CUPS_ACTION_PARAMETERS, CupsCapabilityV1
 from .json_types import (
     BoundedJsonKeyV1,
     BoundedJsonValueV1,
@@ -35,7 +36,7 @@ LegacyAgentCapabilityV1 = Literal[
     "context.inventory.collect",
     "context.session.collect",
 ]
-AgentCapabilityV1 = LegacyAgentCapabilityV1 | ModuleCapabilityNameV1
+AgentCapabilityV1 = LegacyAgentCapabilityV1 | ModuleCapabilityNameV1 | CupsCapabilityV1
 
 
 class CommandCorrelationV1(ContractModelV1):
@@ -84,6 +85,8 @@ class AgentCommandV1(ContractModelV1):
         validate_bounded_json(self.parameters)
         if self.capability in MODULE_CAPABILITY_REGISTRY:
             validate_module_capability_parameters(self.capability, self.parameters)
+        if self.capability in CUPS_ACTION_PARAMETERS:
+            CUPS_ACTION_PARAMETERS[self.capability].model_validate(self.parameters)
         return self
 
 

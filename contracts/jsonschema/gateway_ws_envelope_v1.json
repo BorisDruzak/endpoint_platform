@@ -2750,6 +2750,122 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "printer.cups.queue.configure"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "anyOf": [
+                  {
+                    "properties": {
+                      "enabled": {
+                        "enum": [
+                          "on",
+                          "off"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "enabled"
+                    ]
+                  },
+                  {
+                    "properties": {
+                      "accepting": {
+                        "enum": [
+                          "on",
+                          "off"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "accepting"
+                    ]
+                  }
+                ],
+                "properties": {
+                  "accepting": {
+                    "default": "keep",
+                    "enum": [
+                      "keep",
+                      "on",
+                      "off"
+                    ],
+                    "title": "Accepting",
+                    "type": "string"
+                  },
+                  "enabled": {
+                    "default": "keep",
+                    "enum": [
+                      "keep",
+                      "on",
+                      "off"
+                    ],
+                    "title": "Enabled",
+                    "type": "string"
+                  },
+                  "queue": {
+                    "not": {
+                      "pattern": "^[aA][lL][lL]$"
+                    },
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$",
+                    "title": "Queue",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "queue"
+                ],
+                "title": "CupsQueueConfigureParametersV1",
+                "type": "object"
+              }
+            },
+            "required": [
+              "parameters"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "printer.cups.testpage.submit"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "additionalProperties": false,
+                "properties": {
+                  "queue": {
+                    "not": {
+                      "pattern": "^[aA][lL][lL]$"
+                    },
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$",
+                    "title": "Queue",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "queue"
+                ],
+                "title": "CupsTestPageParametersV1",
+                "type": "object"
+              }
+            },
+            "required": [
+              "parameters"
+            ]
+          }
         }
       ],
       "description": "Existing neutral command contract narrowed for the WSS control channel.",
@@ -2792,6 +2908,13 @@
                 "filesystem.file_metadata",
                 "eventlog.query",
                 "eventlog.recent_errors"
+              ],
+              "type": "string"
+            },
+            {
+              "enum": [
+                "printer.cups.queue.configure",
+                "printer.cups.testpage.submit"
               ],
               "type": "string"
             }

@@ -266,6 +266,159 @@ paths:
       x-required-scopes:
         - "devices.read"
         - "modules.read"
+  "/api/v1/devices/{device_id}/cups/queue-configurations":
+    post:
+      tags:
+        - "cups-operations"
+      summary: "Configure Cups Queue"
+      description: "Configure one existing queue in place and preserve spooled jobs."
+      operationId: "configure_cups_queue_api_v1_devices__device_id__cups_queue_configurations_post"
+      security:
+        -
+          ServiceBearer: []
+      parameters:
+        -
+          name: "device_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Device Id"
+        -
+          name: "Idempotency-Key"
+          in: "header"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Idempotency-Key"
+        -
+          name: "X-Correlation-ID"
+          in: "header"
+          required: true
+          schema:
+            type: "string"
+            pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            title: "X-Correlation-Id"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/CupsQueueConfigureParametersV1"
+      responses:
+        "201":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/CupsOperationEnvelope"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      x-required-scopes:
+        - "cups.queue.configure"
+  "/api/v1/devices/{device_id}/cups/test-pages":
+    post:
+      tags:
+        - "cups-operations"
+      summary: "Submit Cups Test Page"
+      description: "Submit one fixed page to an existing local queue using a stable key."
+      operationId: "submit_cups_test_page_api_v1_devices__device_id__cups_test_pages_post"
+      security:
+        -
+          ServiceBearer: []
+      parameters:
+        -
+          name: "device_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Device Id"
+        -
+          name: "Idempotency-Key"
+          in: "header"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Idempotency-Key"
+        -
+          name: "X-Correlation-ID"
+          in: "header"
+          required: true
+          schema:
+            type: "string"
+            pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            title: "X-Correlation-Id"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/CupsTestPageParametersV1"
+      responses:
+        "201":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/CupsOperationEnvelope"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      x-required-scopes:
+        - "cups.test_page.submit"
+  "/api/v1/cups-operations/{operation_id}":
+    get:
+      tags:
+        - "cups-operations"
+      summary: "Read Cups Operation"
+      operationId: "read_cups_operation_api_v1_cups_operations__operation_id__get"
+      security:
+        -
+          ServiceBearer: []
+      parameters:
+        -
+          name: "operation_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            format: "uuid"
+            title: "Operation Id"
+        -
+          name: "X-Correlation-ID"
+          in: "header"
+          required: true
+          schema:
+            type: "string"
+            pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            title: "X-Correlation-Id"
+      responses:
+        "200":
+          description: "Successful Response"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/CupsOperationEnvelope"
+        "422":
+          description: "Validation Error"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/HTTPValidationError"
+      x-required-scopes:
+        - "cups.operations.read"
   "/api/v1/devices/{device_id}":
     get:
       tags:
@@ -3530,6 +3683,11 @@ components:
                 - "filesystem.file_metadata"
                 - "eventlog.query"
                 - "eventlog.recent_errors"
+              type: "string"
+            -
+              enum:
+                - "printer.cups.queue.configure"
+                - "printer.cups.testpage.submit"
               type: "string"
           title: "Capability"
         parameters:
@@ -8565,6 +8723,227 @@ components:
         - "profile"
       title: "CollectionRequest"
       description: "The only caller-selected collection input is one fixed profile."
+    CupsActionResultV1:
+      properties:
+        schema_version:
+          type: "string"
+          const: "cups_action_result_v1"
+          title: "Schema Version"
+          default: "cups_action_result_v1"
+        capability:
+          type: "string"
+          enum:
+            - "printer.cups.queue.configure"
+            - "printer.cups.testpage.submit"
+          title: "Capability"
+        queue:
+          not:
+            pattern: "^[aA][lL][lL]$"
+          type: "string"
+          pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$"
+          title: "Queue"
+        outcome:
+          type: "string"
+          enum:
+            - "configured"
+            - "submitted"
+            - "rejected"
+            - "unknown"
+          title: "Outcome"
+        before:
+          anyOf:
+            -
+              "$ref": "#/components/schemas/CupsQueueStateV1"
+            -
+              type: "null"
+        after:
+          anyOf:
+            -
+              "$ref": "#/components/schemas/CupsQueueStateV1"
+            -
+              type: "null"
+        job_id:
+          anyOf:
+            -
+              type: "string"
+              pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}-[1-9][0-9]{0,9}$"
+            -
+              type: "null"
+          title: "Job Id"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+              enum:
+                - "cups_unavailable"
+                - "cups_queue_unavailable"
+                - "cups_queue_rejecting"
+                - "cups_local_journal_unavailable"
+                - "cups_request_conflict"
+                - "cups_deadline_expired"
+                - "cups_outcome_unknown"
+            -
+              type: "null"
+          title: "Error Code"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "capability"
+        - "queue"
+        - "outcome"
+      title: "CupsActionResultV1"
+    CupsOperationEnvelope:
+      properties:
+        data:
+          "$ref": "#/components/schemas/CupsOperationV1"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "data"
+      title: "CupsOperationEnvelope"
+    CupsOperationV1:
+      properties:
+        operation_id:
+          type: "string"
+          format: "uuid"
+          title: "Operation Id"
+        device_id:
+          type: "string"
+          format: "uuid"
+          title: "Device Id"
+        capability:
+          type: "string"
+          enum:
+            - "printer.cups.queue.configure"
+            - "printer.cups.testpage.submit"
+          title: "Capability"
+        status:
+          type: "string"
+          enum:
+            - "queued"
+            - "delivered"
+            - "acknowledged"
+            - "running"
+            - "succeeded"
+            - "failed"
+            - "canceled"
+            - "expired"
+          title: "Status"
+        created_at:
+          type: "string"
+          format: "date-time"
+          title: "Created At"
+        completed_at:
+          anyOf:
+            -
+              type: "string"
+              format: "date-time"
+            -
+              type: "null"
+          title: "Completed At"
+        deadline_at:
+          type: "string"
+          format: "date-time"
+          title: "Deadline At"
+        result:
+          anyOf:
+            -
+              "$ref": "#/components/schemas/CupsActionResultV1"
+            -
+              type: "null"
+        error_code:
+          anyOf:
+            -
+              type: "string"
+            -
+              type: "null"
+          title: "Error Code"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "operation_id"
+        - "device_id"
+        - "capability"
+        - "status"
+        - "created_at"
+        - "completed_at"
+        - "deadline_at"
+        - "result"
+        - "error_code"
+      title: "CupsOperationV1"
+    CupsQueueConfigureParametersV1:
+      anyOf:
+        -
+          properties:
+            enabled:
+              enum:
+                - "on"
+                - "off"
+          required:
+            - "enabled"
+        -
+          properties:
+            accepting:
+              enum:
+                - "on"
+                - "off"
+          required:
+            - "accepting"
+      properties:
+        queue:
+          not:
+            pattern: "^[aA][lL][lL]$"
+          type: "string"
+          pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$"
+          title: "Queue"
+        enabled:
+          type: "string"
+          enum:
+            - "keep"
+            - "on"
+            - "off"
+          title: "Enabled"
+          default: "keep"
+        accepting:
+          type: "string"
+          enum:
+            - "keep"
+            - "on"
+            - "off"
+          title: "Accepting"
+          default: "keep"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "queue"
+      title: "CupsQueueConfigureParametersV1"
+    CupsQueueStateV1:
+      properties:
+        enabled:
+          type: "boolean"
+          title: "Enabled"
+        accepting:
+          type: "boolean"
+          title: "Accepting"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "enabled"
+        - "accepting"
+      title: "CupsQueueStateV1"
+    CupsTestPageParametersV1:
+      properties:
+        queue:
+          not:
+            pattern: "^[aA][lL][lL]$"
+          type: "string"
+          pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$"
+          title: "Queue"
+      additionalProperties: false
+      type: "object"
+      required:
+        - "queue"
+      title: "CupsTestPageParametersV1"
     DeviceCapabilitiesEnvelope:
       properties:
         data:

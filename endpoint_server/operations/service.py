@@ -9,6 +9,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from endpoint_contracts import EndpointOperationCreateV1
+from endpoint_contracts.cups_actions import CUPS_ACTION_PARAMETERS
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.context.models import ContextCollection
 from endpoint_server.db.models import (
@@ -263,6 +264,7 @@ async def read_operation_for_service(
         .where(
             EndpointOperation.id == checked_operation_id,
             EndpointOperation.requested_by_service_client_id == checked_client_id,
+            EndpointOperation.capability.not_in(tuple(CUPS_ACTION_PARAMETERS)),
         )
         .with_for_update()
     )
@@ -301,6 +303,7 @@ async def cancel_operation_for_service(
         .where(
             EndpointOperation.id == checked_operation_id,
             EndpointOperation.requested_by_service_client_id == checked_client_id,
+            EndpointOperation.capability.not_in(tuple(CUPS_ACTION_PARAMETERS)),
         )
         .with_for_update()
     )
@@ -420,6 +423,32 @@ async def expire_operation_if_due(
         or _stored_utc(operation.deadline_at) > expired_at
     ):
         return False
+    if operation.capability in CUPS_ACTION_PARAMETERS:
+        command = delivery = None
+        if operation.command_id is not None:
+            command = await session.scalar(select(Command).where(
+                Command.id == operation.command_id, Command.device_id == operation.device_id,
+            ).with_for_update(skip_locked=True))
+            if command is None:
+                return False
+            delivery = await session.scalar(select(CommandDelivery).where(
+                CommandDelivery.command_id == command.id,
+            ).with_for_update(skip_locked=True))
+            if delivery is None:
+                return False
+            command.status = delivery.status = "expired"
+        operation.status = "expired"
+        operation.completed_at = expired_at
+        operation.error_code = "cups_outcome_unknown" if command is not None else "operation_expired"
+        await append_audit_event(
+            session, actor_kind="system", actor_identifier=None, action="endpoint.cups_action_expired",
+            object_kind="endpoint_operation", object_identifier=str(operation.id),
+            request_id=f"cups-operation-{operation.id.hex}",
+            details={"capability": operation.capability, "queue": operation.parameters["queue"],
+                     "error_code": operation.error_code}, occurred_at=expired_at,
+        )
+        await session.flush()
+        return True
     if operation.capability == "endpoint.module.recipe":
         if collection is not None or operation.command_id is not None:
             raise OperationValidationError("module operation relation is unavailable")

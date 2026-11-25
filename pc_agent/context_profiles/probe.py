@@ -233,12 +233,14 @@ def _bounded_limit(max_bytes: int) -> int:
 
 def _execute_bounded_command(
     command: tuple[str, ...], timeout_seconds: float, limit: int, *, check_exit: bool = False,
+    env: dict[str, str] | None = None,
 ) -> bytes:
     """Capture local command output without materializing unbounded pipe streams."""
     popen_options: dict[str, object] = {
         "stdin": subprocess.DEVNULL,
         "stdout": subprocess.PIPE,
         "stderr": subprocess.PIPE,
+        "env": env,
     }
     if os.name == "posix":
         popen_options["start_new_session"] = True

@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from typing import AbstractSet
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from endpoint_contracts import (
     AgentCommandAckV1,
@@ -20,6 +20,9 @@ from endpoint_contracts import (
     DiagnosticCollectionParametersV1,
 )
 from endpoint_contracts.capabilities import module_capability_descriptor
+from endpoint_contracts.cups_actions import (
+    CUPS_ACTION_PARAMETERS, CupsActionResultV1, CupsQueueConfigureParametersV1,
+)
 from endpoint_contracts.modules import EndpointRecipeModuleSpecV1
 from endpoint_contracts.gateway_ws import (
     CommandEnvelopeV1,
@@ -626,6 +629,15 @@ async def resolve_command_context_relation(
         .where(EndpointOperation.command_id == command.id)
         .with_for_update()
     )
+    if command.command_kind in CUPS_ACTION_PARAMETERS:
+        if (
+            direct_operation is None or collection is not None
+            or direct_operation.capability != command.command_kind
+            or direct_operation.device_id != command.device_id
+            or direct_operation.context_collection_id is not None
+        ):
+            raise CommandStateRejected("CUPS command relation is unavailable")
+        return None, direct_operation
     if direct_operation is None:
         if collection is None or collection.operation_id is None:
             return collection, None
@@ -725,6 +737,57 @@ def _safe_operation_result(
     )
 
 
+async def _next_pending_cups_command(
+    session, device_id: UUID, allowed_capabilities: AbstractSet[str] | None, device_instance_id: UUID | None,
+) -> GatewayCommandV1 | None:
+    if device_instance_id is None or not allowed_capabilities:
+        return None
+    capabilities = set(CUPS_ACTION_PARAMETERS) & allowed_capabilities
+    if not capabilities:
+        return None
+    now = datetime.now(UTC)
+    operation = await session.scalar(select(EndpointOperation).where(
+        EndpointOperation.device_id == device_id, EndpointOperation.capability.in_(capabilities),
+        EndpointOperation.deadline_at > now,
+        EndpointOperation.status.in_(("queued", "delivered", "acknowledged", "running")),
+        or_(EndpointOperation.action_device_instance_id == device_instance_id,
+            EndpointOperation.action_device_instance_id.is_(None)),
+    ).order_by(EndpointOperation.created_at, EndpointOperation.id).limit(1).with_for_update(skip_locked=True))
+    if operation is None:
+        return None
+    if operation.command_id is None:
+        if operation.status != "queued":
+            raise CommandStateRejected("CUPS operation delivery is unavailable")
+        command = Command(
+            id=uuid4(), created_at=now, command_identifier=f"cups-{operation.id.hex}",
+            device_id=device_id, command_kind=operation.capability, status="delivered",
+            expires_at=operation.deadline_at,
+        )
+        session.add(command)
+        await session.flush()
+        operation.command_id = command.id
+        operation.status = "delivered"
+        operation.action_device_instance_id = device_instance_id
+        session.add(CommandDelivery(
+            id=uuid4(), command_id=command.id, delivery_identifier=f"delivery-{command.id.hex}", status="delivered",
+        ))
+        await session.flush()
+    else:
+        command = await session.get(Command, operation.command_id)
+        if (
+            operation.action_device_instance_id != device_instance_id
+            or command is None or command.device_id != device_id or command.command_kind != operation.capability
+            or command.status != operation.status
+        ):
+            raise CommandStateRejected("CUPS operation command is unavailable")
+    return GatewayCommandV1(
+        schema_version="agent_command_v1", command_id=command.id, device_id=device_id,
+        capability=operation.capability, parameters=operation.parameters, requested_by_service="endpoint-platform",
+        idempotency_key=f"endpoint-cups:{operation.id.hex}", created_at=_as_utc(command.created_at),
+        deadline_at=_as_utc(operation.deadline_at), correlation=CommandCorrelationV1(request_id=operation.id),
+    )
+
+
 async def next_pending_command(
     session,
     device_id: UUID,
@@ -732,12 +795,18 @@ async def next_pending_command(
     *,
     transport: str = "http_pull",
     agent_platform: str | None = None,
+    device_instance_id: UUID | None = None,
 ) -> GatewayCommandV1 | None:
     """Replay only unacknowledged deliveries before creating a new command."""
     if transport not in {"http_pull", "gateway_wss"}:
         raise ValueError("unsupported gateway transport")
     await expire_overdue_collections(session, device_id, now=datetime.now(UTC))
     if transport == "gateway_wss":
+        cups_payload = await _next_pending_cups_command(
+            session, device_id, allowed_capabilities, device_instance_id if agent_platform == "linux_amd64" else None,
+        )
+        if cups_payload is not None:
+            return cups_payload
         module_payload = await _next_pending_module_command(
             session,
             device_id,
@@ -866,31 +935,43 @@ class CommandService:
         """Commit one delivery before exposing it to the network callback."""
         async with self._session_provider() as session:
             try:
+                gateway_session_lookup = select(DeviceSession).where(
+                    DeviceSession.id == session_id,
+                    DeviceSession.device_id == device_id,
+                    DeviceSession.closed_at.is_(None),
+                )
+                gateway_session = None
+                if (
+                    agent_platform == "linux_amd64"
+                    and allowed_capabilities
+                    and not allowed_capabilities.isdisjoint(CUPS_ACTION_PARAMETERS)
+                ):
+                    gateway_session = await session.scalar(gateway_session_lookup)
+                    if gateway_session is None:
+                        raise CommandStateRejected("gateway session is unavailable")
                 payload = await next_pending_command(
                     session,
                     device_id,
                     allowed_capabilities,
                     transport="gateway_wss",
                     agent_platform=agent_platform,
+                    device_instance_id=gateway_session.device_instance_id if gateway_session is not None else None,
                 )
                 if payload is None:
                     await session.commit()
                     return False
+                cups = payload.capability in CUPS_ACTION_PARAMETERS
                 delivery = await session.scalar(
                     select(CommandDelivery)
                     .where(CommandDelivery.command_id == payload.command_id)
-                    .with_for_update()
+                    .with_for_update(skip_locked=cups)
                 )
+                if cups and delivery is None:
+                    await session.rollback()
+                    return False
                 if delivery is None:
                     raise CommandStateRejected("command delivery is unavailable")
-                gateway_session = await session.scalar(
-                    select(DeviceSession).where(
-                        DeviceSession.id == session_id,
-                        DeviceSession.device_id == device_id,
-                        DeviceSession.closed_at.is_(None),
-                    )
-                )
-                if gateway_session is None:
+                if gateway_session is None and await session.scalar(gateway_session_lookup) is None:
                     raise CommandStateRejected("gateway session is unavailable")
                 if delivery.device_session_id == session_id:
                     # A heartbeat or unrelated result can ask for more work
@@ -995,6 +1076,9 @@ class CommandService:
                     session,
                     command,
                 )
+                if (operation is not None and operation.capability in CUPS_ACTION_PARAMETERS
+                    and operation.action_device_instance_id != gateway_session.device_instance_id):
+                    raise CommandStateRejected("CUPS acknowledgement device instance does not match")
                 if command.status in _TERMINAL_STATUSES:
                     if operation is not None and operation.status != command.status:
                         raise CommandStateRejected(
@@ -1116,6 +1200,7 @@ class CommandService:
                 if stored is None:
                     accepted_result = result
                     accepted_at: datetime | None = None
+                    cups_result = None
                     if operation is not None:
                         if (
                             delivery is None
@@ -1143,10 +1228,34 @@ class CommandService:
                             raise CommandStateRejected(
                                 "operation result timing is unavailable"
                             )
-                        accepted_result = _safe_operation_result(
-                            operation,
-                            result,
-                        ).model_copy(update={"completed_at": accepted_at})
+                        if operation.capability in CUPS_ACTION_PARAMETERS:
+                            if operation.action_device_instance_id != device_instance_id:
+                                raise CommandStateRejected("CUPS result device instance does not match")
+                            if len(result.result_items) != 1:
+                                raise CommandStateRejected("CUPS result shape is invalid")
+                            try:
+                                cups_result = CupsActionResultV1.model_validate(result.result_items[0])
+                            except ValueError as error:
+                                raise CommandStateRejected("CUPS result shape is invalid") from error
+                            if (
+                                cups_result.capability != operation.capability
+                                or cups_result.queue != operation.parameters["queue"]
+                                or result.status != ("succeeded" if cups_result.error_code is None else "failed")
+                            ):
+                                raise CommandStateRejected("CUPS result does not match its operation")
+                            if cups_result.outcome == "configured":
+                                desired = CupsQueueConfigureParametersV1.model_validate(operation.parameters)
+                                if any(
+                                    change != "keep" and getattr(cups_result.after, field) != (change == "on")
+                                    for field, change in (("enabled", desired.enabled), ("accepting", desired.accepting))
+                                ):
+                                    raise CommandStateRejected("CUPS configuration result does not match the requested state")
+                            accepted_result = result.model_copy(update={"completed_at": accepted_at})
+                        else:
+                            accepted_result = _safe_operation_result(
+                                operation,
+                                result,
+                            ).model_copy(update={"completed_at": accepted_at})
                     stored = CommandResult(
                         id=uuid4(),
                         command_id=command.id,
@@ -1184,7 +1293,23 @@ class CommandService:
                     command.status = result.status
                     if delivery is not None:
                         delivery.status = result.status
-                    if operation is not None:
+                    if operation is not None and cups_result is not None:
+                        operation.status = result.status
+                        operation.completed_at = accepted_at
+                        operation.error_code = cups_result.error_code
+                        operation.action_result = cups_result.model_dump(mode="json")
+                        await append_audit_event(
+                            session, actor_kind="device", actor_identifier=str(device_id),
+                            action=f"endpoint.cups_action_{result.status}", object_kind="endpoint_operation",
+                            object_identifier=str(operation.id), request_id=f"cups-operation-{operation.id.hex}",
+                            details={
+                                "capability": cups_result.capability, "queue": cups_result.queue,
+                                "outcome": cups_result.outcome, "cups_job_id": cups_result.job_id,
+                                "before": operation.action_result["before"], "after": operation.action_result["after"],
+                                "error_code": cups_result.error_code,
+                            }, occurred_at=accepted_at,
+                        )
+                    elif operation is not None:
                         operation.status = result.status
                         operation.completed_at = accepted_at
                         if result.status != "succeeded":
@@ -1244,12 +1369,15 @@ class CommandService:
                             or operation.completed_at is None
                             or _as_utc(stored.completed_at)
                             != _as_utc(operation.completed_at)
-                            or collection.command_result_id != stored.id
+                            or (collection is not None and collection.command_result_id != stored.id)
                         ):
                             raise CommandStateRejected(
                                 "operation result replay conflicts with stored result"
                             )
-                        if result.status == "succeeded":
+                        if operation.capability in CUPS_ACTION_PARAMETERS:
+                            if operation.action_result is None:
+                                raise CommandStateRejected("stored CUPS operation result is unavailable")
+                        elif result.status == "succeeded":
                             snapshot = await session.scalar(
                                 select(ContextSnapshot).where(
                                     ContextSnapshot.collection_id == collection.id

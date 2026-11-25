@@ -20,6 +20,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID as PostgreSQLUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from endpoint_contracts.capabilities import MODULE_CAPABILITY_REGISTRY
+from endpoint_contracts.cups_actions import CUPS_ACTION_PARAMETERS
 from endpoint_server.db.base import Base
 
 from .common import OwnershipRecord
@@ -39,6 +40,7 @@ ENDPOINT_OPERATION_STATUSES = (
 ENDPOINT_OPERATION_CAPABILITIES = (
     "context.diagnostic.collect",
     "endpoint.module.recipe",
+    *CUPS_ACTION_PARAMETERS,
 )
 
 MODULE_OPERATION_STEP_STATUSES = ENDPOINT_OPERATION_STATUSES
@@ -78,11 +80,11 @@ class EndpointOperation(OwnershipRecord, Base):
             initially="DEFERRED",
         ),
         CheckConstraint(
-            "capability IN ('context.diagnostic.collect', 'endpoint.module.recipe')",
+            "capability IN (" + ", ".join(f"'{item}'" for item in ENDPOINT_OPERATION_CAPABILITIES) + ")",
             name="ck_endpoint_operations_capability",
         ),
         CheckConstraint(
-            "((capability = 'context.diagnostic.collect' "
+            "((capability <> 'endpoint.module.recipe' "
             "AND module_version_id IS NULL AND module_inputs IS NULL) OR "
             "(capability = 'endpoint.module.recipe' "
             "AND module_version_id IS NOT NULL AND module_inputs IS NOT NULL))",
@@ -136,6 +138,10 @@ class EndpointOperation(OwnershipRecord, Base):
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_code: Mapped[str | None] = mapped_column(String(64))
+    action_result: Mapped[dict[str, object] | None] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql")
+    )
+    action_device_instance_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
     context_collection_id: Mapped[UUID | None] = mapped_column(
         PostgreSQLUUID(as_uuid=True)
     )
