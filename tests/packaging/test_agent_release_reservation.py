@@ -532,3 +532,7 @@ def test_record_alt_candidate_verifies_archive_members_against_the_manifest(rele
     archive_signature.write_bytes(b"different detached signature")
     mismatch = subprocess.run(matrix, capture_output=True, text=True, encoding="utf-8", timeout=90)
     assert mismatch.returncode != 0 and "differs from the recorded candidate" in mismatch.stderr
+    native = [sys.executable, str(CLI), "register-alt-native", "--repo-root", str(repo),
+              "--request-id", str(request), "--artifacts-dir", str(folder), "--reviewed-by", "Lab reviewer"]
+    changed = subprocess.run(native, capture_output=True, text=True, encoding="utf-8", timeout=90)
+    assert changed.returncode != 0 and "differs from the recorded candidate" in changed.stderr

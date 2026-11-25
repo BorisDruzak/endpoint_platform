@@ -85,14 +85,7 @@ def _inspect_alt(args: Namespace, reservation: dict) -> dict:
         filename: {"size": proof["size"], "sha256": proof["sha256"]}
         for filename, proof in manifest["files"].items()
     }
-    fixed_names = {"endpoint-agent-setup", "endpoint-rpm-release.asc"}
-    rpm_names = set(files) - fixed_names
-    for package in ("endpoint-agent", "endpoint-agent-user-sensor"):
-        rpm = re.compile(rf"{package}-{re.escape(version)}-[A-Za-z0-9.+_~]+\.x86_64\.rpm")
-        if sum(bool(rpm.fullmatch(filename)) for filename in rpm_names) != 1:
-            raise ValueError(f"ALT kit requires one exact {package} RPM")
-    if len(rpm_names) != 2 or not fixed_names <= files.keys():
-        raise ValueError("ALT kit needs exactly Core, UserSensor, Setup and the publisher key")
+    alt_rpm_names(files, version)
     for proof in files.values():
         if (type(proof["size"]) is not int or not 0 < proof["size"] <= MAX_RPM
                 or not SHA256.fullmatch(proof["sha256"])):
@@ -111,6 +104,21 @@ def _inspect_alt(args: Namespace, reservation: dict) -> dict:
         "publisher_fingerprint": PUBLISHER,
         "frozen_manifest_sha256": manifest["frozen_manifest_sha256"],
     }
+
+
+def alt_rpm_names(files: dict, version: str) -> tuple[str, str]:
+    fixed_names = {"endpoint-agent-setup", "endpoint-rpm-release.asc"}
+    rpm_names = set(files) - fixed_names
+    if len(rpm_names) != 2 or not fixed_names <= files.keys():
+        raise ValueError("ALT kit needs exactly Core, UserSensor, Setup and the publisher key")
+    pair = []
+    for package in ("endpoint-agent", "endpoint-agent-user-sensor"):
+        rpm = re.compile(rf"{package}-{re.escape(version)}-[A-Za-z0-9.+_~]+\.x86_64\.rpm")
+        matched = [filename for filename in rpm_names if rpm.fullmatch(filename)]
+        if len(matched) != 1:
+            raise ValueError(f"ALT kit requires one exact {package} RPM")
+        pair.append(matched[0])
+    return pair[0], pair[1]
 
 
 def _inspect_tar(path: Path, folder: str, files: dict) -> dict:

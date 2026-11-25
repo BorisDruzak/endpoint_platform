@@ -311,6 +311,26 @@ qualification ID in the visibility audit event. The default AUTO campaign joins
 the transaction with its authority and history intact. The diagnostic exclusion
 uses `--without-auto-enrollment` under its existing policy.
 
+### Verify and register the exact ALT native pair
+
+Use the protected Linux publisher with the independently pinned ALT public key
+and the recorded kit, manifest and detached signatures in its private staging
+directory. Verify while holding the exact reservation.
+
+```bash
+python tools/release/agent_release.py register-alt-native --request-id "$request" \
+  --artifacts-dir "$sealed_kit" --public-key "$publisher_key" --reviewed-by "$reviewer"
+```
+
+The default invocation checks both kit signatures and checks the two signed
+RPM headers and payloads. It binds the RPMs and Setup to the recorded kit,
+version, source and frozen native manifest. It emits the reviewed native
+source without connecting to a provider. On the authorized provider worker,
+load its `DATABASE_URL` and use `--execute` to register the pair through the
+existing Linux native publisher. Registration returns the immutable native
+release UUID. Kit download publication and Linux enrollment campaigns have
+their own procedures and scope.
+
 ## Plan native qualification
 
 Capture a fresh provider snapshot using `agent_catalog_snapshot.sql`. Keep this

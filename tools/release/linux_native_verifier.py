@@ -95,7 +95,7 @@ def _identity(info):
 
 
 @contextmanager
-def snapshot(path):
+def snapshot(path, *, max_bytes=MAX_RPM):
     """Retain verified execution bytes; reject replaced/changed source nodes."""
     path = Path(path).absolute()
     for parent in path.parents:
@@ -106,7 +106,7 @@ def snapshot(path):
     try:
         before = os.fstat(fd)
         if (not stat.S_ISREG(before.st_mode) or before.st_uid != 0 or before.st_mode & 0o022
-            or before.st_nlink != 1 or not 0 < before.st_size <= MAX_RPM):
+                or before.st_nlink != 1 or not 0 < before.st_size <= max_bytes):
             raise VerificationError('unsafe_native_input')
         with tempfile.TemporaryDirectory(prefix='endpoint-native-verified-') as directory:
             target = Path(directory) / 'input.rpm'
@@ -244,7 +244,7 @@ class NativeRPMVerifier:
                 raise VerificationError('legacy_sensor_dependency')
         return LEGACY_SOURCE, LEGACY_MANIFEST
 
-    def _keyring(self, directory):
+    def _gpg_home(self, directory):
         raw = self.public_key.read_bytes()
         if hashlib.sha256(raw).hexdigest() != KEY_SHA256:
             raise VerificationError('publisher_key_digest')
@@ -257,10 +257,25 @@ class NativeRPMVerifier:
         fingerprints = [line.split(':')[9] for line in listing.splitlines() if line.startswith('fpr:')]
         if fingerprints != [PUBLISHER]:
             raise VerificationError('publisher_full_fingerprint')
+        return home
+
+    def verify_detached(self, pairs):
+        """Verify retained kit files against the independently pinned publisher."""
+        with tempfile.TemporaryDirectory(prefix='endpoint-kit-trust-') as directory:
+            home = self._gpg_home(directory)
+            for artifact, signature in pairs:
+                output = run(['/usr/bin/gpg', '--homedir', str(home), '--batch', '--status-fd', '1',
+                    '--verify', str(signature), str(artifact)]).decode('utf-8')
+                signers = re.findall(r'(?m)^\[GNUPG:\] VALIDSIG ([A-F0-9]+) ', output)
+                if signers != [PUBLISHER]:
+                    raise VerificationError('kit_signature_publisher')
+
+    def _keyring(self, directory):
+        self._gpg_home(directory)
         database = Path(directory) / 'rpmdb'
         database.mkdir(mode=0o700)
         run(['/usr/bin/rpm', '--dbpath', str(database), '--initdb'])
-        run(['/usr/bin/rpm', '--dbpath', str(database), '--import', str(key)])
+        run(['/usr/bin/rpm', '--dbpath', str(database), '--import', str(Path(directory) / 'publisher.asc')])
         return database
 
     def _verify_snapshot(self, path, digest):
