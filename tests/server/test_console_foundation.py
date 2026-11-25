@@ -91,9 +91,10 @@ async def test_console_pages_require_admin_and_login_is_public(tmp_path, monkeyp
     assert asset.status_code == 200
     assert asset.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert asset.headers["x-content-type-options"] == "nosniff"
-    assert denied.status_code == 401
-    assert invalid.status_code == 401
-    assert deep_denied.status_code == 401
+    for page in (denied, invalid, deep_denied):
+        assert page.status_code == 303
+        assert page.headers["location"] == "/admin/login"
+        assert page.headers["cache-control"] == "no-store"
     assert session_denied.status_code == 401
     assert fleet_denied.status_code == 401
     assert dashboard_denied.status_code == 401
