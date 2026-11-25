@@ -14,7 +14,7 @@ from uuid import UUID
 if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from tools.release import agent_qualification, agent_reservations, compatibility_matrix
+from tools.release import agent_promotion, agent_qualification, agent_reservations, compatibility_matrix
 
 
 CATALOG = "docs/releases/current-agent-release.json"
@@ -181,6 +181,8 @@ def main() -> None:
     agent_qualification.add_arguments(build)
     matrix = commands.add_parser("qualify-matrix", help="plan native Lab checks for recorded candidate bytes")
     agent_qualification.add_matrix_arguments(matrix)
+    promote = commands.add_parser("promote", help="check or apply qualified Windows primary publication")
+    agent_promotion.add_arguments(promote)
     candidate = commands.add_parser("record-candidate", help="pin native candidate bytes to a reservation")
     candidate.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
     candidate.add_argument("--request-id", required=True, type=UUID)
@@ -207,6 +209,8 @@ def main() -> None:
             result = agent_qualification.build(args)
         elif args.command == "qualify-matrix":
             result = agent_qualification.matrix(args)
+        elif args.command == "promote":
+            result = agent_promotion.promote(args)
         elif args.command == "record-candidate":
             result = agent_reservations.record_candidate(args)
         else:

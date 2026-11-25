@@ -291,20 +291,25 @@ systems before excluding the source profile from future qualification.
 
 ### Promote the exact Windows Setup after native acceptance
 
-After the authorized Console canary and native qualification in the target
-provider, pass its current qualification UUID to the existing publisher.
+After the authorized Console canary, native qualification, coverage preview
+and bounded delivery, check the known candidate on the target provider. Use
+the existing publisher's environment with `DATABASE_URL` and `ARTIFACT_ROOT`.
 
 ```powershell
-python -m tools.register_windows_setup_release --sidecar $setupSidecar --setup $signedSetup `
-  --msi $signedMsi --msi-manifest $msiManifest --expected-publisher $trustedPublisher `
-  --promotion-qualification-id $qualificationId
+python tools/release/agent_release.py promote --platform windows --request-id $request `
+  --artifacts-dir $sealedDirectory --expected-publisher $trustedPublisher `
+  --qualification-id $qualificationId
 ```
 
-The publisher checks the candidate catalog row, qualified EXE and MSI
-identity, applied assignment and current bytes in `ARTIFACT_ROOT` within the
-same publication transaction. It preserves the installer release ID and records
-the qualification ID in the visibility audit event. Perform the coverage
-preview and authorized delivery in the Console using their existing controls.
+The preview reports the existing installer ID, visibility, qualification
+expiry and current default AUTO campaign. It checks the recorded files and
+provider evidence without changing publication, enrollment or assignments.
+Add `--execute` for the authorized publication. The same publisher rechecks
+the application of the exact native assignment, stored EXE and qualification
+under transaction locks. It preserves the installer release ID and records the
+qualification ID in the visibility audit event. The default AUTO campaign joins
+the transaction with its authority and history intact. The diagnostic exclusion
+uses `--without-auto-enrollment` under its existing policy.
 
 ## Plan native qualification
 

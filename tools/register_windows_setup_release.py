@@ -23,7 +23,7 @@ from endpoint_server.audit.service import append_audit_event
 from endpoint_server.console.installer import _sha256
 from endpoint_server.db.models import WindowsSetupRelease
 from endpoint_server.db.session import create_session_provider
-from endpoint_server.enrollment.default_campaign import include_windows_release
+from endpoint_server.enrollment.default_campaign import include_windows_release, preview_windows_release_inclusion
 from endpoint_server.setup_updates.models import SetupAssignment, SetupFleetQualification, SetupRelease
 from endpoint_server.setup_updates.policy import valid_qualification
 from endpoint_server.setup_updates.service import now_utc
@@ -89,16 +89,18 @@ def validate_release_inputs(sidecar: Path, setup: Path, msi: Path, msi_manifest:
 
 
 async def _require_promotion_qualification(session, candidate: WindowsSetupRelease,
-                                           qualification_id: UUID | None) -> SetupRelease:
+        qualification_id: UUID | None, *, lock: bool) -> tuple[SetupRelease, SetupFleetQualification]:
     if qualification_id is None:
         raise ValueError('An active native Setup qualification is required to promote a hidden candidate')
-    proof = (await session.execute(
+    query = (
         select(SetupFleetQualification, SetupRelease, SetupAssignment)
         .join(SetupRelease, SetupRelease.id == SetupFleetQualification.release_id)
         .join(SetupAssignment, SetupAssignment.id == SetupFleetQualification.evidence_assignment_id)
         .where(SetupFleetQualification.id == qualification_id)
-        .with_for_update(of=(SetupFleetQualification, SetupAssignment))
-    )).one_or_none()
+    )
+    if lock:
+        query = query.with_for_update(of=(SetupFleetQualification, SetupAssignment))
+    proof = (await session.execute(query)).one_or_none()
     if proof is None:
         raise ValueError('Native Setup qualification was not found in this provider')
     qualification, target, assignment = proof
@@ -110,7 +112,54 @@ async def _require_promotion_qualification(session, candidate: WindowsSetupRelea
             or assignment.finished_at is None or assignment.attempt_id is None
             or assignment.source_foundation_version != qualification.source_foundation):
         raise ValueError('An active qualification for this exact Setup and its applied native source is required')
-    return target
+    return target, qualification
+
+
+def _require_matching_metadata(existing: WindowsSetupRelease, metadata: SetupSidecar) -> None:
+    if any(getattr(existing, name) != value for name, value in
+           metadata.model_dump(exclude={'schema_version'}).items()):
+        raise ValueError('release version already has different immutable metadata or digest')
+
+
+def _verify_stored_setup(root: Path, release: WindowsSetupRelease, size: int | None) -> None:
+    artifact = root / release.filename
+    if (not artifact.is_file() or artifact.is_symlink() or (size is not None and artifact.stat().st_size != size)
+            or _sha256(artifact) != release.setup_sha256):
+        raise ValueError('Stored Setup artifact differs from the registered release')
+
+
+async def _validate_promotion(session, release, root, qualification_id, *, lock):
+    if release.retired_at is not None:
+        raise ValueError('A retired installer cannot be promoted')
+    target, qualification = await _require_promotion_qualification(session, release, qualification_id, lock=lock)
+    _verify_stored_setup(root, release, target.size)
+    return now_utc(qualification.expires_at)
+
+
+async def preview_promotion(metadata: SetupSidecar, *, database_url: str, artifact_root: Path,
+        qualification_id: UUID, default_campaign_id: UUID | None = None,
+        include_in_auto_campaign: bool = True) -> dict:
+    """Check the current destination without changing its catalog or enrollment."""
+    root = artifact_root.resolve(strict=True)
+    if not root.is_dir():
+        raise ValueError('ARTIFACT_ROOT is not a directory')
+    provider = create_session_provider(database_url)
+    try:
+        async with provider() as session:
+            release = await session.scalar(select(WindowsSetupRelease).where(WindowsSetupRelease.version == metadata.version))
+            if release is None:
+                raise ValueError('Promotion requires an existing installer candidate')
+            _require_matching_metadata(release, metadata)
+            expires = await _validate_promotion(session, release, root, qualification_id, lock=False)
+            campaign = None
+            if include_in_auto_campaign:
+                campaign = await preview_windows_release_inclusion(session, release, campaign_id=default_campaign_id)
+            if now_utc() > expires:
+                raise ValueError('Native Setup qualification expired during preview')
+            return {'release_id': str(release.id), 'download_published': release.download_published,
+                    'auto_enrollment': campaign, 'qualification_expires_at': expires.isoformat()}
+    finally:
+        await provider.close()
 
 
 async def register_release(metadata: SetupSidecar, setup: Path, *, database_url: str, artifact_root: Path,
@@ -133,23 +182,17 @@ async def register_release(metadata: SetupSidecar, setup: Path, *, database_url:
             existing = await session.scalar(select(WindowsSetupRelease).where(
                 WindowsSetupRelease.version == metadata.version).with_for_update())
             if existing is not None:
-                if any(getattr(existing, name) != value for name, value in
-                       metadata.model_dump(exclude={'schema_version'}).items()):
-                    raise ValueError("release version already has different immutable metadata or digest")
+                _require_matching_metadata(existing, metadata)
                 promoting = not candidate_only and not existing.download_published
-                qualified_target = None
-                if promoting:
-                    if existing.retired_at is not None:
-                        raise ValueError('A retired installer cannot be promoted')
-                    qualified_target = await _require_promotion_qualification(session, existing, promotion_qualification_id)
-                if not candidate_only:
-                    artifact = root / existing.filename
-                    if (not artifact.is_file() or artifact.is_symlink()
-                            or (qualified_target is not None and artifact.stat().st_size != qualified_target.size)
-                            or _sha256(artifact) != existing.setup_sha256):
-                        raise ValueError('Stored Setup artifact differs from the registered release')
+                expires = None
+                if promoting or promotion_qualification_id is not None:
+                    expires = await _validate_promotion(session, existing, root, promotion_qualification_id, lock=True)
+                elif not candidate_only:
+                    _verify_stored_setup(root, existing, None)
                 if include_in_auto_campaign:
                     await include_windows_release(session, existing, campaign_id=default_campaign_id)
+                if expires is not None and now_utc() > expires:
+                    raise ValueError('Native Setup qualification expired during publication')
                 if promoting:
                     existing.download_published = True
                     await _audit_publication(session, existing, 'windows_setup_release.download_published',

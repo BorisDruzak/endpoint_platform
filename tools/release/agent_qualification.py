@@ -10,7 +10,7 @@ import sys
 from uuid import UUID
 
 from tools.release import agent_reservations, compatibility_matrix, release_plan
-from tools.release.agent_candidate_artifacts import _fingerprint
+from tools.release.agent_candidate_artifacts import _fingerprint, verify_recorded_candidate
 
 
 BUILDERS = {
@@ -59,19 +59,9 @@ def add_matrix_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def matrix(args: argparse.Namespace) -> dict:
-    reserved = agent_reservations.reservation_status(args)
-    candidate = reserved.get("candidates", {}).get(args.platform)
-    if candidate is None:
-        raise ValueError("Record the native candidate before planning its qualification matrix")
-    if candidate["state"] != "candidate":
-        raise ValueError("Candidate is rejected; use a new candidate for qualification")
+    candidate = verify_recorded_candidate(agent_reservations.reservation_status(args), args.platform,
+                                          args.artifacts_dir)
     artifacts = candidate["artifacts"]
-    for proof in artifacts.values():
-        filename = proof["filename"]
-        if filename in ("", ".", "..") or any(separator in filename for separator in ("/", "\\", ":")):
-            raise ValueError("Recorded artifact requires a leaf filename")
-        if _fingerprint(args.artifacts_dir / filename) != proof:
-            raise ValueError(f"Artifact differs from the recorded candidate: {filename}")
     primary = artifacts[agent_reservations.PRIMARY_ARTIFACT[args.platform]]
     target = {"platform": args.platform, "version": candidate["version"], "sha256": primary["sha256"]}
     report = compatibility_matrix.plan_from_files(args, target)

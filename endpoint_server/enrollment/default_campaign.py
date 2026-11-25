@@ -16,25 +16,21 @@ async def lock_campaign_set(session) -> None:
         await session.execute(text('SELECT pg_advisory_xact_lock(728019456102)'))
 
 
-async def include_windows_release(session, release: WindowsSetupRelease, *,
-        campaign_id: UUID | None = None, now: datetime | None = None) -> bool:
-    """Append to the unique live auto campaign without changing its authority.
-
-    The publisher commits this with the immutable release row. A missing,
-    ambiguous or unusable default refuses publication rather than silently
-    leaving the new installer outside automatic enrollment.
-    """
+async def _plan_windows_release_inclusion(session, release, *, campaign_id, now, lock):
     explicit_now = now
     now = now or datetime.now(UTC)
     if (release.retired_at is not None or release.authenticode_status != 'valid'
             or release.msi_authenticode_status != 'valid'):
         raise ValueError('automatic enrollment requires a trusted active Setup release')
-    await lock_campaign_set(session)
-    rows = (await session.scalars(select(EnrollmentCampaign).where(
+    query = select(EnrollmentCampaign).where(
         EnrollmentCampaign.target_platform == 'windows',
         EnrollmentCampaign.disabled_at.is_(None), EnrollmentCampaign.revoked_at.is_(None),
         EnrollmentCampaign.expires_at > now)
-        .order_by(EnrollmentCampaign.id).with_for_update())).all()
+    query = query.order_by(EnrollmentCampaign.id)
+    if lock:
+        await lock_campaign_set(session)
+        query = query.with_for_update()
+    rows = (await session.scalars(query)).all()
     candidates = [(row, parse_windows_enrollment_policy(row.policy)) for row in rows]
     candidates = [(row, policy) for row, policy in candidates
                   if policy is not None and policy.enrollment_mode == 'auto']
@@ -45,9 +41,26 @@ async def include_windows_release(session, release: WindowsSetupRelease, *,
     if campaign.expires_at <= checked_at or campaign.use_count >= campaign.max_uses:
         raise ValueError('default auto-enrollment campaign is expired or exhausted')
     if release.version in policy.allowed_installer_releases:
-        return False
+        return campaign, None, now
     updated = WindowsEnrollmentPolicyV1.model_validate({**policy.model_dump(),
         'allowed_installer_releases': [*policy.allowed_installer_releases, release.version]})
+    return campaign, updated, now
+
+
+async def preview_windows_release_inclusion(session, release: WindowsSetupRelease, *,
+        campaign_id: UUID | None = None) -> dict:
+    campaign, updated, _ = await _plan_windows_release_inclusion(session, release,
+        campaign_id=campaign_id, now=None, lock=False)
+    return {'campaign_id': str(campaign.id), 'already_included': updated is None}
+
+
+async def include_windows_release(session, release: WindowsSetupRelease, *,
+        campaign_id: UUID | None = None, now: datetime | None = None) -> bool:
+    """Append to the unique live auto campaign without changing its authority."""
+    campaign, updated, now = await _plan_windows_release_inclusion(session, release,
+        campaign_id=campaign_id, now=now, lock=True)
+    if updated is None:
+        return False
     campaign.policy = updated.model_dump(mode='json')
     await append_audit_event(session, actor_kind='operator', actor_identifier='windows-release-publisher',
         action='enrollment_campaign.release_included', object_kind='enrollment_campaign',

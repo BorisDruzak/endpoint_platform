@@ -407,6 +407,28 @@ def test_qualify_matrix_uses_the_candidate_bytes_and_rejects_changes(release_inp
     assert refused.returncode != 0 and "Candidate is rejected" in refused.stderr
 
 
+def test_promote_checks_the_recorded_bytes_before_opening_the_provider(release_inputs, monkeypatch):
+    repo, folder = release_inputs
+    request, bound = prepare_bound_source(release_inputs)
+    setup, manifest = windows_candidate(folder, bound["version"], bound["build_revision"])
+    msi_manifest = folder / f'EndpointAgent-{bound["version"]}-x64.release.json'
+    write(manifest, {**json.loads(manifest.read_bytes()), "msi_source_commit": bound["source_revision"]})
+    write(msi_manifest, {**json.loads(msi_manifest.read_bytes()), "source_revision": bound["source_revision"]})
+    publisher = ["--expected-publisher", "CN=Endpoint Fixture"]
+    value(record_candidate(repo, request, "windows", manifest, *publisher))
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("ARTIFACT_ROOT", raising=False)
+    command = [sys.executable, str(CLI), "promote", "--repo-root", str(repo), "--request-id", str(request),
+               "--platform", "windows", "--artifacts-dir", str(folder), "--qualification-id", str(uuid4()), *publisher]
+    before = git(repo, "ls-remote", "origin", LEDGER)
+    missing = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", timeout=90)
+    assert missing.returncode != 0 and "DATABASE_URL and ARTIFACT_ROOT" in missing.stderr
+    setup.write_bytes(b"unrecorded bytes")
+    changed = subprocess.run(command + ["--execute"], capture_output=True, text=True, encoding="utf-8", timeout=90)
+    assert changed.returncode != 0 and "differs from the recorded candidate" in changed.stderr
+    assert git(repo, "ls-remote", "origin", LEDGER) == before
+
+
 def test_record_windows_candidate_rejects_a_different_source_commit(release_inputs):
     repo, folder = release_inputs
     request, bound = prepare_bound_source(release_inputs)

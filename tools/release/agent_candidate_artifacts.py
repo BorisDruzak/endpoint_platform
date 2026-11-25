@@ -144,3 +144,18 @@ def inspect_candidate(args: Namespace, reservation: dict) -> dict:
     if args.platform == "windows":
         return _inspect_windows(args, reservation)
     return _inspect_alt(args, reservation)
+
+
+def verify_recorded_candidate(reservation: dict, platform: str, directory: Path) -> dict:
+    candidate = reservation.get("candidates", {}).get(platform)
+    if candidate is None:
+        raise ValueError("Record the native candidate before using its artifacts")
+    if candidate["state"] != "candidate":
+        raise ValueError("Candidate is rejected; use a new candidate")
+    for proof in candidate["artifacts"].values():
+        filename = proof["filename"]
+        if filename in ("", ".", "..") or any(separator in filename for separator in ("/", "\\", ":")):
+            raise ValueError("Recorded artifact requires a leaf filename")
+        if _fingerprint(directory / filename) != proof:
+            raise ValueError(f"Artifact differs from the recorded candidate: {filename}")
+    return candidate

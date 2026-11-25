@@ -170,6 +170,50 @@ async def publication_snapshot(url, cid):
         await p.close()
 
 
+def test_promotion_preview_checks_current_provider_without_changing_it(publication_url, tmp_path):
+    from tools.register_windows_setup_release import preview_promotion
+
+    async def run():
+        cid = await fresh_campaign(publication_url)
+        meta, file = candidate_artifact(tmp_path)
+        store = tmp_path / 'store'
+        store.mkdir()
+        target = dict(database_url=publication_url, artifact_root=store, default_campaign_id=cid)
+        candidate = await register_release(meta, file, **target, candidate_only=True, include_in_auto_campaign=False)
+        qualification = await qualify_candidate(publication_url, meta, file)
+        checked = await preview_promotion(meta, **target, qualification_id=qualification)
+        assert checked['release_id'] == str(candidate.id)
+        assert checked['download_published'] is False
+        assert checked['auto_enrollment'] == {'campaign_id': str(cid), 'already_included': False}
+        assert datetime.fromisoformat(checked['qualification_expires_at']) > datetime.now(UTC)
+
+        with pytest.raises(ValueError, match='not found'):
+            await preview_promotion(meta, **target, qualification_id=uuid4())
+        stored = store / file.name
+        stored.write_bytes(b'wrong stored artifact')
+        with pytest.raises(ValueError, match='Stored Setup artifact differs'):
+            await preview_promotion(meta, **target, qualification_id=qualification)
+        stored.write_bytes(file.read_bytes())
+
+        provider = AsyncSessionProvider(publication_url)
+        try:
+            async with provider() as session:
+                assert not (await session.get(WindowsSetupRelease, candidate.id)).download_published
+                campaign = await session.get(EnrollmentCampaign, cid)
+                assert meta.version not in campaign.policy['allowed_installer_releases']
+                events = (await session.scalars(select(AuditEvent).where(
+                    AuditEvent.object_identifier.in_([str(candidate.id), str(cid)])))).all()
+                assert [event.action for event in events] == ['windows_setup_release.registered']
+                campaign.disabled_at = datetime.now(UTC)
+                await session.commit()
+            with pytest.raises(ValueError, match='one active default'):
+                await preview_promotion(meta, **target, qualification_id=qualification)
+        finally:
+            await provider.close()
+
+    asyncio.run(run())
+
+
 @pytest.mark.parametrize('diagnostic', [False, True])
 def test_candidate_promotion_preserves_identity_authority_and_one_way_visibility(publication_url, tmp_path, diagnostic):
     async def run():
@@ -189,6 +233,8 @@ def test_candidate_promotion_preserves_identity_authority_and_one_way_visibility
             assert ('3.2.177' in c.policy['allowed_installer_releases']) is (not diagnostic)
         qualification = await qualify_candidate(publication_url, meta, file)
         promoted = await register_release(meta, file, **args, promotion_qualification_id=qualification)
+        with pytest.raises(ValueError, match='not found'):
+            await register_release(meta, file, **args, promotion_qualification_id=uuid4())
         retried = await register_release(meta, file, **args, candidate_only=True)
         assert promoted.id == retried.id == candidate.id
         assert promoted.created_at == retried.created_at == candidate.created_at
