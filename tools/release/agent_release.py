@@ -14,7 +14,7 @@ from uuid import UUID
 if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from tools.release import agent_reservations
+from tools.release import agent_qualification, agent_reservations
 
 
 CATALOG = "docs/releases/current-agent-release.json"
@@ -177,6 +177,8 @@ def main() -> None:
     bind = commands.add_parser("bind-source", help="pin the candidate build commit to a reservation")
     bind.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
     bind.add_argument("--request-id", required=True, type=UUID)
+    build = commands.add_parser("qualify-build", help="build the selected artifact from a bound QUALIFY checkout")
+    agent_qualification.add_arguments(build)
     candidate = commands.add_parser("record-candidate", help="pin native candidate bytes to a reservation")
     candidate.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
     candidate.add_argument("--request-id", required=True, type=UUID)
@@ -199,11 +201,13 @@ def main() -> None:
             result = agent_reservations.reserve(args)
         elif args.command == "bind-source":
             result = agent_reservations.bind_source(args)
+        elif args.command == "qualify-build":
+            result = agent_qualification.build(args)
         elif args.command == "record-candidate":
             result = agent_reservations.record_candidate(args)
         else:
             result = agent_reservations.reject_candidate(args)
-    except (OSError, KeyError, TypeError, ValueError, AttributeError, SyntaxError, subprocess.TimeoutExpired) as exc:
+    except (OSError, KeyError, TypeError, ValueError, AttributeError, SyntaxError, subprocess.SubprocessError) as exc:
         parser.exit(1, f"Agent release {args.command} failed: {exc}\n")
     print(json.dumps(result, ensure_ascii=True, indent=2, sort_keys=True))
 

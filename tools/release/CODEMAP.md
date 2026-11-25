@@ -177,6 +177,40 @@ The command verifies that the checkout is clean, descends from the reserved
 source, and carries the reserved `AGENT_VERSION`. The binding is write-once.
 Use the existing signing and publication flow for the resulting bytes.
 
+### Run the qualification build
+
+Check out the bound revision on the approved build worker. Supply the reviewed
+baseline from the relevant release. The command selects the agent builder from
+the delivery planner and keeps independent provider and Browser Sensor work in
+their own release cycles.
+
+```powershell
+python tools/release/agent_release.py qualify-build --request-id $request `
+  --platform windows --base $qualifiedSource --output-root $newBuildRoot --inputs $buildInputs
+```
+
+The first invocation previews the build. Add `--execute` on the selected x64
+worker to run the builder. Use a new output directory outside the checkout.
+The builder writes `builder.log`. On success `qualification-build.json` pins the
+reserved version, source, baseline and output SHA-256 values. Keep failed logs
+and partial output in the original directory. Preserve already recorded
+candidate bytes for subsequent checks.
+Paths in the local inputs JSON are relative to its own directory unless absolute.
+
+| Selected artifact | Local `--inputs` fields |
+| --- | --- |
+| Windows Full Setup | `endpoint_origin` and `ca_file`. For the existing frozen-runtime path supply `initial_runtime_manifest`, `initial_runtime_stage_root` and `initial_runtime_stage_evidence`. Supply the existing documented approval switches as booleans under `approve_initial_runtime_transition` and `approve_initial_runtime_source_change` where applicable. Signing uses `certificate_thumbprint` and `timestamp_server` on the protected Windows worker. |
+| Windows Core ZIP | `runtime_root` with the authored `endpoint-runtime-contract.json`. |
+| ALT native RPM | No JSON inputs are required for the standard build. The worker builds the paired Core and UserSensor RPMs with native Setup. |
+| ALT Core OTA | `runtime_root` and `channel` (`canary` or `stable`). Supply existing bound compatibility evidence with `--runtime-contract` when available. |
+
+For Core, pass `--observed-launcher` for the source profile being reviewed. A
+launcher below the floor stops execution for that profile. A Core build can
+freeze bytes while delivery awaits profile evidence. The build receipt has no
+publication authority. Proceed with the existing signature gates, exact
+candidate record, native qualification and provider admission. Keep the local
+inputs and build log with the operator.
+
 ### Build the ALT native pair from the bound revision
 
 Check out the `build_revision` returned by `bind-source` on the approved ALT

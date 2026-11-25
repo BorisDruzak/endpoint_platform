@@ -5,10 +5,12 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tarfile
 from uuid import uuid4
+from zipfile import ZipFile
 
 import pytest
 
@@ -227,6 +229,105 @@ def prepare_bound_source(inputs):
     git(repo, "add", "pc_agent/version.py")
     git(repo, "commit", "-m", "test: prepare candidate source")
     return request, value(bind_source(repo, request))
+
+
+def test_qualify_build_plans_the_canonical_native_builder_without_writing(release_inputs):
+    repo, folder = release_inputs
+    baseline = git(repo, "rev-parse", "HEAD")
+    recipe = repo / "packaging/alt/build-rpm.sh"
+    recipe.parent.mkdir(parents=True)
+    recipe.write_text("exit 99\n", encoding="utf-8")
+    git(repo, "add", "packaging/alt/build-rpm.sh")
+    git(repo, "commit", "-m", "test: change ALT native recipe")
+    request, bound = prepare_bound_source(release_inputs)
+    output = folder / "new-build"
+    ledger = git(repo, "ls-remote", "origin", LEDGER)
+    command = [sys.executable, str(CLI), "qualify-build", "--repo-root", str(repo),
+               "--request-id", str(request), "--platform", "alt", "--base", baseline,
+               "--output-root", str(output)]
+
+    preview = value(subprocess.run(command, capture_output=True, text=True, encoding="utf-8", timeout=90))
+    assert preview["state"] == "preview"
+    assert preview["artifact"] == "alt_native_rpm"
+    assert preview["builder"] == "packaging/alt/build-rpm.sh"
+    assert preview["build_revision"] == bound["build_revision"]
+    assert preview["version"] == bound["version"]
+    assert not output.exists()
+    assert git(repo, "ls-remote", "origin", LEDGER) == ledger
+
+    (repo / "unqueued.json").write_text("{}", encoding="utf-8")
+    dirty = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", timeout=90)
+    assert dirty.returncode != 0 and "clean checkout" in dirty.stderr
+    assert not output.exists()
+    (repo / "unqueued.json").unlink()
+    git(repo, "commit", "--allow-empty", "-m", "test: leave the bound checkout")
+    wrong_source = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", timeout=90)
+    assert wrong_source.returncode != 0 and "bound build revision" in wrong_source.stderr
+    assert not output.exists()
+
+
+@pytest.mark.skipif(sys.platform != "win32" or not shutil.which("pwsh"), reason="Windows Core packaging needs PowerShell 7")
+def test_qualify_build_invokes_windows_core_packager_and_freezes_output(release_inputs):
+    repo, folder = release_inputs
+    baseline = git(repo, "rev-parse", "HEAD")
+    relative = "packaging/windows/build-update-zip.ps1"
+    script = repo / relative
+    script.parent.mkdir(parents=True)
+    shutil.copyfile(CLI.parents[2] / relative, script)
+    git(repo, "add", relative)
+    git(repo, "commit", "-m", "test: change the Core ZIP recipe")
+    request, bound = prepare_bound_source(release_inputs)
+    version, revision = bound["version"], bound["build_revision"]
+    runtime = folder / "frozen runtime"
+    runtime.mkdir()
+    contract = {"schema_version": 1, "version": version, "source_revision": revision,
+                "minimum_launcher_version": "3.2.205"}
+    (runtime / "endpoint-runtime-contract.json").write_text(
+        json.dumps(contract, sort_keys=True, separators=(",", ":")), encoding="utf-8",
+    )
+    inputs = folder / "core-inputs.json"
+    write(inputs, {"runtime_root": runtime.name})
+    output = folder / "build result"
+    command = [sys.executable, str(CLI), "qualify-build", "--repo-root", str(repo),
+               "--request-id", str(request), "--platform", "windows", "--base", baseline,
+               "--output-root", str(output), "--inputs", str(inputs), "--execute"]
+    low = subprocess.run(command + ["--observed-launcher", "3.2.204"], capture_output=True,
+                         text=True, encoding="utf-8", timeout=90)
+    assert low.returncode != 0 and "below the candidate minimum" in low.stderr
+    assert not output.exists()
+
+    valid = command + ["--observed-launcher", "3.2.205"]
+    failed_output = folder / "failed"
+    failed = valid.copy()
+    failed[failed.index(str(output))] = str(failed_output)
+    error = subprocess.run(failed, capture_output=True, text=True, encoding="utf-8", timeout=90)
+    assert error.returncode != 0 and "builder exited" in error.stderr
+    assert "pc_agent.exe" in (failed_output / "builder.log").read_text(encoding="utf-8")
+    assert not (failed_output / "qualification-build.json").exists()
+
+    compile_script = folder / "compile.ps1"
+    compile_script.write_text(
+        'param([string]$Destination)\n$ErrorActionPreference = "Stop"\n'
+        "Add-Type -OutputType ConsoleApplication -OutputAssembly $Destination -TypeDefinition @'\n"
+        'public static class VersionProbe { public static void Main(string[] args) { '
+        f'System.Console.WriteLine("{version}"); }} }}\n'
+        "'@\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(compile_script),
+                    str(runtime / "pc_agent.exe")], check=True, capture_output=True, timeout=30)
+    before = git(repo, "ls-remote", "origin", LEDGER)
+    result = value(subprocess.run(valid, capture_output=True, text=True, encoding="utf-8", timeout=90))
+    assert result["state"] == "built" and result["artifact"] == "windows_core_zip"
+    record, = result["outputs"]
+    archive = output / record["path"]
+    assert hashlib.sha256(archive.read_bytes()).hexdigest() == record["sha256"]
+    assert json.loads((output / "qualification-build.json").read_bytes()) == result
+    with ZipFile(archive) as zip_file:
+        assert json.loads(zip_file.read("endpoint-runtime-contract.json")) == contract
+    assert git(repo, "ls-remote", "origin", LEDGER) == before
+    assert subprocess.run(valid, capture_output=True, timeout=90).returncode != 0
+    assert hashlib.sha256(archive.read_bytes()).hexdigest() == record["sha256"]
 
 
 def windows_candidate(folder, version, revision, setup_content=b"setup bytes"):
