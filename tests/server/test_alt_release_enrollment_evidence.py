@@ -72,6 +72,7 @@ async def test_alt_qualification_needs_causal_ack_matching_wss_and_interactive_o
     installed = now - timedelta(seconds=15)
     connected = now - timedelta(seconds=10)
     observed = now - timedelta(seconds=5)
+    baseline_at = connected - timedelta(seconds=2)
     version = "3.2.274"
     core = f"endpoint-agent-{version}-alt6.x86_64"
     sensor = f"endpoint-agent-user-sensor-{version}-alt6.x86_64"
@@ -140,14 +141,16 @@ async def test_alt_qualification_needs_causal_ack_matching_wss_and_interactive_o
         delivery = CommandDelivery(id=uuid4(), command_id=command.id, device_session_id=connection.id,
                                    delivery_identifier="baseline-delivery", status="acknowledged")
         result = CommandResult(id=uuid4(), command_id=command.id, delivery_id=delivery.id,
-                               result_identifier="baseline-result", completed_at=observed, status="succeeded")
+                               result_identifier="baseline-result", created_at=observed, completed_at=baseline_at,
+                               status="succeeded")
         collection = ContextCollection(id=uuid4(), device_id=device.id, profile="baseline_v1", requested_by="fixture",
                                        idempotency_key="baseline", status="completed", command_id=command.id,
-                                       command_result_id=result.id, requested_at=connected, completed_at=observed)
+                                       command_result_id=result.id, requested_at=connected, result_received_at=baseline_at,
+                                       completed_at=baseline_at)
         baseline = json.loads(Path("tests/fixtures/context/alt/baseline_v1.json").read_bytes())
-        baseline["collected_at"] = observed.isoformat()
+        baseline["collected_at"] = baseline_at.isoformat()
         snapshot = ContextSnapshot(id=uuid4(), collection_id=collection.id, device_id=device.id, profile="baseline_v1",
-                                   collected_at=observed, normalized_projection=baseline)
+                                   collected_at=baseline_at, normalized_projection=baseline)
         current = ContextCurrent(device_id=device.id, profile="baseline_v1", snapshot_id=snapshot.id, updated_at=observed)
         session.add_all((instance, command))
         await session.flush()

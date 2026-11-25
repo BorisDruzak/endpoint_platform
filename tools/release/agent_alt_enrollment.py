@@ -108,6 +108,10 @@ async def _fresh_connection(session, device_id, version, installed_at, now):
 
 
 async def _baseline(session, device_id, connection, now):
+    # The result row's creation time is server-owned. Collection completion
+    # and snapshot timestamps can both come from the device clock.
+    session_started = _utc(connection.created_at)
+    clock_slack = timedelta(seconds=30)
     snapshot = await session.scalar(
         select(ContextSnapshot)
         .join(ContextCurrent, ContextCurrent.snapshot_id == ContextSnapshot.id)
@@ -122,7 +126,8 @@ async def _baseline(session, device_id, connection, now):
                Command.device_id == device_id, Command.command_kind == "context.baseline.collect",
                CommandResult.status == "succeeded", CommandDelivery.command_id == Command.id,
                CommandDelivery.device_session_id == connection.id,
-               ContextSnapshot.collected_at.between(connection.created_at, now))
+               CommandResult.created_at.between(session_started, now),
+               ContextSnapshot.collected_at.between(session_started - clock_slack, now + clock_slack))
     )
     if snapshot is None:
         return None
