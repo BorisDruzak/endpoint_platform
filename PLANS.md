@@ -46,6 +46,11 @@ upgrade paths that must run for each qualified artifact.
   the staging failure exercise on ALT 11.4. `verify-alt-download` checked all
   seven served files over an isolated HTTPS endpoint against the same recorded
   kit. Bind public activation to exact Lab acceptance and scoped authority.
+  `qualify-alt-enrollment` checks first native enrollment against the bound RPM
+  registry, consumed claim, causal ACK, fresh WSS, baseline and interactive
+  activity on the Lab provider. Verified with the original signed .274 kit and
+  synthetic observation scenarios on isolated migrated PostgreSQL. The actual
+  factory .274 path still needs accepted interactive activity in a logged-in session.
   Campaign scope and revocation remain open.
 - EP-RE-03 has a read-only [compatibility planner](tools/release/CODEMAP.md#plan-native-qualification)
   and provider snapshot for exact native events, active operations, enrollment

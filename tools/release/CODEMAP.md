@@ -365,6 +365,27 @@ request ID and observed check time. It fails on redirects, TLS name or
 authority failure and any different byte sequence. Complete the additional
 download-path checks from the [distribution runbook](../../deploy/server/ALT_DISTRIBUTION.md).
 
+### Check first ALT enrollment on the Lab provider
+
+On the protected Linux publisher, set `DATABASE_URL` for the selected Lab
+provider. Use the recorded kit, the exact enrollment request and the
+independently confirmed Lab device ID.
+
+```bash
+python tools/release/agent_release.py qualify-alt-enrollment --request-id "$request" \
+  --artifacts-dir "$sealed_kit" --enrollment-request-id "$enrollment_id" --device-id "$lab_device_id"
+```
+
+The command verifies the signed kit and checks the immutable registered pair,
+consumed claim, active credential and exact first installation ACK. It requires
+one fresh matching WSS and an accepted ALT baseline collected on that session. The server must
+have received a fresh interactive activity sample after the session opened.
+It prints the kit and evidence IDs and omits user activity details. A missing
+gate returns a structured `hold` report and exits with code 1. PostgreSQL is
+read in a repeatable-read, read-only transaction. The report covers first
+enrollment observations only. Release authorization, upgrade paths and
+enrollment campaign changes follow their existing workflows.
+
 ## Plan native qualification
 
 Capture a fresh provider snapshot using `agent_catalog_snapshot.sql`. Keep this

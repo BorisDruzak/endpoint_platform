@@ -192,6 +192,10 @@ def main() -> None:
     agent_alt_download.add_arguments(alt_download)
     alt_https = commands.add_parser("verify-alt-download", help="check exact ALT download bytes over trusted HTTPS")
     agent_alt_download.add_https_arguments(alt_https)
+    alt_enrollment = commands.add_parser("qualify-alt-enrollment", help="inspect exact first-install Lab evidence")
+    agent_alt_native.add_kit_arguments(alt_enrollment)
+    alt_enrollment.add_argument("--enrollment-request-id", type=UUID, required=True)
+    alt_enrollment.add_argument("--device-id", type=UUID, required=True)
     candidate = commands.add_parser("record-candidate", help="pin native candidate bytes to a reservation")
     candidate.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
     candidate.add_argument("--request-id", required=True, type=UUID)
@@ -226,6 +230,10 @@ def main() -> None:
             result = agent_alt_download.prepare(args)
         elif args.command == "verify-alt-download":
             result = agent_alt_download.verify_https(args)
+        elif args.command == "qualify-alt-enrollment":
+            from tools.release.agent_alt_enrollment import qualify
+
+            result = qualify(args)
         elif args.command == "record-candidate":
             result = agent_reservations.record_candidate(args)
         else:
@@ -236,6 +244,8 @@ def main() -> None:
         print(compatibility_matrix.brief(result))
     else:
         print(json.dumps(result, ensure_ascii=True, indent=2, sort_keys=True))
+    if args.command == "qualify-alt-enrollment" and result["state"] == "hold":
+        sys.exit(1)
 
 
 if __name__ == "__main__":

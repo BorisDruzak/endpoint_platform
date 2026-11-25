@@ -138,6 +138,22 @@ GET для всех семи файлов комплекта 3.2.274. Хэши �
 несовпадение имени сертификата и неизвестный CA. Сервер слушал loopback гостя.
 [Квитанция HTTPS](C:/endpoint-platform-wix-build/release-native-publisher-20261125/verified-download-https.json) · [Отрицательные сценарии](C:/endpoint-platform-wix-build/release-native-publisher-20261125/download-https-fixture.json)
 
+## Проверка допуска первой регистрации ALT
+
+`qualify-alt-enrollment` проверил оригинальный подписанный комплект 3.2.274
+и его пару RPM в изолированном PostgreSQL со схемой
+`0057_stability_cups_merge` на ALT 11.4. Наблюдения в этой БД сгенерированы
+для испытания. Сценарии без известной заявки, без интерактивного образца и
+с закрытой WSS вернули `hold`. После приёма тестового образца команда вернула
+`accepted` с тем же SHA‑256 комплекта и идентификатором native ACK. Статус
+заявки и аудит совпали до и после чтения. Неверный ключ издателя отклонён.
+[Квитанция PostgreSQL](C:/endpoint-platform-wix-build/release-native-publisher-20261125/qualification-final-proof.json)
+
+В реальном прогоне на заводской ALT 3.2.274 подтверждены native0, ACK1, WSS
+и baseline. Для допуска первой регистрации по этой проверке требуется
+ещё один прогон с вошедшим пользователем и принятым образцом активности.
+[Квитанция реальной установки](2026-11-25-alt274-first-network-enrollment.md)
+
 ## Проверка публикации Windows
 
 На ревизии `9cd2953feb3c0515eb1102791dea746e598f3f82` прошли hosted-гейты

@@ -546,6 +546,11 @@ def test_record_alt_candidate_verifies_archive_members_against_the_manifest(rele
     changed = subprocess.run(prepare, capture_output=True, text=True, encoding="utf-8", timeout=90)
     assert changed.returncode != 0 and "differs from the recorded candidate" in changed.stderr
     assert not list(incoming.iterdir())
+    acceptance = [sys.executable, str(CLI), "qualify-alt-enrollment", "--repo-root", str(repo),
+                  "--request-id", str(request), "--artifacts-dir", str(folder),
+                  "--enrollment-request-id", str(uuid4()), "--device-id", str(uuid4())]
+    changed = subprocess.run(acceptance, capture_output=True, text=True, encoding="utf-8", timeout=90)
+    assert changed.returncode != 0 and "differs from the recorded candidate" in changed.stderr
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Native download staging uses Linux owner permissions")
