@@ -212,7 +212,20 @@ sys.path.insert(0,sys.argv[2])
 from pathlib import Path
 from pc_agent.platform.windows import support_access_os as fod,support_access_native as native
 base=Path(sys.argv[1]);metadata=json.loads((base/'metadata.json').read_bytes())
-import win32api,win32job
+import subprocess,pywintypes,win32api,win32job,win32process
+create_process=win32process.CreateProcess
+def observe_child(*arguments):
+ flags=arguments[5]
+ try:
+  result=create_process(*arguments)
+ except pywintypes.error as error:
+  if flags & subprocess.CREATE_BREAKAWAY_FROM_JOB and error.winerror==5:
+   (base/'breakaway-blocked').write_text('access_denied')
+  raise
+ if flags & subprocess.CREATE_BREAKAWAY_FROM_JOB and win32job.IsProcessInJob(result[0],None):
+  (base/'breakaway-blocked').write_text('child_still_in_job')
+ return result
+win32process.CreateProcess=observe_child
 (base/'job-facts').write_text(str(win32job.IsProcessInJob(win32api.GetCurrentProcess(),None))+' '+str(win32job.QueryInformationJobObject(None,win32job.JobObjectExtendedLimitInformation)))
 native.assert_namespace=lambda path:None if path.is_relative_to(base) else (_ for _ in ()).throw(ValueError('outside fixture'))
 ops=fod.WindowsFOD(base/'private');ops._metadata=metadata
@@ -226,6 +239,7 @@ fod.run_fixed_powershell=execute
 try:ops.install(metadata['capabilities'])
 except Exception as error:(base/'launch-failed').write_text(repr(error))
 ''')
+    ambient_job = win32job.IsProcessInJob(win32api.GetCurrentProcess(), None)
     jobs=[];process=thread=None
     try:
         for _ in range(2):
@@ -242,9 +256,15 @@ except Exception as error:(base/'launch-failed').write_text(repr(error))
         win32process.ResumeThread(thread)
         deadline=time.monotonic()+15
         while not (root/'entered').exists() and not (tmp_path/'launch-failed').exists() and time.monotonic()<deadline:time.sleep(.05)
-        if not breakaway_allowed:
+        blocked = tmp_path/'breakaway-blocked'
+        # An outer runner Job may prohibit breakaway even when both fixture
+        # Jobs permit it. Accept only observed refusal before any servicing.
+        if not breakaway_allowed or (ambient_job and blocked.is_file()):
+            if breakaway_allowed:
+                assert blocked.read_text() in {'access_denied', 'child_still_in_job'}
             assert (tmp_path/'launch-failed').exists()
             assert not (root/'baseline.json').exists() and not (root/'entered').exists()
+            assert not (root/'completion.json').exists()
             return
         assert (root/'entered').exists(), 'isolated production Add did not start'
         with pytest.raises(ValueError,match='support_dependency_recovery_required'):
