@@ -157,3 +157,14 @@ def test_hidden_import_and_browser_package_have_distinct_owners(source):
     assert windows['artifacts'] == ['browser_sensor', 'windows_full_setup']
     assert windows['changed_components']['windows_foundation'] == ['pc_agent/logic/native_adapter.py']
     assert alt['artifacts'] == ['browser_sensor']
+
+
+def test_linux_archive_builder_is_shared_with_alt_rpm(source):
+    root, _ = source
+    write(root, 'tools/build_linux_agent.py', 'archive_format = 2\n')
+    target = commit(root)
+    alt = plan(source, target, 'alt')
+    assert alt['artifacts'] == ['alt_native_rpm']
+    assert set(alt['changed_components']) == {'alt_core', 'alt_native'}
+    assert alt['unclassified'] == []
+    assert plan(source, target)['artifacts'] == []
