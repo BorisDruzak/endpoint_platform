@@ -20,10 +20,13 @@ offline OpenSSH Server media. The first signed 3.2.205 Setup on Evaluation
 build 26100.9457 exited 21 before native acceptance and its protected MSI
 fence and exact cache remain in a stopped snapshot. The DEVELOP wrapper
 validates recovery media before native preparation. A separate Evaluation
-26100.9457 VM completed offline servicing with OpenSSH provisioned. DISM
-required both checkpoint and target MSUs, and the guest confirmed the new
-build and settled CBS after restart. Network results for this profile and
-the separate Enterprise LTSC profile remain open.
+26100.9457 VM completed offline servicing with OpenSSH provisioned and both
+checkpoint and target MSUs. Exact factory 3.2.205 reached native ACK1 in 230
+seconds. The direct 3.2.276 transition took 711 seconds, preserved identity
+and session, and received Lab qualification after ACK2, fresh WSS and
+UserSensor, an accepted health command and 183 seconds of observation.
+Support 1.1.9 reported healthy on its first install attempt in that trial.
+The separate Enterprise LTSC network profile remains open.
 Signed ALT 3.2.274 passed native factory
 registration with ACK1, fresh WSS, accepted baseline and two real samples
 from a logged-in graphical session. The provider request remained
