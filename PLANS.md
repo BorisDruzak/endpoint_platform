@@ -59,8 +59,10 @@ upgrade paths that must run for each qualified artifact.
   The live check recorded an expiring qualification in an isolated Git ledger
   and replayed the same ID. The cold run also proved that the baseline gate
   uses the server-stored command result and accepts bounded device clock skew.
-  Preserve exact scope when applying the evidence. Campaign scope and
-  revocation remain open.
+  The activation replay passed on real Nginx with the byte-identical
+  repository snippet in an isolated mount namespace. Add an explicit,
+  scope-reviewed grant to one existing ALT native campaign under the
+  canonical campaign lock. Revocation remains open.
 - EP-RE-03 has a read-only [compatibility planner](tools/release/CODEMAP.md#plan-native-qualification)
   and provider snapshot for exact native events, active operations, enrollment
   and catalog exposure. The planner binds Console preview to the exact release

@@ -204,6 +204,25 @@ ALT 3.2.274. В этом прогоне клиентское время сбор
 `cd72477bf879e40df8d6725059f37b418c60f0113d9c9fe63d252bee43fbc0c9`.
 [Архив испытания](C:/endpoint-platform-wix-build/alt274-qualified-publication-20261125/alt274-qualified-publication-evidence.zip)
 
+### Проверка штатного фрагмента Nginx
+
+Тот же подписанный комплект и действующая Lab-квалификация прошли выдачу
+через Nginx 1.22.1 на `127.0.0.1`. Использован побайтно совпадающий фрагмент
+`deploy/server/endpoint-alt-distribution.nginx.conf`, SHA‑256
+`785dd31be56451edb6165203c6cdc1082ba2b600e7dfa0575982cd1af25b01ad`.
+В отдельном пространстве монтирования сохранился канонический путь alias.
+Пакет Nginx извлечён для опыта без установки. Его SHA‑256 сверили с
+метаданными Debian. [Пакет Nginx в Debian](https://packages.debian.org/bookworm/nginx)
+
+`nginx -t` и проверка восьми файлов через HTTPS прошли. Рабочий процесс
+работал с эффективным UID 65534. До открытия выдачи `HEAD` возвращал `404`.
+Индекс каталога, `OPTIONS`, `PUT` и чтение символической ссылки вернули `403`.
+Неверный CA во время первой публикации вернул каталог к состоянию `404`.
+Точный повтор сохранил inode каталога. Неверный CA при повторной проверке
+сохранил прежний каталог с доступными байтами. Временный Nginx и его
+пространство монтирования закрыты.
+[Квитанция Nginx](C:/endpoint-platform-wix-build/alt274-nginx-publication-20261125/nginx-alt-proof.json) · [Файлы выдачи](C:/endpoint-platform-wix-build/alt274-nginx-publication-20261125/nginx-alt-receipt.json)
+
 ## Проверка публикации Windows
 
 На ревизии `9cd2953feb3c0515eb1102791dea746e598f3f82` прошли hosted-гейты
