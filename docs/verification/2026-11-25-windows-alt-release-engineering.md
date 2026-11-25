@@ -35,13 +35,19 @@ Windows Full Setup revision 21 остаётся на паузе с целью .2
   build 19045 в отдельной связке Windows и Gateway с точным снимком регистрации.
   Отдельный обрыв во время MSI на Windows 11 LTSC 26100.9457 подтвердил
   код 21, сохранение незавершённой операции и локальный запуск Support.
-  Восстановление Core и сетевой переход Windows 11 остаются открытыми.
-  [Квитанция Windows](../releases/windows-3.2.276-candidate.json) · [Сетевой переход Windows 10](2026-11-25-windows10-205-to-276-network.md) · [Обрыв MSI на Windows 11](2026-11-25-windows11-205-to-276-active-msi.md)
+  Сетевой переход .205 → .276 прошёл отдельную квалификацию на Enterprise
+  LTSC Evaluation 26100.1742. Восстановление Core и сетевое испытание
+  профилей 26100.9457 остаются открытыми.
+  [Квитанция Windows](../releases/windows-3.2.276-candidate.json) · [Сетевой переход Windows 10](2026-11-25-windows10-205-to-276-network.md) · [Windows 11 LTSC Evaluation](2026-11-25-windows11-ltsc-evaluation-lab.md) · [Обрыв MSI на Windows 11](2026-11-25-windows11-205-to-276-active-msi.md)
 - **ALT 3.2.274.** Хэши комплекта, манифеста и отсоединённых подписей совпали
   с квитанцией. GnuPG проверил обе подписи и точный отпечаток издателя.
   Первая сетевая регистрация заводской ALT Workstation K 11.4 прошла до
   native ACK1, свежей WSS и baseline. Статус заявки остался
-  `device_registered`. [Квитанция ALT](../releases/alt-3.2.274-candidate.json) · [Испытание первой регистрации](2026-11-25-alt274-first-network-enrollment.md)
+  `device_registered`. У того же подписанного комплекта есть отдельные
+  результаты прямых переходов с .183, .265 и .270 и штатного возврата.
+  Комплект собран до появления CUPS actions. Для этой функции потребуется
+  отдельная квалификация сборки и сохранения журнала при обновлении и откате.
+  [Квитанция ALT](../releases/alt-3.2.274-candidate.json) · [Испытание первой регистрации](2026-11-25-alt274-first-network-enrollment.md) · [Результаты нативных переходов](../releases/alt-3.2.274-lab.ru.md)
 
 ## Результат исправления ALT Setup
 
