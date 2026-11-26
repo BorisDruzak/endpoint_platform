@@ -156,10 +156,8 @@ class NativeCoordinator:
         self.journal.update_durability(operation['id'], attempt=attempt, complete=True)
 
 
-def verify_pair(core, sensor, verifier):
-    """Return the native source and its Core proof for Setup binding."""
-    left = verifier(core)
-    right = verifier(sensor) if sensor else None
+def bind_verified_pair(left, right=None):
+    """Bind the retained Core and optional UserSensor to their shared signed source."""
     if left.package != 'endpoint-agent' or (right and (right.package != 'endpoint-agent-user-sensor'
         or (left.version, left.source_revision, left.frozen_manifest_sha256) !=
            (right.version, right.source_revision, right.frozen_manifest_sha256))):
@@ -723,12 +721,15 @@ def _retain_verified_copy(source, destination, digest, *, mode, conflict):
                 raise InstallationPending(conflict)
     else:
         temporary = destination.parent / ('.retain-' + uuid4().hex)
-        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        fd = os.open(temporary, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         try:
-            with os.fdopen(fd, 'wb') as target, source.open('rb') as original:
+            with os.fdopen(fd, 'w+b') as target, source.open('rb') as original:
                 while chunk := original.read(1024 * 1024):
                     target.write(chunk)
                 target.flush()
+                target.seek(0)
+                if hashlib.file_digest(target, 'sha256').hexdigest() != digest:
+                    raise InstallationPending(conflict)
                 os.chmod(temporary, mode)
                 os.fsync(target.fileno())
             os.replace(temporary, destination)
@@ -739,15 +740,18 @@ def _retain_verified_copy(source, destination, digest, *, mode, conflict):
 
 def retain_inputs(paths, store, verifier):
     """Keep exact signed native inputs outside removed/OTA-owned payload."""
-    result = []
+    result, proofs = [], []
     for original in paths:
         with snapshot(original) as (private, digest):
-            verifier(private)
+            proof = verifier(private)
+            if proof.sha256 != digest:
+                raise InstallationPending('native_input_proof_mismatch')
             destination = store.paths.private / (digest + '.rpm')
             _retain_verified_copy(private, destination, digest, mode=0o400,
                                   conflict='retained_archive_conflict')
             result.append(destination)
-    return result
+            proofs.append(proof)
+    return result, proofs
 
 
 def retain_executor(store):
@@ -910,8 +914,9 @@ def main(argv=None):
                     raise InstallationPending('exact_native_input_required')
                 verifier = NativeRPMVerifier(args.public_key, legacy_manifest=args.legacy_kit_manifest,
                     legacy_signature=args.legacy_kit_signature, legacy_core=args.core_rpm)
-                paths = retain_inputs([args.core_rpm] + ([args.user_sensor_rpm] if args.user_sensor_rpm else []), store, verifier)
-                source, core_proof = verify_pair(paths[0], paths[1] if len(paths) == 2 else None, verifier)
+                inputs = [args.core_rpm] + ([args.user_sensor_rpm] if args.user_sensor_rpm else [])
+                paths, proofs = retain_inputs(inputs, store, verifier)
+                source, core_proof = bind_verified_pair(*proofs)
                 assert_executor_binding(source, core_proof, store.json('executor.json'))
                 if args.action == 'remove' and not backend.installed_packages_match('install', source):
                     raise InstallationPending('remove_source_not_installed')

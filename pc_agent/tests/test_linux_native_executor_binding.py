@@ -64,7 +64,7 @@ def test_cli_refuses_mismatched_modern_source_before_any_native_work(monkeypatch
     monkeypatch.setattr(c,'os',SimpleNamespace(name='posix',geteuid=lambda:0))
     monkeypatch.setattr(c,'InstallationStore',lambda:store)
     monkeypatch.setattr(c,'retain_executor',lambda *_:None)
-    monkeypatch.setattr(c,'retain_inputs',lambda paths,*_:paths)
+    monkeypatch.setattr(c,'retain_inputs',lambda paths,_store,verify:(paths, [verify(path) for path in paths]))
     monkeypatch.setattr(c,'NativeRPMVerifier',lambda *_args,**_kw:lambda _:proof(version))
     monkeypatch.setattr(n,'canonical_identity',lambda:(None,None))
     invoked = []
@@ -75,8 +75,8 @@ def test_cli_refuses_mismatched_modern_source_before_any_native_work(monkeypatch
 
 
 @pytest.mark.parametrize('with_sensor', [False, True])
-def test_cli_uses_verified_core_proof_from_retained_pair(monkeypatch, with_sensor):
-    from contextlib import nullcontext
+def test_cli_verifies_each_captured_rpm_once_before_using_retained_pair(monkeypatch, with_sensor):
+    from contextlib import contextmanager, nullcontext
     from pathlib import Path
     from types import SimpleNamespace
     from pc_agent.platform.linux import installation_coordinator as c, installation_notification as n
@@ -92,13 +92,20 @@ def test_cli_uses_verified_core_proof_from_retained_pair(monkeypatch, with_senso
     verified = []
     operated = []
     paths = [Path('core.rpm')] + ([Path('sensor.rpm')] if with_sensor else [])
+    proofs = dict(zip(paths, [core, sensor]))
+    store.paths = SimpleNamespace(private=Path("protected"))
+    retained_paths = [store.paths.private / (proofs[path].sha256 + ".rpm") for path in paths]
     arguments = ['upgrade', '--core-rpm', str(paths[0])]
     if with_sensor:
         arguments.extend(['--user-sensor-rpm', str(paths[1])])
 
     def verify(path):
         verified.append(path)
-        return core if path == paths[0] else sensor
+        return proofs[path]
+
+    @contextmanager
+    def capture(path):
+        yield path, proofs[path].sha256
 
     def operate(_self, action, source, retained, *, device_id):
         operated.append((action, source, retained, device_id))
@@ -107,7 +114,8 @@ def test_cli_uses_verified_core_proof_from_retained_pair(monkeypatch, with_senso
     monkeypatch.setattr(c, 'os', SimpleNamespace(name='posix', geteuid=lambda: 0))
     monkeypatch.setattr(c, 'InstallationStore', lambda: store)
     monkeypatch.setattr(c, 'retain_executor', lambda *_: None)
-    monkeypatch.setattr(c, 'retain_inputs', lambda inputs, *_: inputs)
+    monkeypatch.setattr(c, 'snapshot', capture)
+    monkeypatch.setattr(c, '_retain_verified_copy', lambda *_args, **_kwargs: None)
     monkeypatch.setattr(c, 'NativeRPMVerifier', lambda *_args, **_kwargs: verify)
     monkeypatch.setattr(n, 'canonical_identity', lambda: (None, None))
     monkeypatch.setattr(c.NativeCoordinator, 'operate', operate)
@@ -115,7 +123,7 @@ def test_cli_uses_verified_core_proof_from_retained_pair(monkeypatch, with_senso
     assert c.main(arguments) == 0
     assert operated == [('upgrade', binding(core) | {
         'user_sensor_nevra': sensor.nevra if with_sensor else None,
-        'user_sensor_rpm_sha256': sensor.sha256 if with_sensor else None}, paths, None)]
+        'user_sensor_rpm_sha256': sensor.sha256 if with_sensor else None}, retained_paths, None)]
     assert verified == paths
 
 
@@ -265,7 +273,8 @@ def test_interrupted_retention_leaves_no_final_file_and_allows_retry(tmp_path, m
 
     def retain():
         if input_kind == "rpm":
-            assert coordinator.retain_inputs([original], store, lambda _source: None) == [expected]
+            native = replace(proof(), sha256=digest)
+            assert coordinator.retain_inputs([original], store, lambda _source: native) == ([expected], [native])
         else:
             coordinator.retain_executor(store)
 
@@ -290,3 +299,55 @@ def test_interrupted_retention_leaves_no_final_file_and_allows_retry(tmp_path, m
     retain()
     assert expected.read_bytes() == payload
     assert reached_exec == ([str(expected)] if input_kind == "executor" else [])
+
+
+def test_retention_refuses_written_bytes_that_differ_from_the_verified_input(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    import hashlib
+    import os
+
+    from pc_agent.platform.linux import installation_coordinator as coordinator
+
+    original, destination = tmp_path / "original.rpm", tmp_path / "retained.rpm"
+    original.write_bytes(b"verified payload")
+    digest = hashlib.sha256(original.read_bytes()).hexdigest()
+    fdopen = os.fdopen
+
+    class CorruptCopy:
+        def __init__(self, stream):
+            self.stream = stream
+
+        def __getattr__(self, name):
+            return getattr(self.stream, name)
+
+        def write(self, data):
+            return self.stream.write(b"x" * len(data))
+
+    @contextmanager
+    def corrupt_stream(fd, mode):
+        with fdopen(fd, mode) as stream:
+            yield CorruptCopy(stream)
+
+    monkeypatch.setattr(os, "fdopen", corrupt_stream)
+    monkeypatch.setattr(os, "O_NOFOLLOW", getattr(os, "O_NOFOLLOW", 0), raising=False)
+    monkeypatch.setattr(coordinator, "_sync_directory", lambda _path: None)
+    with pytest.raises(InstallationPending, match="retained_archive_conflict"):
+        coordinator._retain_verified_copy(original, destination, digest, mode=0o400,
+                                          conflict="retained_archive_conflict")
+    assert list(tmp_path.iterdir()) == [original]
+
+
+def test_retention_requires_proof_for_the_captured_rpm_digest(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+
+    from pc_agent.platform.linux import installation_coordinator as coordinator
+
+    @contextmanager
+    def snapshot(path):
+        yield path, "f" * 64
+
+    monkeypatch.setattr(coordinator, "snapshot", snapshot)
+    monkeypatch.setattr(coordinator, "_retain_verified_copy", lambda *_args, **_kwargs:
+                        pytest.fail("a mismatched proof reached the retained archive"))
+    with pytest.raises(InstallationPending, match="native_input_proof_mismatch"):
+        coordinator.retain_inputs([tmp_path / "vendor.rpm"], None, lambda _: proof())

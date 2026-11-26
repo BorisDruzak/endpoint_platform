@@ -33,8 +33,11 @@ upgrade reconciliation. A missing or unusable runtime selection keeps the
 recorded native result pending and withholds enrollment. Remove verifies the
 installed RPM source before erase and the package absence after erase.
 Before RPM runs, verified retained packages and the frozen Setup executor are
-written to temporary siblings under the installation lock. Setup flushes the
-file, atomically publishes its digest-named copy and flushes the directory.
+written to temporary siblings under the installation lock. Setup verifies the
+written digest, flushes the file, atomically publishes its digest-named copy
+and flushes the directory. Existing copies receive a fresh digest check.
+The native owner binds the recorded RPM verification proofs to the retained
+copies and checks the shared source before invoking RPM.
 A failed write leaves the final name available for retry. Existing conflicting
 copies and transaction ownership are preserved.
 
