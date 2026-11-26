@@ -1,4 +1,4 @@
-"""Plan Windows and ALT delivery from the inputs of the existing builders."""
+"""Plan agent and service delivery from the inputs of the existing builders."""
 
 from argparse import ArgumentParser
 import ast
@@ -21,6 +21,8 @@ SPEC_GROUPS = {
     'alt_native': ('launcher_linux', 'linux_setup'),
     'alt_support': ('linux_support_access',),
 }
+DEB_PLATFORMS = ('ubuntu', 'debian')
+DEB_DELIVERY_COMPONENTS = ('deb_core', 'deb_package', 'apt_repository')
 PACKAGED_INPUTS = {
     'windows_foundation': ('packaging/windows/', 'requirements/build-windows.txt', 'requirements/agent-core.txt'),
     'windows_observer': ('packaging/windows/EndpointSetupUpdater.ps1', 'tools/canary/setup_client_payload.py'),
@@ -34,11 +36,22 @@ PACKAGED_INPUTS = {
                    'tools/build_linux_agent.py', 'tools/build_alt_native_kit.py', 'tools/build_alt_pilot_kit.py',
                    'tools/release/freeze_linux_native_identity.py', 'tools/release/linux_native_verifier.py',
                    'requirements/build-linux.txt', 'requirements/agent-core.txt', 'browser_sensor/extension-id.txt'),
+    'deb_core': ('requirements/build-linux.txt', 'requirements/agent-core.txt'),
+    'deb_package': ('packaging/ubuntu/', 'tools/build_ubuntu_agent_deb.py'),
+    'debian_package': ('packaging/debian/',),
+    'apt_repository': ('tools/release/build_ubuntu_apt_repository.py', 'tools/release/check_endpoint_apt_expiry.sh',
+                       'tools/release/prepare_endpoint_apt_windows.ps1', 'tools/release/prepare_external_apt_renewal.py',
+                       'tools/release/sign_endpoint_apt_release.ps1', 'deploy/server/endpoint-apt-expiry.service',
+                       'deploy/server/endpoint-apt-expiry.timer', 'deploy/server/endpoint-apt-expiry.zabbix.yaml',
+                       'deploy/server/endpoint-apt-prepare-renewal@.service',
+                       'deploy/server/endpoint-apt-prepare-renewal@.timer'),
+    'python_sdk': ('sdk/python/',),
     'browser_sensor': ('browser_sensor/', 'tools/register_browser_sensor_release.py', 'requirements/browser-sensor-release.txt'),
     'provider': ('endpoint_server/', 'deploy/server/', 'webapp/', 'alembic.ini', 'endpoint_contracts/', 'contracts/'),
 }
 REVIEW_ONLY = ('docs/', 'tests/', 'pc_agent/docs/', 'pc_agent/tests/', 'tools/release/', 'tools/contracts/',
-               'tools/register_windows_setup_release.py', '.github/', 'PLANS.md', 'AGENTS.md', 'README.md',
+               'tools/keycloak/', 'tools/provision_ubuntu_server_pilot.py', 'tools/provision_ubuntu_server_pilot.sh',
+               'tools/ubuntu_console_enrollment.py', 'tools/register_windows_setup_release.py', '.github/', 'PLANS.md', 'AGENTS.md', 'README.md',
                'pc_agent/AGENTS.md', 'pytest.ini', 'requirements-ci.txt',
                'tools/canary/install_alt_factory_offline.py', 'tools/canary/observe_alt_factory_offline.py',
                'tools/canary/run_alt_factory_offline.py', 'tools/canary/staged_windows_update.py')
@@ -235,6 +248,11 @@ def plan(root, base, target, platform, *, contract=None, observed_launcher=None)
     reachable = {name: left[name] | right[name] for name in SPEC_GROUPS}
     version, normalized = _version_source(after[VERSION_FILE])
     _, old_normalized = _version_source(before[VERSION_FILE])
+    deb = platform in DEB_PLATFORMS
+    if deb and (contract is not None or observed_launcher is not None):
+        raise ValueError('A Core OTA contract does not apply to a native DEB package')
+    if deb:
+        reachable['deb_core'] = reachable['alt_core']
     selected_prefix = platform + '_'
     opposite_platform = 'linux' if platform == 'windows' else 'windows'
     components = defaultdict(list)
@@ -248,26 +266,38 @@ def plan(root, base, target, platform, *, contract=None, observed_launcher=None)
         owners.update(name for name, patterns in PACKAGED_INPUTS.items() if _matches(path, patterns))
         if path == 'packaging/windows/build-update-zip.ps1':
             owners.discard('windows_foundation')
-        relevant = {name for name in owners if name.startswith(selected_prefix) or name in ('provider', 'browser_sensor')}
+        if 'apt_repository' in owners:
+            owners.discard('provider')
+        if platform == 'debian' and 'debian_package' in owners:
+            owners.add('deb_package')
+        relevant = {name for name in owners if name in ('provider', 'browser_sensor', 'python_sdk')
+                    or (name in DEB_DELIVERY_COMPONENTS if deb else name.startswith(selected_prefix))}
         for name in sorted(relevant):
             components[name].append(path)
         if not owners and not _matches(path, REVIEW_ONLY):
             unclassified.append(path)
 
-    native = {'windows': 'windows_full_setup', 'alt': 'alt_native_rpm'}[platform]
-    core = {'windows': 'windows_core_zip', 'alt': 'alt_core_ota'}[platform]
     artifacts = [name for name in ('provider', 'browser_sensor') if name in components]
     reasons = {name: [name] for name in artifacts}
     compatibility = None
-    native_components = sorted(name for name in components
-                               if name.startswith(selected_prefix) and name != selected_prefix + 'core')
-    if native_components:
-        artifacts.append(native)
-        reasons[native] = native_components
-    elif selected_prefix + 'core' in components:
-        artifacts.append(core)
-        reasons[core] = [selected_prefix + 'core']
-        compatibility = _core_compatibility(platform, revision, version, contract, observed_launcher)
+    if deb:
+        deb_components = [name for name in DEB_DELIVERY_COMPONENTS if name in components]
+        if deb_components:
+            artifact = f'{platform}_deb_apt'
+            artifacts.append(artifact)
+            reasons[artifact] = deb_components
+    else:
+        native = 'windows_full_setup' if platform == 'windows' else 'alt_native_rpm'
+        core = 'windows_core_zip' if platform == 'windows' else 'alt_core_ota'
+        native_components = sorted(name for name in components
+                                   if name.startswith(selected_prefix) and name != selected_prefix + 'core')
+        if native_components:
+            artifacts.append(native)
+            reasons[native] = native_components
+        elif selected_prefix + 'core' in components:
+            artifacts.append(core)
+            reasons[core] = [selected_prefix + 'core']
+            compatibility = _core_compatibility(platform, revision, version, contract, observed_launcher)
     migrations = []
     for path in changed:
         if path.startswith('endpoint_server/db/migrations/versions/') and path.endswith('.py'):
@@ -290,7 +320,7 @@ def main():
     parser.add_argument('--repo-root', type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument('--base', required=True, help='Reviewed baseline for the selected platform')
     parser.add_argument('--target', default='HEAD', help='Committed candidate source')
-    parser.add_argument('--platform', required=True, choices=('windows', 'alt'))
+    parser.add_argument('--platform', required=True, choices=('windows', 'alt', *DEB_PLATFORMS))
     parser.add_argument('--runtime-contract', type=Path, help='Authored Windows runtime contract or source-bound ALT OTA receipt')
     parser.add_argument('--observed-launcher', help='Latest verified launcher version of the source profile')
     args = parser.parse_args()
