@@ -211,6 +211,18 @@ from the package contents. Each RPM output also records the SHA-256 of the lead,
 main header and compressed payload. Signing can change the signature envelope.
 The signed RPM's header and payload must still match the unsigned build.
 
+Before handing the pair to the signer, record the build from the ALT x64
+worker with the receipt and both unsigned RPMs in its output directory.
+
+```bash
+python tools/release/agent_release.py record-alt-build --request-id "$request" \
+  --build-receipt "$qualificationBuildReceipt"
+```
+
+The command reinspects the unsigned pair and binds the exact receipt digest
+to the request in Git. A retry returns the same entry for the same receipt.
+An already signed RPM or a different receipt is rejected.
+
 Paths in the local inputs JSON are relative to its own directory unless absolute.
 
 | Selected artifact | Local `--inputs` fields |
@@ -272,7 +284,8 @@ python tools/release/agent_release.py record-candidate --request-id $request --p
 ```
 
 On the approved Linux publisher, use the unsigned build receipt for the
-first ALT recording. Keep the kit and receipt in protected paths.
+first ALT recording. Use the exact receipt already recorded by
+`record-alt-build` and keep the kit and receipt in protected paths.
 
 ```bash
 python tools/release/agent_release.py record-candidate --request-id "$request" --platform alt \

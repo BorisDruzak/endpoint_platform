@@ -351,6 +351,12 @@ def test_qualify_build_checks_alt_rpm_source_closure(release_inputs, monkeypatch
         assert {record["filename"] for record in receipt["outputs"]} == filenames.keys()
         assert all(len(record["signing_content_sha256"]) == 64 for record in receipt["outputs"])
         assert json.loads((output / "qualification-build.json").read_bytes()) == receipt
+        proof = output / "qualification-build.json"
+        assert agent_qualification.inspect_unsigned_alt_build(proof, bound) == hashlib.sha256(proof.read_bytes()).hexdigest()
+        receipt["outputs"][0]["sha256"] = "a" * 64
+        write(proof, receipt)
+        with pytest.raises(ValueError, match="differs from the unsigned RPM pair"):
+            agent_qualification.inspect_unsigned_alt_build(proof, bound)
     else:
         with pytest.raises(ValueError, match="same native source manifest"):
             agent_qualification.build(args)
@@ -397,6 +403,19 @@ def test_alt_signing_fingerprint_rejects_unbounded_signature_extent(tmp_path):
     path.write_bytes(data[:108] + struct.pack(">I", 2**32 - 1) + data[112:])
     with pytest.raises(ValueError, match="Invalid ALT RPM header"):
         signing_content_sha256(path)
+
+
+def test_pre_sign_fingerprint_rejects_a_signed_rpm(tmp_path):
+    from tools.release.alt_build_receipt import signing_content_sha256
+
+    path = tmp_path / "rpm"
+    data = rpm_envelope(b"payload")
+    path.write_bytes(data)
+    unsigned = signing_content_sha256(path, unsigned_only=True)
+    path.write_bytes(data[:112] + struct.pack(">I", 268) + data[116:])
+    assert signing_content_sha256(path) == unsigned
+    with pytest.raises(ValueError, match="Expected an unsigned ALT build RPM"):
+        signing_content_sha256(path, unsigned_only=True)
 
 
 @pytest.mark.skipif(sys.platform != "win32" or not shutil.which("pwsh"), reason="Windows Core packaging needs PowerShell 7")
@@ -611,7 +630,7 @@ def test_reject_candidate_is_digest_bound_and_keeps_the_artifact_history(release
 
 
 def test_record_alt_candidate_verifies_archive_members_against_the_manifest(release_inputs, monkeypatch):
-    from tools.release import agent_alt_native, agent_reservations
+    from tools.release import agent_alt_native, agent_qualification, agent_reservations
 
     repo, folder = release_inputs
     request, bound = prepare_bound_source(release_inputs)
@@ -662,6 +681,24 @@ def test_record_alt_candidate_verifies_archive_members_against_the_manifest(rele
     args = Namespace(repo_root=repo, request_id=request, platform="alt", manifest=manifest,
                      archive_signature=archive_signature, manifest_signature=manifest_signature,
                      expected_publisher=None, build_receipt=receipt)
+    receipt_sha = hashlib.sha256(receipt.read_bytes()).hexdigest()
+    with pytest.raises(ValueError, match="Record the unsigned ALT build"):
+        agent_reservations.record_candidate(args)
+    assert git(repo, "ls-remote", "origin", LEDGER) == head
+    monkeypatch.setattr(agent_qualification, "inspect_unsigned_alt_build", lambda path, binding: receipt_sha,
+                        raising=False)
+    unsigned = agent_reservations.record_alt_build(args)
+    assert unsigned["build_receipt_sha256"] == receipt_sha
+    head = git(repo, "ls-remote", "origin", LEDGER)
+    assert agent_reservations.record_alt_build(args) == unsigned
+    assert git(repo, "ls-remote", "origin", LEDGER) == head
+    receipt.write_bytes(b"different receipt")
+    with pytest.raises(ValueError, match="Different ALT build receipt"):
+        agent_reservations.record_alt_build(args)
+    with pytest.raises(ValueError, match="differs from the recorded unsigned build"):
+        agent_reservations.record_candidate(args)
+    assert git(repo, "ls-remote", "origin", LEDGER) == head
+    receipt.write_bytes(b"receipt fixture")
 
     def invalid_signature(*_):
         raise ValueError("invalid publisher signature")
@@ -670,8 +707,6 @@ def test_record_alt_candidate_verifies_archive_members_against_the_manifest(rele
     with pytest.raises(ValueError, match="invalid publisher signature"):
         agent_reservations.record_candidate(args)
     assert git(repo, "ls-remote", "origin", LEDGER) == head
-
-    receipt_sha = hashlib.sha256(receipt.read_bytes()).hexdigest()
 
     def verified(actual_args, proof):
         assert actual_args == args and proof["request_id"] == str(request)

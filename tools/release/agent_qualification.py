@@ -13,8 +13,8 @@ import tempfile
 from uuid import UUID
 
 from tools.release import agent_reservations, compatibility_matrix, linux_native_verifier, release_plan
-from tools.release.agent_candidate_artifacts import _fingerprint, verify_recorded_candidate
-from tools.release.alt_build_receipt import signing_content_sha256
+from tools.release.agent_candidate_artifacts import MAX_METADATA, _fingerprint, verify_recorded_candidate
+from tools.release.alt_build_receipt import read_build_receipt, signing_content_sha256
 
 
 BUILDERS = {
@@ -189,13 +189,30 @@ def _inspect_built_alt_pair(paths: list[Path], version: str, revision: str) -> t
             if setup is None or setup["mode"] != "0755":
                 raise ValueError("ALT Core RPM is missing the executable native Setup")
             setup_sha = setup["sha256"]
-        signing_content = signing_content_sha256(path)
+        signing_content = signing_content_sha256(path, unsigned_only=True)
         if fingerprint != _fingerprint(path, native.MAX_RPM):
             raise ValueError(f"ALT RPM changed while checking build output: {path.name}")
         outputs.append({**fingerprint, "path": path.name, "signing_content_sha256": signing_content})
     if len(set(pair.values())) != 1:
         raise ValueError("ALT Core and UserSensor must share the release and the same native source manifest")
     return outputs, {"frozen_manifest_sha256": manifest_sha, "setup_sha256": setup_sha}
+
+
+def inspect_unsigned_alt_build(receipt_path: Path, binding: dict) -> str:
+    if not _build_host("alt"):
+        raise ValueError("Record the unsigned ALT build on its ALT x64 build worker")
+    with receipt_path.open("rb") as stream:
+        raw = stream.read(MAX_METADATA + 1)
+    if len(raw) > MAX_METADATA:
+        raise ValueError("ALT build receipt exceeds its size limit")
+    receipt = read_build_receipt(raw, binding)
+    paths = sorted(receipt_path.parent.glob("*.rpm"))
+    outputs, native = _inspect_built_alt_pair(paths, binding["version"], binding["build_revision"])
+    digest = hashlib.sha256(raw).hexdigest()
+    if (receipt.get("outputs") != outputs or receipt.get("alt_native") != native
+            or _fingerprint(receipt_path, MAX_METADATA)["sha256"] != digest):
+        raise ValueError("ALT build receipt differs from the unsigned RPM pair")
+    return digest
 
 
 def build(args: argparse.Namespace) -> dict:

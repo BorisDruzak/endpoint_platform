@@ -99,11 +99,22 @@ def _ledger(root: Path, oid: str | None) -> list[dict]:
             raise ValueError("Invalid record in reservation ledger")
         if "build_revision" in entry and not GIT_OID.fullmatch(entry["build_revision"]):
             raise ValueError("Invalid build revision in reservation ledger")
+        unsigned = entry.get("alt_unsigned_build")
+        if "alt_unsigned_build" in entry and (
+            entry["platform"] not in ("alt", "both") or not isinstance(unsigned, dict)
+            or "build_revision" not in entry
+            or any(unsigned.get(key) != entry[key] for key in ("request_id", "version", "build_revision"))
+            or not isinstance(unsigned.get("build_receipt_sha256"), str)
+            or not ARTIFACT_SHA.fullmatch(unsigned["build_receipt_sha256"])
+        ):
+            raise ValueError("Invalid unsigned ALT build in reservation ledger")
         for platform, candidate in entry.get("candidates", {}).items():
             if (platform not in PRIMARY_ARTIFACT or entry["platform"] not in (platform, "both")
                     or candidate["platform"] != platform or candidate["state"] not in ("candidate", "rejected")
                     or any(candidate[key] != entry[key] for key in ("version", "request_id", "build_revision"))
                     or not ARTIFACT_SHA.fullmatch(candidate["artifacts"][PRIMARY_ARTIFACT[platform]]["sha256"])
+                    or (platform == "alt" and unsigned is not None
+                        and candidate.get("build_receipt_sha256") != unsigned["build_receipt_sha256"])
                     or (candidate["state"] == "rejected") != ("rejection" in candidate)):
                 raise ValueError("Invalid candidate in reservation ledger")
         versions.add(version)
@@ -313,6 +324,43 @@ def _with_candidate(entries: list[dict], reserved: dict, candidate: dict) -> lis
     return [updated if entry is reserved else entry for entry in entries]
 
 
+def record_alt_build(args: Namespace) -> dict:
+    """Record the verified unsigned build for one reservation before handoff."""
+    from tools.release.agent_candidate_artifacts import MAX_METADATA, _fingerprint
+    from tools.release.agent_qualification import inspect_unsigned_alt_build
+
+    root, request_id = args.repo_root, str(args.request_id)
+    digest = _fingerprint(args.build_receipt, MAX_METADATA)["sha256"]
+    proof = None
+    for _ in range(8):
+        head = _remote_head(root)
+        entries = _ledger(root, head)
+        reserved = _find_request(entries, request_id)
+        if reserved["platform"] not in ("alt", "both") or "build_revision" not in reserved:
+            raise ValueError("Bind the ALT build source before recording its receipt")
+        binding = {key: reserved[key] for key in ("request_id", "version", "build_revision")}
+        if proof is not None and any(proof[key] != value for key, value in binding.items()):
+            raise ValueError("Reservation changed while checking the unsigned ALT build")
+        if existing := reserved.get("alt_unsigned_build"):
+            if existing["build_receipt_sha256"] != digest:
+                raise ValueError("Different ALT build receipt is already recorded")
+            return existing
+        if "alt" in reserved.get("candidates", {}):
+            raise ValueError("This ALT candidate was recorded without an unsigned build entry")
+        if proof is None:
+            if inspect_unsigned_alt_build(args.build_receipt, binding) != digest:
+                raise ValueError("ALT build receipt changed during verification")
+            proof = {**binding, "build_receipt_sha256": digest,
+                     "recorded_at": datetime.now(timezone.utc).isoformat()}
+        updated = {**reserved, "alt_unsigned_build": proof}
+        if _append(root, head, [updated if entry is reserved else entry for entry in entries],
+                   "record unsigned ALT agent build"):
+            return proof
+        if _remote_head(root) == head:
+            raise ValueError("Git rejected the ALT build receipt; retry with the same request ID")
+    raise ValueError("Reservation ledger is busy; retry with the same request ID")
+
+
 def record_candidate(args: Namespace) -> dict:
     """Record one immutable artifact set for a platform of the bound build."""
     from tools.release.agent_candidate_artifacts import MAX_METADATA, _fingerprint, inspect_candidate
@@ -345,12 +393,21 @@ def record_candidate(args: Namespace) -> dict:
                 if _fingerprint(receipt, MAX_METADATA)["sha256"] != existing.get("build_receipt_sha256"):
                     raise ValueError("ALT build receipt differs from the recorded receipt")
             return existing
-        if args.platform == "alt" and "build_receipt_sha256" not in proof:
+        if args.platform == "alt":
             from tools.release.agent_alt_native import verify_candidate_handoff
 
             if receipt is None:
                 raise ValueError("Recording a new ALT candidate requires its qualification build receipt")
-            proof["build_receipt_sha256"] = verify_candidate_handoff(args, proof)
+            unsigned = reserved.get("alt_unsigned_build")
+            if unsigned is None:
+                raise ValueError("Record the unsigned ALT build before recording its signed candidate")
+            expected = unsigned["build_receipt_sha256"]
+            if "build_receipt_sha256" not in proof:
+                if _fingerprint(receipt, MAX_METADATA)["sha256"] != expected:
+                    raise ValueError("ALT build receipt differs from the recorded unsigned build")
+                proof["build_receipt_sha256"] = verify_candidate_handoff(args, proof)
+            if proof["build_receipt_sha256"] != expected:
+                raise ValueError("ALT build receipt differs from the recorded unsigned build")
         recorded = {**proof, "state": "candidate", "recorded_at": datetime.now(timezone.utc).isoformat()}
         if _append(root, head, _with_candidate(entries, reserved, recorded),
                    f"record {args.platform} agent candidate"):
