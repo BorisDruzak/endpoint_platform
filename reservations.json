@@ -194,6 +194,60 @@
       },
       "bound_at": "2026-11-26T13:58:55.802549+00:00",
       "build_revision": "87b428c6c23965c4215780818a3ccb7879898e3a",
+      "candidates": {
+        "alt": {
+          "artifacts": {
+            "archive": {
+              "filename": "endpoint-alt-pilot-3.2.278-1.tar.gz",
+              "sha256": "60f5e4b6945841c0f4f9a033aeb922eeaa0aaf155b1416c57321abf9bd3e92e4",
+              "size": 70740750
+            },
+            "archive_signature": {
+              "filename": "endpoint-alt-pilot-3.2.278-1.tar.gz.sig",
+              "sha256": "6e69f1dad70a6642e7c6d3e5f701844fe366a8ddebb366f8f5af07b51039be7e",
+              "size": 438
+            },
+            "manifest": {
+              "filename": "endpoint-alt-pilot-3.2.278-1.manifest.json",
+              "sha256": "f60881ae72303d0973f9a599fb8b4b020bb02e8e61606af2f2744032151c4e27",
+              "size": 1005
+            },
+            "manifest_signature": {
+              "filename": "endpoint-alt-pilot-3.2.278-1.manifest.json.sig",
+              "sha256": "88f4281c420ced042d977d95c50cfe4be88a8a8c1cb1ca397b2e4fbbb2345566",
+              "size": 438
+            }
+          },
+          "build_receipt_sha256": "458ad7d67c2eaa2cfec12f8b283c0743586a1bfb75b48afc0df99b3c6464dc90",
+          "build_revision": "87b428c6c23965c4215780818a3ccb7879898e3a",
+          "evidence": "artifact_fingerprints",
+          "frozen_manifest_sha256": "4985206d8163631f27497897d13560858c0bbc7fe93fc82fc1a850608d94109a",
+          "members": {
+            "endpoint-agent-3.2.278-alt6.x86_64.rpm": {
+              "sha256": "c61a06ec7ae93d862d3e8bd230eb960c425e3a03b6cd8ce825f50d8f03b27112",
+              "size": 53127527
+            },
+            "endpoint-agent-setup": {
+              "sha256": "bf62100d8c303180428f61feb6500177038c36abff598724b0b90fdaa0562f1c",
+              "size": 17770160
+            },
+            "endpoint-agent-user-sensor-3.2.278-alt6.x86_64.rpm": {
+              "sha256": "5a776622072c468474e0305de5a57839b8394fb3cef5d92c72ee5c2c08b38eb8",
+              "size": 42675
+            },
+            "endpoint-rpm-release.asc": {
+              "sha256": "12175df39caa5a67336aeb002b5c71d3a9d3047961f5ad90cf959650044b456c",
+              "size": 1319
+            }
+          },
+          "platform": "alt",
+          "publisher_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+          "recorded_at": "2026-11-26T14:14:23.185776+00:00",
+          "request_id": "50a0bcae-b174-4504-9da5-81aa276d5e2f",
+          "state": "candidate",
+          "version": "3.2.278"
+        }
+      },
       "inventories": {
         "production": {
           "observed_at": "2026-11-26T13:55:34.0799+00:00",
