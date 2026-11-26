@@ -234,6 +234,28 @@ On ALT Workstation K 11.4 with CUPS `2.4.19-alt1`, the stock `/admin` restrictio
 returned HTTP 403 even with the dedicated queue policy. The local `POST` rule
 and the per-queue policy were both needed on that profile.
 
+For ALT Workstation K 11.4 with CUPS `2.4.20-alt2`, the following block was
+verified with the stock `/admin` policy. It puts the existing `@SYSTEM` rule
+for other methods in `LimitExcept`. Keeping the parent `Require user @SYSTEM`
+alongside the nested `POST` rule returned HTTP 403 before the IPP operation.
+Use this block with the dedicated queue policy above.
+
+```conf
+<Location /admin>
+  <Limit POST>
+    AuthType Default
+    Require user @SYSTEM endpoint-agent
+    Order allow,deny
+    Allow from localhost
+  </Limit>
+  <LimitExcept POST>
+    AuthType Default
+    Require user @SYSTEM
+    Order allow,deny
+  </LimitExcept>
+</Location>
+```
+
 ## Build and verification boundaries
 
 Freeze from a clean Git checkout matching the exact runtime source revision.
