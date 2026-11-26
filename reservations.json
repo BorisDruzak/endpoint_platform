@@ -1,0 +1,29 @@
+{
+  "reservations": [
+    {
+      "after": "3.2.205",
+      "inventories": {
+        "production": {
+          "observed_at": "2026-11-26T08:53:59.280182+00:00",
+          "sha256": "270a89341a2f3e272b0ff28718bfcd607e34607c59e33770f3eec98842963b41"
+        },
+        "signing_hosts": {
+          "observed_at": "2026-11-26T08:54:18.6146589+00:00",
+          "sha256": "b4cfa2ac98b4651e1fe5f4e62c555df6ec7feb54d1fbf1a9ba8fb10f5a0184ff"
+        },
+        "staging": {
+          "observed_at": "2026-11-26T08:53:59.037229+00:00",
+          "sha256": "86caa4635879b113fd39d0fce70f511d2cb9f5afce415fdb0674de606405d148"
+        }
+      },
+      "ledger_ref": "refs/heads/codex/agent-release-reservations",
+      "platform": "both",
+      "request_id": "5be58fd7-b40b-4a7c-9c86-cad4e2072bfb",
+      "reserved_at": "2026-11-26T08:54:59.219442+00:00",
+      "source_revision": "3830935795e960b627179679da2547a49b5b77f9",
+      "state": "reserved",
+      "version": "3.2.277"
+    }
+  ],
+  "schema_version": 1
+}
