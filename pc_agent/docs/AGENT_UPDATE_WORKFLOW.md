@@ -16,7 +16,8 @@ and companions, fresh Gateway telemetry, and any required rollback evidence.
 For a Windows or ALT native candidate, use the
 [shared reservation workflow](../../tools/release/CODEMAP.md#reserve-and-bind-a-windows-or-alt-version).
 Reserve the number before editing the version. Bind the reviewed build commit
-before producing distributable bytes.
+before producing distributable bytes. Record the platform's verified build
+receipt before the first candidate entry. See [candidate recording](../../tools/release/CODEMAP.md#record-the-exact-candidate-artifacts).
 
 ## Choose the release cycle
 

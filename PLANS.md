@@ -127,7 +127,15 @@ upgrade paths that must run for each qualified artifact.
   profiles. Local edition, state, ACL and transaction evidence remain open.
 - EP-RE-04 has an explicit [qualification build](tools/release/CODEMAP.md#run-the-qualification-build)
   from the bound reservation. It previews the selected Windows/ALT builder and
-  records output hashes after execution. For ALT native, the command verifies
+  records output hashes after execution.
+  Windows Full Setup records its signed build under the reservation before
+  the candidate. The Windows worker verifies the timestamped EXE and MSI
+  against the approved publisher and certificate thumbprint and pins the
+  exact receipt and four output files. Candidate recording checks those
+  same fingerprints. An isolated replay with the original signed 3.2.276
+  EXE and MSI used the verified clean source and a reconstructed receipt.
+  The gate rejected an absent build entry, a wrong signer, a changed receipt
+  and a substituted MSI sidecar. For ALT native, the build verifies
   the paired RPM identity, payload and shared source manifest before writing a
   build receipt with the sealed Setup hash. The kit assembler accepts this
   receipt to compare signed RPMs against the verified build and uses the same

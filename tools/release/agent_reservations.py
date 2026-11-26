@@ -24,6 +24,7 @@ PLATFORMS = ("windows", "alt", "both")
 GIT_OID = re.compile(r"[0-9a-f]{40}")
 ARTIFACT_SHA = re.compile(r"[0-9a-f]{64}")
 PRIMARY_ARTIFACT = {"windows": "setup", "alt": "archive"}
+WINDOWS_BUILD_MATCH = ("artifacts", "publisher", "msi_source_revision", "product_code")
 Version = tuple[int, int, int]
 
 
@@ -108,6 +109,16 @@ def _ledger(root: Path, oid: str | None) -> list[dict]:
             or not ARTIFACT_SHA.fullmatch(unsigned["build_receipt_sha256"])
         ):
             raise ValueError("Invalid unsigned ALT build in reservation ledger")
+        signed = entry.get("windows_signed_build")
+        if "windows_signed_build" in entry and (
+            entry["platform"] not in ("windows", "both") or not isinstance(signed, dict)
+            or "build_revision" not in entry
+            or any(signed.get(key) != entry[key] for key in ("request_id", "version", "build_revision"))
+            or not ARTIFACT_SHA.fullmatch(signed["build_receipt_sha256"])
+            or not re.fullmatch(r"[0-9A-F]{40}", signed["publisher_thumbprint"])
+            or any(key not in signed for key in WINDOWS_BUILD_MATCH)
+        ):
+            raise ValueError("Invalid signed Windows build in reservation ledger")
         for platform, candidate in entry.get("candidates", {}).items():
             if (platform not in PRIMARY_ARTIFACT or entry["platform"] not in (platform, "both")
                     or candidate["platform"] != platform or candidate["state"] not in ("candidate", "rejected")
@@ -115,6 +126,9 @@ def _ledger(root: Path, oid: str | None) -> list[dict]:
                     or not ARTIFACT_SHA.fullmatch(candidate["artifacts"][PRIMARY_ARTIFACT[platform]]["sha256"])
                     or (platform == "alt" and unsigned is not None
                         and candidate.get("build_receipt_sha256") != unsigned["build_receipt_sha256"])
+                    or (platform == "windows" and signed is not None
+                        and (candidate.get("build_receipt_sha256") != signed["build_receipt_sha256"]
+                             or any(candidate.get(key) != signed[key] for key in WINDOWS_BUILD_MATCH)))
                     or (candidate["state"] == "rejected") != ("rejection" in candidate)):
                 raise ValueError("Invalid candidate in reservation ledger")
         versions.add(version)
@@ -361,6 +375,48 @@ def record_alt_build(args: Namespace) -> dict:
     raise ValueError("Reservation ledger is busy; retry with the same request ID")
 
 
+def record_windows_build(args: Namespace) -> dict:
+    """Anchor the actual timestamped Windows build before candidate registration."""
+    from tools.release.agent_candidate_artifacts import MAX_METADATA, _fingerprint
+    from tools.release.agent_qualification import _assert_source
+    from tools.release.windows_build_receipt import inspect_signed_windows_build
+
+    root, request_id = args.repo_root, str(args.request_id)
+    digest = _fingerprint(args.build_receipt, MAX_METADATA)["sha256"]
+    proof = None
+    for _ in range(8):
+        head = _remote_head(root)
+        entries = _ledger(root, head)
+        reserved = _find_request(entries, request_id)
+        if reserved["platform"] not in ("windows", "both") or "build_revision" not in reserved:
+            raise ValueError("Bind the Windows build source before recording its receipt")
+        binding = {key: reserved[key] for key in ("request_id", "version", "build_revision")}
+        if proof is not None and any(proof[key] != value for key, value in binding.items()):
+            raise ValueError("Reservation changed while checking the signed Windows build")
+        if existing := reserved.get("windows_signed_build"):
+            if (existing["build_receipt_sha256"] != digest or existing["publisher"] != args.expected_publisher
+                    or existing["publisher_thumbprint"] != args.expected_thumbprint.upper()):
+                raise ValueError("Different Windows build receipt or publisher is already recorded")
+            return existing
+        if "windows" in reserved.get("candidates", {}):
+            raise ValueError("This Windows candidate was recorded without a signed build entry")
+        if proof is None:
+            _assert_source(root, binding["build_revision"])
+            verified = inspect_signed_windows_build(args.build_receipt, binding, args.expected_publisher,
+                                                    args.expected_thumbprint)
+            if verified["build_receipt_sha256"] != digest:
+                raise ValueError("Windows build receipt changed during verification")
+            _assert_source(root, binding["build_revision"])
+            proof = {**binding, **verified, "recorded_at": datetime.now(timezone.utc).isoformat()}
+        updated = {**reserved, "windows_signed_build": proof}
+        if _append(root, head, [updated if entry is reserved else entry for entry in entries],
+                   "record signed Windows agent build"):
+            return proof
+        if _remote_head(root) == head:
+            raise ValueError("Git rejected the Windows build receipt; retry with the same request ID")
+    raise ValueError("Reservation ledger is busy; retry with the same request ID")
+
+
 def record_candidate(args: Namespace) -> dict:
     """Record one immutable artifact set for a platform of the bound build."""
     from tools.release.agent_candidate_artifacts import MAX_METADATA, _fingerprint, inspect_candidate
@@ -393,7 +449,14 @@ def record_candidate(args: Namespace) -> dict:
                 if _fingerprint(receipt, MAX_METADATA)["sha256"] != existing.get("build_receipt_sha256"):
                     raise ValueError("ALT build receipt differs from the recorded receipt")
             return existing
-        if args.platform == "alt":
+        if args.platform == "windows":
+            signed = reserved.get("windows_signed_build")
+            if signed is None:
+                raise ValueError("Record the signed Windows build before recording its candidate")
+            if any(proof.get(key) != signed[key] for key in WINDOWS_BUILD_MATCH):
+                raise ValueError("Windows candidate differs from the recorded signed build")
+            proof["build_receipt_sha256"] = signed["build_receipt_sha256"]
+        else:
             from tools.release.agent_alt_native import verify_candidate_handoff
 
             if receipt is None:

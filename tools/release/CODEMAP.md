@@ -278,6 +278,21 @@ output while recording. Place the Windows EXE, MSI and inspected MSI manifest
 beside the Setup sidecar. Place the ALT archive beside its outer manifest.
 Keep the canonical output filenames.
 
+On the Windows x64 build worker, use the clean bound checkout and the
+`qualification-build.json` from that Full Setup build. Keep the four
+recorded outputs in its `releases` directory. The signer thumbprint and
+publisher come from the approved Windows signing inputs.
+
+```powershell
+python tools/release/agent_release.py record-windows-build --request-id $request `
+  --build-receipt $qualificationBuildReceipt --expected-publisher $trustedPublisher `
+  --expected-thumbprint $trustedSignerThumbprint
+```
+
+The step checks embedded timestamped Authenticode on the EXE and MSI and pins
+the receipt digest and all four output digests in Git. Record the candidate
+using the same files. Its digests must match the signed build entry.
+
 ```powershell
 python tools/release/agent_release.py record-candidate --request-id $request --platform windows `
   --manifest $setupSidecar --expected-publisher $trustedPublisher
@@ -295,7 +310,7 @@ python tools/release/agent_release.py record-candidate --request-id "$request" -
 
 The command checks the reserved version, bound source and exact artifact
 digests. Windows also checks the inspected MSI metadata against the Setup
-sidecar. Before the first ALT ledger write, the command checks both detached
+sidecar. Before the first ALT candidate write, the command checks both detached
 signatures, both RPM signatures and the exact retained archive members. It
 matches the reservation and unsigned RPM lead, main header and payload to
 the build receipt and records the receipt digest. The ledger retains one

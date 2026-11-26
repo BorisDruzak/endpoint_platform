@@ -205,6 +205,7 @@ jobs:
           pc_agent/tests/windows
           tests/deploy/test_keycloak_ad_pilot.py
           tests/packaging/test_installation_notification_stage.py
+          tests/packaging/test_agent_release_reservation.py::test_windows_build_rejects_forged_signature_metadata
           tests/packaging/test_setup_preflight_process.py
           tests/packaging/test_staged_cleanup_retry.py
           tests/packaging/test_support_access_signing.py

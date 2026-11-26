@@ -483,6 +483,7 @@ def test_qualify_build_invokes_windows_core_packager_and_freezes_output(release_
 
 
 def windows_candidate(folder, version, revision, setup_content=b"setup bytes"):
+    folder.mkdir(parents=True, exist_ok=True)
     setup = folder / f"EndpointAgentSetup-{version}-x64.exe"
     msi = folder / f"EndpointAgent-{version}-x64.msi"
     setup.write_bytes(setup_content)
@@ -504,15 +505,142 @@ def windows_candidate(folder, version, revision, setup_content=b"setup bytes"):
     return setup, sidecar
 
 
-def test_record_windows_candidate_is_idempotent_and_rejects_replacement(release_inputs):
+def windows_build_args(repo, bound, sidecar):
+    version = bound["version"]
+    release = sidecar.parent
+    assert release.name == "releases"
+    msi = release / f"EndpointAgent-{version}-x64.msi"
+    outputs = []
+    for path in (msi, msi.with_suffix(".release.json"), sidecar.with_suffix("").with_suffix(".exe"), sidecar):
+        outputs.append({"filename": path.name, "path": f"releases/{path.name}",
+                        "size": path.stat().st_size, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+    receipt = release.parent / "qualification-build.json"
+    write(receipt, {
+        "schema_version": 1, "state": "built", "platform": "windows", "artifact": "windows_full_setup",
+        "builder": "packaging/windows/build-setup.ps1",
+        **{key: bound[key] for key in ("request_id", "version", "build_revision")}, "outputs": outputs,
+    })
+    return Namespace(repo_root=repo, request_id=bound["request_id"], build_receipt=receipt,
+                     expected_publisher="CN=Endpoint Fixture", expected_thumbprint="A" * 40)
+
+
+def windows_signature_fixture(monkeypatch):
+    from tools.release import agent_qualification, windows_build_receipt
+
+    monkeypatch.setattr(agent_qualification, "_build_host", lambda platform: platform == "windows")
+    monkeypatch.setattr(windows_build_receipt, "_signed_digests",
+                        lambda exe, msi, publisher, thumbprint: [
+                            hashlib.sha256(path.read_bytes()).hexdigest() for path in (exe, msi)])
+
+
+def anchor_windows_build(repo, bound, sidecar, monkeypatch):
+    from tools.release.agent_reservations import record_windows_build
+
+    windows_signature_fixture(monkeypatch)
+    return record_windows_build(windows_build_args(repo, bound, sidecar))
+
+
+def test_windows_candidate_requires_a_recorded_signed_build(release_inputs):
     repo, folder = release_inputs
     request, bound = prepare_bound_source(release_inputs)
-    setup, manifest = windows_candidate(folder, bound["version"], bound["build_revision"])
+    _, manifest = windows_candidate(folder, bound["version"], bound["build_revision"])
+    before = git(repo, "ls-remote", "origin", LEDGER)
+
+    refused = record_candidate(repo, request, "windows", manifest,
+                               "--expected-publisher", "CN=Endpoint Fixture")
+
+    assert refused.returncode != 0 and "Record the signed Windows build" in refused.stderr
+    assert git(repo, "ls-remote", "origin", LEDGER) == before
+
+
+def test_windows_candidate_from_old_ledger_can_still_be_retried(release_inputs):
+    from tools.release import agent_reservations
+    from tools.release.agent_candidate_artifacts import inspect_candidate
+
+    repo, folder = release_inputs
+    request, bound = prepare_bound_source(release_inputs)
+    _, manifest = windows_candidate(folder, bound["version"], bound["build_revision"])
+    publisher = "CN=Endpoint Fixture"
+    args = Namespace(platform="windows", manifest=manifest, expected_publisher=publisher,
+                     archive_signature=None, manifest_signature=None)
+    historical = {"state": "candidate", "platform": "windows", "evidence": "artifact_fingerprints",
+                  "recorded_at": datetime.now(timezone.utc).isoformat(),
+                  **{key: bound[key] for key in ("request_id", "version", "build_revision")},
+                  **inspect_candidate(args, bound)}
+    head = agent_reservations._remote_head(repo)
+    entries = agent_reservations._ledger(repo, head)
+    reserved = agent_reservations._find_request(entries, str(request))
+    assert agent_reservations._append(repo, head, agent_reservations._with_candidate(entries, reserved, historical),
+                                      "test: import old Windows candidate")
+    before = git(repo, "ls-remote", "origin", LEDGER)
+    assert value(record_candidate(repo, request, "windows", manifest, "--expected-publisher", publisher)) == historical
+    assert git(repo, "ls-remote", "origin", LEDGER) == before
+
+
+def test_windows_build_checks_all_files_and_cannot_be_rebased_after_recording(release_inputs, monkeypatch):
+    from tools.release.agent_reservations import record_windows_build
+    from tools.release import windows_build_receipt
+
+    repo, folder = release_inputs
+    request, bound = prepare_bound_source(release_inputs)
+    setups = folder / "releases"
+    setup, manifest = windows_candidate(setups, bound["version"], bound["build_revision"])
+    args = windows_build_args(repo, bound, manifest)
+    before = git(repo, "ls-remote", "origin", LEDGER)
+    windows_signature_fixture(monkeypatch)
+    original = args.build_receipt.read_bytes()
+    receipt = json.loads(original)
+    receipt["outputs"][1]["sha256"] = "9" * 64
+    write(args.build_receipt, receipt)
+    with pytest.raises(ValueError, match="differ from the build receipt"):
+        record_windows_build(args)
+    args.build_receipt.write_bytes(original)
+    with monkeypatch.context() as fake:
+        fake.setattr(windows_build_receipt, "_signed_digests", lambda *_: ["a" * 64, "b" * 64])
+        with pytest.raises(ValueError, match="Authenticode bytes differ"):
+            record_windows_build(args)
+    assert git(repo, "ls-remote", "origin", LEDGER) == before
+
+    anchor = record_windows_build(args)
+    assert anchor["build_receipt_sha256"] == hashlib.sha256(original).hexdigest()
+    after = git(repo, "ls-remote", "origin", LEDGER)
+    assert after != before
+    assert record_windows_build(args) == anchor
+    fake_build = windows_candidate(setups, bound["version"], bound["build_revision"], b"different signed output")
+    assert fake_build == (setup, manifest)
+    refused = record_candidate(repo, request, "windows", manifest, "--expected-publisher", args.expected_publisher)
+    assert refused.returncode != 0 and "differs from the recorded signed build" in refused.stderr
+    changed_args = windows_build_args(repo, bound, manifest)
+    with pytest.raises(ValueError, match="Different Windows build receipt"):
+        record_windows_build(changed_args)
+    assert git(repo, "ls-remote", "origin", LEDGER) == after
+
+
+@pytest.mark.skipif(sys.platform != "win32" or not shutil.which("pwsh"), reason="Native Windows Authenticode")
+def test_windows_build_rejects_forged_signature_metadata(release_inputs):
+    from tools.release.agent_reservations import record_windows_build
+
+    repo, folder = release_inputs
+    _, bound = prepare_bound_source(release_inputs)
+    _, manifest = windows_candidate(folder / "releases", bound["version"], bound["build_revision"])
+    args = windows_build_args(repo, bound, manifest)
+    before = git(repo, "ls-remote", "origin", LEDGER)
+    with pytest.raises(ValueError, match="require valid timestamped Authenticode"):
+        record_windows_build(args)
+    assert git(repo, "ls-remote", "origin", LEDGER) == before
+
+
+def test_record_windows_candidate_is_idempotent_and_rejects_replacement(release_inputs, monkeypatch):
+    repo, folder = release_inputs
+    request, bound = prepare_bound_source(release_inputs)
+    setup, manifest = windows_candidate(folder / "releases", bound["version"], bound["build_revision"])
+    signed = anchor_windows_build(repo, bound, manifest, monkeypatch)
     publisher = ("--expected-publisher", "CN=Endpoint Fixture")
     candidate = value(record_candidate(repo, request, "windows", manifest, *publisher))
     assert candidate["state"] == "candidate"
     assert candidate["evidence"] == "artifact_fingerprints"
     assert candidate["build_revision"] == bound["build_revision"]
+    assert candidate["build_receipt_sha256"] == signed["build_receipt_sha256"]
     assert candidate["artifacts"]["setup"]["sha256"] == hashlib.sha256(setup.read_bytes()).hexdigest()
     before = git(repo, "ls-remote", "origin", LEDGER)
     assert value(record_candidate(repo, request, "windows", manifest, *publisher)) == candidate
@@ -520,17 +648,18 @@ def test_record_windows_candidate_is_idempotent_and_rejects_replacement(release_
     mismatch = record_candidate(repo, request, "windows", manifest, *publisher)
     assert mismatch.returncode != 0
     assert "digest" in mismatch.stderr
-    windows_candidate(folder, bound["version"], bound["build_revision"], b"different consistent build")
+    windows_candidate(manifest.parent, bound["version"], bound["build_revision"], b"different consistent build")
     replacement = record_candidate(repo, request, "windows", manifest, *publisher)
     assert replacement.returncode != 0
     assert "already recorded" in replacement.stderr
     assert git(repo, "ls-remote", "origin", LEDGER) == before
 
 
-def test_qualify_matrix_uses_the_candidate_bytes_and_rejects_changes(release_inputs):
+def test_qualify_matrix_uses_the_candidate_bytes_and_rejects_changes(release_inputs, monkeypatch):
     repo, folder = release_inputs
     request, bound = prepare_bound_source(release_inputs)
-    setup, manifest = windows_candidate(folder, bound["version"], bound["build_revision"])
+    setup, manifest = windows_candidate(folder / "releases", bound["version"], bound["build_revision"])
+    anchor_windows_build(repo, bound, manifest, monkeypatch)
     candidate = value(record_candidate(repo, request, "windows", manifest,
                                        "--expected-publisher", "CN=Endpoint Fixture"))
     digest = candidate["artifacts"]["setup"]["sha256"]
@@ -540,7 +669,7 @@ def test_qualify_matrix_uses_the_candidate_bytes_and_rejects_changes(release_inp
                                           "pending_enrollments": [], "enrollment_sources": []}})
     prefix = [sys.executable, str(CLI)]
     binding = ["--repo-root", str(repo), "--request-id", str(request), "--platform", "windows"]
-    matrix = prefix + ["qualify-matrix", *binding, "--snapshot", str(snapshot), "--artifacts-dir", str(folder)]
+    matrix = prefix + ["qualify-matrix", *binding, "--snapshot", str(snapshot), "--artifacts-dir", str(manifest.parent)]
     before = git(repo, "ls-remote", "origin", LEDGER)
     report = value(subprocess.run(matrix, capture_output=True, text=True, encoding="utf-8", timeout=90))
     assert report["target"] == {"platform": "windows", "version": bound["version"], "sha256": digest}
@@ -562,16 +691,17 @@ def test_qualify_matrix_uses_the_candidate_bytes_and_rejects_changes(release_inp
 def test_promote_checks_the_recorded_bytes_before_opening_the_provider(release_inputs, monkeypatch):
     repo, folder = release_inputs
     request, bound = prepare_bound_source(release_inputs)
-    setup, manifest = windows_candidate(folder, bound["version"], bound["build_revision"])
-    msi_manifest = folder / f'EndpointAgent-{bound["version"]}-x64.release.json'
+    setup, manifest = windows_candidate(folder / "releases", bound["version"], bound["build_revision"])
+    msi_manifest = manifest.parent / f'EndpointAgent-{bound["version"]}-x64.release.json'
     write(manifest, {**json.loads(manifest.read_bytes()), "msi_source_commit": bound["source_revision"]})
     write(msi_manifest, {**json.loads(msi_manifest.read_bytes()), "source_revision": bound["source_revision"]})
+    anchor_windows_build(repo, bound, manifest, monkeypatch)
     publisher = ["--expected-publisher", "CN=Endpoint Fixture"]
     value(record_candidate(repo, request, "windows", manifest, *publisher))
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("ARTIFACT_ROOT", raising=False)
     command = [sys.executable, str(CLI), "promote", "--repo-root", str(repo), "--request-id", str(request),
-               "--platform", "windows", "--artifacts-dir", str(folder), "--qualification-id", str(uuid4()), *publisher]
+               "--platform", "windows", "--artifacts-dir", str(manifest.parent), "--qualification-id", str(uuid4()), *publisher]
     before = git(repo, "ls-remote", "origin", LEDGER)
     missing = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", timeout=90)
     assert missing.returncode != 0 and "DATABASE_URL and ARTIFACT_ROOT" in missing.stderr
@@ -593,10 +723,11 @@ def test_record_windows_candidate_rejects_a_different_source_commit(release_inpu
     assert git(repo, "ls-remote", "origin", LEDGER) == before
 
 
-def test_reject_candidate_is_digest_bound_and_keeps_the_artifact_history(release_inputs):
+def test_reject_candidate_is_digest_bound_and_keeps_the_artifact_history(release_inputs, monkeypatch):
     repo, folder = release_inputs
     request, bound = prepare_bound_source(release_inputs)
-    _, manifest = windows_candidate(folder, bound["version"], bound["build_revision"])
+    _, manifest = windows_candidate(folder / "releases", bound["version"], bound["build_revision"])
+    anchor_windows_build(repo, bound, manifest, monkeypatch)
     publisher = ("--expected-publisher", "CN=Endpoint Fixture")
     candidate = value(record_candidate(repo, request, "windows", manifest, *publisher))
 

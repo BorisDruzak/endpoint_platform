@@ -182,6 +182,12 @@ def main() -> None:
     bind.add_argument("--request-id", required=True, type=UUID)
     build = commands.add_parser("qualify-build", help="build the selected artifact from a bound QUALIFY checkout")
     agent_qualification.add_arguments(build)
+    signed_windows = commands.add_parser("record-windows-build", help="record the timestamped Windows Full Setup build")
+    signed_windows.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
+    signed_windows.add_argument("--request-id", type=UUID, required=True)
+    signed_windows.add_argument("--build-receipt", type=Path, required=True)
+    signed_windows.add_argument("--expected-publisher", required=True)
+    signed_windows.add_argument("--expected-thumbprint", required=True)
     unsigned_alt = commands.add_parser("record-alt-build", help="record the verified unsigned ALT build before signing")
     unsigned_alt.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
     unsigned_alt.add_argument("--request-id", type=UUID, required=True)
@@ -250,6 +256,8 @@ def main() -> None:
             result = agent_reservations.bind_source(args)
         elif args.command == "qualify-build":
             result = agent_qualification.build(args)
+        elif args.command == "record-windows-build":
+            result = agent_reservations.record_windows_build(args)
         elif args.command == "record-alt-build":
             result = agent_reservations.record_alt_build(args)
         elif args.command == "qualify-matrix":
