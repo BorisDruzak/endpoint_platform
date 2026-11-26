@@ -68,6 +68,16 @@ def matrix(args: argparse.Namespace) -> dict:
     artifacts = candidate["artifacts"]
     primary = artifacts[agent_reservations.PRIMARY_ARTIFACT[args.platform]]
     target = {"platform": args.platform, "version": candidate["version"], "sha256": primary["sha256"]}
+    if args.platform == "alt" and args.alt_lab_evidence:
+        from tools.release.agent_candidate_artifacts import alt_rpm_names
+
+        members = candidate["members"]
+        target["native_identity"] = {
+            "version": candidate["version"],
+            "source_revision": candidate["build_revision"],
+            **{key: members[name]["sha256"] for key, name in
+               zip(compatibility_matrix.ALT_RPM_DIGESTS, alt_rpm_names(members, candidate["version"]), strict=True)},
+        }
     report = compatibility_matrix.plan_from_files(args, target)
     report["reservation"] = {"request_id": candidate["request_id"], "build_revision": candidate["build_revision"],
                              "artifacts": artifacts}
@@ -215,6 +225,28 @@ def inspect_unsigned_alt_build(receipt_path: Path, binding: dict) -> str:
     return digest
 
 
+def _run_builder(command, root: Path, output: Path, environment: dict, *, recreates_output: bool) -> int:
+    log_path = output / "builder.log"
+    # WiX recreates its entire work directory. Keep the open log and the
+    # exclusive output claim in a sibling until the native builder exits.
+    owner = output.with_name(f".{output.name}.qualification-build") if recreates_output else output
+    owner.mkdir(parents=True, exist_ok=False)
+    active_log = owner / "builder.log"
+    try:
+        if recreates_output:
+            output.mkdir(exist_ok=False)
+        with active_log.open("xb") as log:
+            status = subprocess.run(command, cwd=root, stdout=log, stderr=subprocess.STDOUT,
+                                    env=environment, check=False)
+        return status.returncode
+    finally:
+        if recreates_output:
+            if active_log.is_file():
+                output.mkdir(exist_ok=True)
+                active_log.rename(log_path)
+            owner.rmdir()
+
+
 def build(args: argparse.Namespace) -> dict:
     root, output = args.repo_root.resolve(), args.output_root.resolve()
     if output.is_relative_to(root):
@@ -264,16 +296,12 @@ def build(args: argparse.Namespace) -> dict:
         raise ValueError("The observed launcher is below the candidate minimum")
     if not _build_host(args.platform):
         raise ValueError("Execute qualification builds on the selected platform's approved x64 build worker")
-    # An output slot has a single owner. Preserve partial build outputs and logs on failure.
-    output.mkdir(parents=True, exist_ok=False)
     environment = {**os.environ, "SOURCE_REVISION": revision}
     if artifact == "alt_native_rpm":
         environment["PYTHON"] = sys.executable
-    log_path = output / "builder.log"
-    with log_path.open("xb") as log:
-        status = subprocess.run(command, cwd=root, stdout=log, stderr=subprocess.STDOUT, env=environment, check=False)
-    if status.returncode:
-        raise ValueError(f"Canonical builder exited {status.returncode}; see {log_path}")
+    exit_code = _run_builder(command, root, output, environment, recreates_output=artifact == "windows_full_setup")
+    if exit_code:
+        raise ValueError(f"Canonical builder exited {exit_code}; see {output / 'builder.log'}")
     _assert_source(root, revision)
     if artifact == "alt_native_rpm":
         outputs, result["alt_native"] = _inspect_built_alt_pair(sorted(output.glob("*.rpm")), version, revision)

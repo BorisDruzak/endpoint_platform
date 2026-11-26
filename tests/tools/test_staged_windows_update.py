@@ -212,7 +212,7 @@ def test_preview_binds_guest_hardware_and_profile_without_dispatch(guest_preview
     assert all(admission[key] in command for key in ('hardware_uuid', 'edition', 'build', 'computer'))
     assert 'Win32_ComputerSystemProduct' in script and 'EditionID' in script
     assert "Start-Process -FilePath $Candidate -ArgumentList @('--preflight','--quiet')" in script
-    assert script.index("if($CheckOnly)") < script.index("if($owners.Count)")
+    assert script.index("if($CheckOnly)") < script.index("$idleWait=")
     assert 'finally{$pin.Dispose()}' in script
     assert options['timeout'] == 180
 
@@ -265,3 +265,23 @@ def test_guest_gate_reports_known_refusal_without_echoing_probe_output(guest_pre
     with pytest.raises(EvidenceError) as error:
         runner.preview_dedicated_guest(args)
     assert str(error.value) == 'native preflight refused: dedicated guest hardware identity differs'
+
+
+def test_guest_run_waits_only_for_installer_service_and_reports_refusal(guest_preview, monkeypatch):
+    runner, args, admission, _, _ = guest_preview
+    args.admission.write_text(json.dumps(admission), encoding='utf-8')
+    run = runner.subprocess.run
+
+    def busy(command, **options):
+        if '-CheckOnly' in command:
+            return run(command, **options)
+        script = type(args.admission)(command[command.index('-File') + 1]).read_text(encoding='utf-8-sig')
+        assert 'Win32_Service' in script and "Name='msiserver'" in script
+        assert script.index('Start-Sleep') < script.index("-ArgumentList '--quiet'")
+        raise subprocess.CalledProcessError(1, 'launch',
+            stderr='Windows Installer service did not become quiet\nraw output is private')
+
+    monkeypatch.setattr(runner.subprocess, 'run', busy)
+    with pytest.raises(EvidenceError) as error:
+        runner.run_on_dedicated_guest(args)
+    assert str(error.value) == 'native execution refused: Windows Installer service did not become quiet'

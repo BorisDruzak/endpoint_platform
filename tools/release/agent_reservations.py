@@ -152,6 +152,11 @@ def _find_request(entries: list[dict], request_id: str) -> dict:
     raise ValueError("Reservation request ID was not found")
 
 
+def ledger_status(root: Path) -> dict:
+    head = _remote_head(root)
+    return {"revision": head, "entries": _ledger(root, head)}
+
+
 def reservation_status(args: Namespace) -> dict:
     root = args.repo_root
     return _find_request(_ledger(root, _remote_head(root)), str(args.request_id))
@@ -178,7 +183,8 @@ def _inventories(args: Namespace) -> tuple[set[Version], set[Version], dict]:
     now = datetime.now(timezone.utc)
     production, prod_receipt = _observed(args.production_snapshot, now)
     staging, stage_receipt = _observed(args.staging_snapshot, now)
-    if production == staging:
+    production_db, staging_db = production.get("database_name"), staging.get("database_name")
+    if not production_db or not staging_db or production_db == staging_db:
         raise ValueError("Provide separately captured production and staging snapshots")
     candidates, signed_receipt = _observed(args.candidate_inventory, now)
     floor = _versions(candidates["windows"]) | _versions(candidates["alt"])

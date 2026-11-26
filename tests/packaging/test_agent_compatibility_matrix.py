@@ -4,6 +4,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
+
 
 CLI = Path(__file__).resolve().parents[2] / "tools/release/compatibility_matrix.py"
 SHA = "a" * 64
@@ -64,6 +66,44 @@ def test_plan_refuses_stale_or_incomplete_provider_snapshot(tmp_path):
     rejected = run(tmp_path, source)
     assert rejected.returncode != 0
     assert "devices" in rejected.stderr
+
+
+@pytest.mark.parametrize(("platform", "inventory", "expected_conflict"), [
+    ("windows", {"os_name": "Windows", "os_build": "26100"}, None),
+    ("windows", {"os_name": "Windows", "os_build": "19045"}, "os_build"),
+    ("windows", {"os_edition": "EnterpriseS"}, "os_edition"),
+    ("windows", {"architecture": "aarch64"}, "architecture"),
+    ("alt", {"os_name": "ALT", "os_version": "11.4"}, None),
+    ("alt", {"os_name": "ALT", "os_version": "11.2"}, "os_build"),
+    ("alt", {"os_name": "Debian GNU/Linux"}, "os_name"),
+])
+def test_plan_checks_reviewed_profile_against_provider_inventory(platform, inventory, expected_conflict):
+    from tools.release.compatibility_matrix import plan
+
+    windows = platform == "windows"
+    row = device("reviewed", "3.2.205", platform="windows_amd64" if windows else "linux_amd64", online=True)
+    row.update(native_event_id="reviewed-installation", inventory=inventory)
+    if not windows:
+        row["native_contract"] = "endpoint_linux_installation_event_v1"
+        row["native"].update(core_rpm_sha256="c" * 64, user_sensor_rpm_sha256="d" * 64)
+    profile = {"os_name": "Windows 11" if windows else "ALT Workstation K",
+               "os_build": "26100.9457" if windows else "11.4", "os_edition": "EnterpriseSEval" if windows else "K",
+               "architecture": "x86_64", "core_version": "3.2.205", "foundation_version": "3.2.205",
+               "setup_client_version": "1.0.11" if windows else "absent", "support_version": "1.1.8",
+               "state_schema": "v1", "acl_profile": "native", "local_transaction": "settled"}
+    reviewed = {"observed_at": TIME, "devices": [
+        {"device_id": row["device_id"], "native_event_id": row["native_event_id"], "profile": profile},
+    ]}
+    result = plan(snapshot(row), {"platform": platform, "version": "3.2.278", "sha256": SHA},
+                  now=datetime.now(timezone.utc), profiles=reviewed)
+    case = result["cases"][0]
+    if expected_conflict:
+        assert case["category"] == "HOLD"
+        assert case["reason"] == "inventory_profile_mismatch"
+        assert case["conflicting_profile_fields"] == [expected_conflict]
+    else:
+        assert case["profile"] == profile
+        assert case["reason"] == ("windows_preview_missing" if windows else "observed_native_source")
 
 
 def test_plan_keeps_pending_enrollment_as_a_separate_source(tmp_path):
@@ -154,7 +194,13 @@ def test_reset_lab_candidate_is_excluded_only_without_operational_exposure(tmp_p
     ]}
     path = tmp_path / "lab.json"
     path.write_text(json.dumps(inventory), encoding="utf-8")
-    options = ("--lab-candidates", str(path))
+    source["database_name"] = "endpoint_platform"
+    source["release_planning"]["historically_exposed_versions"] = {"windows": [], "alt": []}
+    staging = {**snapshot(), "database_name": "endpoint_staging_db"}
+    staging["release_planning"]["historically_exposed_versions"] = {"windows": [], "alt": []}
+    staging_path = tmp_path / "staging.json"
+    staging_path.write_text(json.dumps(staging), encoding="utf-8")
+    options = ("--lab-candidates", str(path), "--staging-snapshot", str(staging_path))
     result = run(tmp_path, source, "windows", *options)
     assert result.returncode == 0, result.stderr
     report = json.loads(result.stdout)
@@ -240,3 +286,113 @@ def test_reuse_requires_current_provider_proof_and_the_exact_reviewed_profile(tm
     holds = matrix()
     assert any(case["category"] == "HOLD" and case["device_id"] == "eval" for case in holds)
     assert all("satisfied_by" not in case for case in holds)
+
+
+def test_hold_surfaces_observed_inventory_and_specific_missing_facts(tmp_path):
+    row = {**device("production", "3.2.205", online=True),
+           "core_version": "3.2.264", "foundation_version": "3.2.205", "launcher_version": "3.2.205",
+           "inventory": {"observed_at": TIME, "os_name": "Windows", "os_build": "26100",
+                         "architecture": "x86_64", "hostname": "ignored"},
+           "packages": [{"name": "endpoint-agent", "version": "3.2.205-alt6"}]}
+    result = run(tmp_path, snapshot(row))
+    assert result.returncode == 0, result.stderr
+    held, = [case for case in json.loads(result.stdout)["cases"] if case["category"] == "HOLD"]
+    assert held["reason"] == "native_profile_incomplete"
+    assert held["observed_profile"]["inventory"] == {
+        "observed_at": TIME, "os_name": "Windows", "os_build": "26100", "architecture": "x86_64",
+    }
+    assert held["observed_profile"]["launcher_version"] == "3.2.205"
+    assert held["observed_profile"]["packages"] == row["packages"]
+    assert {"os_edition", "state_schema", "acl_profile", "local_transaction"} <= set(held["missing_profile_fields"])
+    assert "core_version" not in held["missing_profile_fields"]
+
+
+def test_lab_exclusion_requires_fresh_distinct_history_and_staging(tmp_path):
+    production = {**snapshot(), "database_name": "endpoint_platform"}
+    staging = {**snapshot(), "database_name": "endpoint_staging_db"}
+    lab = {"observed_at": TIME, "candidates": [
+        {"platform": "windows", "version": "3.2.253", "sha256": "d" * 64,
+         "receipt_sha256": "e" * 64, "exposure": "lab_only", "reset": "verified"},
+    ]}
+    lab_path = tmp_path / "lab.json"
+    stage_path = tmp_path / "stage.json"
+    lab_path.write_text(json.dumps(lab), encoding="utf-8")
+
+    def reason(*args):
+        result = run(tmp_path, production, "windows", "--lab-candidates", str(lab_path), *args)
+        assert result.returncode == 0, result.stderr
+        candidate, = [case for case in json.loads(result.stdout)["cases"] if case["category"] != "REQUIRED"]
+        return candidate["reason"]
+
+    assert reason() == "operational_exposure_history_missing"
+    for provider in (production, staging):
+        provider["release_planning"]["historically_exposed_versions"] = {"windows": [], "alt": []}
+    staging["release_planning"]["historically_exposed_versions"]["windows"] = ["3.2.253"]
+    stage_path.write_text(json.dumps(staging), encoding="utf-8")
+    assert reason("--staging-snapshot", str(stage_path)) == "lab_claim_conflicts_with_observed_exposure"
+    staging["release_planning"]["historically_exposed_versions"]["windows"].clear()
+    stage_path.write_text(json.dumps(staging), encoding="utf-8")
+    assert reason("--staging-snapshot", str(stage_path)) == "unexposed_lab_with_verified_reset"
+
+
+def test_alt_reuse_is_bound_to_the_same_candidate_pair_gateway_and_complete_profile():
+    from tools.release.compatibility_matrix import plan
+
+    now = datetime.now(timezone.utc)
+    row = {**device("production-alt", "3.2.183", platform="linux_amd64", online=True),
+           "native_event_id": "production-native",
+           "native_contract": "endpoint_linux_installation_event_v1",
+           "native": {"version": "3.2.183", "source_revision": SOURCE,
+                      "core_rpm_sha256": "c" * 64, "user_sensor_rpm_sha256": "d" * 64}}
+    production = snapshot(row)
+    profile = {"os_name": "ALT Workstation K", "os_build": "11.4", "os_edition": "K",
+               "architecture": "x86_64", "core_version": "3.2.183", "foundation_version": "3.2.183",
+               "setup_client_version": "absent", "support_version": "1.1.8", "state_schema": "v1",
+               "acl_profile": "root_v1", "local_transaction": "settled"}
+    profiles = {"observed_at": TIME, "devices": [
+        {"device_id": row["device_id"], "native_event_id": row["native_event_id"], "profile": profile},
+    ]}
+    target_native = {"version": "3.2.278", "source_revision": "e" * 40,
+                     "core_rpm_sha256": "f" * 64, "user_sensor_rpm_sha256": "1" * 64}
+    target = {"platform": "alt", "version": "3.2.278", "sha256": SHA, "native_identity": target_native}
+    applied = now - timedelta(days=1)
+    ack = {"source_event_id": "e2f95044-b8d8-4401-9baa-ba4c9173a9ab",
+           "target_event_id": "f52f95c9-ab20-4199-9a6b-372af16d48bc",
+           "target_received_at": applied.isoformat(), "source": row["native"], "target": target_native}
+    lab = {"schema_version": 1, "observed_at": (applied + timedelta(minutes=5)).isoformat(),
+           "release_planning": {"alt_native_transitions": [ack]}}
+    environment = "2" * 64
+    evidence = {"source_event_id": ack["source_event_id"], "target_event_id": ack["target_event_id"],
+                "target_sha256": SHA, "environment_sha256": environment, "receipt_sha256": "3" * 64,
+                "profile": profile, "expires_at": (now + timedelta(days=14)).isoformat()}
+
+    def reuse(review=evidence, lab_view=lab, candidate=target):
+        reviewed = {"observed_at": TIME, "qualifications": [review]}
+        report = plan(production, candidate, now=now, profiles=profiles,
+                      alt_lab_evidence=reviewed, alt_lab_snapshot=lab_view, qualification_environment=environment)
+        transition, = [case for case in report["cases"] if case.get("test") == "native_transition"]
+        assert transition["category"] == "REQUIRED"
+        return transition.get("satisfied_by")
+
+    assert reuse()["target_event_id"] == ack["target_event_id"]
+    assert not reuse(review={**evidence, "profile": {**profile, "os_build": "11.5"}})
+    assert not reuse(review={**evidence, "target_sha256": "5" * 64})
+    assert not reuse(review={**evidence, "environment_sha256": "5" * 64})
+    assert not reuse(review={**evidence, "expires_at": applied.isoformat()})
+    assert not reuse(candidate={**target, "native_identity": {**target_native, "core_rpm_sha256": "0" * 64}})
+    assert not reuse(lab_view={**lab, "release_planning": {"alt_native_transitions": []}})
+
+
+def test_platform_observations_keep_deb_and_windows_cards_out_of_alt_matrix(tmp_path):
+    def observed(id, os, platform):
+        return {**device(id, "3.2.183", platform=platform), "native_contract": None, "native": None,
+                "inventory": {"os_name": os, "observed_at": TIME}}
+
+    source = snapshot(observed("ubuntu", "Ubuntu", "linux_amd64"),
+                      observed("debian", "Debian GNU/Linux", "linux_amd64"),
+                      observed("windows", "Windows", None), observed("alt", "ALT", None),
+                      observed("unknown", None, None))
+    result = run(tmp_path, source, "alt")
+    assert result.returncode == 0, result.stderr
+    holds = [case["device_id"] for case in json.loads(result.stdout)["cases"] if case["category"] == "HOLD"]
+    assert holds == ["alt", "unknown"]

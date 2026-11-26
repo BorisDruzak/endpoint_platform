@@ -25,22 +25,31 @@ WITH primary_download AS (
     SELECT DISTINCT platform, channel, version
     FROM update_builds
 ), active_native_jobs AS (
-    SELECT device_id, status, release_id
+    SELECT DISTINCT ON (device_id) device_id, status, release_id
     FROM setup_update_assignments
     WHERE status IN ('assigned', 'downloading', 'verified', 'installing', 'verifying', 'recovery_required')
+    ORDER BY device_id, (status = 'recovery_required') DESC, id DESC
 ), active_preparations AS (
     SELECT device_id, status, release_id
     FROM setup_update_preparations
     WHERE status IN ('preparing_client', 'restoring_core', 'recovering_client', 'recovering_source')
 ), active_core_jobs AS (
-    SELECT t.device_id, t.status, b.version, b.sha256_digest AS sha256
+    SELECT DISTINCT ON (t.device_id) t.device_id, t.status, b.version, b.sha256_digest AS sha256
     FROM update_targets t
     JOIN update_rollouts r ON r.id = t.rollout_id
     JOIN update_builds b ON b.id = r.build_id
     WHERE t.status IN ('assigned', 'requested', 'scheduled')
+    ORDER BY t.device_id, t.id DESC
 ), planning_devices AS (
     SELECT d.id AS device_id, i.platform, i.agent_version AS core_version,
-           i.launcher_version AS foundation_version, i.last_seen_at AS core_observed_at,
+           i.launcher_version AS foundation_version, i.launcher_version,
+           i.last_seen_at AS core_observed_at, d.retired_at,
+           jsonb_strip_nulls(jsonb_build_object(
+               'observed_at', coalesce(ci.last_observed_at, inv.collected_at),
+               'os_name', inventory.system->>'os_name', 'os_version', inventory.system->>'os_version',
+               'os_build', inventory.system->>'os_build', 'os_edition', inventory.system->>'os_edition',
+               'architecture', inventory.system->>'architecture'
+           )) AS inventory, coalesce(packages.items, '[]'::jsonb) AS packages,
            s.state AS installation_state, s.event_id AS native_event_id,
            e.payload->>'schema_version' AS native_contract, e.payload->'native' AS native,
            CASE WHEN enrollment.installer_release_id LIKE 'ubuntu-deb:%'
@@ -66,6 +75,22 @@ WITH primary_download AS (
     ) i ON true
     LEFT JOIN installation_states s ON s.device_id = d.id
     LEFT JOIN installation_events e ON e.id = s.event_id
+    LEFT JOIN context_current ci ON ci.device_id = d.id AND ci.profile = 'inventory_v1'
+    LEFT JOIN context_snapshots inv ON inv.id = ci.snapshot_id
+    LEFT JOIN LATERAL (
+        SELECT coalesce(ci.last_projection, inv.normalized_projection::jsonb) #> '{sections,system}' AS system
+    ) inventory ON true
+    LEFT JOIN context_current cb ON cb.device_id = d.id AND cb.profile = 'baseline_v1'
+    LEFT JOIN context_snapshots base ON base.id = cb.snapshot_id
+    LEFT JOIN LATERAL (
+        SELECT jsonb_agg(jsonb_build_object('name', item->>'name', 'version', item->>'version')
+                         ORDER BY item->>'name', item->>'version') AS items
+        FROM jsonb_array_elements(coalesce(cb.last_projection, base.normalized_projection::jsonb)
+                                  #> '{sections,software}') item
+        WHERE item->>'source' = 'package' AND item->>'name' IN (
+            'endpoint-agent', 'endpoint-agent-user-sensor', 'endpoint-agent-ubuntu', 'endpoint-agent-debian'
+        )
+    ) packages ON true
     LEFT JOIN LATERAL (
         SELECT r.installer_release_id FROM enrollment_requests r
         WHERE r.device_id = d.id AND r.platform = 'linux' AND r.status = 'completed'
@@ -114,6 +139,31 @@ WITH primary_download AS (
       AND r.status IN ('created', 'validating', 'auto_approved', 'waiting_approval', 'review_required',
                        'claim_issued', 'enrolling', 'device_registered', 'waiting_wss')
     GROUP BY r.platform, r.installer_version, r.installer_release_id, r.status
+), historical_exposure AS (
+    SELECT 'windows' AS platform, w.agent_version AS version
+    FROM windows_setup_releases w WHERE w.download_published
+    UNION
+    SELECT 'windows', r.version FROM setup_update_assignments a
+    JOIN setup_update_releases r ON r.id = a.release_id
+    UNION
+    SELECT 'windows', r.version FROM setup_update_preparations p
+    JOIN setup_update_releases r ON r.id = p.release_id
+    UNION
+    SELECT CASE WHEN b.platform = 'windows_amd64' THEN 'windows' ELSE 'alt' END, b.version
+    FROM update_targets t
+    JOIN update_rollouts r ON r.id = t.rollout_id
+    JOIN update_builds b ON b.id = r.build_id
+    WHERE b.platform IN ('windows_amd64', 'linux_amd64')
+    UNION
+    SELECT CASE WHEN e.payload->>'schema_version' = 'endpoint_installation_event_v1' THEN 'windows' ELSE 'alt' END,
+           e.payload->'native'->>'version'
+    FROM installation_events e
+    WHERE e.payload->>'schema_version' IN ('endpoint_installation_event_v1', 'endpoint_linux_installation_event_v1')
+    UNION
+    SELECT CASE WHEN r.platform = 'windows' THEN 'windows' ELSE 'alt' END, r.installer_version
+    FROM enrollment_requests r
+    LEFT JOIN linux_enrollment_bindings b ON b.enrollment_request_id = r.id
+    WHERE r.platform = 'windows' OR b.native_release_id IS NOT NULL
 ), accepted_native_sources AS (
     SELECT e.payload->>'schema_version' AS native_contract,
            e.payload->'native'->>'version' AS version,
@@ -144,6 +194,7 @@ SELECT jsonb_build_object(
     'schema_version', 1,
     'observed_at', transaction_timestamp(),
     'database_revision', (SELECT version_num FROM alembic_version),
+    'database_name', current_database(),
     'windows_primary', (SELECT to_jsonb(primary_download) FROM primary_download),
     'windows_delivery', (SELECT to_jsonb(full_setup_policy) FROM full_setup_policy),
     'windows_active_assignments', coalesce(
@@ -155,6 +206,12 @@ SELECT jsonb_build_object(
          FROM accepted_native_groups), '[]'::jsonb
     ),
     'release_planning', jsonb_build_object(
+        'historically_exposed_versions', jsonb_build_object(
+            'windows', ARRAY(SELECT version FROM historical_exposure WHERE platform = 'windows'
+                             AND version IS NOT NULL ORDER BY version),
+            'alt', ARRAY(SELECT version FROM historical_exposure WHERE platform = 'alt'
+                         AND version IS NOT NULL ORDER BY version)
+        ),
         'devices', coalesce((SELECT jsonb_agg(to_jsonb(d) ORDER BY d.device_id) FROM planning_devices d), '[]'::jsonb),
         'windows_targets', coalesce((SELECT jsonb_agg(jsonb_build_object('release_id', id, 'version', version,
             'sha256', sha256) ORDER BY id) FROM setup_update_releases), '[]'::jsonb),
@@ -171,6 +228,22 @@ SELECT jsonb_build_object(
             WHERE j.status = 'applied' AND j.source_foundation_version = q.source_foundation
               AND q.qualified_at <= transaction_timestamp() AND q.expires_at >= transaction_timestamp()
               AND NOT EXISTS (SELECT 1 FROM setup_update_preparations p WHERE p.assignment_id = j.id)
+        ), '[]'::jsonb),
+        'alt_native_transitions', coalesce((
+            SELECT jsonb_agg(jsonb_build_object(
+                'source_event_id', prior.id, 'target_event_id', current.id,
+                'target_received_at', current.received_at,
+                'source', prior.payload->'native', 'target', current.payload->'native'
+            ) ORDER BY current.id)
+            FROM installation_events current
+            JOIN installation_events prior ON prior.id = current.previous_event_id
+                AND prior.device_id = current.device_id AND prior.generation_id = current.generation_id
+                AND prior.sequence + 1 = current.sequence
+            WHERE current.action = 'installed' AND prior.action = 'installed'
+              AND current.payload->>'schema_version' = 'endpoint_linux_installation_event_v1'
+              AND prior.payload->>'schema_version' = 'endpoint_linux_installation_event_v1'
+              AND prior.payload->'native'->>'version' <> current.payload->'native'->>'version'
+              AND current.received_at >= transaction_timestamp() - interval '30 days'
         ), '[]'::jsonb),
         'enrollment_sources', coalesce((SELECT jsonb_agg(to_jsonb(e) ORDER BY e.platform, e.version, e.release_id)
             FROM planning_enrollment e), '[]'::jsonb),

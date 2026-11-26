@@ -192,3 +192,64 @@ def test_linux_archive_builder_is_shared_with_alt_rpm(source):
     assert set(alt['changed_components']) == {'alt_core', 'alt_native'}
     assert alt['unclassified'] == []
     assert plan(source, target)['artifacts'] == []
+
+
+@pytest.mark.parametrize(('platform', 'artifact'), [('ubuntu', 'ubuntu_deb_apt'), ('debian', 'debian_deb_apt')])
+def test_shared_core_change_selects_the_native_deb_route(source, platform, artifact):
+    root, _ = source
+    write(root, 'pc_agent/logic/backoff.py', 'delay = 2\n')
+    result = plan(source, commit(root), platform)
+    assert result['state'] == 'planned'
+    assert result['artifacts'] == [artifact]
+    assert result['artifact_reasons'][artifact] == ['deb_core']
+
+
+def test_distro_and_shared_deb_inputs_follow_the_installed_package(source):
+    root, _ = source
+    write(root, 'packaging/debian/proxmox-health.py', 'marker = 1\n')
+    write(root, 'packaging/ubuntu/postinst', '# common maintainer script\n')
+    write(root, 'tools/build_ubuntu_agent_deb.py', 'marker = 2\n')
+    head = commit(root)
+    assert plan(source, head, 'ubuntu')['changed_components'] == {
+        'deb_package': ['packaging/ubuntu/postinst', 'tools/build_ubuntu_agent_deb.py'],
+    }
+    assert plan(source, head, 'debian')['changed_components'] == {
+        'deb_package': ['packaging/debian/proxmox-health.py', 'packaging/ubuntu/postinst',
+                        'tools/build_ubuntu_agent_deb.py'],
+    }
+    assert plan(source, head, 'alt')['artifacts'] == []
+
+
+def test_apt_publisher_change_does_not_require_rebuilding_deb(source):
+    root, _ = source
+    write(root, 'tools/release/build_ubuntu_apt_repository.py', 'marker = 1\n')
+    head = commit(root)
+    for platform in ('ubuntu', 'debian'):
+        result = plan(source, head, platform)
+        assert result['artifacts'] == [f'{platform}_deb_apt']
+        assert result['artifact_reasons'] == {f'{platform}_deb_apt': ['apt_repository']}
+    assert plan(source, head)['artifacts'] == []
+
+
+def test_alt_desktop_native_changes_do_not_select_deb(source):
+    root, _ = source
+    write(root, 'pc_agent/logic/native.py', 'guard = 5\n')
+    write(root, 'packaging/alt/endpoint-agent.spec', '# RPM only\n')
+    head = commit(root)
+    assert plan(source, head, 'alt')['artifacts'] == ['alt_native_rpm']
+    assert plan(source, head, 'ubuntu')['artifacts'] == []
+
+
+def test_external_sdk_and_provisioning_tools_do_not_trigger_agent_builds(source):
+    root, _ = source
+    sdk = 'sdk/python/endpoint_platform_client/client.py'
+    write(root, sdk, 'client_version = 2\n')
+    write(root, 'tools/keycloak/render_realm.py', 'config_version = 1\n')
+    write(root, 'tools/provision_ubuntu_server_pilot.sh', '# standalone operator workflow\n')
+    write(root, 'tools/ubuntu_console_enrollment.py', 'tool_version = 2\n')
+    head = commit(root)
+    for platform in ('windows', 'alt', 'ubuntu', 'debian'):
+        plan_result = plan(source, head, platform)
+        assert plan_result['state'] == 'planned'
+        assert plan_result['artifacts'] == []
+        assert plan_result['changed_components'] == {'python_sdk': [sdk]}

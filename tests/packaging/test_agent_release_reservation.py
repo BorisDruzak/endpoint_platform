@@ -65,6 +65,7 @@ def release_inputs(tmp_path):
     snapshot = {
         "schema_version": 1,
         "observed_at": observed_at,
+        "database_name": "endpoint_platform",
         "occupied_versions": {
             "windows_installer": ["3.2.205", "3.2.158+setup.1"],
             "windows_agent": ["3.2.205"],
@@ -77,6 +78,7 @@ def release_inputs(tmp_path):
         },
     }
     write(tmp_path / "production.json", snapshot)
+    snapshot["database_name"] = "endpoint_staging_db"
     snapshot["occupied_versions"]["windows_full_setup"].append("3.2.275")
     write(tmp_path / "staging.json", snapshot)
     write(tmp_path / "candidates.json", {
@@ -133,7 +135,7 @@ def test_parallel_windows_and_alt_reservations_are_unique_and_replay_safe(releas
     assert git(repo, "ls-remote", "origin", LEDGER) == before
 
 
-@pytest.mark.parametrize("defect", ["missing", "stale", "incomplete", "same_snapshot"])
+@pytest.mark.parametrize("defect", ["missing", "stale", "incomplete", "same_snapshot", "unknown_database"])
 def test_reservation_requires_complete_recent_provider_views(release_inputs, defect):
     repo, folder = release_inputs
     staging = folder / "staging.json"
@@ -145,6 +147,8 @@ def test_reservation_requires_complete_recent_provider_views(release_inputs, def
             data["observed_at"] = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
         elif defect == "incomplete":
             del data["occupied_versions"]["linux_native"]
+        elif defect == "unknown_database":
+            del data["database_name"]
         else:
             data = json.loads((folder / "production.json").read_text(encoding="utf-8"))
         write(staging, data)
@@ -1142,3 +1146,55 @@ def test_alt_withdrawal_keeps_exact_archive_private_when_https_is_unverified(tmp
     assert not published.exists() and retained.stat().st_ino == inode and sibling.is_dir()
     assert not publication._withdraw(published, retained, proofs, lambda: None)
     assert (retained / "kit.tar.gz").read_bytes() == body and retained.stat().st_ino == inode
+
+
+def test_reservation_rejects_two_captures_from_the_same_provider(release_inputs):
+    repo, folder = release_inputs
+    production = json.loads((folder / "production.json").read_text(encoding="utf-8"))
+    production["database_name"] = "endpoint_platform"
+    write(folder / "production.json", production)
+    repeated = {**production, "observed_at": datetime.now(timezone.utc).isoformat()}
+    write(folder / "staging.json", repeated)
+    result = reserve(release_inputs, uuid4())
+    assert result.returncode != 0
+    assert "separately captured" in result.stderr
+    assert git(repo, "ls-remote", "origin", LEDGER) == ""
+
+
+@pytest.mark.skipif(sys.platform != "win32" or not shutil.which("pwsh"), reason="Windows Full Setup needs PowerShell 7")
+def test_full_setup_build_keeps_log_outside_the_recreated_wix_directory(release_inputs):
+    repo, folder = release_inputs
+    baseline = git(repo, "rev-parse", "HEAD")
+    relative = "packaging/windows/build-setup.ps1"
+    script = repo / relative
+    script.parent.mkdir(parents=True)
+    script.write_text(
+        "param($Version,$WixBuildRoot,$EndpointOrigin,$EndpointCaFile)\n"
+        "$ErrorActionPreference = 'Stop'\n"
+        "[IO.Directory]::Delete($WixBuildRoot)\n"
+        "$releases = Join-Path $WixBuildRoot 'releases'\n"
+        "New-Item -ItemType Directory -Path $releases | Out-Null\n"
+        "foreach ($file in @( \"EndpointAgent-$Version-x64.msi\", \"EndpointAgent-$Version-x64.release.json\", "
+        "\"EndpointAgentSetup-$Version-x64.exe\", \"EndpointAgentSetup-$Version-x64.release.json\" )) {\n"
+        "    Set-Content -LiteralPath (Join-Path $releases $file) -Value $file\n"
+        "}\n"
+        "Write-Output 'Native work directory recreated'\n",
+        encoding="utf-8",
+    )
+    git(repo, "add", relative)
+    git(repo, "commit", "-m", "test: exercise the native WiX staging lifecycle")
+    request, _ = prepare_bound_source(release_inputs)
+    ca = folder / "lab-ca.crt"
+    ca.write_bytes(b"fixture")
+    inputs = folder / "windows-inputs.json"
+    write(inputs, {"endpoint_origin": "https://example.test", "ca_file": ca.name})
+    output = folder / "native"
+    result = value(subprocess.run(
+        [sys.executable, str(CLI), "qualify-build", "--repo-root", str(repo), "--request-id", str(request),
+         "--platform", "windows", "--base", baseline, "--output-root", str(output), "--inputs", str(inputs), "--execute"],
+        capture_output=True, text=True, encoding="utf-8", timeout=90,
+    ))
+    assert result["state"] == "built" and result["artifact"] == "windows_full_setup"
+    assert len(result["outputs"]) == 4
+    assert all((output / row["path"]).is_file() for row in result["outputs"])
+    assert "Native work directory recreated" in (output / "builder.log").read_text(encoding="utf-8")
