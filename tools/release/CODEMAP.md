@@ -517,6 +517,15 @@ or ACKs. An outer exit 21 with pending registration is expected in this scope.
 The result is read-only evidence for `factory_offline`. First enrollment
 and publication use their respective acceptance gates.
 
+The Proxmox runner captures guest monotonic timings for kit verification
+and extraction, `rpm -U --test`, and the exact Setup process through its
+pre-enrollment exit. Replay exposes the measurements as
+`timing.guest_elapsed_ns` in the verified result. Compare timing on the
+same stock snapshot and runner. Boot, QEMU transfers, and the subsequent
+reboot and reconcile are outside these intervals. Historical receipts replay
+without timings. A malformed timing observation is marked invalid while the
+native acceptance checks still apply.
+
 ### Check first ALT enrollment on the Lab provider
 
 On the protected Linux publisher, set `DATABASE_URL` for the selected Lab

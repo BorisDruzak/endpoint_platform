@@ -1,12 +1,14 @@
 """QGA entrypoint for the isolated ALT trial. The runner supplies the exact kit."""
 
 import hashlib
+import json
 import os
 from pathlib import Path
 import shutil
 import stat
 import subprocess
 import tarfile
+from time import monotonic_ns
 
 
 ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C"}
@@ -98,8 +100,12 @@ def install(trial):
     for package in ("endpoint-agent", "endpoint-agent-user-sensor"):
         if _run("rpm", "-q", package, check=False).returncode != 1:
             raise ValueError("Expected an empty native ALT package inventory")
+    started = monotonic_ns()
     core, sensor, setup = _verified_members(trial, directory)
+    kit_verification = monotonic_ns() - started
+    started = monotonic_ns()
     _run("rpm", "-U", "--test", str(core), str(sensor), seconds=90)
+    rpm_preflight = monotonic_ns() - started
     print("stock_rpm_pair_test=0", flush=True)
     _check_guest(trial["guest_uuid"])
     _prepare_ca(trial["ca_sha256"])
@@ -115,8 +121,12 @@ def install(trial):
         os.close(fd)
     env = {**ENV, "ENDPOINT_AGENT_DEPLOYMENT_ENVIRONMENT": "staging", "CANARY_ENVIRONMENT": "staging",
            "CANARY_APPROVED": "true", "ENDPOINT_AGENT_ORIGIN": "https://endpoint-staging.sosnadmin.local"}
+    started = monotonic_ns()
     outcome = _run(str(setup), "install", "--core-rpm", str(core), "--user-sensor-rpm", str(sensor),
                    "--public-key", str(directory / "endpoint-rpm-release.asc"), env=env, check=False, seconds=180)
+    setup_install = monotonic_ns() - started
     print(f"setup_install_exit={outcome.returncode}", flush=True)
     if outcome.returncode != 21:
         raise ValueError("ALT Setup did not return the pre-enrollment result")
+    timing = {"kit_verification": kit_verification, "rpm_preflight": rpm_preflight, "setup_install": setup_install}
+    print("offline_timing_ns=" + json.dumps(timing), flush=True)

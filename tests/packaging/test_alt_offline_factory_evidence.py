@@ -73,6 +73,35 @@ def test_offline_verification_keeps_bootstrap_pending(offline_trial):
     assert result["kit_sha256"] == candidate["artifacts"]["archive"]["sha256"]
     assert result["operation_id"] == receipts["after-install"]["native"]["id"]
     assert set(result["receipt_sha256"]) == set(receipts)
+    assert "timing" not in result
+
+
+def test_offline_verification_replays_guest_elapsed_times(offline_trial):
+    from tools.release.agent_alt_offline import verify
+
+    directory, candidate, receipts, write = offline_trial
+    measurements = {"kit_verification": 9000000000, "rpm_preflight": 2000000000, "setup_install": 19000000000}
+    receipts["install"] += "offline_timing_ns=" + json.dumps(measurements) + "\n"
+    write("install")
+    assert verify(candidate, directory)["timing"] == {"state": "measured", "guest_elapsed_ns": measurements}
+
+
+@pytest.mark.parametrize("line", [
+    "offline_timing_ns={}\n",
+    'offline_timing_ns={"kit_verification":1,"rpm_preflight":false,"setup_install":1}\n',
+    'offline_timing_ns={"kit_verification":1,"rpm_preflight":1,"setup_install":-1}\n',
+    'offline_timing_ns={"kit_verification":1,"kit_verification":2,"rpm_preflight":1,"setup_install":1}\n',
+    'offline_timing_ns={"kit_verification":1,"rpm_preflight":1,"setup_install":1}\noffline_timing_ns={}\n',
+])
+def test_invalid_optional_timing_preserves_native_acceptance(offline_trial, line):
+    from tools.release.agent_alt_offline import verify
+
+    directory, candidate, receipts, write = offline_trial
+    receipts["install"] += line
+    write("install")
+    report = verify(candidate, directory)
+    assert report["timing"] == {"state": "invalid"}
+    assert report["state"] == "offline_install_verified"
 
 
 @pytest.mark.parametrize(("receipt", "field", "value", "reason"), [

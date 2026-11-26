@@ -127,6 +127,24 @@ def recorded_source(candidate):
             "user_sensor_rpm_sha256": members[sensor]["sha256"]}
 
 
+def _timing(lines):
+    prefix = "offline_timing_ns="
+    rows = [line.removeprefix(prefix) for line in lines if line.startswith(prefix)]
+    if not rows:
+        return {}
+    invalid = {"timing": {"state": "invalid"}}
+    if len(rows) != 1:
+        return invalid
+    try:
+        measured = read_json(rows[0].encode("utf-8"), 1024)
+    except ValueError:
+        return invalid
+    if (set(measured) != {"kit_verification", "rpm_preflight", "setup_install"}
+            or any(type(value) is not int or not 0 < value < 2**63 for value in measured.values())):
+        return invalid
+    return {"timing": {"state": "measured", "guest_elapsed_ns": measured}}
+
+
 def verify(candidate: dict, directory: Path) -> dict:
     receipts = {name: _read_qga(directory, name) for name in (*SNAPSHOTS, "install", "retry-timer-status")}
     before, installed, rebooted, after_timer = (read_json(receipts[name][0].encode("utf-8"), MAX_RECEIPT)
@@ -157,7 +175,7 @@ def verify(candidate: dict, directory: Path) -> dict:
             "native_rpm_exit": 0, "setup_exit": 21, "reconcile_exit": 21, "installation_ack": 0,
             "stock_os_inventory_sha256": before["os_packages_digest"],
             "stock_os_profile": before["os_package_profile"],
-            "receipt_sha256": {name: digest for name, (_, digest) in receipts.items()}}
+            "receipt_sha256": {name: digest for name, (_, digest) in receipts.items()}, **_timing(install)}
 
 
 def verify_recorded_trial(args) -> dict:
