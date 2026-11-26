@@ -37,6 +37,11 @@ single protected payload tree once. Two physical copies still receive two
 independent byte checks. On the exact 3.2.205 payload, the median verification
 fell from 844 to 627 ms in a local Windows fixture. Full Setup timing with
 these changes remains open for a signed candidate.
+On Windows the pinned-stream Core archive preparation reduced its median
+from 2.09 to 1.89 seconds on the exact signed 3.2.276 payload. The local
+Lab preview binds the exact Setup to SMBIOS UUID, hostname, OS profile and
+native source. The isolated Windows 10 fixture admitted the reviewed
+profile and both wrong-UUID checks refused admission.
 The separate Enterprise LTSC network profile remains open.
 Signed ALT 3.2.274 passed native factory
 registration with ACK1, fresh WSS, accepted baseline and two real samples
@@ -165,6 +170,11 @@ upgrade paths that must run for each qualified artifact.
   on stock 11.4 and updated p11. Core, Setup, Support and the KDE probe ran
   from the same extracted packages on stock. Signing and Lab acceptance of
   a distributable candidate remain open.
+  The [Windows DEVELOP build](docs/verification/2026-11-25-windows-alt-release-engineering.md#сборка-windows-в-develop)
+  verified the Core stage and the compiled updater, installer host and
+  Full Setup wrapper against one clean SHA. The unsigned wrapper retained
+  the exact signed 3.2.205 MSI and Core as fixtures. A fresh MSI and native
+  acceptance remain QUALIFY work.
 - EP-RE-05 has a read-only [delivery planner](tools/release/CODEMAP.md#choose-windows-or-alt-delivery)
   for Windows, ALT, Browser Sensor and provider changes. It compares both
   revisions' build dependencies, reports migrations and holds unknown inputs
