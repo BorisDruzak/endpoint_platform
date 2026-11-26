@@ -16,17 +16,19 @@ from uuid import UUID
 
 from tools.release import agent_reservations
 from tools.release.agent_candidate_artifacts import MAX_METADATA, _fingerprint, alt_rpm_names, verify_recorded_candidate
+from tools.release.alt_build_receipt import verify_build_receipt
 from tools.release.linux_native_verifier import KEY_SHA256, MAX_RPM, NativeRPMVerifier, PUBLISHER, publication_verifier, snapshot
 
 
 ROOT = Path(__file__).resolve().parents[2]
+PUBLIC_KEY = ROOT / "packaging/alt/pilot/endpoint-rpm-release.asc"
 
 
 def add_kit_arguments(parser: ArgumentParser) -> None:
     parser.add_argument("--repo-root", type=Path, default=ROOT)
     parser.add_argument("--request-id", required=True, type=UUID)
     parser.add_argument("--artifacts-dir", required=True, type=Path)
-    parser.add_argument("--public-key", type=Path, default=ROOT / "packaging/alt/pilot/endpoint-rpm-release.asc")
+    parser.add_argument("--public-key", type=Path, default=PUBLIC_KEY)
 
 
 def add_arguments(parser: ArgumentParser) -> None:
@@ -36,12 +38,12 @@ def add_arguments(parser: ArgumentParser) -> None:
 
 
 @contextmanager
-def _retain_kit(candidate, artifact_dir):
+def _retain_kit(candidate, paths):
     with ExitStack() as stack:
         retained = {}
         for label, proof in candidate["artifacts"].items():
             limit = 3 * MAX_RPM + MAX_METADATA if label == "archive" else MAX_METADATA
-            path, digest = stack.enter_context(snapshot(artifact_dir / proof["filename"], max_bytes=limit))
+            path, digest = stack.enter_context(snapshot(paths[label], max_bytes=limit))
             if digest != proof["sha256"] or path.stat().st_size != proof["size"]:
                 raise ValueError("ALT kit changed during retention")
             retained[label] = path
@@ -112,18 +114,38 @@ def recorded_kit(args: Namespace) -> dict:
 
 
 @contextmanager
-def verified_kit(candidate, args):
-    with TemporaryDirectory(prefix="endpoint-alt-publish-") as work, args.public_key.open("rb") as stream:
+def _verified_kit(candidate, paths, public_key):
+    with TemporaryDirectory(prefix="endpoint-alt-publish-") as work, public_key.open("rb") as stream:
         raw_key = stream.read(MAX_METADATA + 1)
         if hashlib.sha256(raw_key).hexdigest() != KEY_SHA256:
             raise ValueError("ALT publisher key differs from the pinned key")
         key = Path(work) / "publisher.asc"
         key.write_bytes(raw_key)
         verifier = NativeRPMVerifier(key)
-        with _retain_kit(candidate, args.artifacts_dir) as retained:
+        with _retain_kit(candidate, paths) as retained:
             core, sensor = _retain_rpms(candidate, retained, Path(work), verifier)
             source = _verified_native_source(verifier, candidate, core, sensor)
             yield VerifiedKit(retained, key, core, sensor, source)
+
+
+def verified_kit(candidate, args):
+    paths = {label: args.artifacts_dir / proof["filename"] for label, proof in candidate["artifacts"].items()}
+    return _verified_kit(candidate, paths, args.public_key)
+
+
+def verify_candidate_handoff(args: Namespace, candidate: dict) -> str:
+    if sys.platform != "linux" or os.geteuid() != 0:
+        raise ValueError("Record new ALT candidates on the privileged Linux publisher")
+    paths = {
+        "archive": args.manifest.with_name(candidate["artifacts"]["archive"]["filename"]),
+        "manifest": args.manifest,
+        "archive_signature": args.archive_signature,
+        "manifest_signature": args.manifest_signature,
+    }
+    with snapshot(args.build_receipt, max_bytes=MAX_METADATA) as (receipt, digest):
+        with _verified_kit(candidate, paths, PUBLIC_KEY) as kit:
+            verify_build_receipt(receipt.read_bytes(), candidate, (kit.core, kit.user_sensor))
+        return digest
 
 
 async def _publish(database_url, source, core, sensor, public_key, request_id):

@@ -124,7 +124,11 @@ upgrade paths that must run for each qualified artifact.
   the paired RPM identity, payload and shared source manifest before writing a
   build receipt with the sealed Setup hash. The kit assembler accepts this
   receipt to compare signed RPMs against the verified build and uses the same
-  retained files for signature checks and packaging. The native Lab matrix
+  retained files for signature checks and packaging. The first ALT ledger
+  write verifies both detached signatures, both RPM signatures and the
+  lead, header and payload against the unsigned build receipt. The signed
+  3.2.274 replay recorded the same kit after three refused inputs left the
+  isolated ledger unchanged. The native Lab matrix
   rechecks the recorded files and uses the existing compatibility planner for
   the same artifact digest. ALT native Setup, RPM manifests and kit assembly accept the
   bound candidate version. ALT 11.4 verified staging of synthetic 3.2.278,

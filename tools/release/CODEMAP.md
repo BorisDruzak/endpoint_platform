@@ -207,9 +207,9 @@ For the ALT native pair, `qualify-build` checks each finished RPM's package
 identity and manifest against its CPIO payload. Core and UserSensor must share
 the bound source revision and the same native source manifest. The receipt
 includes `alt_native.frozen_manifest_sha256` and `alt_native.setup_sha256`
-from the package contents. The publisher can match the embedded Setup and both
-RPM digests to this receipt before signing. The kit registration step still
-verifies the actual signatures and signed package digests.
+from the package contents. Each RPM output also records the SHA-256 of the lead,
+main header and compressed payload. Signing can change the signature envelope.
+The signed RPM's header and payload must still match the unsigned build.
 
 Paths in the local inputs JSON are relative to its own directory unless absolute.
 
@@ -269,22 +269,30 @@ Keep the canonical output filenames.
 ```powershell
 python tools/release/agent_release.py record-candidate --request-id $request --platform windows `
   --manifest $setupSidecar --expected-publisher $trustedPublisher
-python tools/release/agent_release.py record-candidate --request-id $request --platform alt `
-  --manifest $kitManifest --archive-signature $kitSignature --manifest-signature $manifestSignature
+```
+
+On the approved Linux publisher, use the unsigned build receipt for the
+first ALT recording. Keep the kit and receipt in protected paths.
+
+```bash
+python tools/release/agent_release.py record-candidate --request-id "$request" --platform alt \
+  --manifest "$kitManifest" --archive-signature "$kitSignature" --manifest-signature "$manifestSignature" \
+  --build-receipt "$qualificationBuildReceipt"
 ```
 
 The command checks the reserved version, bound source and exact artifact
 digests. Windows also checks the inspected MSI metadata against the Setup
-sidecar. ALT checks each archive member and the bundled manifest against the
-outer manifest, pins the publisher key digest and records the detached
-signature artifacts. The ledger retains one artifact set per reserved
-platform. An identical retry returns the existing record. A different artifact
-set requires a new reservation.
+sidecar. Before the first ALT ledger write, the command checks both detached
+signatures, both RPM signatures and the exact retained archive members. It
+matches the reservation and unsigned RPM lead, main header and payload to
+the build receipt and records the receipt digest. The ledger retains one
+artifact set per reserved platform. An identical retry returns the existing
+record and can omit the receipt, including for historical entries. A different
+artifact set requires a new reservation.
 
 The ledger entry supplies fingerprints for exact-artifact Lab verification.
-Signature authenticity and timestamps are verified through the existing
-native gates. Registration, qualification and promotion retain their current
-publisher and Console requirements.
+Registration, qualification and promotion retain their current publisher and
+Console requirements, including their independent signature checks.
 
 Generate the native Lab matrix from the same reservation and actual files.
 

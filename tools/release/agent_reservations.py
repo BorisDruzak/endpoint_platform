@@ -315,9 +315,12 @@ def _with_candidate(entries: list[dict], reserved: dict, candidate: dict) -> lis
 
 def record_candidate(args: Namespace) -> dict:
     """Record one immutable artifact set for a platform of the bound build."""
-    from tools.release.agent_candidate_artifacts import inspect_candidate
+    from tools.release.agent_candidate_artifacts import MAX_METADATA, _fingerprint, inspect_candidate
 
     root, request_id = args.repo_root, str(args.request_id)
+    receipt = getattr(args, "build_receipt", None)
+    if receipt is not None and args.platform != "alt":
+        raise ValueError("The build receipt option is only for ALT native candidates")
     proof = None
     for _ in range(8):
         head = _remote_head(root)
@@ -338,7 +341,16 @@ def record_candidate(args: Namespace) -> dict:
             existing = candidates[args.platform]
             if any(existing.get(key) != value for key, value in proof.items()):
                 raise ValueError("Different artifacts are already recorded for this platform")
+            if receipt is not None and "build_receipt_sha256" not in proof:
+                if _fingerprint(receipt, MAX_METADATA)["sha256"] != existing.get("build_receipt_sha256"):
+                    raise ValueError("ALT build receipt differs from the recorded receipt")
             return existing
+        if args.platform == "alt" and "build_receipt_sha256" not in proof:
+            from tools.release.agent_alt_native import verify_candidate_handoff
+
+            if receipt is None:
+                raise ValueError("Recording a new ALT candidate requires its qualification build receipt")
+            proof["build_receipt_sha256"] = verify_candidate_handoff(args, proof)
         recorded = {**proof, "state": "candidate", "recorded_at": datetime.now(timezone.utc).isoformat()}
         if _append(root, head, _with_candidate(entries, reserved, recorded),
                    f"record {args.platform} agent candidate"):

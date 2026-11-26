@@ -229,6 +229,7 @@ def main() -> None:
     candidate.add_argument("--expected-publisher", help="trusted Windows Setup/MSI publisher")
     candidate.add_argument("--archive-signature", type=Path, help="detached ALT kit signature")
     candidate.add_argument("--manifest-signature", type=Path, help="detached ALT manifest signature")
+    candidate.add_argument("--build-receipt", type=Path, help="qualification-build.json required for a new ALT candidate")
     reject = commands.add_parser("reject", help="record the rejection of an exact candidate digest")
     reject.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
     reject.add_argument("--request-id", required=True, type=UUID)

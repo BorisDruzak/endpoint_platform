@@ -14,6 +14,7 @@ from uuid import UUID
 
 from tools.release import agent_reservations, compatibility_matrix, linux_native_verifier, release_plan
 from tools.release.agent_candidate_artifacts import _fingerprint, verify_recorded_candidate
+from tools.release.alt_build_receipt import signing_content_sha256
 
 
 BUILDERS = {
@@ -188,9 +189,10 @@ def _inspect_built_alt_pair(paths: list[Path], version: str, revision: str) -> t
             if setup is None or setup["mode"] != "0755":
                 raise ValueError("ALT Core RPM is missing the executable native Setup")
             setup_sha = setup["sha256"]
+        signing_content = signing_content_sha256(path)
         if fingerprint != _fingerprint(path, native.MAX_RPM):
             raise ValueError(f"ALT RPM changed while checking build output: {path.name}")
-        outputs.append({**fingerprint, "path": path.name})
+        outputs.append({**fingerprint, "path": path.name, "signing_content_sha256": signing_content})
     if len(set(pair.values())) != 1:
         raise ValueError("ALT Core and UserSensor must share the release and the same native source manifest")
     return outputs, {"frozen_manifest_sha256": manifest_sha, "setup_sha256": setup_sha}
