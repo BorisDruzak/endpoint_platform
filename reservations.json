@@ -2,6 +2,13 @@
   "reservations": [
     {
       "after": "3.2.205",
+      "alt_unsigned_build": {
+        "build_receipt_sha256": "e933ada1c733147064ed85be77200cf398d3555e4ceee191697e637f2e5cc79f",
+        "build_revision": "ca68540ebf91a41cdb510e0727eaeef7e3b1e02b",
+        "recorded_at": "2026-11-26T09:07:53.150211+00:00",
+        "request_id": "5be58fd7-b40b-4a7c-9c86-cad4e2072bfb",
+        "version": "3.2.277"
+      },
       "bound_at": "2026-11-26T08:55:33.821049+00:00",
       "build_revision": "ca68540ebf91a41cdb510e0727eaeef7e3b1e02b",
       "inventories": {
