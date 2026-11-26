@@ -1159,3 +1159,42 @@ def test_reservation_rejects_two_captures_from_the_same_provider(release_inputs)
     assert result.returncode != 0
     assert "separately captured" in result.stderr
     assert git(repo, "ls-remote", "origin", LEDGER) == ""
+
+
+@pytest.mark.skipif(sys.platform != "win32" or not shutil.which("pwsh"), reason="Windows Full Setup needs PowerShell 7")
+def test_full_setup_build_keeps_log_outside_the_recreated_wix_directory(release_inputs):
+    repo, folder = release_inputs
+    baseline = git(repo, "rev-parse", "HEAD")
+    relative = "packaging/windows/build-setup.ps1"
+    script = repo / relative
+    script.parent.mkdir(parents=True)
+    script.write_text(
+        "param($Version,$WixBuildRoot,$EndpointOrigin,$EndpointCaFile)\n"
+        "$ErrorActionPreference = 'Stop'\n"
+        "[IO.Directory]::Delete($WixBuildRoot)\n"
+        "$releases = Join-Path $WixBuildRoot 'releases'\n"
+        "New-Item -ItemType Directory -Path $releases | Out-Null\n"
+        "foreach ($file in @( \"EndpointAgent-$Version-x64.msi\", \"EndpointAgent-$Version-x64.release.json\", "
+        "\"EndpointAgentSetup-$Version-x64.exe\", \"EndpointAgentSetup-$Version-x64.release.json\" )) {\n"
+        "    Set-Content -LiteralPath (Join-Path $releases $file) -Value $file\n"
+        "}\n"
+        "Write-Output 'Native work directory recreated'\n",
+        encoding="utf-8",
+    )
+    git(repo, "add", relative)
+    git(repo, "commit", "-m", "test: exercise the native WiX staging lifecycle")
+    request, _ = prepare_bound_source(release_inputs)
+    ca = folder / "lab-ca.crt"
+    ca.write_bytes(b"fixture")
+    inputs = folder / "windows-inputs.json"
+    write(inputs, {"endpoint_origin": "https://example.test", "ca_file": ca.name})
+    output = folder / "native"
+    result = value(subprocess.run(
+        [sys.executable, str(CLI), "qualify-build", "--repo-root", str(repo), "--request-id", str(request),
+         "--platform", "windows", "--base", baseline, "--output-root", str(output), "--inputs", str(inputs), "--execute"],
+        capture_output=True, text=True, encoding="utf-8", timeout=90,
+    ))
+    assert result["state"] == "built" and result["artifact"] == "windows_full_setup"
+    assert len(result["outputs"]) == 4
+    assert all((output / row["path"]).is_file() for row in result["outputs"])
+    assert "Native work directory recreated" in (output / "builder.log").read_text(encoding="utf-8")
