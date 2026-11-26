@@ -249,8 +249,17 @@ try {
   [IO.File]::ReadAllText($out)
   exit 0
  }
- $owners=@(Get-CimInstance Win32_Process|Where-Object {$_.Name -match '^(msiexec|EndpointAgentSetup.*|endpoint-installer-host)\.exe$'})
- if($owners.Count){throw 'foreign native owner'}
+ # MSI costing during preflight can leave the Windows Installer service running.
+ # Recheck until all native owners exit naturally, without stopping a process.
+ $idleWait=[Diagnostics.Stopwatch]::StartNew()
+ while($true){
+  $owners=@(Get-CimInstance Win32_Process|Where-Object {$_.Name -match '^(msiexec|EndpointAgentSetup.*|endpoint-installer-host)\.exe$'})
+  if(-not $owners.Count){break}
+  $msiService=Get-CimInstance Win32_Service -Filter "Name='msiserver'"
+  if($owners.Count -ne 1 -or $owners[0].Name -ine 'msiexec.exe' -or $owners[0].ProcessId -ne $msiService.ProcessId){throw 'foreign native owner'}
+  if($idleWait.Elapsed.TotalMinutes -ge 12){throw 'Windows Installer service did not become quiet'}
+  Start-Sleep -Seconds 2
+ }
  $process=Start-Process -FilePath $Candidate -ArgumentList '--quiet' -PassThru -WindowStyle Hidden
  $process.WaitForExit();$process.Refresh()
  [pscustomobject]@{native_exit=$process.ExitCode;health_verdict='unproven'}|ConvertTo-Json -Compress
@@ -294,7 +303,14 @@ def _dedicated_guest(args, *, execute):
                 key: admission[key] for key in ("hardware_uuid", "edition", "build", "candidate_version",
                                                 "artifact_sha256", "source_revision", "baseline_fingerprint")
             }}
-        result = subprocess.run(command, capture_output=True, text=True, check=True)
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, check=True)
+        except subprocess.CalledProcessError as error:
+            reasons = ("foreign native owner", "Windows Installer service did not become quiet")
+            reason = next((item for item in reasons if item in (error.stderr or "")), None)
+            if reason is None:
+                raise EvidenceError("native execution returned no result; inspect the dedicated guest") from None
+            raise EvidenceError(f"native execution refused: {reason}") from None
     return json.loads(result.stdout)
 
 
