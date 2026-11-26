@@ -6,9 +6,15 @@ CA trust, credentials and configuration are provisioned separately.
 
 ## Current native RPM workstation path
 
-For the production pilot on ALT Workstation K 11.4 x86_64, use the signed
-3.2.265 kit and its matching manifest from the main Endpoint site.
-The physical pilot upgraded the registered .183 pair on one workstation.
+The current native kit for ALT Workstation K 11.4 x86_64 is 3.2.278.
+The production pilot upgraded the signed .183 RPM pair on one workstation
+and confirmed the original device identity, fresh Activity and Support access.
+First enrollment was qualified in Lab. A new production enrollment needs an
+authorized campaign for this exact native source. Existing-device delivery
+uses an individually authorized native Setup operation.
+[Download .278](https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.278-1/endpoint-alt-pilot-3.2.278-1.tar.gz) · [Operator guide](https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.278-1/README.ru.md) · [Release record](../releases/linux-3.2.278-native.json)
+
+The earlier .265 production pilot upgraded the registered .183 pair on one workstation.
 The .267 kit has separate laboratory coverage. The signed
 [.269 candidate](../releases/alt-3.2.269-candidate.json) is local laboratory media.
 [Download .265](https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.265-1/endpoint-alt-pilot-3.2.265-1.tar.gz) · [Pilot instructions](https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.265-1/README.ru.md) · [Qualification matrix](../verification/2026-11-14-agent-release-qualification-matrix.md)

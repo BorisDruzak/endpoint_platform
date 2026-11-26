@@ -191,54 +191,44 @@
     }
   },
   "linux": {
-    "version": "3.2.183",
-    "distribution": "ALT11.4 x86_64 / KDE6 / systemd258.9; Stage VM107 and explicitly selected physical105/190/210",
-    "runtime_source_commit": "21fc543af8d4b8b24df83f29a27e4e2eeb86c268",
-    "release_record": "docs/releases/linux-3.2.183-native.json",
+    "version": "3.2.278",
+    "distribution": "ALT Workstation K 11.4 x86_64 / KDE X11",
+    "runtime_source_commit": "87b428c6c23965c4215780818a3ccb7879898e3a",
+    "release_record": "docs/releases/linux-3.2.278-native.json",
     "core_rpm": {
-      "filename": "endpoint-agent-3.2.183-alt6.x86_64.rpm",
-      "sha256": "063db934d957426bd1b9dc28ffaf16c2e00c30864d911d1f2d266d969fd04d56",
-      "size": 53636497
+      "filename": "endpoint-agent-3.2.278-alt6.x86_64.rpm",
+      "sha256": "c61a06ec7ae93d862d3e8bd230eb960c425e3a03b6cd8ce825f50d8f03b27112",
+      "size": 53127527
     },
     "user_sensor_rpm": {
-      "filename": "endpoint-agent-user-sensor-3.2.183-alt6.x86_64.rpm",
-      "sha256": "865b6c359d545d4092462b591ab909d2d6107fc0d050357cf4035f43b9c65298",
-      "size": 42164
-    },
-    "support": {
-      "version": "1.0.0",
-      "service": "endpoint-support-access.service",
-      "binary_sha256": "9712c68d687b8c46f06bff95513382298f4a3816049eede22328d08ad28d9b50",
-      "independent_of_core_and_updater": true,
-      "initial_access_hours_max": 8,
-      "explicit_existing_principal": "root UID0"
+      "filename": "endpoint-agent-user-sensor-3.2.278-alt6.x86_64.rpm",
+      "sha256": "5a776622072c468474e0305de5a57839b8394fb3cef5d92c72ee5c2c08b38eb8",
+      "size": 42675
     },
     "kit": {
-      "name": "endpoint-alt-pilot-3.2.183-1",
+      "name": "endpoint-alt-pilot-3.2.278-1",
       "schema_version": "endpoint_alt_native_kit_v3",
-      "operator_directory": "C:/endpoint-platform-wix-build/linux178-native/kit183",
-      "server_directory": "/srv/endpoint-platform-distribution/alt/endpoint-alt-pilot-3.2.183-1",
-      "download_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.183-1/endpoint-alt-pilot-3.2.183-1.tar.gz",
-      "manifest_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.183-1/endpoint-alt-pilot-3.2.183-1.manifest.json",
+      "server_directory": "/srv/endpoint-platform-distribution/alt/endpoint-alt-pilot-3.2.278-1",
+      "download_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.278-1/endpoint-alt-pilot-3.2.278-1.tar.gz",
+      "manifest_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.278-1/endpoint-alt-pilot-3.2.278-1.manifest.json",
       "public_file_sha256": {
-        "endpoint-alt-pilot-3.2.183-1.manifest.json": "f032ce98ab0f488ec581c57f5f4144b201db76d1b430bbaf0d2a38cb5eb5e603",
-        "endpoint-alt-pilot-3.2.183-1.tar.gz": "c5b552afa4aa27e4df73af0ce68be4ecc88729f30baf3a70e6f9d4c8c709a3f3",
-        "endpoint-alt-pilot-3.2.183-1.manifest.sig": "850ba02dd8c1116d411facf002095905036e59b68ecd30eb3c0ae99288d66541",
-        "endpoint-alt-pilot-3.2.183-1.tar.gz.sig": "ce87a6411b3b029ebeb4bd00cf679b54171890ebc7c7bc88065692921072ef5e",
-        "endpoint-rpm-release.asc": "12175df39caa5a67336aeb002b5c71d3a9d3047961f5ad90cf959650044b456c",
-        "README.ru.md": "062a4c22db78190df8f03cc0e055bab643fc4292176a491ac8129dda3ea661eb",
-        "endpoint-alt-pilot-3.2.183-1.manifest.json.sha256": "e83323c87fbd525a40d890499d6c059845bbcf322ebcf7c2bf277e121fdabe9e",
-        "endpoint-alt-pilot-3.2.183-1.tar.gz.sha256": "49a5916989172abf6bf668c4b7fc78e511fdfee03b334b5a856fbf7e95b504e4"
+        "README.ru.md": "822a216f20d5b848d7c958bc63e88ce2fcc6947f429d1b9df2666adfe6a9a166",
+        "endpoint-alt-pilot-3.2.278-1.manifest.json": "f60881ae72303d0973f9a599fb8b4b020bb02e8e61606af2f2744032151c4e27",
+        "endpoint-alt-pilot-3.2.278-1.manifest.json.sha256": "d950ccbd58aee60a201c684d75db7e3de62c68b852bd904f53dbc36b4ae5f4c7",
+        "endpoint-alt-pilot-3.2.278-1.manifest.json.sig": "88f4281c420ced042d977d95c50cfe4be88a8a8c1cb1ca397b2e4fbbb2345566",
+        "endpoint-alt-pilot-3.2.278-1.tar.gz": "60f5e4b6945841c0f4f9a033aeb922eeaa0aaf155b1416c57321abf9bd3e92e4",
+        "endpoint-alt-pilot-3.2.278-1.tar.gz.sha256": "6622a88488309043fa08c6a52d16d7962de0bbea1f468dbd02ca983427043ef3",
+        "endpoint-alt-pilot-3.2.278-1.tar.gz.sig": "6e69f1dad70a6642e7c6d3e5f701844fe366a8ddebb366f8f5af07b51039be7e",
+        "endpoint-rpm-release.asc": "12175df39caa5a67336aeb002b5c71d3a9d3047961f5ad90cf959650044b456c"
       },
       "publisher_openpgp_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631"
     },
     "update": {
       "mode": "native_rpm_coordinator",
-      "version": "3.2.183",
+      "version": "3.2.278",
       "operator_run": true,
       "automatic_linux_fleet_enabled": false,
-      "kit_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.183-1/endpoint-alt-pilot-3.2.183-1.tar.gz",
-      "reason": "Independent privileged Support and Setup are RPM-owned and must not be delivered as Core-only OTA."
+      "kit_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.278-1/endpoint-alt-pilot-3.2.278-1.tar.gz"
     },
     "historical_core_only_ota_unchanged": {
       "schema_version": "update_build_manifest_v1",
@@ -253,24 +243,15 @@
       "size": 21681357,
       "release_notes": "Unified agent with power history, resilient telemetry and installation recovery."
     },
-    "production_native_source_release_id": "f785e4e5-17fd-414b-9474-0d1e24cf2100",
-    "qualified_native_paths": [
-      "Signed156 rollback and return183 native0 with retained private4; modern retained enrollment identity on VM107",
-      "Fresh native0 plus actual manual approval and modern previous-card history relation",
-      "Ordinary same-card reinstallation and fixed mixed online/offline rebind with manual disable preserved",
-      "Actual root SSH with Core/updater/path stopped for108.613629715seconds; expiry/revoke and fresh accepted user telemetry",
-      "Explicit physical domain cohort105/190 clean native183 plus administratively prepared158-to183 on210; fresh telemetry and actual stopped-Core root SSH on each"
-    ],
+    "production_native_source_release_id": "4ea2dc96-914c-4279-a06c-8a14b65ffe06",
+    "previous_primary_record": "docs/releases/linux-3.2.183-native.json",
     "fleet_acceptance": false,
     "qualification_limits": [
-      "Initial VM107 staging qualification is supplemented by explicit production physical105/190/210 acceptance in docs/verification/2026-11-09-linux183-physical-cohort.md. No automatic Linux fleet rollout or acceptance on other devices is inferred.",
-      "Native RPM Setup owns privileged Support/helpers; legacy Core-only OTA156 is unchanged and cannot deliver this native release.",
-      "Initial clean native0 waited for real manual enrollment approval (outer21); notification-only reconciliation completed without RPM replay. Fresh sessions use standard XDG autostart; existing active session was explicitly activated once.",
-      "No global production Linux enrollment campaign/network/quota was created. New registrations need separately bounded source-qualified authority; existing-identity upgrade consumes no new claim.",
-      "Historical legacy29a8 parent fingerprint mismatch remains refused; modern freshA-to-freshB relation and ordinary same-card history were verified. No credential/history merge.",
-      "Earlier offline5 bootstrap refusal and canonical administrator reset remain historical; fixed mixed online8/9 and offline10/11 completed without manual repair.",
-      "Audit-provenance evidence is bounded to1000 relevant events; missing/unmarked history fails closed and requires fresh explicit authority, never implicit access.",
-      "Physical USB/print jobs and other distro/session/source profiles are not qualified by this test. Windows177/policy12 and historical media remain unchanged."
+      "First enrollment was qualified on isolated ALT Workstation K 11.4 x86_64 with KDE X11 and compatible p11 dependencies.",
+      "The direct upgrade from the signed 3.2.183-alt6 Core and UserSensor pair was accepted on one production workstation.",
+      "Production enrollment requires an authorized campaign for this exact native source. No campaign currently references it.",
+      "Other source profiles and automatic fleet delivery require independent qualification and scope.",
+      "CUPS test-page delivery and replay were verified through the isolated 0057 Gateway. The production pilot used provider schema 0056."
     ]
   },
   "provider": {

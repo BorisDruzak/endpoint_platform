@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "version": "3.2.278",
+  "kind": "linux_native_primary",
+  "status": "published_native_scoped_canary_accepted",
+  "verified_utc": "2026-11-26T15:03:29.549228+00:00",
+  "source_revision": "87b428c6c23965c4215780818a3ccb7879898e3a",
+  "develop_source_revision": "8a774edbfdf01deef9421af05b774a79d4dc3e60",
+  "source_fix": "5140a1b795d1323b875a961b51234e417523acc3",
+  "reservation_request_id": "50a0bcae-b174-4504-9da5-81aa276d5e2f",
+  "publisher_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+  "frozen_manifest_sha256": "4985206d8163631f27497897d13560858c0bbc7fe93fc82fc1a850608d94109a",
+  "native_packages": {
+    "core": {
+      "nevra": "endpoint-agent-3.2.278-alt6.x86_64",
+      "package": "endpoint-agent",
+      "version": "3.2.278",
+      "sha256": "c61a06ec7ae93d862d3e8bd230eb960c425e3a03b6cd8ce825f50d8f03b27112",
+      "signer_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+      "source_revision": "87b428c6c23965c4215780818a3ccb7879898e3a",
+      "frozen_manifest_sha256": "4985206d8163631f27497897d13560858c0bbc7fe93fc82fc1a850608d94109a",
+      "setup_sha256": "bf62100d8c303180428f61feb6500177038c36abff598724b0b90fdaa0562f1c"
+    },
+    "sensor": {
+      "nevra": "endpoint-agent-user-sensor-3.2.278-alt6.x86_64",
+      "package": "endpoint-agent-user-sensor",
+      "version": "3.2.278",
+      "sha256": "5a776622072c468474e0305de5a57839b8394fb3cef5d92c72ee5c2c08b38eb8",
+      "signer_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
+      "source_revision": "87b428c6c23965c4215780818a3ccb7879898e3a",
+      "frozen_manifest_sha256": "4985206d8163631f27497897d13560858c0bbc7fe93fc82fc1a850608d94109a",
+      "setup_sha256": "bf62100d8c303180428f61feb6500177038c36abff598724b0b90fdaa0562f1c"
+    }
+  },
+  "kit": {
+    "endpoint-alt-pilot-3.2.278-1.tar.gz": {
+      "size": 70740750,
+      "sha256": "60f5e4b6945841c0f4f9a033aeb922eeaa0aaf155b1416c57321abf9bd3e92e4"
+    },
+    "endpoint-alt-pilot-3.2.278-1.manifest.json": {
+      "size": 1005,
+      "sha256": "f60881ae72303d0973f9a599fb8b4b020bb02e8e61606af2f2744032151c4e27"
+    }
+  },
+  "detached_signatures": {
+    "endpoint-alt-pilot-3.2.278-1.tar.gz.sig": {
+      "size": 438,
+      "sha256": "6e69f1dad70a6642e7c6d3e5f701844fe366a8ddebb366f8f5af07b51039be7e"
+    },
+    "endpoint-alt-pilot-3.2.278-1.manifest.json.sig": {
+      "size": 438,
+      "sha256": "88f4281c420ced042d977d95c50cfe4be88a8a8c1cb1ca397b2e4fbbb2345566"
+    }
+  },
+  "source_publication": {
+    "environment": "production",
+    "origin": "https://endpoint.sosnadmin.local",
+    "observed_utc": "2026-11-26T15:03:29.549228+00:00",
+    "release_id": "4ea2dc96-914c-4279-a06c-8a14b65ffe06",
+    "active_campaign_count": 0
+  },
+  "primary_promoted": true,
+  "fleet_acceptance": false,
+  "previous_primary_record": "docs/releases/linux-3.2.183-native.json",
+  "first_enrollment_qualification": {
+    "ledger_revision": "52f765db55cc00a84a73f9fef5822f90c6d669ad",
+    "qualification_id": "a2e7edf2-7390-477f-9d66-5758377c567c",
+    "checked_at": "2026-11-26T15:00:28.958345+00:00",
+    "valid_until": "2026-12-10T15:00:00+00:00",
+    "native_sequence": 1,
+    "provider_schema": "0057_stability_cups_merge"
+  },
+  "production_pilot": {
+    "provider_schema": "0056_context_collection_history",
+    "source_version": "3.2.183",
+    "updated_devices": 1,
+    "native_exit_code": 0,
+    "native_ack": 4,
+    "wss_observed_seconds": 216.76,
+    "activity_after_update": true,
+    "policy_state": "APPLIED",
+    "support_command_verified": true,
+    "protected_files_preserved": 6
+  },
+  "public_directory": "/srv/endpoint-platform-distribution/alt/endpoint-alt-pilot-3.2.278-1",
+  "download_url": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.278-1/endpoint-alt-pilot-3.2.278-1.tar.gz",
+  "served_https": {
+    "url_prefix": "https://endpoint.sosnadmin.local/downloads/alt/endpoint-alt-pilot-3.2.278-1/",
+    "files": {
+      "README.ru.md": {
+        "filename": "README.ru.md",
+        "sha256": "822a216f20d5b848d7c958bc63e88ce2fcc6947f429d1b9df2666adfe6a9a166",
+        "size": 7320
+      },
+      "endpoint-alt-pilot-3.2.278-1.manifest.json": {
+        "filename": "endpoint-alt-pilot-3.2.278-1.manifest.json",
+        "sha256": "f60881ae72303d0973f9a599fb8b4b020bb02e8e61606af2f2744032151c4e27",
+        "size": 1005
+      },
+      "endpoint-alt-pilot-3.2.278-1.manifest.json.sha256": {
+        "filename": "endpoint-alt-pilot-3.2.278-1.manifest.json.sha256",
+        "sha256": "d950ccbd58aee60a201c684d75db7e3de62c68b852bd904f53dbc36b4ae5f4c7",
+        "size": 109
+      },
+      "endpoint-alt-pilot-3.2.278-1.manifest.json.sig": {
+        "filename": "endpoint-alt-pilot-3.2.278-1.manifest.json.sig",
+        "sha256": "88f4281c420ced042d977d95c50cfe4be88a8a8c1cb1ca397b2e4fbbb2345566",
+        "size": 438
+      },
+      "endpoint-alt-pilot-3.2.278-1.tar.gz": {
+        "filename": "endpoint-alt-pilot-3.2.278-1.tar.gz",
+        "sha256": "60f5e4b6945841c0f4f9a033aeb922eeaa0aaf155b1416c57321abf9bd3e92e4",
+        "size": 70740750
+      },
+      "endpoint-alt-pilot-3.2.278-1.tar.gz.sha256": {
+        "filename": "endpoint-alt-pilot-3.2.278-1.tar.gz.sha256",
+        "sha256": "6622a88488309043fa08c6a52d16d7962de0bbea1f468dbd02ca983427043ef3",
+        "size": 102
+      },
+      "endpoint-alt-pilot-3.2.278-1.tar.gz.sig": {
+        "filename": "endpoint-alt-pilot-3.2.278-1.tar.gz.sig",
+        "sha256": "6e69f1dad70a6642e7c6d3e5f701844fe366a8ddebb366f8f5af07b51039be7e",
+        "size": 438
+      },
+      "endpoint-rpm-release.asc": {
+        "filename": "endpoint-rpm-release.asc",
+        "sha256": "12175df39caa5a67336aeb002b5c71d3a9d3047961f5ad90cf959650044b456c",
+        "size": 1319
+      }
+    }
+  },
+  "limits": [
+    "First enrollment was qualified on isolated ALT Workstation K 11.4 x86_64 with KDE X11 and compatible p11 dependencies.",
+    "The direct upgrade from the signed 3.2.183-alt6 Core and UserSensor pair was accepted on one production workstation.",
+    "Production enrollment requires an authorized campaign for this exact native source. No campaign currently references it.",
+    "Other source profiles and automatic fleet delivery require independent qualification and scope.",
+    "CUPS test-page delivery and replay were verified through the isolated 0057 Gateway. The production pilot used provider schema 0056."
+  ]
+}
