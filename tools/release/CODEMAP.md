@@ -434,6 +434,30 @@ download-path checks from the [distribution runbook](../../deploy/server/ALT_DIS
 ### Verify ALT factory installation before enrollment
 
 Use a reset, disconnected ALT Workstation K x64 Lab guest and the exact recorded native kit.
+The Proxmox runner takes an operator export from
+`agent_release.py status --request-id` and the four recorded kit files.
+Stage those inputs and this repository code on the authorized local Proxmox
+host. Use the exact VM name, ID, guest UUID and the SHA-256 of the reviewed
+cold snapshot configuration from `qm config <vmid> --snapshot <name>`.
+
+```bash
+python3 tools/canary/run_alt_factory_offline.py \
+  --vmid "$lab_vmid" --expected-name "$lab_name" --guest-uuid "$guest_uuid" \
+  --snapshot "$clean_snapshot" --snapshot-sha256 "$snapshot_sha256" \
+  --reservation-file "$reservation" --artifacts-dir "$sealed_kit" --output-dir "$new_receipts"
+```
+
+The preview checks the stopped VM, its offline hardware and exact recorded kit
+bytes. Add `--execute` on the authorized host to check the clean guest, verify
+the detached signatures inside it, install and capture native results.
+The runner records the dispatch before starting Setup and follows one guest
+process handle. A confirmed native RPM zero admits the ordinary reboot and
+automatic retry check. Accepted receipts allow the runner to restore and
+verify the original snapshot, then stop the guest. Failures preserve the guest
+and captured receipts for review. The output directory and private guest
+staging directory are single-use.
+
+For independently collected evidence, use the same reset guest and kit.
 Keep the clone and snapshot identity with the observations. Capture the raw
 QEMU guest-agent JSON for each phase. Inside the guest run
 `python3 -B observe_alt_factory_offline.py` from

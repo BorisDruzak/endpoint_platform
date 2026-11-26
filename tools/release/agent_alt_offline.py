@@ -44,7 +44,23 @@ def _check_isolated(snapshot):
         raise ValueError("Support must remain inactive before ALT enrollment")
 
 
-def _check_installation(snapshot, expected):
+def check_factory_baseline(before):
+    _check_isolated(before)
+    if (before["source"] is not None or before["selector"] is not None
+            or any(value is not None for value in before["native"].values())
+            or before["durability_complete"] is not None or before["sensor_autostart_files"]
+            or any(before["units"][f"{name}.service"]["LoadState"] != "not-found"
+                   for name in (CORE, "endpoint-support-access"))
+            or any(before["packages"][name] != {"query_exit": 1, "transaction": "", "verify_exit": None}
+                   for name in (CORE, SENSOR))):
+        raise ValueError("An uninstalled factory ALT baseline is required")
+    ca = tuple(before[key] for key in ("ca_directory_entries", "ca_sha256", "ca_mode"))
+    if ca != ([], None, None) and not (ca[0] == ["ca.crt"] and SHA256.fullmatch(ca[1] or "") and ca[2] == "0o600"):
+        raise ValueError("Expected an empty factory configuration or the unchanged public CA")
+
+
+def check_installation(snapshot, expected):
+    _check_isolated(snapshot)
     if snapshot["source"] != expected:
         raise ValueError("Native receipt must identify the exact signed RPM pair")
     if snapshot["selector"] != {"schema_version": 1, "source_revision": expected["source_revision"],
@@ -102,39 +118,32 @@ def _check_reconcile(status, snapshot):
         raise ValueError("ALT retry timer must remain active after reconciliation")
 
 
+def recorded_source(candidate):
+    version, revision = candidate["version"], candidate["build_revision"]
+    members = candidate["members"]
+    core, sensor = alt_rpm_names(members, version)
+    return {"version": version, "source_revision": revision, "core_nevra": core.removesuffix(".rpm"),
+            "user_sensor_nevra": sensor.removesuffix(".rpm"), "core_rpm_sha256": members[core]["sha256"],
+            "user_sensor_rpm_sha256": members[sensor]["sha256"]}
+
+
 def verify(candidate: dict, directory: Path) -> dict:
     receipts = {name: _read_qga(directory, name) for name in (*SNAPSHOTS, "install", "retry-timer-status")}
     before, installed, rebooted, after_timer = (read_json(receipts[name][0].encode("utf-8"), MAX_RECEIPT)
                                               for name in SNAPSHOTS)
+    check_factory_baseline(before)
     for snapshot in (before, installed, rebooted, after_timer):
-        _check_isolated(snapshot)
         if (not SHA256.fullmatch(snapshot["boot_id_digest"])
                 or not SHA256.fullmatch(snapshot["os_packages_digest"])
                 or any(snapshot[key] != before[key] for key in SOFTWARE_BASELINE)):
             raise ValueError("The stock ALT baseline or CA changed during the trial")
-    if (before["source"] is not None or before["selector"] is not None
-            or any(value is not None for value in before["native"].values())
-            or before["durability_complete"] is not None or before["sensor_autostart_files"]
-            or any(before["units"][f"{name}.service"]["LoadState"] != "not-found"
-                   for name in (CORE, "endpoint-support-access"))
-            or any(before["packages"][name] != {"query_exit": 1, "transaction": "", "verify_exit": None}
-                   for name in (CORE, SENSOR))):
-        raise ValueError("An uninstalled factory ALT baseline is required")
-    ca = tuple(before[key] for key in ("ca_directory_entries", "ca_sha256", "ca_mode"))
-    if ca != ([], None, None) and not (ca[0] == ["ca.crt"] and SHA256.fullmatch(ca[1] or "") and ca[2] == "0o600"):
-        raise ValueError("Expected an empty factory configuration or the unchanged public CA")
     if (before["boot_id_digest"] != installed["boot_id_digest"]
             or installed["boot_id_digest"] == rebooted["boot_id_digest"]
             or rebooted["boot_id_digest"] != after_timer["boot_id_digest"]):
         raise ValueError("Receipts must span one ordinary reboot after installation")
-    version, revision = candidate["version"], candidate["build_revision"]
-    members = candidate["members"]
-    core, sensor = alt_rpm_names(members, version)
-    source = {"version": version, "source_revision": revision, "core_nevra": core.removesuffix(".rpm"),
-              "user_sensor_nevra": sensor.removesuffix(".rpm"), "core_rpm_sha256": members[core]["sha256"],
-              "user_sensor_rpm_sha256": members[sensor]["sha256"]}
+    source = recorded_source(candidate)
     for snapshot in (installed, rebooted, after_timer):
-        _check_installation(snapshot, source)
+        check_installation(snapshot, source)
         if snapshot["native"] != installed["native"] or snapshot["packages"] != installed["packages"]:
             raise ValueError("The native operation and RPM transaction must survive reboot and reconcile")
     install = receipts["install"][0].splitlines()

@@ -154,6 +154,10 @@ upgrade paths that must run for each qualified artifact.
   signed 3.2.274 verified RPM zero, the same transaction across reboot and
   automatic reconcile, and registration still pending. The guest was
   restored to the clean snapshot and stopped.
+  The Proxmox runner reproduced the full offline cycle on VM487 from the
+  exact signed 3.2.274 kit. It follows one native process handle, requires
+  proven native zero before reboot, and restores only after the complete
+  receipt verifies. The original baseline was observed again after restore.
   The full DEVELOP builder produced Core with
   Setup and Support, and UserSensor, from one clean Git SHA. The first pair
   failed stock ALT 11.4 dependency admission due to OpenSSL 3.4 symbols.
