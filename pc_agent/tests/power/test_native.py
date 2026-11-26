@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -295,6 +296,12 @@ def test_linux_bad_native_timestamp_counts_loss_and_checkpoint_progresses():
 async def test_failed_logind_signal_is_not_reported_subscribed_during_backoff(
     monkeypatch,
 ):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/bundle/_internal")
+    monkeypatch.setenv("LD_LIBRARY_PATH_ORIG", "/tmp/_MEIlauncher")
+    spawned_environments = []
+
     class Process:
         returncode = None
 
@@ -308,6 +315,7 @@ async def test_failed_logind_signal_is_not_reported_subscribed_during_backoff(
 
     async def spawn(*args, **kwargs):
         assert "wait" in args and "monitor" not in args
+        spawned_environments.append(kwargs.get("env"))
         return Process()
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
@@ -320,6 +328,11 @@ async def test_failed_logind_signal_is_not_reported_subscribed_during_backoff(
     try:
         await asyncio.sleep(0.1)
         assert source._subscriptions == set()
+        assert spawned_environments
+        assert all(
+            env is not None and "LD_LIBRARY_PATH" not in env and "LD_LIBRARY_PATH_ORIG" not in env
+            for env in spawned_environments
+        )
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)

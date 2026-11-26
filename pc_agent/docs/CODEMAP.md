@@ -659,10 +659,15 @@ enrollment failures retain their existing retry status.
 Linux diagnostics share `platform/linux/sessions.py` (bounded logind local
 graphical sessions), `journal.py` (fixed severity/profile queries that exclude
 message content), and `cups.py` (bounded metadata-only IPP through the local
-CUPS Unix socket). `context_profiles/probe.py` uses logind and restricts manual
-journal diagnostics to metadata. Existing eventlog and service/printer handlers
-project these adapters into the same Windows/Linux DTOs. The RPM grants only
-the supplementary journal-read group; code still runs as `endpoint-agent`.
+CUPS Unix socket). `platform/linux/system_program.py` lets the bounded system
+command runner and Linux power collectors use the host loader's default search
+path on frozen agents. PyInstaller can place the Launcher's private path in
+`LD_LIBRARY_PATH_ORIG` when starting Core, so the helper removes both library
+path variables from the inherited child environment. Explicit subprocess
+environments take precedence. Manual journal diagnostics are restricted to
+metadata. Existing eventlog and service/printer handlers project these adapters
+into the same Windows/Linux DTOs. The RPM grants only the supplementary
+journal-read group. Code still runs as `endpoint-agent`.
 CUPS-Get-Printers alone treats a well-formed no-queues response as an empty list;
 Get-Jobs errors remain failures. Large cups-browsed discovery can saturate the
 scheduler's default 100-client limit; that host capacity setting is separate

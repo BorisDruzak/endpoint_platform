@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+import json
 import os
 from pathlib import Path
 import signal
@@ -12,6 +13,33 @@ import pytest
 
 from pc_agent.context_profiles import probe as probe_module
 from pc_agent.context_profiles.probe import MAX_PROBE_BYTES, SystemProbe
+
+
+@pytest.mark.parametrize(
+    ("frozen", "original", "explicit", "expected"),
+    [
+        (True, None, None, None),
+        (True, "/tmp/_MEIlauncher", None, None),
+        (True, None, "/command/compat", "/command/compat"),
+        (False, None, None, "/bundle/_internal"),
+    ],
+)
+def test_system_command_uses_host_library_path(monkeypatch, frozen, original, explicit, expected):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(sys, "frozen", frozen, raising=False)
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/bundle/_internal")
+    monkeypatch.delenv("LD_LIBRARY_PATH_ORIG", raising=False)
+    if original is not None:
+        monkeypatch.setenv("LD_LIBRARY_PATH_ORIG", original)
+    env = dict(os.environ, LD_LIBRARY_PATH=explicit) if explicit is not None else None
+    script = "import os, json; print(json.dumps([os.getenv('LD_LIBRARY_PATH'), os.getenv('LD_LIBRARY_PATH_ORIG')]))"
+    command = (sys.executable, "-c", script)
+
+    output = probe_module._execute_bounded_command(command, 3.0, 128, check_exit=True, env=env)
+
+    assert json.loads(output) == [expected, None]
+    assert os.environ["LD_LIBRARY_PATH"] == "/bundle/_internal"
+    assert os.environ.get("LD_LIBRARY_PATH_ORIG") == original
 
 
 def test_native_diagnostic_journal_requests_only_metadata_and_checks_exit(monkeypatch):
