@@ -46,10 +46,12 @@ Unknown fields require a current observation from their owning catalog.
 Pass `--production-snapshot` and `--staging-snapshot` for separately timestamped
 provider observations. The report shows published Windows download, active
 campaign references, current Full Setup policy, assignment states and accepted
-native installations. Campaign references alone do not establish eligibility
-for a given machine. `--ledger` reads the current Git reservation, candidate,
-qualification and revocation records where they exist. The repository pointers
-retain their own observation dates.
+native installations. `registered_installer_sources` includes candidate and
+retired entries without an active campaign. `active_enrollment_sources` lists
+sources referenced by active campaigns. Campaign references alone do not
+establish eligibility for a given machine. `--ledger` reads the current Git
+reservation, candidate, qualification and revocation records where they exist.
+The repository pointers retain their own observation dates.
 
 | Pointer | Checked-in source | Live authority |
 | --- | --- | --- |

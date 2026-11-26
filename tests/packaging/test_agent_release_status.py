@@ -90,6 +90,16 @@ def test_status_rejects_primary_receipt_outside_release_directory(tmp_path):
 
 def test_status_combines_current_provider_facts_with_repository_pointers(tmp_path):
     observed = datetime.now(timezone.utc).isoformat()
+    active_source = {"platform": "alt", "version": "3.2.183", "catalog_campaign_count": 1}
+    candidate_source = {
+        "platform": "alt", "version": "3.2.277", "release_id": "candidate",
+        "package_sha256": "d" * 64, "sensor_sha256": "e" * 64,
+        "catalog_campaign_count": 0, "download_published": None, "retired_at": None,
+    }
+    retired_source = {
+        "platform": "windows", "version": "3.2.203", "release_id": "retired",
+        "catalog_campaign_count": 0, "download_published": False, "retired_at": observed,
+    }
     snapshot = {
         "schema_version": 1, "observed_at": observed, "database_name": "endpoint_platform",
         "database_revision": "0056_context_collection_history",
@@ -98,7 +108,7 @@ def test_status_combines_current_provider_facts_with_repository_pointers(tmp_pat
         "windows_active_assignments": {"recovery_required": 1, "verified": 2},
         "accepted_native_installations": [{"version": "3.2.183", "accepted_devices": 10, "connected_devices": 9}],
         "release_planning": {
-            "enrollment_sources": [{"platform": "alt", "version": "3.2.183", "catalog_campaign_count": 1}],
+            "enrollment_sources": [active_source, candidate_source, retired_source],
             "pending_enrollments": [],
             "windows_qualifications": [{"qualification_id": "qualification", "sha256": "b" * 64}],
         },
@@ -114,5 +124,6 @@ def test_status_combines_current_provider_facts_with_repository_pointers(tmp_pat
     assert production["windows_full_setup_policy"]["release_id"] == "delivery"
     assert production["windows_active_assignments"]["recovery_required"] == 1
     assert production["accepted_native_installations"][0]["accepted_devices"] == 10
-    assert production["active_enrollment_sources"][0]["catalog_campaign_count"] == 1
+    assert production["registered_installer_sources"] == [active_source, candidate_source, retired_source]
+    assert production["active_enrollment_sources"] == [active_source]
     assert production["windows_active_qualifications"][0]["qualification_id"] == "qualification"

@@ -175,6 +175,7 @@ def _provider_status(path: Path, now: datetime) -> dict:
         raise ValueError("Unsupported provider snapshot schema")
     compatibility_matrix._observed_at(snapshot, now)
     planning = snapshot["release_planning"]
+    installer_sources = planning["enrollment_sources"]
     return {
         "database_name": snapshot["database_name"],
         "database_revision": snapshot["database_revision"],
@@ -183,7 +184,8 @@ def _provider_status(path: Path, now: datetime) -> dict:
         "windows_full_setup_policy": snapshot["windows_delivery"],
         "windows_active_assignments": snapshot["windows_active_assignments"],
         "accepted_native_installations": snapshot["accepted_native_installations"],
-        "active_enrollment_sources": [row for row in planning["enrollment_sources"] if row["catalog_campaign_count"]],
+        "registered_installer_sources": installer_sources,
+        "active_enrollment_sources": [row for row in installer_sources if row["catalog_campaign_count"]],
         "pending_enrollments": planning["pending_enrollments"],
         "windows_active_qualifications": planning["windows_qualifications"],
     }
