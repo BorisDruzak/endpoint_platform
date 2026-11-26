@@ -116,9 +116,10 @@ def test_unknown_dependency_does_not_default_to_core(source):
     assert result['unclassified'] == ['pc_agent/logic/unclassified.py']
 
 
-def test_offline_alt_lab_tooling_stays_out_of_agent_release(source):
+def test_standalone_lab_tooling_stays_out_of_agent_release(source):
     root, _ = source
-    tools = ('install_alt_factory_offline.py', 'observe_alt_factory_offline.py', 'run_alt_factory_offline.py')
+    tools = ('install_alt_factory_offline.py', 'observe_alt_factory_offline.py', 'run_alt_factory_offline.py',
+             'staged_windows_update.py')
     for path in tools:
         write(root, 'tools/canary/' + path, 'lab_only = True\n')
     baseline = commit(root)

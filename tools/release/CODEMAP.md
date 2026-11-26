@@ -368,6 +368,25 @@ time and reported soak use the provider record. Collect this evidence before
 a reboot, another Setup run, or event log rotation. Use the Console workflow
 for qualification and promotion.
 
+For local preflight on a dedicated Windows guest, use the recorded Setup
+candidate and the reviewed installed source fingerprint.
+
+```powershell
+python tools/canary/staged_windows_update.py preview --admission $admission --candidate $setup
+```
+
+Schema 2 admission binds `computer`, `hardware_uuid` (canonical lowercase
+SMBIOS UUID), `edition` (Windows EditionID), `build` (CurrentBuild.UBR),
+`candidate_version`, `baseline_fingerprint`, `artifact_sha256`,
+`source_revision`, and `signer_thumbprint` (lowercase hex for the digests
+and thumbprint). Use the signed artifact record and the separately reviewed
+Lab source to prepare this input. The preview pins the exact EXE while it
+verifies Authenticode and runs the signed `--preflight`. A ready result covers
+local admission; use the provider workflow for network qualification and
+health evidence. Existing matrix and timing receipts still replay separately.
+Local `run` requires the same admission and an explicit
+`--execute-dedicated-guest` after the approved Lab scope is established.
+
 Read the reservation and its artifact history with
 `python tools/release/agent_release.py status --request-id REQUEST`. To retire a
 candidate from this release attempt, record the exact Windows EXE or ALT archive

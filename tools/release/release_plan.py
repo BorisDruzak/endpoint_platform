@@ -41,7 +41,7 @@ REVIEW_ONLY = ('docs/', 'tests/', 'pc_agent/docs/', 'pc_agent/tests/', 'tools/re
                'tools/register_windows_setup_release.py', '.github/', 'PLANS.md', 'AGENTS.md', 'README.md',
                'pc_agent/AGENTS.md', 'pytest.ini', 'requirements-ci.txt',
                'tools/canary/install_alt_factory_offline.py', 'tools/canary/observe_alt_factory_offline.py',
-               'tools/canary/run_alt_factory_offline.py')
+               'tools/canary/run_alt_factory_offline.py', 'tools/canary/staged_windows_update.py')
 WINDOWS_PACKAGING_DOCS = ('packaging/windows/README.md', 'packaging/windows/support-openssh/QUALIFICATION.md')
 REVISION = re.compile(r'[0-9a-f]{40}')
 VERSION = re.compile(r'(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)')
