@@ -5,7 +5,7 @@ import re
 import hashlib
 import os
 import stat
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .update_paths import UPDATE_EXECUTABLE_NAME, WindowsUpdatePaths
@@ -274,6 +274,7 @@ def validate_runtime_executable(paths: WindowsUpdatePaths, version: str) -> Path
 class RetainedCore:
     identity: object
     archive: Path
+    archive_payload_root: Path
     record: dict
     record_bytes: bytes
     link_bytes: bytes
@@ -375,7 +376,7 @@ def verify_retained_archive(paths: WindowsUpdatePaths, archive_id: str) -> Retai
         raise ValueError('PROVENANCE_CONFLICT')
     for item in identity.files:
         assert_state_security(payload_root / item.path)
-    return RetainedCore(identity, archive, record, record_bytes, b'')
+    return RetainedCore(identity, archive, payload_root, record, record_bytes, b'')
 
 
 def verify_retained_runtime(paths: WindowsUpdatePaths, version: str) -> RetainedCore:
@@ -383,19 +384,27 @@ def verify_retained_runtime(paths: WindowsUpdatePaths, version: str) -> Retained
     if not _SEMVER_TRIPLET.fullmatch(version):
         raise ValueError('PROVENANCE_CONFLICT')
     root = paths.versions_root / version
-    link_bytes = _retained_bytes(root / '.endpoint-retained-msi.json', 4096)
+    link_path = root / '.endpoint-retained-msi.json'
+    link_bytes = _retained_bytes(link_path, 4096)
     link = read_json(link_bytes, 4096)
     if (set(link) != {'schema_version','version','archive_id','receipt_sha256'}
         or type(link['schema_version']) is not int or link['schema_version'] != 1 or link['version'] != version):
         raise ValueError('PROVENANCE_CONFLICT')
     retained = verify_retained_archive(paths, link['archive_id'])
-    if hashlib.sha256(retained.record_bytes).hexdigest() != link['receipt_sha256']:
+    if (retained.identity.version != version
+            or hashlib.sha256(retained.record_bytes).hexdigest() != link['receipt_sha256']):
         raise ValueError('PROVENANCE_CONFLICT')
+    # Promotion moves the only payload tree here. Its archive verification just
+    # checked these exact files, excluding the link that binds them to the receipt.
+    if retained.archive_payload_root == root:
+        if _retained_bytes(link_path, 4096) != link_bytes:
+            raise ValueError('PROVENANCE_CONFLICT')
+        return replace(retained, link_bytes=link_bytes)
     if retained.record['compatibility_foundations']:
         identity = verify_legacy_msi_payload(root, package_sha256=retained.record['package']['sha256'],
             excluded=frozenset({'.endpoint-retained-msi.json'}))
     else:
         identity = verify_payload(root, retained.record['manifest'], excluded=frozenset({'.endpoint-retained-msi.json'}))
-    if identity != retained.identity or identity.version != version:
+    if identity != retained.identity:
         raise ValueError('PROVENANCE_CONFLICT')
-    return RetainedCore(identity, retained.archive, retained.record, retained.record_bytes, link_bytes)
+    return replace(retained, link_bytes=link_bytes)

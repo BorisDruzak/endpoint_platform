@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 
+from endpoint_contracts import runtime_payload
 from endpoint_contracts.runtime_payload import verify_payload
 from pc_agent.platform.windows import durable_state, installer_fence, msi_inventory, runtime_identity
 from pc_agent.platform.windows import installation_provenance as provenance
@@ -82,6 +83,54 @@ def test_promotion_writes_no_payload_bytes(retained, monkeypatch):
     assert runtime_identity.verify_retained_archive(paths, archive.name).identity == identity
     assert runtime_identity.verify_retained_runtime(paths, identity.version).identity == identity
     assert storage.retained_payload_location(paths, archive.name) == target
+
+
+def test_published_payload_is_hashed_once_per_runtime_verification(retained, monkeypatch):
+    _, paths, _, identity, _ = retained
+    target = promote(retained)
+    verified_roots = []
+
+    def track(root, *args, **kwargs):
+        verified_roots.append(root)
+        return verify_payload(root, *args, **kwargs)
+
+    monkeypatch.setattr(runtime_payload, "verify_payload", track)
+    assert runtime_identity.verify_retained_runtime(paths, identity.version).identity == identity
+    assert verified_roots == [target]
+
+
+def test_published_payload_rejects_link_changed_during_verification(retained, monkeypatch):
+    _, paths, _, identity, _ = retained
+    link = promote(retained) / provenance.RETAINED_RECEIPT
+
+    def change_link(root, *args, **kwargs):
+        verified = verify_payload(root, *args, **kwargs)
+        link.write_bytes(link.read_bytes() + b" ")
+        return verified
+
+    monkeypatch.setattr(runtime_payload, "verify_payload", change_link)
+    with pytest.raises(ValueError, match="PROVENANCE_CONFLICT"):
+        runtime_identity.verify_retained_runtime(paths, identity.version)
+
+
+@pytest.mark.parametrize("damaged_tree", ["archive", "installed"])
+def test_separate_retained_trees_are_both_verified(retained, damaged_tree):
+    _, paths, archive, identity, _ = retained
+    target = promote(retained)
+    link = target / provenance.RETAINED_RECEIPT
+    link_bytes = link.read_bytes()
+    recapture = native_recapture(retained)
+    with durable_state.installer_mutation_checkpoints(lambda: None):
+        recapture()
+    (target / provenance.MSI_MARKER).unlink()
+    link.write_bytes(link_bytes)
+    installer_fence.protect_state(link)
+    assert runtime_identity.verify_retained_runtime(paths, identity.version).identity == identity
+    root = runtime_identity._retained_payload_root(archive) if damaged_tree == "archive" else target
+    executable = root / "pc_agent.exe"
+    executable.write_bytes(b"x" * executable.stat().st_size)
+    with pytest.raises(ValueError, match="PROVENANCE_CONFLICT"):
+        runtime_identity.verify_retained_runtime(paths, identity.version)
 
 
 def test_reconciliation_uses_promotion_when_staged(retained, monkeypatch):

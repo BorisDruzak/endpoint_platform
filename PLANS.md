@@ -32,8 +32,11 @@ helper phases. DEVELOP buffers short reads on the authenticated Setup pipe.
 A Windows transport fixture confirmed half as many native read calls.
 The Windows watchdog uses a protected receipt to exit after confirmed task
 retirement on the same accepted operation. Missing evidence preserves the
-normal recovery path. The native signed-artifact comparison remains open.
-Full Setup timing for a build containing the change remains open.
+normal recovery path. Verification of a published retained Core reads its
+single protected payload tree once. Two physical copies still receive two
+independent byte checks. On the exact 3.2.205 payload, the median verification
+fell from 844 to 627 ms in a local Windows fixture. Full Setup timing with
+these changes remains open for a signed candidate.
 The separate Enterprise LTSC network profile remains open.
 Signed ALT 3.2.274 passed native factory
 registration with ACK1, fresh WSS, accepted baseline and two real samples
