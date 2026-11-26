@@ -43,7 +43,6 @@ Use repo-local skills when applicable:
 - Bugs, regressions, runtime errors: `.agents/skills/pc-client-systematic-debug/SKILL.md`
 - Code review: `.agents/skills/pc-client-code-review/SKILL.md`
 - Docs/CODEMAP drift: `.agents/skills/pc-client-docs-drift/SKILL.md`
-- Release/deploy validation: `.agents/skills/pc-client-release-gate/SKILL.md`
 
 ## Development and release
 
@@ -54,6 +53,10 @@ and native package versions at their existing baseline and identify isolated
 development builds by Git SHA. Move to **QUALIFY** for distributable Lab
 candidates, **RELEASE** for authorized delivery of qualified artifacts, or
 **HOTFIX** for an urgent fix based on the affected deployed source.
+
+Use the [release CLI guide](../tools/release/CODEMAP.md) for candidate and
+publication checks. The [provider release workflow](../.github/workflows/endpoint-operations-provider.yml)
+runs the Windows and provider/Linux integration gates.
 
 ## PC agent implementation rules
 
