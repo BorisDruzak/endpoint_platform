@@ -185,6 +185,13 @@
     },
     {
       "after": "3.2.277",
+      "alt_unsigned_build": {
+        "build_receipt_sha256": "458ad7d67c2eaa2cfec12f8b283c0743586a1bfb75b48afc0df99b3c6464dc90",
+        "build_revision": "87b428c6c23965c4215780818a3ccb7879898e3a",
+        "recorded_at": "2026-11-26T14:06:24.898011+00:00",
+        "request_id": "50a0bcae-b174-4504-9da5-81aa276d5e2f",
+        "version": "3.2.278"
+      },
       "bound_at": "2026-11-26T13:58:55.802549+00:00",
       "build_revision": "87b428c6c23965c4215780818a3ccb7879898e3a",
       "inventories": {
