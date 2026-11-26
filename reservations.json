@@ -185,6 +185,30 @@
     },
     {
       "after": "3.2.277",
+      "alt_enrollment_qualifications": {
+        "a2e7edf2-7390-477f-9d66-5758377c567c": {
+          "activity_collected_at": "2026-11-26T15:00:25.634897+00:00",
+          "baseline_snapshot_id": "27e92290-b624-4b8c-b5a7-fc97bc351c25",
+          "build_revision": "87b428c6c23965c4215780818a3ccb7879898e3a",
+          "checked_at": "2026-11-26T15:00:28.958345+00:00",
+          "device_id": "2a44e0da-45d0-45d6-accd-46a2bdb5a8f9",
+          "enrollment_request_id": "3314f13c-6597-4c94-8b58-ac43c52452c7",
+          "enrollment_status": "device_registered",
+          "kit_sha256": "60f5e4b6945841c0f4f9a033aeb922eeaa0aaf155b1416c57321abf9bd3e92e4",
+          "native_event_id": "776757d7-e214-43ba-896d-3c205e892724",
+          "native_release_id": "5d754932-09b6-4b96-bee3-2f599d7bc163",
+          "native_sequence": 1,
+          "platform": "alt",
+          "qualification_id": "a2e7edf2-7390-477f-9d66-5758377c567c",
+          "request_id": "50a0bcae-b174-4504-9da5-81aa276d5e2f",
+          "schema_version": 1,
+          "scope": "first_enrollment",
+          "session_id": "6d861ebd-d08e-4ba5-a548-a1a2080939bd",
+          "state": "accepted",
+          "valid_until": "2026-12-10T15:00:00+00:00",
+          "version": "3.2.278"
+        }
+      },
       "alt_unsigned_build": {
         "build_receipt_sha256": "458ad7d67c2eaa2cfec12f8b283c0743586a1bfb75b48afc0df99b3c6464dc90",
         "build_revision": "87b428c6c23965c4215780818a3ccb7879898e3a",
