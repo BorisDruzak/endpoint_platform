@@ -239,6 +239,16 @@ Windows Installer `1040` и `1042`. Между ними тот же PID запи
 после завершения Setup учитывается в стадии `verifying`.
 [Квитанция времени](C:/endpoint-platform-wix-build/win11-enterprise-ltsc-eval-20261125/windows484-native-timing-breakdown.json) · [Границы и события MSI](C:/endpoint-platform-wix-build/win11-enterprise-ltsc-eval-20261125/windows484-job-timings.json) · [Версии продуктов и запись журнала](C:/endpoint-platform-wix-build/win11-enterprise-ltsc-eval-20261125/windows484-msi-versions.json)
 
+Повторная сверка через `report-windows-setup-timing` получила те же времена
+из квитанций VM484 и Gateway VM485. Команда сопоставила идентификаторы
+назначения, попытки и устройства и проверила четыре зарегистрированных файла
+кандидата 3.2.276 в изолированном реестре. Основную транзакцию определили
+события `1166, 1177, 1186, 1190`. Две короткие транзакции с тем же PID
+и события MSI до создания владельца журнала остались вне замера замены.
+[Квитанция Windows](C:/endpoint-platform-wix-build/win11-enterprise-ltsc-eval-20261125/windows484-setup-timing-receipt.json) · [Квитанция Gateway](C:/endpoint-platform-wix-build/win11-enterprise-ltsc-eval-20261125/gateway485-setup-timing-receipt.json) · [Сводный отчёт](C:/endpoint-platform-wix-build/win11-enterprise-ltsc-eval-20261125/windows484-setup-timing-report.json)
+SHA-256 [архива трёх квитанций](C:/endpoint-platform-wix-build/win11-enterprise-ltsc-eval-20261125/windows484-setup-timing-evidence.zip)
+`70b44f52ca5d989e3d82f792a5ea44b75875701276ed9441d6308d31f6ce3c3d`.
+
 Шесть измерений за 182,932 с подтвердили устойчивую работу служб и
 компонентов, включая один UserSensor. `health_v1` завершилась успешно на
 новой WSS 3.2.276. После обновления получены свежий UserSensor и Observer

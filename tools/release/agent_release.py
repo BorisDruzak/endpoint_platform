@@ -16,7 +16,7 @@ if not __package__:
 
 from tools.release import (
     agent_alt_download, agent_alt_native, agent_alt_publication, agent_alt_qualification,
-    agent_promotion, agent_qualification, agent_reservations, compatibility_matrix,
+    agent_promotion, agent_qualification, agent_reservations, compatibility_matrix, windows_setup_timing,
 )
 
 
@@ -236,6 +236,8 @@ def main() -> None:
     alt_offline.add_argument("--request-id", type=UUID, required=True)
     alt_offline.add_argument("--artifacts-dir", type=Path, required=True)
     alt_offline.add_argument("--evidence-dir", type=Path, required=True)
+    windows_timing = commands.add_parser("report-windows-setup-timing", help="measure an exact applied Lab upgrade")
+    windows_setup_timing.add_arguments(windows_timing)
     candidate = commands.add_parser("record-candidate", help="pin native candidate bytes to a reservation")
     candidate.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
     candidate.add_argument("--request-id", required=True, type=UUID)
@@ -297,6 +299,8 @@ def main() -> None:
             from tools.release.agent_alt_offline import verify_recorded_trial
 
             result = verify_recorded_trial(args)
+        elif args.command == "report-windows-setup-timing":
+            result = windows_setup_timing.report(args)
         elif args.command == "record-candidate":
             result = agent_reservations.record_candidate(args)
         else:

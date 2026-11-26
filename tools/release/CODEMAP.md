@@ -339,6 +339,35 @@ bound source and artifact fingerprints alongside the existing compatibility
 cases. Use `--format brief` for the existing summary. Keep the plan in operator
 storage with the provider snapshot and profile evidence.
 
+For timing comparisons, collect the completed Windows Full Setup upgrade on
+the same dedicated Lab guest and boot. Save stdout from both collectors as
+UTF-8 JSON in the operator evidence directory.
+
+```powershell
+& ./tools/release/Collect-WindowsSetupTiming.ps1 -AssignmentId $assignment `
+  -ExpectedComputer $labComputer -ExpectedHardwareId $labHardwareId
+```
+
+```bash
+psql -X -Atq -v ON_ERROR_STOP=1 -v assignment_id="$assignment" \
+  -f tools/release/windows_setup_timing_snapshot.sql
+```
+
+```powershell
+python tools/release/agent_release.py report-windows-setup-timing --request-id $request `
+  --assignment-id $assignment --artifacts-dir $sealedDirectory `
+  --windows-receipt $windowsTiming --provider-receipt $providerTiming
+```
+
+The report checks the recorded candidate files, exact assignment, attempt,
+device, Foundation binding and successful native settlement. It measures the
+replacement transaction from Windows Installer events that bracket old-product
+removal and target installation. Reported Windows phases use the Windows
+clock and the observed last-write time of the accepted journal. Assignment
+time and reported soak use the provider record. Collect this evidence before
+a reboot, another Setup run, or event log rotation. Use the Console workflow
+for qualification and promotion.
+
 Read the reservation and its artifact history with
 `python tools/release/agent_release.py status --request-id REQUEST`. To retire a
 candidate from this release attempt, record the exact Windows EXE or ALT archive
