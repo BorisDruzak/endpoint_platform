@@ -191,9 +191,8 @@ upgrade paths that must run for each qualified artifact.
   The real service account passed print submission and all four queue-state
   operations on an isolated queue with an explicit CUPS operation policy.
   The default queue, an unrelated local user and printer administration
-  remained denied. Signed 3.2.274 predates CUPS actions. Acceptance of a signed
-  candidate under the deployed service, Gateway and target site policy remains
-  open.
+  remained denied. Signed 3.2.274 predates CUPS actions. The signed 3.2.277
+  Lab trial below covers the installed service and Gateway.
 - The release engineering branch resolved both hosted failures in the base
   gate. The [follow-up provider gate](https://github.com/BorisDruzak/endpoint_platform/actions/runs/45612060556)
   passed on Linux and Windows with version reservation and build binding.
@@ -212,17 +211,44 @@ upgrade paths that must run for each qualified artifact.
   exclusions require both provider histories and a verified reset. Windows
   3.2.273 appears in staging history. ALT transition reuse requires exact kit
   members, a causal Gateway event pair and matching reviewed Lab evidence.
-  The live reservation preview proposed 3.2.277. Production Console completed
-  inventory requests from Windows 3.2.205 and ALT 11.2/3.2.183. The coverage
-  preview for the published Windows 3.2.205 checked 56 cards and had zero free
-  slots with one recovery hold. Full Setup policy revision 21 was paused.
-- EP-RE-07 still requires native acceptance for the intended signed bytes.
-  Windows needs exact deployment profiles and MSI interruption recovery.
-  ALT needs the same installed-service and Gateway trial to demonstrate CUPS
-  job replay, least privilege and journal retention across update and rollback.
-- EP-RE-08 follows native qualification. Validate the applicable profiles live
-  in the production Console, run the approved user pilot and promote the same
-  tested bytes. Keep the published and fleet-delivery pointers independent.
+  Production Console completed inventory requests from Windows 3.2.205 and
+  ALT 11.2/3.2.183. The coverage preview for the published Windows 3.2.205
+  checked 56 cards and had zero free slots with one recovery hold. Full Setup
+  policy revision 21 was paused.
+- EP-RE-07 exercised version 3.2.277 from
+  `ca68540ebf91a41cdb510e0727eaeef7e3b1e02b` on both platforms. Windows 10
+  Enterprise Evaluation 19045.2006 returned 67 offline and restored Core
+  and MSI 3.2.205 with its original identity. Windows 11 Enterprise LTSC
+  Evaluation 26100.9457 passed the 3.2.205 direct network upgrade with native
+  ACK2, fresh WSS, Observer 1.0.13, Support, a UserSensor sample and applied
+  policy. The six post-upgrade samples covered 183 seconds, the assignment
+  reached `applied` after 650 seconds and `health_v1` succeeded.
+- The separate Windows 11 Enterprise LTSC 26100.9457 power-cut trial reproduced
+  the older MSI outcome hold on 3.2.277. After a confirmed active compound MSI
+  transaction was interrupted, Windows Installer reported unknown for both
+  ProductCodes. The startup recovery task returned 21, Core stayed stopped, and
+  Support ran. The original stage, attempt and fence digests and four
+  protected file digests and ACLs matched. VM489 is stopped with the
+  `re277-native-msi-outcome-hold` snapshot.
+- ALT Workstation K 11.4 with CUPS 2.4.19 passed 3.2.183 → 3.2.277 → 3.2.183
+  → 3.2.277. The same card reached ACK9 and reconnected after reboot. The
+  installed systemd service received three successful CUPS operations from
+  Gateway. Three repeats returned the original results, with one print job
+  and an unchanged SQLite journal across rollback and reapplication.
+  The first installation on a clean 11.4 guest passed the offline RPM,
+  reboot and retry-timer checks. The network trial passed native ACK1,
+  fresh WSS, a post-install baseline and interactive telemetry. The
+  first-enrollment evidence for the exact kit is recorded under qualification
+  `61fa6ac7-d287-444b-98ac-2dfa7284141d` in the reservation ledger.
+- EP-RE-08 has two signed candidates under reservation
+  `5be58fd7-b40b-4a7c-9c86-cad4e2072bfb`. The current production matrix
+  holds 41 Windows cases and 18 ALT cases for this candidate. The Windows
+  recovery assignment from 3.2.192 still occupies the only slot. ALT 11.2
+  and 11.5 require separate profile evidence. The production Provider is
+  still on schema `0056_context_collection_history`. The CUPS operation
+  result column and capability constraints are absent there. Current stable
+  releases are Windows 3.2.205 and ALT 3.2.183. Production assignments
+  for 3.2.277 are zero.
 
 ## Agent and server stability (2026-11-14)
 
