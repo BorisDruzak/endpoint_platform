@@ -790,6 +790,11 @@ fields. Use `absent` only when absence was confirmed locally.
 - `core_version`, `foundation_version`, `setup_client_version`, `support_version`
 - `state_schema`, `acl_profile`, `local_transaction` (`settled` or observed hold)
 
+If production inventory contradicts the reviewed OS family, build, edition or
+architecture, the matrix keeps the device on `HOLD` and names the conflicting
+fields. Windows inventory can report just the major build, and ALT inventory
+reports its distribution version as `os_version`.
+
 `--lab-candidates` accepts a separately reviewed inventory with `observed_at`
 and `candidates`. Each entry contains `platform`, `version`, artifact
 `sha256`, the hash of the reviewed reset/exposure receipt `receipt_sha256`,

@@ -84,6 +84,24 @@ def _matches_profile(observation, row):
     return {key: profile[key] for key in PROFILE_FIELDS}
 
 
+def _inventory_conflicts(profile, inventory, platform):
+    observed = {field: value.strip().casefold() for field in INVENTORY_FIELDS[1:]
+                if isinstance(value := inventory.get(field), str) and value.strip().casefold() not in ("", "unknown")}
+    conflicts = [field for field in ("os_edition", "architecture")
+                 if field in observed and observed[field] != profile[field].strip().casefold()]
+    if "os_name" in observed and any(name.split()[0] != platform for name in (
+            observed["os_name"], profile["os_name"].strip().casefold())):
+        conflicts.append("os_name")
+    build = profile["os_build"].strip().casefold()
+    if platform == "windows":
+        major_build = observed.get("os_build")
+        if major_build and build != major_build and not build.startswith(major_build + "."):
+            conflicts.append("os_build")
+    elif (version := observed.get("os_version")) and build != version:
+        conflicts.append("os_build")
+    return conflicts
+
+
 def _partial_profile(row):
     inventory = {field: value for field in INVENTORY_FIELDS
                  if (value := (row.get("inventory") or {}).get(field))}
@@ -107,7 +125,10 @@ def _case(row, target, decision, evidence):
     if decision:
         case["console"] = {key: decision[key] for key in ("status", "safe_code")}
     profile = _matches_profile(evidence, row)
-    if profile:
+    conflicts = _inventory_conflicts(profile, row.get("inventory") or {}, platform) if profile else []
+    if conflicts:
+        case["conflicting_profile_fields"] = conflicts
+    elif profile:
         case["profile"] = profile
     if row["setup_status"] == "recovery_required" or row["preparation_status"] in ("recovering_client", "recovering_source"):
         reason = "native_recovery_required"
@@ -119,6 +140,8 @@ def _case(row, target, decision, evidence):
         reason = "platform_observations_disagree"
     elif not row["seen_wss"]:
         reason = "waiting_reconnect"
+    elif conflicts:
+        reason = "inventory_profile_mismatch"
     elif not profile:
         reason = "native_profile_incomplete"
     elif profile["local_transaction"] != "settled":
@@ -141,7 +164,7 @@ def _case(row, target, decision, evidence):
             case["native_route"] = decision["native_route"]
         return {**case, "category": "REQUIRED", "reason": "observed_native_source",
                 "test": "native_transition"}
-    if not profile:
+    if not profile or conflicts:
         observed, missing = _partial_profile(row)
         if observed:
             case["observed_profile"] = observed

@@ -4,6 +4,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
+
 
 CLI = Path(__file__).resolve().parents[2] / "tools/release/compatibility_matrix.py"
 SHA = "a" * 64
@@ -64,6 +66,44 @@ def test_plan_refuses_stale_or_incomplete_provider_snapshot(tmp_path):
     rejected = run(tmp_path, source)
     assert rejected.returncode != 0
     assert "devices" in rejected.stderr
+
+
+@pytest.mark.parametrize(("platform", "inventory", "expected_conflict"), [
+    ("windows", {"os_name": "Windows", "os_build": "26100"}, None),
+    ("windows", {"os_name": "Windows", "os_build": "19045"}, "os_build"),
+    ("windows", {"os_edition": "EnterpriseS"}, "os_edition"),
+    ("windows", {"architecture": "aarch64"}, "architecture"),
+    ("alt", {"os_name": "ALT", "os_version": "11.4"}, None),
+    ("alt", {"os_name": "ALT", "os_version": "11.2"}, "os_build"),
+    ("alt", {"os_name": "Debian GNU/Linux"}, "os_name"),
+])
+def test_plan_checks_reviewed_profile_against_provider_inventory(platform, inventory, expected_conflict):
+    from tools.release.compatibility_matrix import plan
+
+    windows = platform == "windows"
+    row = device("reviewed", "3.2.205", platform="windows_amd64" if windows else "linux_amd64", online=True)
+    row.update(native_event_id="reviewed-installation", inventory=inventory)
+    if not windows:
+        row["native_contract"] = "endpoint_linux_installation_event_v1"
+        row["native"].update(core_rpm_sha256="c" * 64, user_sensor_rpm_sha256="d" * 64)
+    profile = {"os_name": "Windows 11" if windows else "ALT Workstation K",
+               "os_build": "26100.9457" if windows else "11.4", "os_edition": "EnterpriseSEval" if windows else "K",
+               "architecture": "x86_64", "core_version": "3.2.205", "foundation_version": "3.2.205",
+               "setup_client_version": "1.0.11" if windows else "absent", "support_version": "1.1.8",
+               "state_schema": "v1", "acl_profile": "native", "local_transaction": "settled"}
+    reviewed = {"observed_at": TIME, "devices": [
+        {"device_id": row["device_id"], "native_event_id": row["native_event_id"], "profile": profile},
+    ]}
+    result = plan(snapshot(row), {"platform": platform, "version": "3.2.278", "sha256": SHA},
+                  now=datetime.now(timezone.utc), profiles=reviewed)
+    case = result["cases"][0]
+    if expected_conflict:
+        assert case["category"] == "HOLD"
+        assert case["reason"] == "inventory_profile_mismatch"
+        assert case["conflicting_profile_fields"] == [expected_conflict]
+    else:
+        assert case["profile"] == profile
+        assert case["reason"] == ("windows_preview_missing" if windows else "observed_native_source")
 
 
 def test_plan_keeps_pending_enrollment_as_a_separate_source(tmp_path):
