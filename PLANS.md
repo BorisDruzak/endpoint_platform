@@ -41,7 +41,11 @@ The separate Enterprise LTSC network profile remains open.
 Signed ALT 3.2.274 passed native factory
 registration with ACK1, fresh WSS, accepted baseline and two real samples
 from a logged-in graphical session. The provider request remained
-`device_registered`. APT publication is deferred.
+`device_registered`. DEVELOP binds Setup with the verified Core proof from
+the retained RPM pair. On ALT 11.4 the median for that verification and
+binding step fell from 5.98 to 3.06 seconds on the exact signed 3.2.274 pair.
+End-to-end install timing awaits a signed build with the change. APT publication
+is deferred.
 
 Goal: separate normal development from releases and reduce the install and
 upgrade paths that must run for each qualified artifact.

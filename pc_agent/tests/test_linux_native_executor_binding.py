@@ -73,6 +73,52 @@ def test_cli_refuses_mismatched_modern_source_before_any_native_work(monkeypatch
     assert c.main(['upgrade','--core-rpm','signed.rpm']) == 21
     assert not invoked
 
+
+@pytest.mark.parametrize('with_sensor', [False, True])
+def test_cli_uses_verified_core_proof_from_retained_pair(monkeypatch, with_sensor):
+    from contextlib import nullcontext
+    from pathlib import Path
+    from types import SimpleNamespace
+    from pc_agent.platform.linux import installation_coordinator as c, installation_notification as n
+    from pc_agent.tests.test_linux_installation_lifecycle import MemoryStore
+
+    store = MemoryStore()
+    store.prepare = lambda: None
+    store.locked = nullcontext
+    store.data['executor.json'] = {'sha256': 'd' * 64, 'source_revision': 'a' * 40, 'version': '3.2.179'}
+    core = proof()
+    sensor = replace(core, package='endpoint-agent-user-sensor',
+                     nevra='endpoint-agent-user-sensor-3.2.179-alt6.x86_64', sha256='e' * 64)
+    verified = []
+    operated = []
+    paths = [Path('core.rpm')] + ([Path('sensor.rpm')] if with_sensor else [])
+    arguments = ['upgrade', '--core-rpm', str(paths[0])]
+    if with_sensor:
+        arguments.extend(['--user-sensor-rpm', str(paths[1])])
+
+    def verify(path):
+        verified.append(path)
+        return core if path == paths[0] else sensor
+
+    def operate(_self, action, source, retained, *, device_id):
+        operated.append((action, source, retained, device_id))
+        return 'notification_pending'
+
+    monkeypatch.setattr(c, 'os', SimpleNamespace(name='posix', geteuid=lambda: 0))
+    monkeypatch.setattr(c, 'InstallationStore', lambda: store)
+    monkeypatch.setattr(c, 'retain_executor', lambda *_: None)
+    monkeypatch.setattr(c, 'retain_inputs', lambda inputs, *_: inputs)
+    monkeypatch.setattr(c, 'NativeRPMVerifier', lambda *_args, **_kwargs: verify)
+    monkeypatch.setattr(n, 'canonical_identity', lambda: (None, None))
+    monkeypatch.setattr(c.NativeCoordinator, 'operate', operate)
+    monkeypatch.setattr(c.subprocess, 'run', lambda *_args, **_kwargs: SimpleNamespace(returncode=0))
+    assert c.main(arguments) == 0
+    assert operated == [('upgrade', binding(core) | {
+        'user_sensor_nevra': sensor.nevra if with_sensor else None,
+        'user_sensor_rpm_sha256': sensor.sha256 if with_sensor else None}, paths, None)]
+    assert verified == paths
+
+
 @pytest.mark.parametrize('field,value',[('version','3.2.180'),('source_revision','f'*40),
     ('core_nevra','endpoint-agent-3.2.179-alt7.x86_64'),('core_rpm_sha256','e'*64)])
 def test_executor_binding_also_binds_source_record_to_verified_core(field,value):

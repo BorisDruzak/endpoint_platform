@@ -157,16 +157,18 @@ class NativeCoordinator:
 
 
 def verify_pair(core, sensor, verifier):
+    """Return the native source and its Core proof for Setup binding."""
     left = verifier(core)
     right = verifier(sensor) if sensor else None
     if left.package != 'endpoint-agent' or (right and (right.package != 'endpoint-agent-user-sensor'
         or (left.version, left.source_revision, left.frozen_manifest_sha256) !=
            (right.version, right.source_revision, right.frozen_manifest_sha256))):
         raise InstallationPending('native_pair_source_mismatch')
-    return {'version': left.version, 'source_revision': left.source_revision,
+    source = {'version': left.version, 'source_revision': left.source_revision,
         'core_nevra': left.nevra, 'core_rpm_sha256': left.sha256,
         'user_sensor_nevra': right.nevra if right else None,
         'user_sensor_rpm_sha256': right.sha256 if right else None}
+    return source, left
 
 
 def assert_executor_binding(source, proof, execution):
@@ -909,8 +911,8 @@ def main(argv=None):
                 verifier = NativeRPMVerifier(args.public_key, legacy_manifest=args.legacy_kit_manifest,
                     legacy_signature=args.legacy_kit_signature, legacy_core=args.core_rpm)
                 paths = retain_inputs([args.core_rpm] + ([args.user_sensor_rpm] if args.user_sensor_rpm else []), store, verifier)
-                source = verify_pair(paths[0], paths[1] if len(paths) == 2 else None, verifier)
-                assert_executor_binding(source, verifier(paths[0]), store.json('executor.json'))
+                source, core_proof = verify_pair(paths[0], paths[1] if len(paths) == 2 else None, verifier)
+                assert_executor_binding(source, core_proof, store.json('executor.json'))
                 if args.action == 'remove' and not backend.installed_packages_match('install', source):
                     raise InstallationPending('remove_source_not_installed')
                 if coordinator.operate(args.action, source, paths, device_id=device) == 'repair_complete':
