@@ -6,6 +6,7 @@ or loads MSI/HTTP machinery. Callers separately validate their trusted roots.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
 import json
@@ -216,6 +217,59 @@ def verify_payload(root: Path, manifest: Mapping[str, object], *, excluded: froz
         raise PayloadConflict() from error
 
 
+def _read_windows_zip_inventory(archive):
+    entries, names, expanded = {}, set(), 0
+    for item in archive.infolist():
+        if len(names) >= MAX_FILES + 1:
+            raise PayloadConflict()
+        name = safe_path(item.filename.rstrip("/") if item.is_dir() else item.filename)
+        kind = stat.S_IFMT(item.external_attr >> 16)
+        if name.casefold() in names or item.flag_bits & 1 or kind not in {0, stat.S_IFREG, stat.S_IFDIR}:
+            raise PayloadConflict()
+        names.add(name.casefold())
+        expanded += item.file_size
+        if expanded > MAX_PAYLOAD_BYTES + MAX_MANIFEST_BYTES:
+            raise PayloadConflict()
+        if not item.is_dir():
+            entries[name] = item
+    bundle = entries.get(BUNDLE_FILENAME)
+    if bundle is None or not 0 < bundle.file_size <= MAX_MANIFEST_BYTES:
+        raise PayloadConflict()
+    manifest = read_json(archive.read(bundle), MAX_MANIFEST_BYTES)
+    files = manifest_files(manifest)
+    if set(entries) != {BUNDLE_FILENAME, *(item.path for item in files)}:
+        raise PayloadConflict()
+    for item in files:
+        if entries[item.path].file_size != item.size:
+            raise PayloadConflict()
+        with archive.open(entries[item.path]) as payload:
+            if _hash_open(payload, item.size) != (item.size, item.sha256):
+                raise PayloadConflict()
+    contract = entries.get(CONTRACT_FILENAME)
+    if contract is None or contract.file_size > MAX_CONTRACT_BYTES:
+        raise PayloadConflict()
+    return manifest, bind_contract(manifest, files, archive.read(contract))
+
+
+@contextmanager
+def open_verified_windows_zip(source):
+    """Validate the payload inventory on a caller-pinned, bounded archive stream.
+
+    The caller separately binds the outer archive digest or an authenticated
+    manifest. Keep the stream immutable for the lifetime of the reader.
+    """
+    try:
+        archive = zipfile.ZipFile(source)
+    except (OSError, zipfile.BadZipFile, TypeError, RuntimeError) as error:
+        raise PayloadConflict() from error
+    with archive:
+        try:
+            manifest, identity = _read_windows_zip_inventory(archive)
+        except (OSError, zipfile.BadZipFile, KeyError, TypeError, RuntimeError) as error:
+            raise PayloadConflict() from error
+        yield archive, manifest, identity
+
+
 def verify_windows_archive(path: Path, *, sha256: str, size: int, version: str,
     minimum_launcher_version: str | None) -> PayloadIdentity:
     """Pin one archive descriptor; validate bytes and inventoried contract offline."""
@@ -234,38 +288,7 @@ def verify_windows_archive(path: Path, *, sha256: str, size: int, version: str,
             if _hash_open(source, MAX_ARCHIVE_BYTES) != (size, sha256):
                 raise PayloadConflict()
             source.seek(0)
-            with zipfile.ZipFile(source) as archive:
-                entries, names, expanded = {}, set(), 0
-                for item in archive.infolist():
-                    if len(names) >= MAX_FILES + 1:
-                        raise PayloadConflict()
-                    name = safe_path(item.filename.rstrip("/") if item.is_dir() else item.filename)
-                    kind = stat.S_IFMT(item.external_attr >> 16)
-                    if name.casefold() in names or item.flag_bits & 1 or kind not in {0, stat.S_IFREG, stat.S_IFDIR}:
-                        raise PayloadConflict()
-                    names.add(name.casefold())
-                    expanded += item.file_size
-                    if expanded > MAX_PAYLOAD_BYTES + MAX_MANIFEST_BYTES:
-                        raise PayloadConflict()
-                    if not item.is_dir():
-                        entries[name] = item
-                bundle = entries.get(BUNDLE_FILENAME)
-                if bundle is None or not 0 < bundle.file_size <= MAX_MANIFEST_BYTES:
-                    raise PayloadConflict()
-                manifest = read_json(archive.read(bundle), MAX_MANIFEST_BYTES)
-                files = manifest_files(manifest)
-                if set(entries) != {BUNDLE_FILENAME, *(item.path for item in files)}:
-                    raise PayloadConflict()
-                for item in files:
-                    if entries[item.path].file_size != item.size:
-                        raise PayloadConflict()
-                    with archive.open(entries[item.path]) as payload:
-                        if _hash_open(payload, item.size) != (item.size, item.sha256):
-                            raise PayloadConflict()
-                contract = entries.get(CONTRACT_FILENAME)
-                if contract is None or contract.file_size > MAX_CONTRACT_BYTES:
-                    raise PayloadConflict()
-                result = bind_contract(manifest, files, archive.read(contract))
+            with open_verified_windows_zip(source) as (_, _, result):
                 if result.version != version or result.minimum_launcher_version != minimum_launcher_version:
                     raise PayloadConflict()
             after = os.fstat(source.fileno())

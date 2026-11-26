@@ -84,6 +84,8 @@ def test_zip_registration_floor_is_bound_to_same_archive_bytes(tmp_path):
         size=archive.stat().st_size, version="3.2.83", minimum_launcher_version="3.2.81")
     assert verify_windows_archive(archive, **options).minimum_launcher_version == "3.2.81"
     with pytest.raises(PayloadConflict):
+        verify_windows_archive(archive, **{**options, "sha256": "0" * 64})
+    with pytest.raises(PayloadConflict):
         verify_windows_archive(archive, **{**options, "minimum_launcher_version": "3.2.82"})
     with pytest.raises(PayloadConflict):
         verify_windows_archive(archive, **{**options, "minimum_launcher_version": None})

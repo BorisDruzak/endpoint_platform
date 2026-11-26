@@ -689,7 +689,11 @@ silently discards installed packages after record 2048.
 | Packaging | `packaging/alt/`, `packaging/windows/` | ALT RPM and Windows MSI artifacts |
 
 `platform/windows/staged_candidate_payload.py` prepares incoming Core bytes
-from Setup's internal archive against the authenticated MSI inventory. Its
+from Setup's internal archive against the authenticated MSI inventory. Setup
+validates the complete manifest and every member on one deny-write/delete archive
+handle, then extracts through that handle and verifies the staged tree. The
+standalone ZIP verifier separately checks the expected outer digest before
+validating the same member inventory. The candidate's
 operation-bound private storage journal supports an online same-volume
 publication and before-switch cancellation without copying or selecting the payload. Native MSI
 ownership, final installed checks and health/rollback gates remain authoritative.

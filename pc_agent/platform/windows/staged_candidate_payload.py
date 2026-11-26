@@ -14,10 +14,10 @@ import stat
 import subprocess
 import tempfile
 import time
-import zipfile
 
 from endpoint_contracts.runtime_payload import (
-    BUNDLE_FILENAME, MAX_PAYLOAD_BYTES, read_json, verify_payload, verify_windows_archive,
+    MAX_ARCHIVE_BYTES, MAX_PAYLOAD_BYTES, open_verified_windows_zip, read_json,
+    reject_reparse_ancestors, verify_payload,
 )
 from . import durable_state, installer_fence as fence
 from . import installation_provenance as provenance, staged_update_state as state
@@ -93,17 +93,17 @@ def prepare_candidate_payload(paths, record, expected):
     if not _present(archive): return None  # Historical standalone wrapper.
     if _present(target) or _present(root): _fail()  # Never take over another tree.
     fence.assert_state_security(archive, secret=True)
+    reject_reparse_ancestors(archive)
     # Keep one native deny-write/delete handle throughout validation/extraction.
     with durable_state._pinned_copy_source(archive) as descriptor:
         before = os.fstat(descriptor)
-        if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1): _fail()
-        with archive.open('rb') as stream:
-            digest = hashlib.file_digest(stream, 'sha256').hexdigest()
-        identity = verify_windows_archive(archive, sha256=digest, size=before.st_size,
-            version=expected.identity.version, minimum_launcher_version=expected.identity.minimum_launcher_version)
-        if identity != expected.identity: _fail()
-        with zipfile.ZipFile(archive) as bundle:
-            manifest = read_json(bundle.read(BUNDLE_FILENAME), 4 * 1024 * 1024)
+        if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1
+                or not 0 < before.st_size <= MAX_ARCHIVE_BYTES
+                or durable_state._copy_identity(archive.lstat()) != durable_state._copy_identity(before)):
+            _fail()
+        with os.fdopen(descriptor, 'rb', closefd=False) as stream, open_verified_windows_zip(stream) as verified:
+            bundle, manifest, identity = verified
+            if identity != expected.identity: _fail()
             # ZIP's PowerShell publisher and MSI's Python publisher order names
             # differently. Compare every record and all metadata canonically;
             # duplicate/path/type/content checks above remain unchanged.
@@ -118,10 +118,11 @@ def prepare_candidate_payload(paths, record, expected):
                 for part in Path(item.path).parts[:-1]:
                     parent = provenance._archive_directory(parent, part)
                 data = bundle.read(item.path)
-                if len(data) != item.size or hashlib.sha256(data).hexdigest() != item.sha256: _fail()
+                if len(data) != item.size: _fail()
                 durable_state.write_bytes_atomic(source / item.path, data, trusted_root=source,
                     max_bytes=MAX_PAYLOAD_BYTES, protect=fence.protect_state)
         after = os.fstat(descriptor)
+        reject_reparse_ancestors(archive)
         if (durable_state._copy_identity(before) != durable_state._copy_identity(after)
                 or before.st_ctime_ns != after.st_ctime_ns
                 or durable_state._copy_identity(archive.lstat()) != durable_state._copy_identity(before)):

@@ -3,6 +3,7 @@ from dataclasses import replace
 import hashlib
 import json
 import os
+from pathlib import Path
 from types import SimpleNamespace
 import zipfile
 
@@ -57,6 +58,18 @@ def test_online_preparation_never_selects_or_publishes_candidate(candidate):
     assert not (root / '.endpoint-msi-runtime.json').exists()
 
 
+def test_online_preparation_reads_zip_only_through_the_retained_handle(candidate, monkeypatch):
+    _, _, _, expected, archive = candidate
+    opening = Path.open
+
+    def reject_second_open(path, *args, **kwargs):
+        assert path != archive, 'ZIP reopened by path after pinning'
+        return opening(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'open', reject_second_open)
+    assert verify_payload(prepare(candidate), expected.manifest) == expected.identity
+
+
 def test_archive_manifest_order_does_not_change_exact_msi_file_inventory(candidate):
     _, _, _, expected, archive = candidate
     with zipfile.ZipFile(archive) as bundle:
@@ -106,7 +119,8 @@ def test_conflict_is_rejected_without_selecting_candidate(candidate, defect):
     elif defect == 'payload-hash':
         with zipfile.ZipFile(archive) as bundle:
             members = {item.filename: bundle.read(item) for item in bundle.infolist()}
-        members['pc_agent.exe'] = b'changed'
+        original = members['pc_agent.exe']
+        members['pc_agent.exe'] = bytes([original[0] ^ 1]) + original[1:]
         with zipfile.ZipFile(archive, 'w') as output:
             for name, data in members.items(): output.writestr(name, data)
     else:
@@ -116,6 +130,7 @@ def test_conflict_is_rejected_without_selecting_candidate(candidate, defect):
     with pytest.raises(ValueError): prepare(candidate)
     assert paths.current_path.read_bytes() == before
     if defect == 'foreign-destination': assert (target / 'foreign.txt').read_bytes() == b'untouched'
+    if defect == 'payload-hash': assert not module._paths(paths, record)[0].exists()
 
 
 def test_owner_loss_cannot_publish_partial_tree(candidate):
