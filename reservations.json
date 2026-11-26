@@ -2,6 +2,8 @@
   "reservations": [
     {
       "after": "3.2.205",
+      "bound_at": "2026-11-26T08:55:33.821049+00:00",
+      "build_revision": "ca68540ebf91a41cdb510e0727eaeef7e3b1e02b",
       "inventories": {
         "production": {
           "observed_at": "2026-11-26T08:53:59.280182+00:00",
