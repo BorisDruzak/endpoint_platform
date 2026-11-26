@@ -234,12 +234,14 @@ and their matching snapshots before allocating another VM.
   an existing VM with a verified baseline or repurpose an available lab slot
   after preserving its prior evidence. Windows 11 `EnterpriseS` and ALT
   11.2/11.5 need their own acceptance profiles.
-- VM482/483 are the retained Windows 11 Evaluation 26100.1742 pair. VM259/260
-  are the retained paired ALT 11.4 network upgrade and recovery history.
-  Reuse them only for their matching profile when needed. Preserve historical
-  guests with active staging duties, linked disks, or unresolved transactions.
-  In particular, VM480/481 are offline MSI holds. Leave their guests,
-  identities, snapshots, and recovery ownership intact.
+- VM259/260 retain the paired ALT 11.4 network upgrade and recovery history.
+  Use them for their matching profile. The historical Windows 11 Evaluation
+  26100.1742 pair (VM482/483) and diagnostic VMs129/131 are archived on `pve1`
+  under `/ZFS-main/endpoint-lab-archive/2026-11-26-vm129-131-482-483`.
+  Check the archive manifest and use an existing isolated slot if a historical
+  profile is needed again. Preserve guests with active staging duties, linked
+  disks, or unresolved transactions. VM480/481 are offline MSI holds. Leave
+  their guests, identities, snapshots, and recovery ownership intact.
 - Use a private bridge with verified guest membership, no physical uplink or
   default routes, and a dedicated Lab provider and database for network trials.
   An offline trial uses a disconnected or detached adapter. Restore an enrolled
