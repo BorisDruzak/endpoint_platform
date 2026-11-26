@@ -9,8 +9,8 @@
   "verified_code_and_tests_commit": "050b541ff0783678ef34df804455ba7f602660a6",
   "canonical_rules": "AGENTS.md#canonical-agent-release",
   "primary_windows_release": {
-    "version": "3.2.205",
-    "record": "docs/releases/windows-3.2.205-production.json"
+    "version": "3.2.277",
+    "record": "docs/releases/windows-3.2.277-production.json"
   },
   "apt_repository_trust": {
     "current_signing_fingerprint": "840AC80D602970C76C282E6DD02C861F8B636743",
@@ -300,7 +300,7 @@
   ],
   "operator_evidence_directory": "C:/Users/admin-2/.codex/worktrees/pilot-support-channel/endpoint/.superpowers/sdd/2026-11-07-installation-lifecycle",
   "update_rule": "Immutable signed bytes, Console source canary, source qualification, reviewed coverage, bounded automatic scheduling and canonical same-row primary promotion",
-  "record_role": "Use primary_windows_release for the primary Windows installer and current_provider for the deployed server. The primary ALT kit is 3.2.183. alt_native_candidate_265 records the separately downloadable ALT pilot. current_windows_rollout records the observed automatic policy. The top-level 3.2.192 snapshot and historical rollout records preserve earlier checkpoints.",
+  "record_role": "Use primary_windows_release for the primary Windows installer and current_provider for the deployed server. Use linux for the primary ALT native kit. alt_native_candidate_265 records the separately downloadable ALT pilot. current_windows_rollout records the observed automatic policy. The top-level 3.2.192 snapshot and historical rollout records preserve earlier checkpoints.",
   "qualified_existing_device_release_record": "docs/releases/windows-3.2.192-setup.json",
   "automatic_full_setup": {
     "id": "0ab7e6f8-7f3b-42b4-9b62-e0718dd6a3fc",

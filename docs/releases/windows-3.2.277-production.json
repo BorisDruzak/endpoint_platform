@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "version": "3.2.277",
+  "platform": "windows_amd64",
+  "status": "published_production",
+  "verified_utc": "2026-11-26T15:54:36.1929083Z",
+  "runtime_source_binding": "packaging/windows/initial-runtime-3.2.277.json",
+  "reservation_request_id": "5be58fd7-b40b-4a7c-9c86-cad4e2072bfb",
+  "previous_primary_record": "docs/releases/windows-3.2.205-production.json",
+  "setup": {
+    "filename": "EndpointAgentSetup-3.2.277-x64.exe",
+    "sha256": "f23b67113f2aec2c454530ceaec5a606f7c5f9ed46dd24a5df0f2c7e6e98cd87",
+    "size": 177859296,
+    "source_commit": "ca68540ebf91a41cdb510e0727eaeef7e3b1e02b",
+    "release_id": "2d1fc711-0c8e-4522-913d-8716d0850f4c",
+    "download_published": true,
+    "download_url": "https://endpoint.sosnadmin.local/api/admin/console/installer/releases/2d1fc711-0c8e-4522-913d-8716d0850f4c/download",
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776"
+  },
+  "msi": {
+    "filename": "EndpointAgent-3.2.277-x64.msi",
+    "sha256": "1a611f6b6435d5cc644490af59ba6fcc8e70342bb1a0000651da75c5ee7c3f82",
+    "size": 136413184,
+    "source_revision": "ca68540ebf91a41cdb510e0727eaeef7e3b1e02b",
+    "product_code": "{16571AA2-8CEE-4DEA-B5F6-E137E862B17E}",
+    "initial_runtime_tree_sha256": "c0d0ecbf1052d034cc61595a05dda4f0b0ed8ecc61e140874d68c43f2fdd43c8",
+    "authenticode": "Valid with timestamp",
+    "publisher_thumbprint": "4D4C23389F5FF77BC4EB32044761019EAE8FB776"
+  },
+  "full_setup_update": {
+    "release_id": "f649a0e7-b240-4cb9-8ae2-f6c998c5c1ed",
+    "release_identifier": "win-x64-setup-3.2.277",
+    "source_revision": "ca68540ebf91a41cdb510e0727eaeef7e3b1e02b",
+    "tray_sha256": "f80148c37ec64a955f3ac8633c2ddb03823c06be2987e0452edbd3f052641ba1",
+    "sensor_sha256": "6ff5559ec824edeaf9a95c27bab8c09540b89641bd35716059e2eb21e3c1e8d9",
+    "source_qualifications": [
+      {
+        "id": "93a97336-89dc-4010-b1f1-0f6a17a1f902",
+        "source_foundation": "3.2.205",
+        "evidence_assignment_id": "0c9b827a-d749-4e99-bf8f-0b4d70bbaf9b",
+        "qualified_at": "2026-11-26T15:51:16.25344+00:00",
+        "expires_at": "2026-12-26T15:51:16.25344+00:00",
+        "evidence_code": "native0_sensor_source_verified",
+        "verified_profile": "Windows 10 Enterprise Evaluation 22H2 x64, build 19045.6456"
+      }
+    ],
+    "production_pilot": {
+      "updated_devices": 1,
+      "attempt_id": "944278df-932e-4ced-912e-009f4ea8d9f2",
+      "native_exit_code": 0,
+      "native_ack_sequence": 10,
+      "soak_seconds": 182.436,
+      "protected_files_preserved": 4,
+      "policy_state": "APPLIED",
+      "sensor_state": "READY",
+      "support_version": "1.1.7"
+    },
+    "automatic_delivery": {
+      "enabled": false,
+      "observed_target_version": "3.2.205",
+      "policy_revision": 21,
+      "available_slots": 0,
+      "native_recovery_holds": 1
+    }
+  },
+  "enrollment": {
+    "campaign_id": "09e62472-a6ae-49ab-aaaa-6613836b4423",
+    "mode": "auto",
+    "included": true,
+    "scope_and_quota_preserved": true
+  },
+  "lab_evidence": {
+    "windows_10_direct": {
+      "source_foundation": "3.2.205",
+      "qualification_id": "c59ed420-1f0e-4b1b-8fcb-9c215e2a818b",
+      "native_exit_code": 0,
+      "native_ack_sequence": 2,
+      "soak_seconds": 182.213
+    },
+    "windows_11": "The same artifact passed first registration and a direct 3.2.205 upgrade on Enterprise LTSC Evaluation."
+  },
+  "limits": [
+    "The production pilot covered a single production-connected test VM and kept the existing fleet policy paused.",
+    "Use direct upgrade approvals only for proven source profile, package and OS edition matches.",
+    "The existing unrelated native recovery hold retains its original assignment and recovery ownership."
+  ]
+}
