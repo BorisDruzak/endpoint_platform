@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from endpoint_contracts.power_events import PowerSourceStatusV1
+from pc_agent.platform.linux.system_program import system_program_environment
 from pc_agent.power.native import NativePage, native_event, opaque_id
 
 SLEEP_START = "6bbd95ee977941e497c48be27c254128"
@@ -35,7 +36,8 @@ _FIELDS = (
 
 async def bounded_command(args, *, timeout=5, max_bytes=512 * 1024):
     process = await asyncio.create_subprocess_exec(
-        *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
+        *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+        env=system_program_environment(),
     )
     try:
         async with asyncio.timeout(timeout):
@@ -277,6 +279,7 @@ class LinuxPowerSource:
                         member,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.DEVNULL,
+                        env=system_program_environment(),
                     )
                     # wait needs public AddMatch only; no BecomeMonitor privilege.
                     await asyncio.sleep(0.05)

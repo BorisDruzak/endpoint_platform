@@ -19,6 +19,7 @@ import time
 import aiohttp
 import psutil
 
+from pc_agent.platform.linux.system_program import system_program_environment
 from pc_agent.platform.windows.service_control import read_updater_service_status
 
 from .server_health import ROLES
@@ -399,7 +400,9 @@ def _execute_bounded_command(
     check_exit: bool = False,
     env: dict[str, str] | None = None,
 ) -> bytes:
-    """Capture local command output without materializing unbounded pipe streams."""
+    """Run a system command without materializing unbounded pipe streams."""
+    if env is None:
+        env = system_program_environment()
     popen_options: dict[str, object] = {
         "stdin": subprocess.DEVNULL,
         "stdout": subprocess.PIPE,
