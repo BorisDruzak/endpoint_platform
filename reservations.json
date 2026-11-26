@@ -84,8 +84,12 @@
           "platform": "alt",
           "publisher_fingerprint": "BC24B8EE43DBB05A748E11A4343B5DA748370631",
           "recorded_at": "2026-11-26T09:27:54.226595+00:00",
+          "rejection": {
+            "reason": "ALT pilot lost UserSensor activity. Bundled OpenSSL prevents loginctl from loading systemd 258. Signed 3.2.183 restored with fresh activity.",
+            "rejected_at": "2026-11-26T13:40:28.574729+00:00"
+          },
           "request_id": "5be58fd7-b40b-4a7c-9c86-cad4e2072bfb",
-          "state": "candidate",
+          "state": "rejected",
           "version": "3.2.277"
         },
         "windows": {
