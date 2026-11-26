@@ -210,6 +210,30 @@ Rollback is an upgrade event, not device removal.156 has no Support code or retr
 unit; preserved private Support state/lease does not imply a running component.
 Use the retained Setup executable for manual reconciliation while156 is installed.
 
+## CUPS queue permissions on ALT
+
+The installed Core service runs CUPS commands as `endpoint-agent` through
+`/run/cups/cups.sock`. The Provider must expose the existing operations API for
+Gateway delivery. Use the CUPS configuration for the queues selected for management.
+
+- Give each selected queue its own `printer-op-policy`, based on the installed
+  distribution's default policy. Within that policy, allow `endpoint-agent`
+  only for `Pause-Printer`, `Resume-Printer`, `CUPS-Accept-Jobs` and
+  `CUPS-Reject-Jobs`. Preserve the default rules for the other operations.
+- If the stock `/admin` location also requires `@SYSTEM`, allow the account
+  through that location for local `POST` requests. Preserve authentication,
+  the restrictions on other methods, and the `/admin/conf` and `/admin/log`
+  locations. The per-queue IPP policy then authorizes the four operations.
+  Keep the existing CUPS `SystemGroup` membership.
+- Check the CUPS configuration with `cupsd -t`. Use the installed agent and
+  Gateway to verify queue state and one test job. Verify that `endpoint-agent`
+  cannot pause a queue using the default policy or change the description of a
+  managed queue, and that another ordinary account cannot pause a managed queue.
+
+On ALT Workstation K 11.4 with CUPS `2.4.19-alt1`, the stock `/admin` restriction
+returned HTTP 403 even with the dedicated queue policy. The local `POST` rule
+and the per-queue policy were both needed on that profile.
+
 ## Build and verification boundaries
 
 Freeze from a clean Git checkout matching the exact runtime source revision.
