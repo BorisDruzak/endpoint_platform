@@ -149,7 +149,12 @@ upgrade paths that must run for each qualified artifact.
   the same artifact digest. ALT native Setup, RPM manifests and kit assembly accept the
   bound candidate version. ALT 11.4 verified staging of synthetic 3.2.278,
   rejection of a mismatched Setup, and RPM spec builds of Core and UserSensor
-  for both 3.2.183 and 3.2.278. The full DEVELOP builder produced Core with
+  for both 3.2.183 and 3.2.278. The offline ALT factory checker uses six raw
+  QEMU guest-agent receipts and the recorded kit. A stock 11.4 repeat with
+  signed 3.2.274 verified RPM zero, the same transaction across reboot and
+  automatic reconcile, and registration still pending. The guest was
+  restored to the clean snapshot and stopped.
+  The full DEVELOP builder produced Core with
   Setup and Support, and UserSensor, from one clean Git SHA. The first pair
   failed stock ALT 11.4 dependency admission due to OpenSSL 3.4 symbols.
   Rebuilding against the stock OpenSSL and Qt inputs passed `rpm -U --test`

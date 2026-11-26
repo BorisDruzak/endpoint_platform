@@ -231,6 +231,11 @@ def main() -> None:
     alt_enrollment.add_argument("--device-id", type=UUID, required=True)
     alt_enrollment.add_argument("--qualification-id", type=UUID, help="Record live acceptance under this stable ID")
     alt_enrollment.add_argument("--valid-until", help="Expiry of the recorded evidence, including UTC offset")
+    alt_offline = commands.add_parser("verify-alt-factory-offline", help="check native factory and reboot receipts before enrollment")
+    alt_offline.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
+    alt_offline.add_argument("--request-id", type=UUID, required=True)
+    alt_offline.add_argument("--artifacts-dir", type=Path, required=True)
+    alt_offline.add_argument("--evidence-dir", type=Path, required=True)
     candidate = commands.add_parser("record-candidate", help="pin native candidate bytes to a reservation")
     candidate.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
     candidate.add_argument("--request-id", required=True, type=UUID)
@@ -288,6 +293,10 @@ def main() -> None:
             from tools.release.agent_alt_enrollment import qualify
 
             result = qualify(args)
+        elif args.command == "verify-alt-factory-offline":
+            from tools.release.agent_alt_offline import verify_recorded_trial
+
+            result = verify_recorded_trial(args)
         elif args.command == "record-candidate":
             result = agent_reservations.record_candidate(args)
         else:

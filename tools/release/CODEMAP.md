@@ -431,6 +431,39 @@ request ID and observed check time. It fails on redirects, TLS name or
 authority failure and any different byte sequence. Complete the additional
 download-path checks from the [distribution runbook](../../deploy/server/ALT_DISTRIBUTION.md).
 
+### Verify ALT factory installation before enrollment
+
+Use a reset, disconnected ALT Workstation K x64 Lab guest and the exact recorded native kit.
+Keep the clone and snapshot identity with the observations. Capture the raw
+QEMU guest-agent JSON for each phase. Inside the guest run
+`python3 -B observe_alt_factory_offline.py` from
+[`tools/canary`](../canary/observe_alt_factory_offline.py) for `before.json`,
+`after-install.json`, `after-reboot.json` and `after-timer.json`. Use the
+verified signed kit and the native installation procedure in the
+[ALT runbook](../../docs/runbooks/ALT_AGENT_INSTALL.md). Save the QEMU
+result as `install.json` with the lines `stock_rpm_pair_test=0` and
+`setup_install_exit=21` from the actual results. Reboot the clean Lab
+guest normally. Preserve the timer and service properties as
+`retry-timer-status.json` once the automatic retry completes.
+
+```bash
+systemctl show endpoint-agent-setup-retry.timer -p Id,LastTriggerUSecMonotonic,Result
+printf '\n'
+systemctl show endpoint-agent-setup-retry.service -p Id,ExecMainStartTimestampMonotonic,ExecMainStatus,Result
+```
+
+```bash
+python tools/release/agent_release.py verify-alt-factory-offline --request-id "$request" \
+  --artifacts-dir "$sealed_kit" --evidence-dir "$qga_receipts"
+```
+
+The check joins the six receipts to the exact recorded kit. It requires a
+durable native RPM exit 0, the same RPM transaction after reboot and automatic
+reconcile, preserved OS packages and public CA, and zero enrollment events
+or ACKs. An outer exit 21 with pending registration is expected in this scope.
+The result is read-only evidence for `factory_offline`. First enrollment
+and publication use their respective acceptance gates.
+
 ### Check first ALT enrollment on the Lab provider
 
 On the protected Linux publisher, set `DATABASE_URL` for the selected Lab
