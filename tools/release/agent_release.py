@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 from pathlib import Path, PurePosixPath
 import re
@@ -168,12 +169,54 @@ def status(root: Path) -> dict[str, Any]:
     }
 
 
+def _provider_status(path: Path, now: datetime) -> dict:
+    snapshot = _read(path.parent, path.name)
+    if type(snapshot["schema_version"]) is not int or snapshot["schema_version"] != 1:
+        raise ValueError("Unsupported provider snapshot schema")
+    compatibility_matrix._observed_at(snapshot, now)
+    planning = snapshot["release_planning"]
+    return {
+        "database_name": snapshot["database_name"],
+        "database_revision": snapshot["database_revision"],
+        "observed_at": snapshot["observed_at"],
+        "windows_download": snapshot["windows_primary"],
+        "windows_full_setup_policy": snapshot["windows_delivery"],
+        "windows_active_assignments": snapshot["windows_active_assignments"],
+        "accepted_native_installations": snapshot["accepted_native_installations"],
+        "active_enrollment_sources": [row for row in planning["enrollment_sources"] if row["catalog_campaign_count"]],
+        "pending_enrollments": planning["pending_enrollments"],
+        "windows_active_qualifications": planning["windows_qualifications"],
+    }
+
+
+def _status_report(args: argparse.Namespace) -> dict:
+    if args.request_id:
+        if args.ledger or args.production_snapshot or args.staging_snapshot:
+            raise ValueError("Use --request-id alone for a single reservation")
+        return agent_reservations.reservation_status(args)
+    report = status(args.repo_root)
+    now = datetime.now(timezone.utc)
+    providers = {name: _provider_status(path, now) for name, path in (
+        ("production", args.production_snapshot), ("staging", args.staging_snapshot),
+    ) if path}
+    if providers:
+        if len({view["database_name"] for view in providers.values()}) != len(providers):
+            raise ValueError("Provide separately captured production and staging snapshots")
+        report["provider_observations"] = providers
+    if args.ledger:
+        report["reservations"] = agent_reservations.ledger_status(args.repo_root)
+    return report
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     inspect = commands.add_parser("status", help="show the checked-in release pointers as JSON")
     inspect.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
     inspect.add_argument("--request-id", type=UUID, help="read one reservation and its candidates from Git")
+    inspect.add_argument("--ledger", action="store_true", help="include the current shared reservation ledger")
+    inspect.add_argument("--production-snapshot", type=Path)
+    inspect.add_argument("--staging-snapshot", type=Path)
     reserve = commands.add_parser("reserve", help="reserve the next Windows/ALT version in Git")
     reserve.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
     agent_reservations.add_arguments(reserve)
@@ -256,7 +299,7 @@ def main() -> None:
     args = parser.parse_args()
     try:
         if args.command == "status":
-            result = agent_reservations.reservation_status(args) if args.request_id else status(args.repo_root)
+            result = _status_report(args)
         elif args.command == "reserve":
             result = agent_reservations.reserve(args)
         elif args.command == "bind-source":

@@ -43,6 +43,13 @@ compact JSON projection. The tool reads the existing records and linked
 receipts. The root version remains a historical checkpoint. JSON marked
 `repository_record` describes observations made at the recorded times.
 Unknown fields require a current observation from their owning catalog.
+Pass `--production-snapshot` and `--staging-snapshot` for separately timestamped
+provider observations. The report shows published Windows download, active
+campaign references, current Full Setup policy, assignment states and accepted
+native installations. Campaign references alone do not establish eligibility
+for a given machine. `--ledger` reads the current Git reservation, candidate,
+qualification and revocation records where they exist. The repository pointers
+retain their own observation dates.
 
 | Pointer | Checked-in source | Live authority |
 | --- | --- | --- |
@@ -63,8 +70,20 @@ index is current; verify signature and expiry before using that delivery path.
 For a current provider DB snapshot, run `agent_catalog_snapshot.sql` with
 `psql -X -Atq -v ON_ERROR_STOP=1 -f` using existing read access. It exports
 one JSON object using a read-only transaction and a five-second query timeout.
-Capture production and staging separately. The snapshot retains every occupied
-catalog version, including retired releases and candidate-only installer rows.
+Capture production and staging separately. The staging operator can run the
+deployed fixed export without a password.
+
+```powershell
+ssh -T -o BatchMode=yes helpdesk-staging-101-118 'sudo -n -u postgres -- /usr/local/sbin/endpoint-release-catalog-snapshot'
+```
+
+The root-owned wrapper accepts zero arguments, clears the environment and uses
+`psql -X -w` with input redirected from `/dev/null`. It always queries
+`endpoint_staging_db` using `/usr/local/share/endpoint-release-catalog/agent_catalog_snapshot.sql`
+in a read-only transaction. The staging sudoers entry is scoped to this command
+and an empty argument list. To upgrade the query, verify the reviewed file digest
+and run it against staging before replacing the installed copy as root.
+The snapshot retains every occupied catalog version, including retired releases and candidate-only installer rows.
 Core rows keep platform and channel. Published canary fixtures can use unusual
 versions such as `3.2.60000` or `99.0.3280`. Occupancy and the next version in
 the supported release series require separate checks. APT package inventories,
@@ -75,7 +94,9 @@ The provider snapshot also groups the latest accepted Windows MSI and Linux RPM
 installations by exact native source and package digests. Session presence is
 a separate count. Use this as input to compatibility planning. OS build,
 companion versions, pending local transactions and other profile details
-still require their own evidence.
+still require their own evidence. The snapshot includes the OS fields recorded
+in Device Context and recognized Endpoint packages where supplied by the agent.
+Missing fields remain visible in the matrix.
 
 ## Choose Windows or ALT delivery
 
@@ -87,6 +108,8 @@ selected delivery and the current exposure matrix to choose Lab scenarios.
 ```powershell
 python tools/release/release_plan.py --platform windows --base $qualifiedSource --target $buildRevision
 python tools/release/release_plan.py --platform alt --base $qualifiedSource --target $buildRevision
+python tools/release/release_plan.py --platform ubuntu --base $qualifiedUbuntuSource --target $buildRevision
+python tools/release/release_plan.py --platform debian --base $qualifiedDebianSource --target $buildRevision
 ```
 
 `changed_components` traces changed inputs through the old and new PyInstaller
@@ -96,7 +119,9 @@ specs, their transitive local imports, and the native builder inputs. Use
 inputs against the builder, and use the canonical gates to qualify its output.
 An aggregate diff can include changes for several releases. Confirm which
 changes already shipped through the separate owning catalogs before defining a
-smaller candidate scope.
+smaller candidate scope. Python SDK changes appear as `python_sdk` for
+separate SDK review. Standalone enrollment and identity administration tools
+have no agent artifact unless a builder depends on them.
 
 | Change | Delivery and qualification |
 | --- | --- |
@@ -104,6 +129,8 @@ smaller candidate scope.
 | Windows launcher, MSI, Setup or native services | Full Setup via the existing exact-source Console workflow. Check Support and the signed Setup observer separately when their inputs change. |
 | ALT Core runtime | ALT Core OTA and the existing Linux admission checks. |
 | ALT launcher, native service/helper, or RPM payload | ALT native RPM, signed kit and native Setup in the existing release cycle. |
+| Ubuntu or Debian Core and package inputs | Ubuntu Noble or Debian Bookworm DEB/APT through `tools/build_ubuntu_agent_deb.py` and `tools/release/build_ubuntu_apt_repository.py`. Both use the frozen Linux Core. |
+| APT publication inputs | Use the corresponding DEB/APT route with the existing immutable DEB when `apt_repository` is its sole reason. |
 | Browser extension | Browser Sensor release. The extension ID is also a Core and native package input where the builders include it. |
 | Endpoint contracts, provider or Console | Review changed contracts and migration IDs. Qualify compatibility with old and new agents and rehearse migrations and rollback. Provider-only changes require no agent build. |
 
@@ -731,7 +758,7 @@ applied assignment, the exact EXE, source Core/Foundation/Setup Client, native
 source, complete profile and route. The provider qualification must still be
 valid and Console must return `eligible` for that device. A match preserves
 `REQUIRED` and adds `satisfied_by` with the qualification, assignment, receipt
-digest and expiry. Factory, bridge and ALT transitions keep their own test
+digest and expiry. Factory and bridge transitions keep their own test
 requirements. This report grants no operational admission.
 
 ```powershell
@@ -741,6 +768,18 @@ python tools/release/compatibility_matrix.py --snapshot $productionSnapshot `
   --windows-preview $coverage --profile-evidence $profiles `
   --windows-lab-evidence $reviewedLabEvidence --qualification-environment $environmentHash
 ```
+
+For ALT direct transitions, use `agent_release.py qualify-matrix` with
+`--alt-lab-evidence`, `--alt-lab-snapshot` and `--qualification-environment`.
+The Lab snapshot is the retained read-only Gateway export with consecutive
+accepted native events for the same device and installation generation. The
+reviewed evidence has a fresh `observed_at` and a `qualifications` array.
+Each review contains `source_event_id`, `target_event_id`, `target_sha256`,
+`environment_sha256`, `receipt_sha256`, the complete source `profile`
+and `expires_at`. Review the retained service, telemetry and rollback
+evidence before including the receipt. The planner checks the candidate
+archive and both RPM digests, exact source identity and profile, Gateway event
+pair and validity up to 30 days from the accepted upgrade.
 
 Supply independently verified native profile observations via
 `--profile-evidence`. The JSON has `observed_at` and `devices`. Each device
@@ -756,10 +795,11 @@ and `candidates`. Each entry contains `platform`, `version`, artifact
 `sha256`, the hash of the reviewed reset/exposure receipt `receipt_sha256`,
 `exposure` and `reset`, plus an optional `regression_test` identifier. Use
 `lab_only` and `verified` only after checking current and historical exposure
-including staging, offline or pending work, and a completed Lab reset. A
-conflicting provider observation keeps the candidate in `HOLD`. Otherwise the
-verified Lab source can be `EXCLUDED` from mandatory transitions. An explicit
-`regression_test` keeps that targeted scenario in the plan.
+including offline or pending work, and a completed Lab reset. Pass
+`--staging-snapshot` for the independently captured staging history. A
+missing history or any conflicting provider observation keeps the candidate
+in `HOLD`. A verified Lab source can be `EXCLUDED` from mandatory transitions.
+The optional `regression_test` keeps that targeted scenario in the plan.
 
 Input observations must be within 30 minutes of execution with a 30-second
 clock tolerance. Use the canonical preview and Lab evidence for the actual

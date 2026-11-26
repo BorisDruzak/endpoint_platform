@@ -204,6 +204,26 @@ upgrade paths that must run for each qualified artifact.
   Both HTTPS APT indexes had expired. In UTC, Noble expired on 23 November at
   19:13:09 and Bookworm at 08:19:13. Renewal is a separate production action.
 
+- EP-RE-06 has a read-only staging catalog export with a fixed command and
+  separate production and staging snapshots. The operator status combines
+  checked-in pointers, current provider observations and the shared Git ledger.
+  The planner covers Ubuntu Noble and Debian Bookworm and uses the existing
+  DEB/APT tools. The matrix shows observed and missing source facts. Lab
+  exclusions require both provider histories and a verified reset. Windows
+  3.2.273 appears in staging history. ALT transition reuse requires exact kit
+  members, a causal Gateway event pair and matching reviewed Lab evidence.
+  The live reservation preview proposed 3.2.277. Production Console completed
+  inventory requests from Windows 3.2.205 and ALT 11.2/3.2.183. The coverage
+  preview for the published Windows 3.2.205 checked 56 cards and had zero free
+  slots with one recovery hold. Full Setup policy revision 21 was paused.
+- EP-RE-07 still requires native acceptance for the intended signed bytes.
+  Windows needs exact deployment profiles and MSI interruption recovery.
+  ALT needs the same installed-service and Gateway trial to demonstrate CUPS
+  job replay, least privilege and journal retention across update and rollback.
+- EP-RE-08 follows native qualification. Validate the applicable profiles live
+  in the production Console, run the approved user pilot and promote the same
+  tested bytes. Keep the published and fleet-delivery pointers independent.
+
 ## Agent and server stability (2026-11-14)
 
 Source and acceptance order originate in the stability audit in the operator

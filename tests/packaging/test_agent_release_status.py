@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import shutil
@@ -10,9 +11,9 @@ CLI = ROOT / "tools/release/agent_release.py"
 CATALOG = Path("docs/releases/current-agent-release.json")
 
 
-def release_status(root):
+def release_status(root, *options):
     return subprocess.run(
-        [sys.executable, str(CLI), "status", "--repo-root", str(root)],
+        [sys.executable, str(CLI), "status", "--repo-root", str(root), *options],
         capture_output=True, text=True, encoding="utf-8", check=False,
     )
 
@@ -85,3 +86,33 @@ def test_status_rejects_primary_receipt_outside_release_directory(tmp_path):
     assert result.returncode != 0
     assert "Expected a separate JSON receipt under docs/releases" in result.stderr
     assert result.stdout == ""
+
+
+def test_status_combines_current_provider_facts_with_repository_pointers(tmp_path):
+    observed = datetime.now(timezone.utc).isoformat()
+    snapshot = {
+        "schema_version": 1, "observed_at": observed, "database_name": "endpoint_platform",
+        "database_revision": "0056_context_collection_history",
+        "windows_primary": {"id": "download", "agent_version": "3.2.205", "sha256": "a" * 64},
+        "windows_delivery": {"release_id": "delivery", "version": "3.2.264", "enabled": False},
+        "windows_active_assignments": {"recovery_required": 1, "verified": 2},
+        "accepted_native_installations": [{"version": "3.2.183", "accepted_devices": 10, "connected_devices": 9}],
+        "release_planning": {
+            "enrollment_sources": [{"platform": "alt", "version": "3.2.183", "catalog_campaign_count": 1}],
+            "pending_enrollments": [],
+            "windows_qualifications": [{"qualification_id": "qualification", "sha256": "b" * 64}],
+        },
+    }
+    path = tmp_path / "production.json"
+    path.write_text(json.dumps(snapshot), encoding="utf-8")
+    result = release_status(ROOT, "--production-snapshot", str(path))
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    assert report["freshness"] == "repository_record"
+    production = report["provider_observations"]["production"]
+    assert production["windows_download"]["id"] == "download"
+    assert production["windows_full_setup_policy"]["release_id"] == "delivery"
+    assert production["windows_active_assignments"]["recovery_required"] == 1
+    assert production["accepted_native_installations"][0]["accepted_devices"] == 10
+    assert production["active_enrollment_sources"][0]["catalog_campaign_count"] == 1
+    assert production["windows_active_qualifications"][0]["qualification_id"] == "qualification"

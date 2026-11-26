@@ -12,10 +12,14 @@ from uuid import UUID
 VERSION = re.compile(r"(?:0|[1-9][0-9]{0,4})(?:\.(?:0|[1-9][0-9]{0,4})){2}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
 GIT_SHA = re.compile(r"[0-9a-f]{40}")
+ALT_RPM_DIGESTS = ("core_rpm_sha256", "user_sensor_rpm_sha256")
+ALT_NATIVE_IDENTITY = ("version", "source_revision", *ALT_RPM_DIGESTS)
 NATIVE_CONTRACT = {"windows": "endpoint_installation_event_v1", "alt": "endpoint_linux_installation_event_v1"}
 INSTANCE_PLATFORM = {"windows": "windows_amd64", "alt": "linux_amd64"}
 PROFILE_FIELDS = ("os_name", "os_build", "os_edition", "architecture", "core_version", "foundation_version",
                   "setup_client_version", "support_version", "state_schema", "acl_profile", "local_transaction")
+INVENTORY_FIELDS = ("observed_at", "os_name", "os_version", "os_build", "os_edition", "architecture")
+RUNTIME_FIELDS = ("core_version", "foundation_version", "setup_client_version", "support_version")
 ROUTE_STEPS = {"direct": 0, "observer_bootstrap": 1, "legacy_bridge_return": 2}
 
 
@@ -45,8 +49,14 @@ def _by_device(rows):
 
 def _relevant(row, platform):
     system, contract = row["platform"], row["native_contract"]
-    if platform == "alt" and contract != NATIVE_CONTRACT["alt"] and row.get("enrollment_package_kind") == "deb":
-        return False
+    if contract is None:
+        os_name = ((row.get("inventory") or {}).get("os_name") or "").casefold()
+        deb = row.get("enrollment_package_kind") == "deb" or os_name.split(" ", 1)[0] in ("ubuntu", "debian")
+        if deb:
+            return False
+        if os_name.startswith("windows") or os_name.startswith("alt"):
+            observed = "windows" if os_name.startswith("windows") else "alt"
+            return observed == platform
     # Retain ambiguous cards in each applicable platform plan until resolved.
     return (system == INSTANCE_PLATFORM[platform] or contract == NATIVE_CONTRACT[platform]
             or (system is None and contract is None))
@@ -57,9 +67,9 @@ def _known_native(row, platform):
             or row["native"] is None):
         return False
     native = row["native"]
-    package_key = "msi_sha256" if platform == "windows" else "core_rpm_sha256"
+    package_keys = ("msi_sha256",) if platform == "windows" else ALT_RPM_DIGESTS
     return (VERSION.fullmatch(native.get("version") or "") and GIT_SHA.fullmatch(native.get("source_revision") or "")
-            and SHA256.fullmatch(native.get(package_key) or ""))
+            and all(SHA256.fullmatch(native.get(key) or "") for key in package_keys))
 
 
 def _matches_profile(observation, row):
@@ -69,10 +79,21 @@ def _matches_profile(observation, row):
     if not all(isinstance(profile.get(field), str) and profile[field].strip().lower() not in ("", "unknown")
                for field in PROFILE_FIELDS):
         return None
-    if any(row.get(field) and row[field] != profile[field] for field in
-           ("core_version", "foundation_version", "setup_client_version", "support_version")):
+    if any(row.get(field) and row[field] != profile[field] for field in RUNTIME_FIELDS):
         return None
     return {key: profile[key] for key in PROFILE_FIELDS}
+
+
+def _partial_profile(row):
+    inventory = {field: value for field in INVENTORY_FIELDS
+                 if (value := (row.get("inventory") or {}).get(field))}
+    observed = {field: row[field] for field in (*RUNTIME_FIELDS, "launcher_version") if row.get(field)}
+    if inventory:
+        observed["inventory"] = inventory
+    if row.get("packages"):
+        observed["packages"] = row["packages"]
+    missing = [field for field in PROFILE_FIELDS if not (observed.get(field) or inventory.get(field))]
+    return observed, missing
 
 
 def _case(row, target, decision, evidence):
@@ -120,6 +141,11 @@ def _case(row, target, decision, evidence):
             case["native_route"] = decision["native_route"]
         return {**case, "category": "REQUIRED", "reason": "observed_native_source",
                 "test": "native_transition"}
+    if not profile:
+        observed, missing = _partial_profile(row)
+        if observed:
+            case["observed_profile"] = observed
+        case["missing_profile_fields"] = missing
     return {**case, "category": "HOLD", "reason": reason}
 
 
@@ -220,11 +246,63 @@ def _reuse_windows_evidence(cases, planning, target, preview, reviewed, environm
             "qualification_id", "evidence_assignment_id", "receipt_sha256")}, "expires_at": current["expires_at"]}
 
 
-def _lab_cases(rows, platform, planning, pending, enrollment):
+def _reuse_alt_evidence(cases, target, reviewed, lab_snapshot, environment, now):
+    native = target.get("native_identity")
+    if (target["platform"] != "alt" or not native or native["version"] != target["version"]
+            or not GIT_SHA.fullmatch(native["source_revision"])
+            or not all(SHA256.fullmatch(native[key]) for key in ALT_RPM_DIGESTS)
+            or not SHA256.fullmatch(environment or "") or lab_snapshot is None):
+        raise ValueError("ALT Lab evidence requires a verified RPM kit, Gateway snapshot and environment SHA-256")
+    _observed_at(reviewed, now)
+    if type(lab_snapshot["schema_version"]) is not int or lab_snapshot["schema_version"] != 1:
+        raise ValueError("Unsupported ALT Lab Gateway snapshot schema")
+    captured = datetime.fromisoformat(lab_snapshot["observed_at"])
+    if captured.tzinfo is None or captured > now + timedelta(seconds=30):
+        raise ValueError("Invalid ALT Lab Gateway observation time")
+    transitions = {row["target_event_id"]: row for row in
+                   _array(lab_snapshot["release_planning"], "alt_native_transitions")}
+    matches = []
+    seen = set()
+    for review in _array(reviewed, "qualifications"):
+        event_id = review["target_event_id"]
+        if event_id in seen or any(str(UUID(review[key])) != review[key]
+                                   for key in ("source_event_id", "target_event_id")):
+            raise ValueError("ALT Lab evidence requires unique canonical native event IDs")
+        seen.add(event_id)
+        if any(not SHA256.fullmatch(review[key]) for key in ("target_sha256", "environment_sha256", "receipt_sha256")):
+            raise ValueError("ALT Lab evidence requires exact target, environment and receipt digests")
+        ack = transitions.get(event_id)
+        if (ack is None or review["source_event_id"] != ack["source_event_id"]
+                or review["target_sha256"] != target["sha256"] or review["environment_sha256"] != environment
+                or {key: ack["target"].get(key) for key in ALT_NATIVE_IDENTITY} != native):
+            continue
+        applied = datetime.fromisoformat(ack["target_received_at"])
+        expiry = datetime.fromisoformat(review["expires_at"])
+        if applied.tzinfo is None or expiry.tzinfo is None:
+            raise ValueError("ALT Lab Gateway and validity times must include a UTC offset")
+        if applied <= captured <= expiry and applied <= now <= expiry <= applied + timedelta(days=30):
+            matches.append((ack["source"], review))
+    for case in cases:
+        if case.get("test") != "native_transition":
+            continue
+        matching = [review for source, review in matches
+                    if (source, review["profile"]) == (case["source"], case["profile"])]
+        if matching:
+            latest = max(matching, key=lambda review: datetime.fromisoformat(review["expires_at"]))
+            case["satisfied_by"] = {key: latest[key] for key in (
+                "source_event_id", "target_event_id", "receipt_sha256", "expires_at",
+            )}
+
+
+def _exposed_versions(planning, platform):
     setup_versions = {row["release_id"]: row["version"] for row in _array(planning, "windows_targets")}
-    exposed = {row["version"] for row in pending}
-    exposed.update(row["release_id"] for row in pending)
-    for row in enrollment:
+    exposed = set((planning.get("historically_exposed_versions") or {}).get(platform, []))
+    for row in _array(planning, "pending_enrollments"):
+        if row["platform"] == platform:
+            exposed.update((row["version"], row["release_id"]))
+    for row in _array(planning, "enrollment_sources"):
+        if row["platform"] != platform:
+            continue
         if row["download_published"] or row["catalog_campaign_count"]:
             exposed.update((row["version"], row.get("installer_version")))
     for row in _array(planning, "devices"):
@@ -236,6 +314,16 @@ def _lab_cases(rows, platform, planning, pending, enrollment):
                 exposed.add(setup_versions.get(row.get("setup_target_id")))
                 exposed.add(setup_versions.get(row.get("preparation_target_id")))
 
+    return exposed
+
+
+def _lab_cases(rows, platform, production, staging):
+    providers = [production, staging] if staging is not None else [production]
+    has_history = len(providers) == 2 and all(
+        isinstance(provider["release_planning"].get("historically_exposed_versions", {}).get(platform), list)
+        for provider in providers
+    )
+    exposed = set().union(*(_exposed_versions(provider["release_planning"], platform) for provider in providers))
     seen = set()
     for row in sorted(rows, key=lambda row: (row["version"], row["sha256"])):
         if row["platform"] != platform:
@@ -250,6 +338,8 @@ def _lab_cases(rows, platform, planning, pending, enrollment):
             yield {"category": "HOLD", "reason": "lab_claim_conflicts_with_observed_exposure", "source": source}
         elif row["exposure"] != "lab_only" or row["reset"] != "verified":
             yield {"category": "HOLD", "reason": "lab_reset_or_exposure_unverified", "source": source}
+        elif not has_history:
+            yield {"category": "HOLD", "reason": "operational_exposure_history_missing", "source": source}
         else:
             yield {"category": "EXCLUDED", "reason": "unexposed_lab_with_verified_reset", "source": source}
             regression = row.get("regression_test")
@@ -260,7 +350,8 @@ def _lab_cases(rows, platform, planning, pending, enrollment):
 
 
 def plan(snapshot, target, *, now, preview=None, profiles=None, lab_candidates=None,
-         windows_lab_evidence=None, qualification_environment=None):
+         windows_lab_evidence=None, qualification_environment=None, staging_snapshot=None,
+         alt_lab_evidence=None, alt_lab_snapshot=None):
     if type(snapshot["schema_version"]) is not int or snapshot["schema_version"] != 1:
         raise ValueError("Unsupported provider snapshot schema")
     _observed_at(snapshot, now)
@@ -278,8 +369,14 @@ def plan(snapshot, target, *, now, preview=None, profiles=None, lab_candidates=N
     )
     if windows_lab_evidence is not None:
         _reuse_windows_evidence(cases, planning, target, preview, windows_lab_evidence, qualification_environment, now)
-    elif qualification_environment is not None:
-        raise ValueError("Qualification environment requires reviewed Windows Lab evidence")
+    if alt_lab_evidence is not None:
+        if alt_lab_snapshot == snapshot or alt_lab_snapshot == staging_snapshot:
+            raise ValueError("ALT reuse requires the isolated Gateway transition evidence")
+        _reuse_alt_evidence(cases, target, alt_lab_evidence, alt_lab_snapshot, qualification_environment, now)
+    elif alt_lab_snapshot is not None:
+        raise ValueError("ALT Lab Gateway snapshot requires reviewed ALT Lab evidence")
+    if qualification_environment is not None and windows_lab_evidence is None and alt_lab_evidence is None:
+        raise ValueError("Qualification environment requires reviewed Lab evidence")
     pending = [row for row in _array(planning, "pending_enrollments") if row["platform"] == platform]
     for source in sorted(pending, key=lambda row: (row["version"], row["release_id"], row["status"])):
         cases.append({"category": "HOLD", "reason": "pending_enrollment", "source": source})
@@ -287,7 +384,13 @@ def plan(snapshot, target, *, now, preview=None, profiles=None, lab_candidates=N
                         key=lambda row: (row["version"], row["release_id"]))
     if lab_candidates is not None:
         _observed_at(lab_candidates, now)
-        cases.extend(_lab_cases(_array(lab_candidates, "candidates"), platform, planning, pending, enrollment))
+        if staging_snapshot is not None:
+            _observed_at(staging_snapshot, now)
+            if (type(staging_snapshot["schema_version"]) is not int or staging_snapshot["schema_version"] != 1
+                    or not snapshot.get("database_name") or not staging_snapshot.get("database_name")
+                    or snapshot["database_name"] == staging_snapshot["database_name"]):
+                raise ValueError("Lab exclusion requires separately captured production and staging snapshots")
+        cases.extend(_lab_cases(_array(lab_candidates, "candidates"), platform, snapshot, staging_snapshot))
     cases.append({"category": "REQUIRED", "reason": "new_device_installation", "test": "factory_first_registration"})
     return {
         "schema_version": 1, "observed_at": snapshot["observed_at"], "target": target,
@@ -320,7 +423,10 @@ def add_observation_arguments(parser):
     parser.add_argument("--windows-preview", type=Path)
     parser.add_argument("--profile-evidence", type=Path)
     parser.add_argument("--lab-candidates", type=Path)
+    parser.add_argument("--staging-snapshot", type=Path, help="Independent provider history for Lab exclusions")
     parser.add_argument("--windows-lab-evidence", type=Path, help="Reviewed evidence for direct Windows transitions")
+    parser.add_argument("--alt-lab-evidence", type=Path, help="Reviewed matching ALT transition receipts")
+    parser.add_argument("--alt-lab-snapshot", type=Path, help="Read-only Gateway export retained from the isolated ALT Lab")
     parser.add_argument("--qualification-environment", help="SHA-256 of the reviewed current environment manifest")
     parser.add_argument("--format", choices=("json", "brief"), default="json")
 
@@ -333,6 +439,9 @@ def plan_from_files(args, target):
         lab_candidates=json.loads(args.lab_candidates.read_bytes()) if args.lab_candidates else None,
         windows_lab_evidence=json.loads(args.windows_lab_evidence.read_bytes()) if args.windows_lab_evidence else None,
         qualification_environment=args.qualification_environment,
+        staging_snapshot=json.loads(args.staging_snapshot.read_bytes()) if args.staging_snapshot else None,
+        alt_lab_evidence=json.loads(args.alt_lab_evidence.read_bytes()) if args.alt_lab_evidence else None,
+        alt_lab_snapshot=json.loads(args.alt_lab_snapshot.read_bytes()) if args.alt_lab_snapshot else None,
     )
 
 

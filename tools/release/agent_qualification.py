@@ -68,6 +68,16 @@ def matrix(args: argparse.Namespace) -> dict:
     artifacts = candidate["artifacts"]
     primary = artifacts[agent_reservations.PRIMARY_ARTIFACT[args.platform]]
     target = {"platform": args.platform, "version": candidate["version"], "sha256": primary["sha256"]}
+    if args.platform == "alt" and args.alt_lab_evidence:
+        from tools.release.agent_candidate_artifacts import alt_rpm_names
+
+        members = candidate["members"]
+        target["native_identity"] = {
+            "version": candidate["version"],
+            "source_revision": candidate["build_revision"],
+            **{key: members[name]["sha256"] for key, name in
+               zip(compatibility_matrix.ALT_RPM_DIGESTS, alt_rpm_names(members, candidate["version"]), strict=True)},
+        }
     report = compatibility_matrix.plan_from_files(args, target)
     report["reservation"] = {"request_id": candidate["request_id"], "build_revision": candidate["build_revision"],
                              "artifacts": artifacts}
