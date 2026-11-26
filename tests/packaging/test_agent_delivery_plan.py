@@ -116,6 +116,26 @@ def test_unknown_dependency_does_not_default_to_core(source):
     assert result['unclassified'] == ['pc_agent/logic/unclassified.py']
 
 
+def test_offline_alt_lab_tooling_stays_out_of_agent_release(source):
+    root, _ = source
+    tools = ('install_alt_factory_offline.py', 'observe_alt_factory_offline.py', 'run_alt_factory_offline.py')
+    for path in tools:
+        write(root, 'tools/canary/' + path, 'lab_only = True\n')
+    baseline = commit(root)
+    for platform in ('windows', 'alt'):
+        result = plan(source, baseline, platform)
+        assert result['state'] == 'planned'
+        assert result['unclassified'] == []
+        assert result['artifacts'] == []
+
+    path = 'tools/canary/run_alt_factory_offline.py'
+    write(root, path, 'lab_only = False\n')
+    write(root, 'pc_agent/launcher/launcher_main.py', 'from tools.canary.run_alt_factory_offline import lab_only\n')
+    result = plan((root, baseline), commit(root), 'alt')
+    assert result['artifacts'] == ['alt_native_rpm']
+    assert path in result['changed_components']['alt_native']
+
+
 def test_alt_core_floor_is_checked_against_bound_build_receipt(source, tmp_path):
     root, base = source
     write(root, 'pc_agent/logic/backoff.py', 'delay = 2\n')
