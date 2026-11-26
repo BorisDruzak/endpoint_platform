@@ -214,7 +214,45 @@
 - [`BorisDruzak/web_ovpn`](https://github.com/BorisDruzak/web_ovpn) is the repository for the network web panel hosted on `192.168.100.30`.
 - [`BorisDruzak/network_configuration`](https://github.com/BorisDruzak/network_configuration) contains the network configuration associated with that panel.
 
-# Test host
+# Endpoint release laboratory
+
+Use the existing `pve1` guests for Windows and ALT release tests. Check the
+current node, VMID, Proxmox name, DMI UUID, guest OS edition/build, and snapshot
+before using one. A hostname can be shared by full clones. Reuse these guests
+and their matching snapshots before allocating another VM.
+
+| Guest | Default use and starting point |
+| --- | --- |
+| VM226 `endpoint-stab15-win10-205-262` | Windows 10 Enterprise Evaluation 19045 offline upgrade, repair, and preflight. For Core/Foundation 3.2.205 use `primary205-accepted-offline`. The guest's current disk can hold a later version. |
+| VM484 `endpoint-win11-9457-lab` and VM485 `endpoint-win11-9457-provider` | Windows 11 LTSC Evaluation 26100.9457. Use `clean-9457-fod-trusted205` for factory setup or `primary205-ack1-before276` with its matching private PostgreSQL checkpoint for a network upgrade. Verify the paired provider and bridge `vmbr484`. |
+| VM486 `endpoint-alt-native-dev486` | ALT 11.4 RPM build worker with the pinned stock OpenSSL/Qt inputs. Use it for DEVELOP builds without enrollment. |
+| VM487 `endpoint-alt-native-stock487` | Stock ALT 11.4 offline native install, RPM dependency check, and KDE acceptance. Start from `before-alt274-factory-verifier` and restore it after collecting evidence. |
+| VM107 `test-agent-lin` | Persistent staging canary. Follow the separate staging rules below. |
+
+- Keep `EnterpriseS` and `EnterpriseSEval` distinct. Use official, licensed
+  media with verified provenance for a missing edition or ALT release. Reuse
+  an existing VM with a verified baseline or repurpose an available lab slot
+  after preserving its prior evidence. Windows 11 `EnterpriseS` and ALT
+  11.2/11.5 need their own acceptance profiles.
+- VM482/483 are the retained Windows 11 Evaluation 26100.1742 pair. VM259/260
+  are the retained paired ALT 11.4 network upgrade and recovery history.
+  Reuse them only for their matching profile when needed. Preserve historical
+  guests with active staging duties, linked disks, or unresolved transactions.
+  In particular, VM480/481 are offline MSI holds. Leave their guests,
+  identities, snapshots, and recovery ownership intact.
+- Use a private bridge with verified guest membership, no physical uplink or
+  default routes, and a dedicated Lab provider and database for network trials.
+  An offline trial uses a disconnected or detached adapter. Restore an enrolled
+  client only with its matching provider checkpoint. Keep a snapshot before
+  enrollment or installation whenever a clean baseline is needed.
+- Allocate a temporary clone only when an existing guest cannot cover the exact
+  profile or a destructive fault trial needs an independent copy. Record its
+  purpose, parent snapshot, paired provider, and disposal condition before
+  creating it. Save the evidence, shut down idle Lab guests, and remove temporary
+  guests after confirming that recovery holds, linked disks, and owned data are
+  accounted for. Verify that the guest is absent from Proxmox after removal.
+
+# Persistent staging test host
 
 - The current dedicated Linux canary is pve1/VM107 `test-agent-lin`, hardware UUID
   `db12fb5c-3732-487f-911f-80e31f79b29b`, hostname `alt-a2-pc86.sosnadmin.local`,
