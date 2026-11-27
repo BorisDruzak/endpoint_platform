@@ -155,7 +155,7 @@ jobs:
       - name: Record exact source and dependency evidence
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path artifacts | Out-Null
+          [System.IO.Directory]::CreateDirectory((Join-Path (Get-Location) artifacts)) | Out-Null
           $head = (git rev-parse HEAD).Trim()
           if ($LASTEXITCODE -ne 0 -or $head -cne $env:GITHUB_SHA) {
             throw "Checkout differs from dispatched source"
@@ -171,6 +171,28 @@ jobs:
             python = $pythonVersion
           } | ConvertTo-Json | Set-Content -Encoding utf8NoBOM artifacts/source.json
           python -m pip freeze | Set-Content -Encoding utf8NoBOM artifacts/dependencies.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Prepare installed service SID fixtures
+        shell: pwsh
+        run: |
+          foreach ($name in @('EndpointAgent', 'EndpointAgentUpdater')) {
+            if (Get-Service -Name $name -ErrorAction SilentlyContinue) {
+              throw "Unexpected pre-existing Endpoint service: $name"
+            }
+            # Native ACL tests need Windows to resolve the exact product identities.
+            # The hosted CI fixture stays disabled and is never started.
+            $image = Join-Path $env:SystemRoot 'System32\cmd.exe'
+            New-Service -Name $name -BinaryPathName ('"' + $image + '" /c exit 1') -StartupType Disabled | Out-Null
+          }
+          @'
+          import win32security
+          from pc_agent.platform.windows.acl import _machine_data_service_sid
+          for name in ('EndpointAgent', 'EndpointAgentUpdater'):
+              principal = 'NT SERVICE\\' + name
+              sid, _, _ = win32security.LookupAccountName(None, principal)
+              assert win32security.ConvertSidToStringSid(sid) == _machine_data_service_sid(principal)
+          '@ | python -
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run Windows agent, PowerShell and updater compatibility suites
