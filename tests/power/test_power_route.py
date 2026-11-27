@@ -1,13 +1,15 @@
+from types import SimpleNamespace
 from uuid import uuid4
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from endpoint_server.auth.admin_sessions import require_admin
-from endpoint_server.power.routes import router
+from endpoint_server.power import routes
 from endpoint_server.db.models import DeviceInstance, DeviceSession
-from .test_power_provider import db as db, batch, event, send_batch
+from .test_power_provider import NOW, db as db, batch, event, send_batch
 
 
-async def test_power_route_auth_cache_pagination_and_missing_device(db):
+async def test_power_route_auth_cache_pagination_and_missing_device(db, monkeypatch):
+    monkeypatch.setattr(routes, "datetime", SimpleNamespace(now=lambda _: NOW))
     async with db[0].kw["bind"].begin() as connection:
         await connection.run_sync(
             lambda sync: [
@@ -16,7 +18,7 @@ async def test_power_route_auth_cache_pagination_and_missing_device(db):
             ]
         )
     app = FastAPI()
-    app.include_router(router)
+    app.include_router(routes.router)
     app.state.session_provider = db[0]
     # Actual require_admin rejects an unauthenticated request before reading evidence.
     app.state.settings = type(
