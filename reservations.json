@@ -293,6 +293,30 @@
       "source_revision": "8a774edbfdf01deef9421af05b774a79d4dc3e60",
       "state": "reserved",
       "version": "3.2.278"
+    },
+    {
+      "after": "3.2.277",
+      "inventories": {
+        "production": {
+          "observed_at": "2026-11-27T17:49:20.975188+00:00",
+          "sha256": "41eb82e082c91c7a27424b364a9b49d415482dc52d7e9d1699f9762c972c302e"
+        },
+        "signing_hosts": {
+          "observed_at": "2026-11-27T17:55:17.373263+00:00",
+          "sha256": "627fd036c71957378ad6b4f1db83c5e33e087731bc76fd602dc87ce90adb94b2"
+        },
+        "staging": {
+          "observed_at": "2026-11-27T17:49:27.045502+00:00",
+          "sha256": "30a7b8cf524f3a9b831c623e7d24ff3e7bfcaafee93510bc1d6613efeb53160f"
+        }
+      },
+      "ledger_ref": "refs/heads/codex/agent-release-reservations",
+      "platform": "windows",
+      "request_id": "2a9a38b4-0d8c-4d29-a559-82a21afbc786",
+      "reserved_at": "2026-11-27T17:57:29.510592+00:00",
+      "source_revision": "da7b1021134d544c00b28c9100d0e1847972a2c5",
+      "state": "reserved",
+      "version": "3.2.279"
     }
   ],
   "schema_version": 1
