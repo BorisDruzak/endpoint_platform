@@ -209,7 +209,8 @@ async def require_recovered_target(session, job, release, report, now):
             or release is None or proof.foundation_version != release.version
             or proof.core_version != release.version or proof.source_revision != release.source_revision
             or proof.msi_sha256 != release.msi_sha256
-            or presence is None or presence.client_version not in {'1.0.6', '1.0.7', '1.0.8', '1.0.11'} or not presence.ready
+            or presence is None or presence.client_version not in {'1.0.6', '1.0.7', '1.0.8', '1.0.11', '1.0.13'}
+            or not presence.ready
             or presence.foundation_version != release.version or presence.core_version != release.version
             or not -timedelta(seconds=30) <= now - utc(presence.last_seen_at) <= timedelta(seconds=90)
             or job.started_at is None or utc(presence.last_seen_at) <= utc(job.started_at)):
