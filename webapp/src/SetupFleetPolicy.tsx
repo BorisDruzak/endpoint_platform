@@ -19,6 +19,8 @@ const reasons: Record<string, string> = {
   platform_unsupported: 'Другая платформа', source_unknown: 'Исходная версия неизвестна',
   source_unsupported: 'Исходная версия не поддерживается', source_not_qualified: 'Нет квалификации для исходной Foundation',
   native_recovery_required: 'Неизвестный результат Setup; сохранена блокировка восстановления',
+  native_exit_requires_recovery: 'Устройство удерживает слот до завершения восстановления',
+  owned_job_missing: 'Запись цепочки отсутствует, требуется проверка устройства',
   previous_attempt_requires_review: 'Предыдущая попытка требует разбора; повтор не запускается',
   active_operation: 'Устройство занято текущей операцией', capacity_full: 'Лимит занят текущими цепочками или удержаниями',
   policy_paused: 'Политика на паузе', fleet_failure_requires_review: 'Новые назначения остановлены после ошибки цепочки',

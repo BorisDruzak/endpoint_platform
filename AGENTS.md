@@ -186,6 +186,10 @@
 
 # Canonical Windows update workflow
 
+- A Full Setup error requires review for the affected device. Healthy devices
+  can continue within available slots. Unknown native outcomes retain their
+  exclusive recovery ownership and reserve their slots.
+
 - Hidden signed186/Support1.1.1 uses only Windows-serviced OpenSSH and observer108.
   Actual test120177/client107-to186 repeat is APPLIED/native0/185.119seconds,
   private4 and genuine user telemetry, without workstation repair for that job.
