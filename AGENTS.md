@@ -75,10 +75,12 @@
   For the historical Foundation156 preparation route use only the documented
   exact compatible Core155 return before full Setup158. Keep Core157's
   Foundation157 minimum. See the [bridge record](docs/releases/core-3.2.163-setup-client.json).
-- Use a bounded public reason accepted by the Console validator. Native failure
-  pauses new work, and unknown native outcomes retain exclusive recovery
-  ownership. Preserve journals and cache and avoid cancellation or MSI replay
-  while the outcome is unknown. Settle a known source-restored exit21 only
+- Use a bounded public reason accepted by the Console validator. A device
+  failure requires review for that device. Healthy devices can continue within
+  the available slots. Unknown native outcomes retain exclusive recovery
+  ownership and reserve their slots. Preserve journals and cache and avoid
+  cancellation or MSI replay while the outcome is unknown. Settle a known
+  source-restored exit21 only
   with exact unchanged-source, private identity and session proof, at least
   180 seconds of verification, and completed recovery return.
 - Administrative repairs need scoped authority. Treat prepared continuations

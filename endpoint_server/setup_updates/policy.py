@@ -259,7 +259,7 @@ async def load_device_facts(session, device_id, release_id, *, now, setup_builds
         SetupRelease.sha256 == target_sha256, SetupPreparation.status.in_(('blocked', 'cancelled'))))
     previous_rejection = await session.scalar(select(SetupFleetDecision.id).where(
         SetupFleetDecision.device_id == device_id, SetupFleetDecision.target_sha256 == target_sha256,
-        SetupFleetDecision.safe_code == 'canonical_request_rejected'))
+        SetupFleetDecision.safe_code.in_(('canonical_request_rejected', 'owned_job_missing'))))
     client = await session.scalar(select(SetupClientPresence).where(
         SetupClientPresence.device_id == device_id).execution_options(populate_existing=True))
     bootstrap = None

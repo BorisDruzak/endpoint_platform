@@ -308,15 +308,48 @@ async def test_scheduler_requests_canonical_job_once_across_restart_and_policy_r
     assert len((await db.scalars(select(SetupAssignment).where(SetupAssignment.device_id == device.id))).all()) == 1
 
 
-async def test_owned_native_hold_trips_circuit_without_changing_native_state(db, fleet):
+async def test_owned_native_hold_preserves_capacity_and_allows_healthy_sibling(db, fleet):
+    from endpoint_server.db.models import AuditEvent, Device
+    from endpoint_server.setup_updates.service import record_presence
+    from endpoint_server.setup_updates.policy import active_chain_devices
+
     await schedule_one(db, now=NOW)
     row = await db.scalar(select(SetupFleetDecision))
     job = await db.get(SetupAssignment, row.job_id)
     job.status = 'recovery_required'
+    job.safe_code = 'native_exit_requires_recovery'
+    peer = Device(id=uuid4(), device_identifier='healthy-peer')
+    db.add(peer)
     await db.flush()
-    assert await schedule_one(db, now=NOW+timedelta(seconds=1)) is False
-    assert fleet[2].enabled is False and fleet[2].safe_code == 'fleet_failure_requires_review'
+    instance = DeviceInstance(id=uuid4(), device_id=peer.id, instance_identifier='healthy-instance',
+        platform='windows_amd64', agent_version='3.2.156', launcher_version='3.2.156', last_seen_at=NOW)
+    db.add(instance)
+    await db.flush()
+    db.add(DeviceSession(id=uuid4(), device_id=peer.id, device_instance_id=instance.id,
+        session_identifier='gateway-healthy', expires_at=NOW+timedelta(minutes=2), last_seen_at=NOW))
+    await record_presence(db, peer.id, dict(client_version='1.0.5', ready=True,
+        foundation_version='3.2.156', core_version='3.2.156'), now=NOW)
+    await db.flush()
+    revision = fleet[2].revision
+    assert await schedule_one(db, now=NOW+timedelta(seconds=1))
+    peer_decision = await db.scalar(select(SetupFleetDecision).where(SetupFleetDecision.device_id == peer.id))
+    assert peer_decision.safe_code == 'capacity_full'
+    assert row.status == 'recovery_required' and row.safe_code == 'native_exit_requires_recovery'
+    assert fleet[2].enabled and fleet[2].revision == revision
+    assert await active_chain_devices(db) == {job.device_id}
+
+    fleet[2].max_parallel = 2
+    for tick in (2, 3, 4):
+        await schedule_one(db, now=NOW+timedelta(seconds=tick))
+    peer_job = await db.scalar(select(SetupAssignment).where(SetupAssignment.device_id == peer.id))
+    assert peer_job is not None and peer_job.status == 'assigned'
     assert job.status == 'recovery_required'
+    assert fleet[2].enabled and fleet[2].revision == revision
+    events = (await db.scalars(select(AuditEvent).where(
+        AuditEvent.action == 'setup_updates.fleet_device_requires_review'))).all()
+    assert len(events) == 1
+    assert events[0].object_identifier == str(row.id)
+    assert events[0].details['job_id'] == str(job.id)
 
 
 async def qualification_evidence(db, fleet, *, bridge='3.2.163', source_foundation='3.2.156'):
@@ -385,7 +418,7 @@ async def test_qualification_rejects_old_bridge_or_stale_sensor(db, fleet, fault
         await qualify_release(db, fleet[1].id, job.id, actor='test-admin', request_id='qualify', now=NOW)
 
 
-async def test_failed_canonical_request_rolls_back_partial_job_and_pauses_without_replay(db, fleet, monkeypatch):
+async def test_failed_canonical_request_rolls_back_partial_job_and_blocks_only_device(db, fleet, monkeypatch):
     import endpoint_server.setup_updates.scheduler as scheduler
     async def reject(session, device_id, release_id, *args, **kwargs):
         session.add(SetupAssignment(id=uuid4(), device_id=device_id, release_id=release_id,
@@ -394,7 +427,7 @@ async def test_failed_canonical_request_rolls_back_partial_job_and_pauses_withou
         raise SetupConflict('private error must not escape')
     monkeypatch.setattr(scheduler, 'request_setup', reject)
     await schedule_one(db, now=NOW)
-    assert not fleet[2].enabled
+    assert fleet[2].enabled
     row = await db.scalar(select(SetupFleetDecision))
     assert row.safe_code == 'canonical_request_rejected' and row.job_id is None
     assert (await db.scalars(select(SetupAssignment).where(SetupAssignment.device_id == fleet[0].id))).all() == []
@@ -522,18 +555,20 @@ async def test_same_bytes_under_another_release_uuid_cannot_replay_failed_native
 
 
 @pytest.mark.parametrize('same_bytes', [True, False])
-async def test_target_switch_does_not_hide_earlier_owned_chain_failure(db, fleet, same_bytes):
+async def test_target_switch_records_earlier_failure_without_pausing_policy(db, fleet, same_bytes):
     await schedule_one(db, now=NOW)
     owned = await db.scalar(select(SetupFleetDecision))
     job = await db.get(SetupAssignment, owned.job_id)
     job.status = 'failed'
+    job.safe_code = 'native_failed_source_restored'
     alias = await same_artifact_alias(db, fleet[1])
     if not same_bytes:
         alias.sha256 = 'f'*64
     fleet[2].release_id = alias.id
     fleet[2].max_parallel = 2
-    assert await schedule_one(db, now=NOW+timedelta(seconds=1)) is False
-    assert not fleet[2].enabled and fleet[2].safe_code == 'fleet_failure_requires_review'
+    assert await schedule_one(db, now=NOW+timedelta(seconds=1))
+    assert fleet[2].enabled
+    assert (owned.status, owned.safe_code) == ('failed', 'native_failed_source_restored')
 
 async def test_all_active_policy_includes_later_registrations_and_reconnects_with_two_global_slots(db, fleet):
     from endpoint_server.db.models import Device
