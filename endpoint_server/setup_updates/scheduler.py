@@ -3,14 +3,13 @@ from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 from sqlalchemy import and_, select, text
-from sqlalchemy.exc import DBAPIError
 
 from endpoint_server.audit.service import append_audit_event
 from endpoint_server.db.models import Device
 from .models import SetupFleetPolicy, SetupFleetDecision, SetupAssignment, SetupPreparation, SetupRelease
 from .policy import fleet_lock, load_device_facts, evaluate_device, active_chain_devices
 from .preparation import request_setup, lock_builds
-from .service import now_utc, lock_device
+from .service import SetupConflict, now_utc, lock_device
 
 
 async def owned_job_state(session, decision):
@@ -27,33 +26,25 @@ async def owned_job_state(session, decision):
     return prep.status, prep.safe_code
 
 
-async def pause_on_failure(session, policy, *, now):
-    """Observe all unacknowledged owned chains, including earlier targets.
-
-    Switching policy revision/target cannot hide a late native outcome. Manual
-    unrelated holds only reserve capacity and do not trip this circuit.
-    """
+async def refresh_owned_outcomes(session, policy, *, now):
+    """Record late outcomes even after an operator changes scope or target."""
     rows = (await session.scalars(select(SetupFleetDecision).where(
         SetupFleetDecision.policy_id == policy.id,
         SetupFleetDecision.job_id.is_not(None),
-        SetupFleetDecision.safe_code != 'fleet_failure_requires_review',
-        SetupFleetDecision.status.not_in(('applied', 'already_current', 'cancelled')))
+        SetupFleetDecision.status.not_in(('applied', 'already_current', 'cancelled', 'failed', 'blocked', 'rolled_back')))
         .order_by(SetupFleetDecision.evaluated_at).limit(500))).all()
     for decision in rows:
-        status, _ = await owned_job_state(session, decision)
+        status, code = await owned_job_state(session, decision)
+        code = code or status
+        if (status, code) == (decision.status, decision.safe_code):
+            continue
+        decision.status, decision.safe_code = status, code
         if status in ('failed', 'blocked', 'recovery_required', 'rolled_back'):
-            policy.enabled, policy.safe_code, policy.updated_at = False, 'fleet_failure_requires_review', now
-            policy.revision += 1
-            decision.status, decision.safe_code, decision.evaluated_at = status, 'fleet_failure_requires_review', now
             await append_audit_event(session, actor_kind='service', actor_identifier='setup-fleet-worker',
-                action='setup_updates.fleet_policy_paused', object_kind='setup_fleet_policy',
-                object_identifier=str(policy.id), request_id=f'fleet_{uuid4().hex}', occurred_at=now,
-                details={'revision': policy.revision, 'device_id': str(decision.device_id),
-                    'job_id': str(decision.job_id), 'safe_code': policy.safe_code})
-            await session.flush()
-            return True
-        decision.status = status
-    return False
+                action='setup_updates.fleet_device_requires_review', object_kind='setup_fleet_decision',
+                object_identifier=str(decision.id), request_id=f'fleet_{uuid4().hex}', occurred_at=now,
+                details={'revision': decision.policy_revision, 'device_id': str(decision.device_id),
+                    'job_id': str(decision.job_id), 'safe_code': code})
 
 
 async def schedule_one(session, *, now=None):
@@ -78,8 +69,7 @@ async def schedule_one_with_backlog(session, *, now=None) -> FleetScheduleBatch:
         .execution_options(populate_existing=True))
     if policy is None or not policy.enabled or policy.release_id is None:
         return FleetScheduleBatch(False, 0.0)
-    if await pause_on_failure(session, policy, now=now):
-        return FleetScheduleBatch(False, 0.0)
+    await refresh_owned_outcomes(session, policy, now=now)
     release = await session.get(SetupRelease, policy.release_id)
     if release is None:
         return FleetScheduleBatch(False, None)
@@ -139,16 +129,11 @@ async def schedule_one_with_backlog(session, *, now=None) -> FleetScheduleBatch:
                 actor=policy.updated_by, request_id=f'fleet_{decision.id.hex}', now=now)
             decision.job_id, decision.status, decision.safe_code = job.id, job.status, 'chain_requested'
             await session.flush()
-    except DBAPIError:
-        # Transaction/lock failures are transient and belong in worker diagnostics.
-        raise
-    except Exception:
-        # A controller/source rejection must not silently retry every minute.
+    except SetupConflict:
+        # Persist the device-specific conflict without retrying this artifact.
         decision = await session.scalar(select(SetupFleetDecision).where(SetupFleetDecision.id == decision_id)
             .execution_options(populate_existing=True))
         decision.status, decision.safe_code = 'blocked', 'canonical_request_rejected'
-        policy.enabled, policy.safe_code, policy.updated_at = False, 'fleet_request_requires_review', now
-        policy.revision += 1
         await append_audit_event(session, actor_kind='service', actor_identifier='setup-fleet-worker',
             action='setup_updates.fleet_request_rejected', object_kind='setup_fleet_policy',
             object_identifier=str(policy.id), request_id=f'fleet_{decision.id.hex}', occurred_at=now,
