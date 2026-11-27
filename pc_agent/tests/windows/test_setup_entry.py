@@ -338,6 +338,8 @@ def test_setup_entry_installs_embedded_msi_before_enrollment(
     observed_config: list[object] = []
 
     monkeypatch.setattr(setup_entry, "_resource_root", lambda: tmp_path)
+    monkeypatch.setattr(setup_entry, "_wait_for_agent_service_running", lambda: True)
+    monkeypatch.setattr(setup_entry, "_is_interactive_windows_session", lambda: False)
     monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path / "agent-data")
     monkeypatch.setattr(
         setup_entry,
@@ -372,6 +374,8 @@ def test_completed_native_install_resumes_original_enrollment_without_msi(tmp_pa
     transaction = 'd5839dc6-fcf7-41f6-8603-5aca9dce1186'
     executable = tmp_path / 'endpoint-agent-provision.exe'
     monkeypatch.setattr(setup_entry, '_resource_root', lambda: tmp_path)
+    monkeypatch.setattr(setup_entry, "_wait_for_agent_service_running", lambda: True)
+    monkeypatch.setattr(setup_entry, "_is_interactive_windows_session", lambda: False)
     monkeypatch.setattr(setup_entry, '_data_root', lambda: tmp_path / 'agent-data')
     monkeypatch.setattr(setup_entry, '_resume_unenrolled_installation', lambda *_: transaction, raising=False)
     monkeypatch.setattr(setup_entry, '_installed_provisioner', lambda: executable)
@@ -645,6 +649,8 @@ def test_setup_entry_records_started_before_installing_embedded_msi(
     _write_public_payload(tmp_path)
     data_root = tmp_path / "agent-data"
     monkeypatch.setattr(setup_entry, "_resource_root", lambda: tmp_path)
+    monkeypatch.setattr(setup_entry, "_wait_for_agent_service_running", lambda: True)
+    monkeypatch.setattr(setup_entry, "_is_interactive_windows_session", lambda: False)
     monkeypatch.setattr(setup_entry, "_data_root", lambda: data_root)
 
     def assert_started_before_msi(_: Path) -> None:
@@ -829,6 +835,7 @@ def test_normal_installation_displays_a_concrete_success_result(
     _write_public_payload(tmp_path)
     displayed: list[tuple[str, int, str]] = []
     monkeypatch.setattr(setup_entry, "_resource_root", lambda: tmp_path)
+    monkeypatch.setattr(setup_entry, "_is_interactive_windows_session", lambda: False)
     monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path / "agent-data")
     monkeypatch.setattr(
         setup_entry,
@@ -1261,6 +1268,7 @@ def test_valid_rerun_stops_before_msi_or_enrollment(
         encoding="ascii",
     )
     (tmp_path / "device-credential").write_text("a" * 43, encoding="ascii")
+    monkeypatch.setattr(setup_entry, "_wait_for_agent_service_running", lambda: True)
     monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path)
     resources = tmp_path / "payload"
     resources.mkdir()
@@ -1347,6 +1355,7 @@ def test_valid_existing_agent_does_not_install_an_equal_embedded_msi(
     resources.mkdir()
     _write_public_payload(resources)
     calls: list[str] = []
+    monkeypatch.setattr(setup_entry, "_wait_for_agent_service_running", lambda: True)
     monkeypatch.setattr(setup_entry, "_data_root", lambda: tmp_path)
     monkeypatch.setattr(setup_entry, "_resource_root", lambda: resources)
     monkeypatch.setattr(
