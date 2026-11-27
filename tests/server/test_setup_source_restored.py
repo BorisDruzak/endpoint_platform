@@ -85,3 +85,49 @@ async def test_restored_source_refuses_unverified_or_unrelated_evidence(db, sour
     with pytest.raises((SetupConflict, ValueError)):
         await record_progress(db, r.job.device_id, r.job.id, raw, now=r.when)
     assert r.job.status == 'recovery_required' and r.job.finished_at is None
+
+
+def interrupted_report(r):
+    r.job.source_client_version = r.presence.client_version = '1.0.11'
+    r.wss.created_at = r.job.started_at + timedelta(seconds=30)
+    raw = r.report.model_dump()
+    raw['safe_code'] = 'native_interrupted_source_restored'
+    proof = raw['proof']
+    proof['exit_code'] = None
+    descriptor = proof['source_recovery']
+    for key in ('binding_sha256', 'inputs_sha256', 'owner_sha256'):
+        descriptor.pop(key)
+    descriptor.update(schema_version='windows_setup_interrupted_source_v1',
+        native_attempt_id=uuid4(), restore_receipt_sha256='a' * 64, scope_sha256='b' * 64,
+        native_outcome='unconfirmed')
+    return raw
+
+
+async def test_interrupted_source_closes_only_the_failed_attempt(db, source_restored):
+    r = source_restored
+    raw = interrupted_report(r)
+    await db.flush()
+    await record_progress(db, r.job.device_id, r.job.id, raw, now=r.when)
+    assert r.job.status == 'failed' and r.job.finished_at == r.when
+    assert r.job.last_report['proof']['exit_code'] is None
+    assert r.job.last_report['proof']['source_recovery']['native_outcome'] == 'unconfirmed'
+    await record_progress(db, r.job.device_id, r.job.id, raw, now=r.when + timedelta(hours=1))
+
+
+@pytest.mark.parametrize('fault', ['reported_exit', 'old_observer', 'old_wss', 'wrong_target',
+                                   'wrong_source', 'stale_activity', 'missing_receipt', 'unknown_hold'])
+async def test_interrupted_source_keeps_recovery_ownership_without_matching_evidence(db, source_restored, fault):
+    r = source_restored
+    raw = interrupted_report(r)
+    if fault == 'reported_exit': raw['proof']['exit_code'] = 21
+    elif fault == 'old_observer': r.presence.client_version = '1.0.8'
+    elif fault == 'old_wss': r.wss.created_at = r.job.started_at
+    elif fault == 'wrong_target': raw['proof']['source_recovery']['target_setup_sha256'] = 'f' * 64
+    elif fault == 'wrong_source': r.catalog.msi_sha256 = 'f' * 64
+    elif fault == 'stale_activity': r.activity.last_observed_at = r.job.started_at
+    elif fault == 'missing_receipt': del raw['proof']['source_recovery']['restore_receipt_sha256']
+    elif fault == 'unknown_hold': r.job.safe_code = 'setup_outcome_unknown'
+    await db.flush()
+    with pytest.raises((SetupConflict, ValueError)):
+        await record_progress(db, r.job.device_id, r.job.id, raw, now=r.when)
+    assert r.job.status == 'recovery_required' and r.job.finished_at is None

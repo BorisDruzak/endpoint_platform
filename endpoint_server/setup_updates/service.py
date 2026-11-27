@@ -10,7 +10,7 @@ from sqlalchemy import select
 
 from endpoint_contracts.setup_updates import (
     ACTIVE_SETUP_PHASES, TERMINAL_SETUP_PHASES, QUALIFIED_SETUP_CLIENT_VERSIONS, LEGACY_SETUP_CLIENT_VERSION, SetupReleaseManifestV1,
-    SetupClientHelloV1, SetupProgressV1, validate_setup_transition,
+    SetupClientHelloV1, SetupInterruptedSourceV1, SetupProgressV1, validate_setup_transition,
 )
 from endpoint_contracts.update_safety import validate_public_update_prose
 from endpoint_server.audit.service import append_audit_event
@@ -264,26 +264,32 @@ async def require_fresh_active_user(session, job, now):
 
 
 async def require_restored_source(session, job, release, report, now):
-    """Terminal preparation cancellation is FAILED21, never target acceptance."""
+    """Close a failed attempt only after independent source recovery evidence."""
     from endpoint_contracts.runtime_payload import version_tuple
     from endpoint_server.db.models import WindowsSetupRelease
     from .preparation import ACTIVE_PREPARATIONS
 
     proof, descriptor = report.proof, report.proof.source_recovery
     presence = await session.scalar(select(SetupClientPresence).where(SetupClientPresence.device_id == job.device_id))
+    interrupted = isinstance(descriptor, SetupInterruptedSourceV1)
+    if interrupted:
+        if (job.source_client_version not in {'1.0.11', '1.0.13'} or presence is None
+                or presence.client_version != job.source_client_version):
+            raise SetupConflict('matching qualified source observer required')
+    elif job.source_client_version not in {'1.0.7', '1.0.8'} or presence is None or presence.client_version != '1.0.8':
+        raise SetupConflict('known native21 and fresh qualified source recovery required')
     if (job.status != 'recovery_required' or job.safe_code != 'native_exit_requires_recovery'
             or job.attempt_id is None or job.attempt_id != report.attempt_id or job.started_at is None
             or release is None or version_tuple(proof.foundation_version) < (3, 2, 177)
             or proof.core_version != proof.foundation_version
             or job.source_core_version != proof.core_version or job.source_foundation_version != proof.foundation_version
-            or job.source_client_version not in {'1.0.7', '1.0.8'}
             or descriptor.target_version != release.version or descriptor.target_source_revision != release.source_revision
             or descriptor.target_msi_sha256 != release.msi_sha256 or descriptor.target_setup_sha256 != release.sha256
-            or presence is None or presence.client_version != '1.0.8' or not presence.ready
+            or not presence.ready
             or presence.core_version != proof.core_version or presence.foundation_version != proof.foundation_version
             or not -timedelta(seconds=30) <= now - utc(presence.last_seen_at) <= timedelta(seconds=90)
             or utc(presence.last_seen_at) <= utc(job.started_at)):
-        raise SetupConflict('known native21 and fresh qualified source recovery required')
+        raise SetupConflict('matching attempt and fresh qualified source recovery required')
     catalog = await session.scalar(select(WindowsSetupRelease).where(WindowsSetupRelease.version == proof.foundation_version))
     if (catalog is None or catalog.retired_at is not None or catalog.agent_version != proof.core_version
             or catalog.msi_source_commit != proof.source_revision or catalog.msi_sha256 != proof.msi_sha256
@@ -305,6 +311,7 @@ async def require_restored_source(session, job, release, report, now):
             or instance.platform != 'windows_amd64' or instance.agent_version != proof.core_version
             or instance.launcher_version != proof.foundation_version or utc(connection.expires_at) <= now
             or utc(connection.created_at) > now + timedelta(seconds=30)
+            or (interrupted and utc(connection.created_at) <= utc(job.started_at))
             or any(value is None or utc(value) <= utc(job.started_at)
                 or not -timedelta(seconds=30) <= now - utc(value) <= timedelta(seconds=90)
                 for value in (instance.last_seen_at, connection.last_seen_at))):
@@ -353,7 +360,7 @@ async def record_progress(session, device_id, assignment_id, report, *, now=None
     release = await session.get(SetupRelease, job.release_id)
     if report.safe_code == 'native_failed_target_recovered':
         await require_recovered_target(session, job, release, report, now)
-    elif report.safe_code == 'native_failed_source_restored':
+    elif report.safe_code in ('native_failed_source_restored', 'native_interrupted_source_restored'):
         await require_restored_source(session, job, release, report, now)
     elif report.phase == 'failed' and job.status == 'recovery_required':
         presence = await session.scalar(select(SetupClientPresence).where(SetupClientPresence.device_id == device_id))

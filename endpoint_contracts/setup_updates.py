@@ -88,6 +88,21 @@ class SetupSourceRecoveryV1(ContractModelV1):
     source_product_code: Annotated[str, StringConstraints(pattern=r'^\{[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}\}$')]
 
 
+class SetupInterruptedSourceV1(ContractModelV1):
+    """Attestation of a separately restored source after interrupted MSI."""
+    schema_version: Literal['windows_setup_interrupted_source_v1']
+    operation_id: UUID
+    native_attempt_id: UUID
+    scope_sha256: Sha256V1
+    restore_receipt_sha256: Sha256V1
+    native_outcome: Literal['unconfirmed']
+    target_version: WindowsVersion
+    target_source_revision: SourceRevision
+    target_msi_sha256: Sha256V1
+    target_setup_sha256: Sha256V1
+    source_product_code: Annotated[str, StringConstraints(pattern=r'^\{[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}\}$')]
+
+
 class SetupNativeProofV1(ContractModelV1):
     foundation_version: WindowsVersion
     core_version: WindowsVersion
@@ -103,7 +118,7 @@ class SetupNativeProofV1(ContractModelV1):
     companions_restored: Annotated[bool, Field(strict=True)]
     private: SetupPrivateProofV1
     soak: SetupSoakProofV1 | None = None
-    source_recovery: SetupSourceRecoveryV1 | None = None
+    source_recovery: SetupSourceRecoveryV1 | SetupInterruptedSourceV1 | None = None
 
     @property
     def healthy(self):
@@ -130,8 +145,10 @@ class SetupProgressV1(ContractModelV1):
     @model_validator(mode='after')
     def require_real_completion(self):
         source_restored = self.safe_code == 'native_failed_source_restored'
-        if source_restored:
-            if (self.phase != 'failed' or self.proof is None or self.proof.source_recovery is None
+        interrupted_source = self.safe_code == 'native_interrupted_source_restored'
+        if source_restored or interrupted_source:
+            descriptor_type = SetupInterruptedSourceV1 if interrupted_source else SetupSourceRecoveryV1
+            if (self.phase != 'failed' or self.proof is None or not isinstance(self.proof.source_recovery, descriptor_type)
                     or self.proof.soak is None or self.proof.soak.sensor_count < 1):
                 raise ValueError('source recovery descriptor and real active sensor required')
         elif self.proof is not None and self.proof.source_recovery is not None:
@@ -147,11 +164,12 @@ class SetupProgressV1(ContractModelV1):
         elif self.proof is not None and (self.proof.native_phase, self.proof.exit_code) == ('accepted', 21):
             raise ValueError('accepted native exit 21 requires the recovered-target failure diagnostic')
         if self.phase == 'failed' and self.proof is not None and not target_recovered:
+            source_exit = None if interrupted_source else 21
             if (not self.proof.healthy or self.proof.native_phase != 'unchanged'
-                    or self.proof.exit_code != 21 or self.proof.soak is None
+                    or self.proof.exit_code != source_exit or self.proof.soak is None
                     or not self.proof.soak.services_stable
                     or not self.proof.soak.companions_stable or not self.proof.soak.connected):
-                raise ValueError('verified unchanged source after native rejection required')
+                raise ValueError('verified unchanged source and matching exit evidence required')
         if self.phase in ('applied', 'rolled_back', 'already_current'):
             if self.proof is None or not self.proof.healthy:
                 raise ValueError('healthy native proof is required')
