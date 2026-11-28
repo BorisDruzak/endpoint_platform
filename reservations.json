@@ -485,6 +485,30 @@
         "request_id": "9d2ad274-9427-46f1-90ee-70f6a2000b20",
         "version": "3.2.280"
       }
+    },
+    {
+      "after": "3.2.280",
+      "inventories": {
+        "production": {
+          "observed_at": "2026-11-28T02:36:15.75655+00:00",
+          "sha256": "78bd07206a684a421219abac6d4b4b74998adf7d080e9b5b43ea5fcfc22cd9a6"
+        },
+        "signing_hosts": {
+          "observed_at": "2026-11-28T02:37:58.2493323+00:00",
+          "sha256": "2f721b73ac04b6c13468f892b0569d1ddd0cbfc7edad2626439e6373d03daabf"
+        },
+        "staging": {
+          "observed_at": "2026-11-28T02:36:21.117305+00:00",
+          "sha256": "1a3a6fa00886591f0ad1357d8c7ae3498ddb9c540be70a79bb7e44d7a5d20bc6"
+        }
+      },
+      "ledger_ref": "refs/heads/codex/agent-release-reservations",
+      "platform": "windows",
+      "request_id": "b3c13340-69c1-4e7e-bbb4-86b24ce6e48c",
+      "reserved_at": "2026-11-28T02:38:32.489881+00:00",
+      "source_revision": "3d40ecb539731991d288ac5597c9501ac8a69a22",
+      "state": "reserved",
+      "version": "3.2.281"
     }
   ],
   "schema_version": 1
