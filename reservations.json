@@ -584,6 +584,8 @@
     },
     {
       "after": "3.2.281",
+      "bound_at": "2026-11-28T13:48:38.588019+00:00",
+      "build_revision": "e554b58faa85c390a65ac49035bbbdbc7455eb58",
       "inventories": {
         "production": {
           "observed_at": "2026-11-28T13:46:14.174117+00:00",
