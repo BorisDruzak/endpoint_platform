@@ -586,6 +586,43 @@
       "after": "3.2.281",
       "bound_at": "2026-11-28T13:48:38.588019+00:00",
       "build_revision": "e554b58faa85c390a65ac49035bbbdbc7455eb58",
+      "candidates": {
+        "windows": {
+          "artifacts": {
+            "manifest": {
+              "filename": "EndpointAgentSetup-3.2.282-x64.release.json",
+              "sha256": "08faaea84c6fd80743a89dfe6e1daeb02bc8cead7d1e0d6bcdca15cf3049c2cb",
+              "size": 730
+            },
+            "msi": {
+              "filename": "EndpointAgent-3.2.282-x64.msi",
+              "sha256": "76ff391912e26ddab41f15a2c16344c86efa680b5aa083c18fdb6c49e24163b5",
+              "size": 145596416
+            },
+            "msi_manifest": {
+              "filename": "EndpointAgent-3.2.282-x64.release.json",
+              "sha256": "72823b73fbcf613b43d22c8aca5215208ffdb63ad69d094c85e4c254dad37122",
+              "size": 366
+            },
+            "setup": {
+              "filename": "EndpointAgentSetup-3.2.282-x64.exe",
+              "sha256": "a01386e0dd45b19d04272c1e97f15ff3ddcce162b23f40cfe0093c20213491a1",
+              "size": 187007688
+            }
+          },
+          "build_receipt_sha256": "48ffcceb842063c00351b20ad65c3d113363f13e03a6a4454642814c30f3ce42",
+          "build_revision": "e554b58faa85c390a65ac49035bbbdbc7455eb58",
+          "evidence": "artifact_fingerprints",
+          "msi_source_revision": "e554b58faa85c390a65ac49035bbbdbc7455eb58",
+          "platform": "windows",
+          "product_code": "{36E8262C-ACEF-4228-8929-E4D1DA17885A}",
+          "publisher": "CN=Endpoint Platform Code Signing, OU=IT, O=Sosnadmin, L=Sosnovsky, S=Chelyabinsk, C=RU",
+          "recorded_at": "2026-11-28T14:01:58.976090+00:00",
+          "request_id": "cf54c049-f468-455d-9ddd-fedd3aa3c553",
+          "state": "candidate",
+          "version": "3.2.282"
+        }
+      },
       "inventories": {
         "production": {
           "observed_at": "2026-11-28T13:46:14.174117+00:00",
